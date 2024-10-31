@@ -17,12 +17,6 @@ jobs:
         with:
           fetch-depth: 0  # Ensure we get the full history for pushes
 
-      - name: Delete existing lastweekstrivia page
-        run: |
-          # Find and delete any existing file that starts with "lastweekstrivia"
-          rm -f lastweekstrivia*.html
-          echo "Deleted existing lastweekstrivia page if it existed."
-
       - name: Generate new page with randomized URL
         id: generate_page
         run: |
@@ -30,26 +24,39 @@ jobs:
           RANDOM_SUFFIX=$(openssl rand -hex 4)
           PAGE_NAME="lastweekstrivia${RANDOM_SUFFIX}.html"
           
-          # Create the HTML content with the consistent Google Sheet link and updated iframe height
-          echo "<!DOCTYPE html><html><head><title>Weekly Trivia</title></head><body><iframe src='https://docs.google.com/spreadsheets/d/e/2PACX-1vQrinTI3oQF6YzefZ48deronxXq5WScORt5Vl-W73GODSvKa7JJAF94BmVsg0AwqjhpVfZy4QfJHxug/pubhtml?gid=672502672&single=true' width='100%' height='2400'></iframe></body></html>" > "$PAGE_NAME"
+          # Create the HTML content with the consistent Google Sheet link
+          echo "<!DOCTYPE html>
+<html>
+<head>
+  <title>Weekly Trivia</title>
+</head>
+<body>
+  <iframe src='https://docs.google.com/spreadsheets/d/e/2PACX-1vQrinTI3oQF6YzefZ48deronxXq5WScORt5Vl-W73GODSvKa7JJAF94BmVsg0AwqjhpVfZy4QfJHxug/pubhtml?gid=672502672&single=true' width='100%' height='2400'></iframe>
+</body>
+</html>" > "$PAGE_NAME"
 
           echo "New page generated: $PAGE_NAME"
           echo "::set-output name=page_url::https://eviltrivia.com/$PAGE_NAME"
           echo "::set-output name=page_name::$PAGE_NAME"
 
+      - name: Remove Old Pages
+        run: |
+          # Remove any existing lastweekstrivia pages
+          git ls-files --deleted -z | xargs -0 git rm || echo "No tracked deleted files."
+          rm -f lastweekstrivia*.html || echo "No existing pages to delete."
+          git rm --cached lastweekstrivia*.html || echo "No pages to remove from git index."
+
       - name: Commit and push
         env:
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.MY_PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Add and commit the new page
-          git add "$PAGE_NAME"
-          git commit -m "Add weekly content page $PAGE_NAME" || echo "No changes to commit"
-          
-          # Push changes
-          git push https://$PERSONAL_ACCESS_TOKEN@github.com/OWNER/REPO.git HEAD:main || echo "No changes to push"
+          # Add changes to git
+          git add -A
+          git commit -m "Update weekly content page ${{ steps.generate_page.outputs.page_name }}" || echo "No changes to commit."
+          git push origin HEAD || echo "No changes to push."
 
       - name: Display new page URL
         run: |
