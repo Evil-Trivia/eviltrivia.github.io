@@ -25,25 +25,16 @@ jobs:
           PAGE_NAME="lastweekstrivia${RANDOM_SUFFIX}.html"
           
           # Create the HTML content with the consistent Google Sheet link
-          echo "<!DOCTYPE html>
-<html>
-<head>
-  <title>Weekly Trivia</title>
-</head>
-<body>
-  <iframe src='https://docs.google.com/spreadsheets/d/e/2PACX-1vQrinTI3oQF6YzefZ48deronxXq5WScORt5Vl-W73GODSvKa7JJAF94BmVsg0AwqjhpVfZy4QfJHxug/pubhtml?gid=672502672&single=true' width='100%' height='2400'></iframe>
-</body>
-</html>" > "$PAGE_NAME"
+          echo "<!DOCTYPE html><html><head><title>Weekly Trivia</title></head><body><iframe src='https://docs.google.com/spreadsheets/d/e/2PACX-1vQrinTI3oQF6YzefZ48deronxXq5WScORt5Vl-W73GODSvKa7JJAF94BmVsg0AwqjhpVfZy4QfJHxug/pubhtml?gid=672502672&single=true' width='100%' height='600'></iframe></body></html>" > "$PAGE_NAME"
 
           echo "New page generated: $PAGE_NAME"
           echo "::set-output name=page_url::https://eviltrivia.com/$PAGE_NAME"
           echo "::set-output name=page_name::$PAGE_NAME"
 
-      - name: Remove Old Pages
+      - name: List Files in Repository
         run: |
-          # Remove any existing lastweekstrivia pages
-          rm -f lastweekstrivia*.html || echo "No existing pages to delete."
-          git rm --cached lastweekstrivia*.html || echo "No pages to remove from git index."
+          echo "Listing files in the repository after generating the new page:"
+          ls -l
 
       - name: Commit and push
         env:
@@ -52,10 +43,15 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Add changes to git
-          git add -A
-          git commit -m "Update weekly content page ${{ steps.generate_page.outputs.page_name }}" || echo "No changes to commit."
-          git push origin HEAD || echo "No changes to push."
+          # Log the file that will be added and committed
+          echo "Attempting to add and commit ${{ steps.generate_page.outputs.page_name }}:"
+          git add "${{ steps.generate_page.outputs.page_name }}"
+          
+          # Check Git status to see if the file was staged correctly
+          git status
+          
+          git commit -m "Add weekly content page ${{ steps.generate_page.outputs.page_name }}" || echo "No changes to commit"
+          git push origin HEAD || echo "No changes to push"
 
       - name: Display new page URL
         run: |
