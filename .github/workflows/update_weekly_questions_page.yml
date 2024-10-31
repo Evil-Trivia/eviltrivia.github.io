@@ -23,43 +23,32 @@ jobs:
           rm -f lastweekstrivia*.html
           echo "Deleted old lastweekstrivia pages if any existed."
 
-      - name: Generate Base64 Encoded URL
-        id: encode_url
-        run: |
-          # Base64 encode the Google Sheets URL
-          SHEET_URL="https://docs.google.com/spreadsheets/d/e/2PACX-1vQrinTI3oQF6YzefZ48deronxXq5WScORt5Vl-W73GODSvKa7JJAF94BmVsg0AwqjhpVfZy4QfJHxug/pubhtml?gid=672502672&single=true"
-          ENCODED_URL=$(echo -n "$SHEET_URL" | base64)
-          echo "Encoded URL: $ENCODED_URL"
-          echo "::set-output name=encoded_url::$ENCODED_URL"
-
-      - name: Create HTML Page with JavaScript
+      - name: Create HTML Page with Obfuscated URL
         id: create_html
         run: |
           # Generate a random 8-character string for the URL suffix
           RANDOM_SUFFIX=$(openssl rand -hex 4)
           PAGE_NAME="lastweekstrivia${RANDOM_SUFFIX}.html"
           
-          # Create the HTML template with a placeholder for the Base64 URL
-          cat << 'EOF' > "$PAGE_NAME"
-          <!DOCTYPE html>
+          # Define the Google Sheets URL as an array of characters
+          SHEET_URL_ARRAY="['h','t','t','p','s',':','/','/','d','o','c','s','.','g','o','o','g','l','e','.','c','o','m','/','s','p','r','e','a','d','s','h','e','e','t','s','/','d','/','e','/','2','P','A','C','X','-','1','v','Q','r','i','n','T','I','3','o','Q','F','6','Y','z','e','f','Z','4','8','d','e','r','o','n','x','X','q','5','W','S','c','O','R','t','5','V','l','-','W','7','3','G','O','D','S','v','K','a','7','J','J','A','F','9','4','B','m','V','s','g','0','A','w','q','j','h','p','V','f','Z','y','4','Q','f','J','H','x','u','g','/','p','u','b','h','t','m','l','?','g','i','d','=','6','7','2','5','0','2','6','7','2','&','s','i','n','g','l','e','=','t','r','u','e']"
+
+          # Create the HTML content with JavaScript to reconstruct the URL
+          echo "<!DOCTYPE html>
           <html>
           <head>
             <title>Weekly Trivia</title>
             <script type='text/javascript'>
               document.addEventListener('DOMContentLoaded', function() {
-                var encodedUrl = 'ENCODED_URL_PLACEHOLDER';
-                try {
-                  var decodedUrl = atob(encodedUrl);
-                  console.log('Decoded URL:', decodedUrl);  // Log to confirm correct URL
-                  var iframe = document.createElement('iframe');
-                  iframe.src = decodedUrl;
-                  iframe.width = '100%';
-                  iframe.height = '2400';
-                  iframe.style.border = 'none';
-                  document.body.appendChild(iframe);
-                } catch (error) {
-                  console.error('Error decoding URL:', error);
-                }
+                var sheetUrlArray = $SHEET_URL_ARRAY;
+                var decodedUrl = sheetUrlArray.join('');
+                console.log('Decoded URL:', decodedUrl);  // Log to confirm correct URL
+                var iframe = document.createElement('iframe');
+                iframe.src = decodedUrl;
+                iframe.width = '100%';
+                iframe.height = '2400';
+                iframe.style.border = 'none';
+                document.body.appendChild(iframe);
               });
             </script>
           </head>
@@ -68,12 +57,8 @@ jobs:
               You need to enable JavaScript to view this content.
             </noscript>
           </body>
-          </html>
-          EOF
-
-          # Replace the placeholder with the actual encoded URL
-          sed -i "s|ENCODED_URL_PLACEHOLDER|${{ steps.encode_url.outputs.encoded_url }}|g" "$PAGE_NAME"
-
+          </html>" > "$PAGE_NAME"
+      
           echo "New page generated: $PAGE_NAME"
           echo "::set-output name=page_url::https://eviltrivia.com/$PAGE_NAME"
           echo "::set-output name=page_name::$PAGE_NAME"
