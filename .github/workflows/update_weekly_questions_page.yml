@@ -21,21 +21,42 @@ jobs:
         run: |
           # Remove any existing file that starts with "lastweekstrivia"
           rm -f lastweekstrivia*.html
-          echo "Deleted old lastweekstrivia pages if any existed."
+          echo "Deleted old lastweekstrivia pages if any existed.
 
-      - name: Generate new page with randomized URL
-        id: generate_page
-        run: |
-          # Generate a random 8-character string for the URL suffix
-          RANDOM_SUFFIX=$(openssl rand -hex 4)
-          PAGE_NAME="lastweekstrivia${RANDOM_SUFFIX}.html"
-          
-          # Create the HTML content with the consistent Google Sheet link
-          echo "<!DOCTYPE html><html><head><title>Weekly Trivia</title></head><body><iframe src='https://docs.google.com/spreadsheets/d/e/2PACX-1vQrinTI3oQF6YzefZ48deronxXq5WScORt5Vl-W73GODSvKa7JJAF94BmVsg0AwqjhpVfZy4QfJHxug/pubhtml?gid=672502672&single=true' width='100%' height='2400'></iframe></body></html>" > "$PAGE_NAME"
-
-          echo "New page generated: $PAGE_NAME"
-          echo "::set-output name=page_url::https://eviltrivia.com/$PAGE_NAME"
-          echo "::set-output name=page_name::$PAGE_NAME"
+    - name: Generate new page with randomized URL
+      id: generate_page
+      run: |
+        # Generate a random 8-character string for the URL suffix
+        RANDOM_SUFFIX=$(openssl rand -hex 4)
+        PAGE_NAME="lastweekstrivia${RANDOM_SUFFIX}.html"
+        
+        # Base64 encode the Google Sheets URL
+        SHEET_URL="https://docs.google.com/spreadsheets/d/e/2PACX-1vQrinTI3oQF6YzefZ48deronxXq5WScORt5Vl-W73GODSvKa7JJAF94BmVsg0AwqjhpVfZy4QfJHxug/pubhtml?gid=672502672&single=true"
+        ENCODED_URL=$(echo -n $SHEET_URL | base64)
+        
+        # Create the HTML content with JavaScript to decode and load the URL
+        echo "<!DOCTYPE html>
+        <html>
+        <head>
+          <title>Weekly Trivia</title>
+          <script>
+            document.addEventListener('DOMContentLoaded', function() {
+              var encodedUrl = '$ENCODED_URL';
+              var decodedUrl = atob(encodedUrl);
+              var iframe = document.createElement('iframe');
+              iframe.src = decodedUrl;
+              iframe.width = '100%';
+              iframe.height = '2400';
+              document.body.appendChild(iframe);
+            });
+          </script>
+        </head>
+        <body></body>
+        </html>" > "$PAGE_NAME"
+    
+        echo "New page generated: $PAGE_NAME"
+        echo "::set-output name=page_url::https://eviltrivia.com/$PAGE_NAME"
+        echo "::set-output name=page_name::$PAGE_NAME"
 
       - name: List Files in Repository
         run: |
