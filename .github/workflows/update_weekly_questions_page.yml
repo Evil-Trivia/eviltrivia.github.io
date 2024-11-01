@@ -17,67 +17,66 @@ jobs:
         with:
           fetch-depth: 0  # Ensure we get the full history for pushes
 
-      - name: Delete old "lastweekstrivia" and "lastweeksanswers" pages
+      - name: Find the Existing "lastweekstrivia" Page
+        id: find_existing
         run: |
-          rm -f lastweekstrivia*.html lastweeksanswers*.html
-          echo "Deleted old lastweekstrivia and lastweeksanswers pages if any existed."
+          # Find the existing lastweekstrivia*.html file
+          EXISTING_PAGE=$(ls lastweekstrivia*.html | head -n 1 || echo "")
+          echo "Found existing page: $EXISTING_PAGE"
+          echo "::set-output name=existing_page::$EXISTING_PAGE"
 
-      - name: Generate new filenames with random suffix
-        id: generate_filenames
+      - name: Copy Content from Existing Page (if it exists)
+        if: steps.find_existing.outputs.existing_page != ""
+        id: copy_content
         run: |
-          # Generate random suffixes
-          RANDOM_SUFFIX_TRIVIA=$(openssl rand -hex 4)
-          RANDOM_SUFFIX_ANSWERS=$(openssl rand -hex 4)
-          echo "::set-output name=trivia_page::lastweekstrivia${RANDOM_SUFFIX_TRIVIA}.html"
-          echo "::set-output name=answers_page::lastweeksanswers${RANDOM_SUFFIX_ANSWERS}.html"
+          # Read content from the existing page
+          EXISTING_PAGE="${{ steps.find_existing.outputs.existing_page }}"
+          PAGE_CONTENT=$(cat "$EXISTING_PAGE")
+          
+          # Generate a random 8-character string for the new page URL
+          RANDOM_SUFFIX=$(openssl rand -hex 4)
+          NEW_PAGE_NAME="lastweekstrivia${RANDOM_SUFFIX}.html"
+          
+          # Write the content to the new page
+          echo "$PAGE_CONTENT" > "$NEW_PAGE_NAME"
+          
+          echo "New page created: $NEW_PAGE_NAME with copied content"
+          echo "::set-output name=new_page_name::$NEW_PAGE_NAME"
 
-      - name: Copy and modify "lastweekstrivia" HTML content to new page
-        id: create_trivia_html
+      - name: Delete old "lastweekstrivia" page
+        if: steps.find_existing.outputs.existing_page != ""
         run: |
-          # Check if original "lastweekstrivia.html" exists
-          if [ -f lastweekstrivia.html ]; then
-            # Copy existing content
-            cat lastweekstrivia.html > "${{ steps.generate_filenames.outputs.trivia_page }}"
-            echo "Copied content from lastweekstrivia.html to new page: ${{ steps.generate_filenames.outputs.trivia_page }}"
-          else
-            echo "<!DOCTYPE html><html><head><title>Weekly Trivia</title></head><body>No content available.</body></html>" > "${{ steps.generate_filenames.outputs.trivia_page }}"
-            echo "Created placeholder content for new trivia page as the original was not found."
-          fi
-          echo "::set-output name=trivia_url::https://eviltrivia.com/${{ steps.generate_filenames.outputs.trivia_page }}"
+          # Remove the old lastweekstrivia page
+          rm -f "${{ steps.find_existing.outputs.existing_page }}"
+          echo "Deleted old lastweekstrivia page."
 
-      - name: Copy and modify "lastweeksanswers" HTML content to new page
-        id: create_answers_html
+      - name: List Files in Repository
         run: |
-          # Check if original "lastweeksanswers.html" exists
-          if [ -f lastweeksanswers.html ]; then
-            # Copy existing content
-            cat lastweeksanswers.html > "${{ steps.generate_filenames.outputs.answers_page }}"
-            echo "Copied content from lastweeksanswers.html to new page: ${{ steps.generate_filenames.outputs.answers_page }}"
-          else
-            echo "<!DOCTYPE html><html><head><title>Weekly Answers</title></head><body>No content available.</body></html>" > "${{ steps.generate_filenames.outputs.answers_page }}"
-            echo "Created placeholder content for new answers page as the original was not found."
-          fi
-          echo "::set-output name=answers_url::https://eviltrivia.com/${{ steps.generate_filenames.outputs.answers_page }}"
+          echo "Listing files in the repository after creating the new page and deleting the old one:"
+          ls -l
 
-      - name: Commit and push changes
+      - name: Commit and push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Stage new pages and remove old files
+          # Add the new page and remove the deleted file(s) from Git
           git add -A
-          git commit -m "Add new weekly trivia and answers pages" || echo "No changes to commit"
+          
+          # Check Git status to see if the files were staged correctly
+          git status
+          
+          git commit -m "Add weekly content page ${{ steps.copy_content.outputs.new_page_name }}" || echo "No changes to commit"
           git push origin HEAD || echo "No changes to push"
 
-      - name: Display new page URLs
+      - name: Display new page URL
+        if: steps.copy_content.outputs.new_page_name != ""
         run: |
-          echo "New Trivia page URL: ${{ steps.create_trivia_html.outputs.trivia_url }}"
-          echo "New Answers page URL: ${{ steps.create_answers_html.outputs.answers_url }}"
+          echo "New page URL: https://eviltrivia.com/${{ steps.copy_content.outputs.new_page_name }}"
 
-      - name: Summarize the New URLs
+      - name: Summarize the New URL
         if: always()
         run: |
-          echo "Weekly Trivia page is now live at: ${{ steps.create_trivia_html.outputs.trivia_url }}"
-          echo "Weekly Answers page is now live at: ${{ steps.create_answers_html.outputs.answers_url }}"
+          echo "Weekly Trivia page is now live at: https://eviltrivia.com/${{ steps.copy_content.outputs.new_page_name }}"
