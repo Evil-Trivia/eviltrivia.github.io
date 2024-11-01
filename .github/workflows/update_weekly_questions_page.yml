@@ -1,11 +1,8 @@
 name: Update Weekly Content Page
 
 on:
-  # Scheduled weekly update every Thursday at 6 AM ET (10 AM UTC)
   schedule:
-    - cron: '0 10 * * 4'
-
-  # Allows manual triggering of the action for testing
+    - cron: '0 10 * * 4'  # Every Thursday at 6 AM ET (10 AM UTC)
   workflow_dispatch:
 
 jobs:
@@ -71,23 +68,26 @@ jobs:
             "lastweeksanswers": "https://eviltrivia.com/${{ steps.copy_content_answers.outputs.new_page_name_answers }}"
           }' > latest_pages.json
           git add latest_pages.json
-          echo "Checking for changes to commit..."
+          echo "Staging changes for latest_pages.json..."
           git status
           git diff --staged
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Commit and push
-        if: ${{ always() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
-          # Commit only if there are changes
-          git diff --cached --exit-code || git commit -m "Update latest pages JSON" || echo "No changes to commit"
+
+          # Ensure we only commit if there are changes
+          git commit -m "Update latest pages JSON" || echo "No changes to commit"
           git push origin HEAD || echo "No changes to push"
           
-      - name: List Files in Repository
-        run: ls -l
+      - name: Verify latest_pages.json in Repository
+        run: |
+          if [ -f "latest_pages.json" ]; then
+            echo "latest_pages.json created successfully."
+          else
+            echo "Error: latest_pages.json was not created."
+            exit 1
+          fi
