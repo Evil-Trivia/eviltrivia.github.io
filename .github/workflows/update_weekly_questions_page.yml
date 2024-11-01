@@ -90,20 +90,29 @@ jobs:
           echo "Listing files in the repository after creating the new pages and deleting the old ones:"
           ls -l
 
-      - name: Commit and push
+      - name: Create latest_pages.json
+        run: |
+          echo '{
+            "lastweekstrivia": "https://eviltrivia.com/${{ steps.copy_content_trivia.outputs.new_page_name }}",
+            "lastweeksanswers": "https://eviltrivia.com/${{ steps.copy_content_answers.outputs.new_page_name_answers }}"
+          }' > latest_pages.json
+          echo "Created latest_pages.json with updated page URLs."
+
+      - name: Commit and push changes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Add the new pages and remove the deleted file(s) from Git
+          # Add the new pages, latest_pages.json, and remove the deleted files
           git add -A
           
           # Check Git status to see if the files were staged correctly
           git status
           
-          git commit -m "Add weekly content pages ${{ steps.copy_content_trivia.outputs.new_page_name }} and ${{ steps.copy_content_answers.outputs.new_page_name_answers }}" || echo "No changes to commit"
+          # Commit only if there are changes
+          git commit -m "Update weekly content pages and latest_pages.json" || echo "No changes to commit"
           git push origin HEAD || echo "No changes to push"
 
       - name: Display new page URLs
