@@ -17,82 +17,66 @@ jobs:
         with:
           fetch-depth: 0  # Ensure we get the full history for pushes
 
-      # Step 1: Find and Delete Existing Pages
-      - name: Find and delete old "lastweekstrivia" and "lastweeksanswers" pages
+      - name: Find the Existing "lastweekstrivia" Page
+        id: find_existing
         run: |
-          # Remove any existing file that starts with "lastweekstrivia" or "lastweeksanswers"
-          rm -f lastweekstrivia*.html lastweeksanswers*.html
-          echo "Deleted old lastweekstrivia and lastweeksanswers pages if any existed."
+          # Find the existing lastweekstrivia*.html file
+          EXISTING_PAGE=$(ls lastweekstrivia*.html | head -n 1 || echo "")
+          echo "Found existing page: $EXISTING_PAGE"
+          echo "::set-output name=existing_page::$EXISTING_PAGE"
 
-      # Step 2: Create New "lastweekstrivia" Page
-      - name: Copy Content from Existing "lastweekstrivia" Page (if it exists)
-        id: create_trivia_page
+      - name: Copy Content from Existing Page (if it exists)
+        if: ${{ steps.find_existing.outputs.existing_page != '' }}
+        id: copy_content
         run: |
-          # Generate a random suffix for the new page
+          # Read content from the existing page
+          EXISTING_PAGE="${{ steps.find_existing.outputs.existing_page }}"
+          PAGE_CONTENT=$(cat "$EXISTING_PAGE")
+          
+          # Generate a random 8-character string for the new page URL
           RANDOM_SUFFIX=$(openssl rand -hex 4)
-          NEW_TRIVIA_PAGE="lastweekstrivia${RANDOM_SUFFIX}.html"
+          NEW_PAGE_NAME="lastweekstrivia${RANDOM_SUFFIX}.html"
+          
+          # Write the content to the new page
+          echo "$PAGE_CONTENT" > "$NEW_PAGE_NAME"
+          
+          echo "New page created: $NEW_PAGE_NAME with copied content"
+          echo "::set-output name=new_page_name::$NEW_PAGE_NAME"
 
-          # Create new trivia page content
-          echo "<!DOCTYPE html>
-          <html lang='en'>
-          <head>
-            <meta charset='UTF-8'>
-            <title>Last Week's Trivia</title>
-          </head>
-          <body>
-            <p>This is the latest trivia page.</p>
-          </body>
-          </html>" > "$NEW_TRIVIA_PAGE"
-
-          echo "New trivia page created: $NEW_TRIVIA_PAGE"
-          echo "::set-output name=trivia_page_name::$NEW_TRIVIA_PAGE"
-
-      # Step 3: Create New "lastweeksanswers" Page
-      - name: Copy Content from Existing "lastweeksanswers" Page (if it exists)
-        id: create_answers_page
+      - name: Delete old "lastweekstrivia" page
+        if: ${{ steps.find_existing.outputs.existing_page != '' }}
         run: |
-          # Generate a random suffix for the new page
-          RANDOM_SUFFIX=$(openssl rand -hex 4)
-          NEW_ANSWERS_PAGE="lastweeksanswers${RANDOM_SUFFIX}.html"
+          # Remove the old lastweekstrivia page
+          rm -f "${{ steps.find_existing.outputs.existing_page }}"
+          echo "Deleted old lastweekstrivia page."
 
-          # Create new answers page content
-          echo "<!DOCTYPE html>
-          <html lang='en'>
-          <head>
-            <meta charset='UTF-8'>
-            <title>Last Week's Answers</title>
-          </head>
-          <body>
-            <p>This is the latest answers page.</p>
-          </body>
-          </html>" > "$NEW_ANSWERS_PAGE"
-
-          echo "New answers page created: $NEW_ANSWERS_PAGE"
-          echo "::set-output name=answers_page_name::$NEW_ANSWERS_PAGE"
-
-      # Step 4: Update latest_pages.json with the new URLs
-      - name: Update latest_pages.json
+      - name: List Files in Repository
         run: |
-          echo '{
-            "lastweekstrivia": "https://eviltrivia.com/${{ steps.create_trivia_page.outputs.trivia_page_name }}",
-            "lastweeksanswers": "https://eviltrivia.com/${{ steps.create_answers_page.outputs.answers_page_name }}"
-          }' > latest_pages.json
-          git add latest_pages.json
-          echo "Staged latest_pages.json for commit."
-          git status
-          git diff --staged
+          echo "Listing files in the repository after creating the new page and deleting the old one:"
+          ls -l
 
-      # Step 5: Commit and push the changes
-      - name: Commit and push changes
+      - name: Commit and push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Commit only if there are changes
-          git commit -m "Update latest trivia and answers pages" || echo "No changes to commit"
+          # Add the new page and remove the deleted file(s) from Git
+          git add -A
+          
+          # Check Git status to see if the files were staged correctly
+          git status
+          
+          git commit -m "Add weekly content page ${{ steps.copy_content.outputs.new_page_name }}" || echo "No changes to commit"
           git push origin HEAD || echo "No changes to push"
 
-      - name: List Files in Repository for Verification
-        run: ls -l
+      - name: Display new page URL
+        if: ${{ steps.copy_content.outputs.new_page_name != '' }}
+        run: |
+          echo "New page URL: https://eviltrivia.com/${{ steps.copy_content.outputs.new_page_name }}"
+
+      - name: Summarize the New URL
+        if: always()
+        run: |
+          echo "Weekly Trivia page is now live at: https://eviltrivia.com/${{ steps.copy_content.outputs.new_page_name }}"
