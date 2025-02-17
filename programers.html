@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Evil Trivia 2.18.2025 Final Challenge</title>
+  <title>Evil Trivia 2.18.2025</title>
   <!-- Prevent zooming on mobile for rapid taps -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <style>
@@ -12,10 +12,10 @@
       padding: 0;
       background-color: #ffcc00; /* gold */
       color: #000;              /* black text */
-      font-family: Arial, sans-serif; 
+      font-family: Arial, sans-serif;
       text-align: center;
       /* Helps reduce accidental scrolls/zooms on mobile */
-      touch-action: manipulation;
+      touch-action: none; /* 'none' allows multi-finger taps without default gestures */
     }
 
     .container {
@@ -43,14 +43,13 @@
 </head>
 <body>
   <div class="container">
-    <h1>Evil Trivia 2.18.2025 Final Challenge</h1>
-    <h2>After you enter your team name, you will have a 5-second countdown before you have 30 seconds to tap as many times as you possibly can. Wow. Stressful.</h2>
+    <h1>Evil Trivia Final Challenge</h1>
     
     <!-- STEP 1: Ask for team name -->
     <form id="teamForm">
-      <label for="teamName">Enter Your Team Name:</label><br>
+      <label for="teamName">Team Name:</label><br>
       <input type="text" id="teamName" required />
-      <button type="submit">Enter</button>
+      <button type="submit">Start</button>
     </form>
 
     <!-- STEP 2: 5-second "Get Ready" countdown -->
@@ -61,7 +60,7 @@
 
     <!-- STEP 3: 30-second click counter -->
     <div id="counterSection" style="display: none;">
-      <h2>Tap, tap, tap!</h2>
+      <h2>Tap anywhere, as many times as you can!</h2>
       <div id="counter">0</div>
       <p>Seconds remaining: <span id="timer">30</span></p>
     </div>
@@ -71,7 +70,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script>
-    // ----- FIREBASE CONFIG (replace with your own) -----
+    // ----- FIREBASE CONFIG -----
     const firebaseConfig = {
       apiKey: "AIzaSyAvo7wmx01FGHhSpstZxTJULUp9GFrA-10",
       authDomain: "progamers-eviltrivia.firebaseapp.com",
@@ -147,13 +146,29 @@
       }, 1000);
     }
 
-    // Listen for taps/clicks anywhere on screen
-    document.addEventListener('click', () => {
-      if (isGameActive) {
+    // We increment on mousedown for desktop, touchstart for mobile
+    // This approach will catch multi-finger taps as well.
+    function handleTap(event) {
+      if (!isGameActive) return;
+      
+      // For touchstart, multiple touches can land simultaneously
+      if (event.type === 'touchstart') {
+        // Add as many touches as newly placed
+        clickCount += event.changedTouches.length;
+      } else {
+        // For mousedown, just increment by 1
         clickCount++;
-        clickCounterDisplay.textContent = clickCount;
       }
-    });
+      
+      clickCounterDisplay.textContent = clickCount;
+    }
+
+    document.addEventListener('mousedown', handleTap);
+    document.addEventListener('touchstart', (e) => {
+      // Prevent default to avoid gestures/zooms
+      e.preventDefault();
+      handleTap(e);
+    }, { passive: false });
 
     // When the game is done, store results in Firebase
     function finishGame() {
