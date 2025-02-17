@@ -1,38 +1,33 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
   <title>ProGamers Challenge</title>
+  <!--
+    The "user-scalable=no" (or maximum-scale=1) helps prevent zooming on iOS when tapping rapidly.
+    You may further tailor this or remove it if you want some zooming to remain possible.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+
   <style>
-    body {
+    html, body {
+      margin: 0;
+      padding: 0;
       font-family: Arial, sans-serif;
       text-align: center;
-      margin: 30px;
+      /* This helps reduce scrolling or accidental moves on mobile */
+      touch-action: manipulation;
     }
-    #getReady,
-    #counterSection,
-    #clickArea {
+    .container {
+      margin: 20px;
+    }
+    #getReady, #counterSection, #clickArea {
       margin-top: 20px;
     }
-    #countdown,
-    #timer,
-    #counter {
+    #countdown, #timer, #counter {
       font-size: 2em;
       font-weight: bold;
       margin-top: 10px;
-    }
-    #results {
-      margin-top: 40px;
-    }
-    table, th, td {
-      border: 1px solid #333;
-      border-collapse: collapse;
-      margin: 0 auto;
-      width: 300px;
-    }
-    th, td {
-      padding: 8px;
-      text-align: center;
     }
     #clickArea {
       display: none;
@@ -46,60 +41,71 @@
       cursor: pointer;
       border: none;
       border-radius: 8px;
+      touch-action: manipulation; /* Additional precaution for mobile tapping */
     }
     #clickArea:active {
       background: #2980b9;
     }
     button {
       cursor: pointer;
+      font-size: 1em;
+      padding: 10px 20px;
+    }
+    form {
+      margin-top: 20px;
     }
   </style>
 </head>
 <body>
+  <div class="container">
+    <h1>ProGamers Challenge</h1>
+    
+    <!-- STEP 1: Ask for team name -->
+    <form id="teamForm">
+      <label for="teamName">Team Name:</label>
+      <input type="text" id="teamName" required />
+      <button type="submit">Start</button>
+    </form>
 
-  <h1>ProGamers Challenge</h1>
-  
-  <!-- STEP 1: Ask for team name -->
-  <form id="teamForm">
-    <label for="teamName">Team Name:</label>
-    <input type="text" id="teamName" required />
-    <button type="submit">Start</button>
-  </form>
+    <!-- STEP 2: 5-second "Get Ready" countdown -->
+    <div id="getReady" style="display: none;">
+      <h2>Get Ready!</h2>
+      <p id="countdown">5</p>
+    </div>
 
-  <!-- STEP 2: 5-second "Get Ready" countdown -->
-  <div id="getReady" style="display: none;">
-    <h2>Get Ready!</h2>
-    <p id="countdown">5</p>
+    <!-- STEP 3: 30-second click counter -->
+    <div id="counterSection" style="display: none;">
+      <h2>Press as many times as you can!</h2>
+      <div id="counter">0</div>
+      <p>Seconds remaining: <span id="timer">30</span></p>
+    </div>
+
+    <!-- The clickable area -->
+    <button id="clickArea">Tap / Click Here!</button>
   </div>
 
-  <!-- STEP 3: 30-second click counter -->
-  <div id="counterSection" style="display: none;">
-    <h2>Press as many times as you can!</h2>
-    <div id="counter">0</div>
-    <p>Seconds remaining: <span id="timer">30</span></p>
-  </div>
-
-  <!-- The clickable area -->
-  <button id="clickArea">Tap / Click Here!</button>
-  
-  <!-- STEP 4: Display and store all results -->
-  <div id="results">
-    <h2>Results</h2>
-    <table id="resultsTable">
-      <thead>
-        <tr>
-          <th>Team Name</th>
-          <th>Score</th>
-        </tr>
-      </thead>
-      <tbody id="resultsBody">
-        <!-- Populated by JavaScript -->
-      </tbody>
-    </table>
-  </div>
-
+  <!-- Include Firebase libraries -->
+  <!-- (Use the scripts from your Firebase console config snippet) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script>
-    // Elements
+    // REPLACE these config values with your actual Firebase config from your Firebase Console
+    const firebaseConfig = {
+      apiKey: "AIzaSyAvo7wmx01FGHhSpstZxTJULUp9GFrA-10",
+      authDomain: "progamers-eviltrivia.firebaseapp.com",
+      databaseURL: "https://progamers-eviltrivia-default-rtdb.firebaseio.com",
+      projectId: "progamers-eviltrivia",
+      storageBucket: "progamers-eviltrivia.firebasestorage.app",
+      messagingSenderId: "44589032928",
+      appId: "1:44589032928:web:0ebfc5daa56e85aa1bf785",
+      measurementId: "G-359RVTRDTM"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+
+    // HTML elements
     const teamForm = document.getElementById('teamForm');
     const teamNameInput = document.getElementById('teamName');
     const getReadySection = document.getElementById('getReady');
@@ -108,37 +114,11 @@
     const clickCounterDisplay = document.getElementById('counter');
     const timerDisplay = document.getElementById('timer');
     const clickArea = document.getElementById('clickArea');
-    const resultsBody = document.getElementById('resultsBody');
 
     let countdownInterval;
     let mainTimerInterval;
     let clickCount = 0;
     let teamName = '';
-
-    // Retrieve saved data from localStorage (or create an empty array if none exists)
-    let storedResults = JSON.parse(localStorage.getItem('progamersResults')) || [];
-
-    // Render the results table from localStorage
-    function renderResults() {
-      resultsBody.innerHTML = '';
-      storedResults.forEach(result => {
-        const row = document.createElement('tr');
-        const teamCell = document.createElement('td');
-        const scoreCell = document.createElement('td');
-
-        teamCell.textContent = result.team;
-        scoreCell.textContent = result.score;
-
-        row.appendChild(teamCell);
-        row.appendChild(scoreCell);
-        resultsBody.appendChild(row);
-      });
-    }
-
-    // Update the localStorage with the new results array
-    function updateLocalStorage() {
-      localStorage.setItem('progamersResults', JSON.stringify(storedResults));
-    }
 
     // STEP 1: Handle team name submission
     teamForm.addEventListener('submit', (e) => {
@@ -195,23 +175,24 @@
       }
     });
 
-    // When the game is done, store results and reset UI
+    // When the game is done, store results in Firebase
     function finishGame() {
       clickArea.style.display = 'none';
-      // Save the result
-      storedResults.push({ team: teamName, score: clickCount });
-      updateLocalStorage();
-      renderResults();
-      
-      // Reset for potential new team
       counterSection.style.display = 'none';
+
+      // Record result in the "progamersScores" node
+      const newScoreRef = database.ref('progamersScores').push();
+      newScoreRef.set({
+        team: teamName,
+        score: clickCount,
+        timestamp: Date.now()
+      });
+
+      // Reset for next user
       teamForm.style.display = 'block';
       teamNameInput.value = '';
       teamName = '';
     }
-
-    // Initially render existing stored results
-    renderResults();
   </script>
 </body>
 </html>
