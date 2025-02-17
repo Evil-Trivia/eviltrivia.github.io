@@ -14,8 +14,8 @@
       color: #000;              /* black text */
       font-family: Arial, sans-serif;
       text-align: center;
-      /* Helps reduce accidental scrolls/zooms on mobile */
-      touch-action: none; /* 'none' allows multi-finger taps without default gestures */
+      /* Helps reduce accidental scrolls/zooms on multi-finger taps */
+      touch-action: none;
     }
 
     .container {
@@ -43,7 +43,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>Evil Trivia Final Challenge</h1>
+    <h1>Final Challenge</h1>
     
     <!-- STEP 1: Ask for team name -->
     <form id="teamForm">
@@ -99,6 +99,11 @@
     let teamName = '';
     let isGameActive = false; // To track when taps should count
 
+    // Attempt to auto-focus on the team name input once the page loads
+    window.addEventListener('load', () => {
+      teamNameInput.focus();
+    });
+
     // STEP 1: Handle team name submission
     teamForm.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -146,28 +151,51 @@
       }, 1000);
     }
 
-    // We increment on mousedown for desktop, touchstart for mobile
-    // This approach will catch multi-finger taps as well.
-    function handleTap(event) {
+    // We increment on multi-finger taps anywhere except form elements
+    // For desktop, we also listen to mousedown to cover that case
+    function handleTap(e) {
+      // If game isn't active, ignore taps
       if (!isGameActive) return;
-      
-      // For touchstart, multiple touches can land simultaneously
-      if (event.type === 'touchstart') {
-        // Add as many touches as newly placed
-        clickCount += event.changedTouches.length;
+
+      // For a multi-finger touchstart, add as many touches as newly placed
+      if (e.type === 'touchstart') {
+        clickCount += e.changedTouches.length;
       } else {
-        // For mousedown, just increment by 1
+        // 'mousedown' or fallback
         clickCount++;
       }
-      
       clickCounterDisplay.textContent = clickCount;
     }
 
-    document.addEventListener('mousedown', handleTap);
+    // Only prevent default if the user is tapping outside input/form areas
+    function shouldInterceptTouch(e) {
+      // If user is tapping on an input, button, label, or the form itself, let them type
+      if (
+        e.target.tagName.toLowerCase() === 'input' ||
+        e.target.tagName.toLowerCase() === 'button' ||
+        e.target.tagName.toLowerCase() === 'label' ||
+        e.target.closest('form')
+      ) {
+        return false; // don't intercept, allow default
+      }
+      return true; // intercept so it doesn't cause zoom or drag
+    }
+
+    // Listen for desktop clicks
+    document.addEventListener('mousedown', (e) => {
+      // If the game is active and user is not clicking form elements, handle the tap
+      if (shouldInterceptTouch(e)) {
+        e.preventDefault(); // prevent text selection or other default
+        handleTap(e);
+      }
+    });
+
+    // Listen for touchstart (mobile)
     document.addEventListener('touchstart', (e) => {
-      // Prevent default to avoid gestures/zooms
-      e.preventDefault();
-      handleTap(e);
+      if (shouldInterceptTouch(e)) {
+        e.preventDefault(); // prevents zoom/pan gestures
+        handleTap(e);
+      }
     }, { passive: false });
 
     // When the game is done, store results in Firebase
@@ -187,6 +215,9 @@
       teamForm.style.display = 'block';
       teamNameInput.value = '';
       teamName = '';
+
+      // Attempt to re-focus the input
+      teamNameInput.focus();
     }
   </script>
 </body>
