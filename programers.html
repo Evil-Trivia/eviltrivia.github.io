@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>ProGamers Challenge</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 30px;
+    }
+    #getReady,
+    #counterSection,
+    #clickArea {
+      margin-top: 20px;
+    }
+    #countdown,
+    #timer,
+    #counter {
+      font-size: 2em;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    #results {
+      margin-top: 40px;
+    }
+    table, th, td {
+      border: 1px solid #333;
+      border-collapse: collapse;
+      margin: 0 auto;
+      width: 300px;
+    }
+    th, td {
+      padding: 8px;
+      text-align: center;
+    }
+    #clickArea {
+      display: none;
+      background: #3498db;
+      color: #fff;
+      font-size: 1.5em;
+      width: 200px;
+      height: 100px;
+      line-height: 100px;
+      margin: 20px auto;
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+    }
+    #clickArea:active {
+      background: #2980b9;
+    }
+    button {
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>ProGamers Challenge</h1>
+  
+  <!-- STEP 1: Ask for team name -->
+  <form id="teamForm">
+    <label for="teamName">Team Name:</label>
+    <input type="text" id="teamName" required />
+    <button type="submit">Start</button>
+  </form>
+
+  <!-- STEP 2: 5-second "Get Ready" countdown -->
+  <div id="getReady" style="display: none;">
+    <h2>Get Ready!</h2>
+    <p id="countdown">5</p>
+  </div>
+
+  <!-- STEP 3: 30-second click counter -->
+  <div id="counterSection" style="display: none;">
+    <h2>Press as many times as you can!</h2>
+    <div id="counter">0</div>
+    <p>Seconds remaining: <span id="timer">30</span></p>
+  </div>
+
+  <!-- The clickable area -->
+  <button id="clickArea">Tap / Click Here!</button>
+  
+  <!-- STEP 4: Display and store all results -->
+  <div id="results">
+    <h2>Results</h2>
+    <table id="resultsTable">
+      <thead>
+        <tr>
+          <th>Team Name</th>
+          <th>Score</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody">
+        <!-- Populated by JavaScript -->
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // Elements
+    const teamForm = document.getElementById('teamForm');
+    const teamNameInput = document.getElementById('teamName');
+    const getReadySection = document.getElementById('getReady');
+    const countdownDisplay = document.getElementById('countdown');
+    const counterSection = document.getElementById('counterSection');
+    const clickCounterDisplay = document.getElementById('counter');
+    const timerDisplay = document.getElementById('timer');
+    const clickArea = document.getElementById('clickArea');
+    const resultsBody = document.getElementById('resultsBody');
+
+    let countdownInterval;
+    let mainTimerInterval;
+    let clickCount = 0;
+    let teamName = '';
+
+    // Retrieve saved data from localStorage (or create an empty array if none exists)
+    let storedResults = JSON.parse(localStorage.getItem('progamersResults')) || [];
+
+    // Render the results table from localStorage
+    function renderResults() {
+      resultsBody.innerHTML = '';
+      storedResults.forEach(result => {
+        const row = document.createElement('tr');
+        const teamCell = document.createElement('td');
+        const scoreCell = document.createElement('td');
+
+        teamCell.textContent = result.team;
+        scoreCell.textContent = result.score;
+
+        row.appendChild(teamCell);
+        row.appendChild(scoreCell);
+        resultsBody.appendChild(row);
+      });
+    }
+
+    // Update the localStorage with the new results array
+    function updateLocalStorage() {
+      localStorage.setItem('progamersResults', JSON.stringify(storedResults));
+    }
+
+    // STEP 1: Handle team name submission
+    teamForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      teamName = teamNameInput.value.trim();
+      if (teamName) {
+        teamForm.style.display = 'none';
+        startGetReadyCountdown();
+      }
+    });
+
+    // STEP 2: "Get Ready" countdown (5 seconds)
+    function startGetReadyCountdown() {
+      getReadySection.style.display = 'block';
+      let countdownTime = 5;
+      countdownDisplay.textContent = countdownTime;
+
+      countdownInterval = setInterval(() => {
+        countdownTime--;
+        countdownDisplay.textContent = countdownTime;
+        if (countdownTime <= 0) {
+          clearInterval(countdownInterval);
+          getReadySection.style.display = 'none';
+          startMainTimer();
+        }
+      }, 1000);
+    }
+
+    // STEP 3: 30-second click counter
+    function startMainTimer() {
+      counterSection.style.display = 'block';
+      clickArea.style.display = 'inline-block';
+      clickCount = 0;
+      clickCounterDisplay.textContent = clickCount;
+      
+      let mainTime = 30;
+      timerDisplay.textContent = mainTime;
+
+      mainTimerInterval = setInterval(() => {
+        mainTime--;
+        timerDisplay.textContent = mainTime;
+        if (mainTime <= 0) {
+          clearInterval(mainTimerInterval);
+          finishGame();
+        }
+      }, 1000);
+    }
+
+    // Count clicks within the 30-second window
+    clickArea.addEventListener('click', () => {
+      if (counterSection.style.display === 'block') {
+        clickCount++;
+        clickCounterDisplay.textContent = clickCount;
+      }
+    });
+
+    // When the game is done, store results and reset UI
+    function finishGame() {
+      clickArea.style.display = 'none';
+      // Save the result
+      storedResults.push({ team: teamName, score: clickCount });
+      updateLocalStorage();
+      renderResults();
+      
+      // Reset for potential new team
+      counterSection.style.display = 'none';
+      teamForm.style.display = 'block';
+      teamNameInput.value = '';
+      teamName = '';
+    }
+
+    // Initially render existing stored results
+    renderResults();
+  </script>
+</body>
+</html>
