@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Evil Trivia 2.18.2025</title>
+  <title>Evil Trivia</title>
   <!-- Prevent zooming on mobile for rapid taps -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <style>
@@ -23,7 +23,6 @@
     }
 
     h1, h2, p, label {
-      color: #000; /* ensure all text is black */
       margin: 10px 0;
     }
 
@@ -39,11 +38,22 @@
       font-weight: bold;
       margin: 10px 0;
     }
+
+    /* Results display */
+    #resultsSection {
+      display: none;
+      margin: 20px;
+    }
+    #resultsText {
+      font-size: 1.5em;
+      margin: 15px 0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Evil Trivia Final Challenge</h1>
+    <h1>Final Challenge: Button Mashing</h1>
+    <h4>Use 'test' for you team name if you want some practice runs</h4>
     
     <!-- STEP 1: Ask for team name -->
     <form id="teamForm">
@@ -63,6 +73,16 @@
       <h2>Tap anywhere, as many times as you can!</h2>
       <div id="counter">0</div>
       <p>Seconds remaining: <span id="timer">30</span></p>
+    </div>
+
+    <!-- FINAL: Show results instead of returning to form -->
+    <div id="resultsSection">
+      <h2>Results</h2>
+      <p id="resultsText"></p>
+      <!-- Optional: a "Play Again" button -->
+      <!-- 
+      <button id="playAgainBtn" onclick="location.reload()">Play Again</button>
+      -->
     </div>
   </div>
 
@@ -92,6 +112,8 @@
     const counterSection = document.getElementById('counterSection');
     const clickCounterDisplay = document.getElementById('counter');
     const timerDisplay = document.getElementById('timer');
+    const resultsSection = document.getElementById('resultsSection');
+    const resultsText = document.getElementById('resultsText');
 
     let countdownInterval;
     let mainTimerInterval;
@@ -152,16 +174,11 @@
     }
 
     // We increment on multi-finger taps anywhere except form elements
-    // For desktop, we also listen to mousedown to cover that case
     function handleTap(e) {
-      // If game isn't active, ignore taps
       if (!isGameActive) return;
-
-      // For a multi-finger touchstart, add as many touches as newly placed
       if (e.type === 'touchstart') {
         clickCount += e.changedTouches.length;
       } else {
-        // 'mousedown' or fallback
         clickCount++;
       }
       clickCounterDisplay.textContent = clickCount;
@@ -169,36 +186,34 @@
 
     // Only prevent default if the user is tapping outside input/form areas
     function shouldInterceptTouch(e) {
-      // If user is tapping on an input, button, label, or the form itself, let them type
       if (
         e.target.tagName.toLowerCase() === 'input' ||
         e.target.tagName.toLowerCase() === 'button' ||
         e.target.tagName.toLowerCase() === 'label' ||
         e.target.closest('form')
       ) {
-        return false; // don't intercept, allow default
+        return false; // let them type in the input
       }
-      return true; // intercept so it doesn't cause zoom or drag
+      return true;
     }
 
     // Listen for desktop clicks
     document.addEventListener('mousedown', (e) => {
-      // If the game is active and user is not clicking form elements, handle the tap
       if (shouldInterceptTouch(e)) {
-        e.preventDefault(); // prevent text selection or other default
+        e.preventDefault();
         handleTap(e);
       }
     });
 
-    // Listen for touchstart (mobile)
+    // Listen for mobile touches
     document.addEventListener('touchstart', (e) => {
       if (shouldInterceptTouch(e)) {
-        e.preventDefault(); // prevents zoom/pan gestures
+        e.preventDefault();
         handleTap(e);
       }
     }, { passive: false });
 
-    // When the game is done, store results in Firebase
+    // When the game is done, store results in Firebase and show final result
     function finishGame() {
       isGameActive = false; // stop counting
       counterSection.style.display = 'none';
@@ -211,13 +226,9 @@
         timestamp: Date.now()
       });
 
-      // Reset for next user
-      teamForm.style.display = 'block';
-      teamNameInput.value = '';
-      teamName = '';
-
-      // Attempt to re-focus the input
-      teamNameInput.focus();
+      // Show final result
+      resultsSection.style.display = 'block';
+      resultsText.textContent = `Team ${teamName}, you scored ${clickCount} taps!`;
     }
   </script>
 </body>
