@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Evil Trivia Grading</title>
+  <!-- Minimal styling just for clarity -->
+  <style>
+    body {
+      font-family: Arial, sans-serif; 
+      margin: 20px;
+    }
+    .section {
+      margin-bottom: 20px;
+      padding: 10px;
+      border: 1px solid #ddd;
+    }
+    .section h2 {
+      margin-top: 0;
+    }
+    table, th, td {
+      border: 1px solid #aaa;
+      border-collapse: collapse;
+      padding: 6px;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+
+<body>
+<div>
+  <h1>Evil Trivia Grading</h1>
+  
+  <!-- Section A: Team / Date Setup -->
+  <div id="teamSetupSection" class="section">
+    <h2>Team Setup</h2>
+    <label for="dateSelect">Select Date:</label>
+    <select id="dateSelect"></select>
+
+    <br><br>
+
+    <label for="teamName">Team Name:</label>
+    <input type="text" id="teamName" placeholder="Enter team name" />
+
+    <br><br>
+
+    <label for="numPeople">Number of People on Team:</label>
+    <input type="number" id="numPeople" min="1" />
+
+    <br><br>
+
+    <button id="addTeamBtn">Add Another Team</button>
+    <button id="proceedBtn">Proceed to Grading</button>
+  </div>
+
+  <!-- Section B: Grading UI -->
+  <div id="gradingSection" class="section hidden">
+    <h2 id="gradingHeader">Grading for: <span id="currentTeamSpan"></span></h2>
+    
+    <!-- Button to pick another team or create a new one -->
+    <div>
+      <button id="pickAnotherTeamBtn">Switch / Add Team</button>
+      <button id="showRubricBtn">Show Rubric</button>
+    </div>
+
+    <div id="questionsContainer"></div>
+
+    <br>
+    <button id="saveScoresBtn">Save Scores</button>
+  </div>
+
+  <!-- Section C: Rubric Display -->
+  <div id="rubricSection" class="section hidden">
+    <h2>Rubric</h2>
+    <button id="closeRubricBtn">Close Rubric</button>
+    <div id="rubricContent"></div>
+  </div>
+</div>
+
+<!-- Firebase + JS Logic -->
+<script type="module">
+  /***************************************************
+   * 1) Import Firebase + Initialize
+   ***************************************************/
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+  import { getDatabase, ref, child, get, set, update, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+  // Your Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyBy8ExrgvBDto-BcNhlvrcC6ZB9G7HNaWE",
+    authDomain: "eviltriviagrading.firebaseapp.com",
+    databaseURL: "https://eviltriviagrading-default-rtdb.firebaseio.com",
+    projectId: "eviltriviagrading",
+    storageBucket: "eviltriviagrading.firebasestorage.app",
+    messagingSenderId: "738486013114",
+    appId: "1:738486013114:web:fe0f480cc3f66f42d6c683",
+    measurementId: "G-R84N89NTJZ"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  /***************************************************
+   * 2) DOM Elements
+   ***************************************************/
+  const dateSelect = document.getElementById("dateSelect");
+  const teamNameInput = document.getElementById("teamName");
+  const numPeopleInput = document.getElementById("numPeople");
+
+  const teamSetupSection = document.getElementById("teamSetupSection");
+  const gradingSection = document.getElementById("gradingSection");
+  const rubricSection = document.getElementById("rubricSection");
+
+  const pickAnotherTeamBtn = document.getElementById("pickAnotherTeamBtn");
+  const showRubricBtn = document.getElementById("showRubricBtn");
+  const closeRubricBtn = document.getElementById("closeRubricBtn");
+
+  const questionsContainer = document.getElementById("questionsContainer");
+  const currentTeamSpan = document.getElementById("currentTeamSpan");
+
+  const addTeamBtn = document.getElementById("addTeamBtn");
+  const proceedBtn = document.getElementById("proceedBtn");
+  const saveScoresBtn = document.getElementById("saveScoresBtn");
+  const rubricContent = document.getElementById("rubricContent");
+
+  /***************************************************
+   * 3) Local State
+   ***************************************************/
+  let selectedDate = "";
+  // We'll store multiple teams in an array so we can pick who to grade
+  let teams = [];
+  // Keep track of which team is currently being graded
+  let currentTeamName = "";
+  // In-memory copy of questions for the selected date
+  let triviaData = {}; // { [roundNumber]: { [roundType]: { [qId]: questionObj } } }
+
+  /***************************************************
+   * 4) On Load: Fetch available dates from /trivia
+   ***************************************************/
+  window.addEventListener("DOMContentLoaded", async () => {
+    await loadDates();
+  });
+
+  async function loadDates() {
+    // Read the top-level keys under "trivia" to find available dates
+    const snapshot = await get(child(ref(db), "trivia"));
+    if (snapshot.exists()) {
+      const data = snapshot.val(); 
+      // data is an object where each key is a date "yyyy-mm-dd"
+      const dateKeys = Object.keys(data).sort().reverse(); // sort desc
+      dateSelect.innerHTML = "";
+      dateKeys.forEach(d => {
+        const opt = document.createElement("option");
+        opt.value = d;
+        opt.textContent = d;
+        dateSelect.appendChild(opt);
+      });
+    } else {
+      // No trivia data
+      dateSelect.innerHTML = "<option>No Trivia Data Found</option>";
+    }
+  }
+
+  /***************************************************
+   * 5) Team Setup Buttons
+   ***************************************************/
+  addTeamBtn.addEventListener("click", () => {
+    addTeam();
+    // Clear team name & number so user can add another
+    teamNameInput.value = "";
+    numPeopleInput.value = "";
+  });
+
+  proceedBtn.addEventListener("click", async () => {
+    // Make sure we add the last typed team if not empty
+    addTeam();
+    // Then proceed to grading
+    await doProceedToGrading();
+  });
+
+  function addTeam() {
+    const tName = teamNameInput.value.trim();
+    const tPeople = Number(numPeopleInput.value.trim() || "0");
+    if (!tName) {
+      alert("Team name is required.");
+      return;
+    }
+    if (tPeople < 1) {
+      alert("Number of people must be at least 1.");
+      return;
+    }
+
+    selectedDate = dateSelect.value;
+    // Check if this team name is new
+    const existing = teams.find(t => t.teamName === tName && t.date === selectedDate);
+    if (!existing) {
+      teams.push({ teamName: tName, date: selectedDate, numPeople: tPeople });
+    } else {
+      // If existing, update number of people if changed
+      existing.numPeople = tPeople;
+    }
+  }
+
+  async function doProceedToGrading() {
+    if (!teams.length) {
+      alert("No teams to grade. Please add at least one team.");
+      return;
+    }
+    // Use the first team in the array as the default
+    const firstTeam = teams[0];
+    await loadTriviaData(firstTeam.date);
+    showGradingUI(firstTeam);
+  }
+
+  /***************************************************
+   * 6) Load Trivia Data for Selected Date
+   * Reads from /trivia/{date}
+   ***************************************************/
+  async function loadTriviaData(date) {
+    // If we've already loaded data for this date, skip
+    if (triviaData[date]) return;
+    const snapshot = await get(child(ref(db), `trivia/${date}`));
+    if (snapshot.exists()) {
+      triviaData[date] = snapshot.val(); 
+      // It's structured by roundNumber -> roundType -> questionId
+    } else {
+      triviaData[date] = {}; // no data
+    }
+  }
+
+  /***************************************************
+   * 7) Show Grading UI for a particular team
+   ***************************************************/
+  function showGradingUI(team) {
+    currentTeamName = team.teamName;
+    selectedDate = team.date;
+
+    // Show/hide sections
+    teamSetupSection.classList.add("hidden");
+    gradingSection.classList.remove("hidden");
+    rubricSection.classList.add("hidden");
+
+    currentTeamSpan.textContent = currentTeamName;
+
+    // Render the questions in Round # order, sub-sorted by [Written, Puzzle, Visual, Fill-In, Music].
+    renderQuestions(selectedDate);
+  }
+
+  /***************************************************
+   * 8) Render Questions in a specific order
+   ***************************************************/
+  function renderQuestions(date) {
+    const dataForDate = triviaData[date] || {};
+    // dataForDate = { roundNumber: { roundType: { questionId: {...} } } }
+
+    // Collect all roundNumbers
+    const roundNumbers = Object.keys(dataForDate).map(r => Number(r)).sort((a,b) => a - b);
+
+    // For sub-sorting the round types:
+    const roundOrder = ["Written", "Puzzle", "Visual", "Fill-In", "Music"];
+
+    questionsContainer.innerHTML = "";
+
+    roundNumbers.forEach(roundNum => {
+      const roundDiv = document.createElement("div");
+      roundDiv.style.border = "1px solid #ccc";
+      roundDiv.style.margin = "10px 0";
+      roundDiv.style.padding = "10px";
+
+      const roundHeader = document.createElement("h3");
+      roundHeader.textContent = `Round ${roundNum}`;
+      roundDiv.appendChild(roundHeader);
+
+      const thisRoundTypes = dataForDate[roundNum];
+      if (!thisRoundTypes) return;
+
+      // Sort the round types in the desired order
+      roundOrder.forEach(rt => {
+        if (thisRoundTypes[rt]) {
+          // Build a sub-header
+          const subHeader = document.createElement("h4");
+          subHeader.textContent = rt;
+          roundDiv.appendChild(subHeader);
+
+          // Create a table for questions
+          const table = document.createElement("table");
+          const thead = document.createElement("thead");
+          thead.innerHTML = `<tr>
+            <th>Question</th>
+            <th>Answer</th>
+            <th>Total Pts</th>
+            <th>Score</th>
+          </tr>`;
+          table.appendChild(thead);
+
+          const tbody = document.createElement("tbody");
+          const questionObjs = thisRoundTypes[rt];
+          const qIds = Object.keys(questionObjs);
+
+          qIds.forEach(qid => {
+            const qData = questionObjs[qid];
+            // qData = { question, answer, total_possible_points, ... }
+
+            const tr = document.createElement("tr");
+            // question
+            const tdQ = document.createElement("td");
+            tdQ.textContent = qData.question;
+            tr.appendChild(tdQ);
+
+            // answer
+            const tdA = document.createElement("td");
+            tdA.textContent = qData.answer;
+            tr.appendChild(tdA);
+
+            // total possible
+            const tdPts = document.createElement("td");
+            tdPts.textContent = qData.total_possible_points || 0;
+            tr.appendChild(tdPts);
+
+            // user can input score
+            const tdScore = document.createElement("td");
+            const inputScore = document.createElement("input");
+            inputScore.type = "number";
+            inputScore.min = "0";
+            inputScore.max = qData.total_possible_points || 99;
+            inputScore.value = "0";
+            // We'll store the path to write later
+            inputScore.setAttribute("data-qid", qid);
+            inputScore.setAttribute("data-roundnum", roundNum);
+            inputScore.setAttribute("data-roundtype", rt);
+            tdScore.appendChild(inputScore);
+
+            tr.appendChild(tdScore);
+            tbody.appendChild(tr);
+          });
+
+          table.appendChild(tbody);
+          roundDiv.appendChild(table);
+        }
+      });
+
+      questionsContainer.appendChild(roundDiv);
+    });
+  }
+
+  /***************************************************
+   * 9) Switch/ Add Team
+   ***************************************************/
+  pickAnotherTeamBtn.addEventListener("click", () => {
+    // Show the team setup section again
+    teamSetupSection.classList.remove("hidden");
+    gradingSection.classList.add("hidden");
+    rubricSection.classList.add("hidden");
+  });
+
+  /***************************************************
+   * 10) Save Scores
+   * Writes to /scores/{date}/{teamName}/
+   ***************************************************/
+  saveScoresBtn.addEventListener("click", async () => {
+    const allInputs = questionsContainer.querySelectorAll("input[type='number']");
+    if (!currentTeamName || !selectedDate) return;
+
+    // We'll create a structure for all question scores
+    // e.g. /scores/selectedDate/currentTeamName/scores/{someKey} = {score: x, questionPath: ...}
+    let updates = {};
+
+    allInputs.forEach(inp => {
+      const score = Number(inp.value || 0);
+      const roundNum = inp.getAttribute("data-roundnum");
+      const roundType = inp.getAttribute("data-roundtype");
+      const qid = inp.getAttribute("data-qid");
+
+      // We'll store the user score inside:
+      // /scores/{date}/{teamName}/scores/{roundNum}/{roundType}/{qid} = score
+      const dbPath = `scores/${selectedDate}/${currentTeamName}/scores/${roundNum}/${roundType}/${qid}`;
+      updates[dbPath] = score;
+    });
+
+    // Also store the number of people at:
+    // /scores/{date}/{teamName}/number_of_people
+    const teamInfo = teams.find(t => t.teamName === currentTeamName && t.date === selectedDate);
+    if (teamInfo) {
+      updates[`scores/${selectedDate}/${currentTeamName}/number_of_people`] = teamInfo.numPeople;
+    }
+
+    // Now apply all updates in one go
+    try {
+      await update(ref(db), updates);
+      alert("Scores saved successfully!");
+    } catch (err) {
+      console.error(err);
+      alert("Error saving scores: " + err);
+    }
+  });
+
+  /***************************************************
+   * 11) Show / Hide Rubric
+   ***************************************************/
+  showRubricBtn.addEventListener("click", () => {
+    showRubric();
+  });
+
+  closeRubricBtn.addEventListener("click", () => {
+    rubricSection.classList.add("hidden");
+  });
+
+  async function showRubric() {
+    // We'll show rubric for the currently selected date
+    // /scores/{date}/...
+    rubricSection.classList.remove("hidden");
+    rubricContent.innerHTML = "Loading...";
+
+    const snap = await get(child(ref(db), `scores/${selectedDate}`));
+    if (!snap.exists()) {
+      rubricContent.innerHTML = "<p>No scores found for this date</p>";
+      return;
+    }
+    const dateScores = snap.val(); 
+    // dateScores = { [teamName]: { number_of_people, scores: { roundNum: { roundType: { qid: score } } } } }
+
+    let html = "<table><thead><tr><th>Team</th><th># People</th><th>Total Score</th></tr></thead><tbody>";
+    Object.keys(dateScores).forEach(teamN => {
+      const teamObj = dateScores[teamN];
+      const numPeople = teamObj.number_of_people || 0;
+
+      // Sum all question scores
+      let totalScore = 0;
+      if (teamObj.scores) {
+        Object.keys(teamObj.scores).forEach(rN => {
+          Object.keys(teamObj.scores[rN]).forEach(rT => {
+            Object.keys(teamObj.scores[rN][rT]).forEach(qId => {
+              totalScore += Number(teamObj.scores[rN][rT][qId] || 0);
+            });
+          });
+        });
+      }
+
+      html += `<tr>
+        <td>${teamN}</td>
+        <td>${numPeople}</td>
+        <td>${totalScore}</td>
+      </tr>`;
+    });
+    html += "</tbody></table>";
+
+    rubricContent.innerHTML = html;
+  }
+</script>
+</body>
+</html>
