@@ -820,16 +820,19 @@
       tdPts.textContent = totalPoints;
       tr.appendChild(tdPts);
 
-      /*********************************************************
-       * 5) Single-Select Radio for partial credit
-       ********************************************************/
-      const tdRadioGroup = document.createElement('td');  // cell for our radio buttons
-      tdRadioGroup.classList.add('slider-cell'); // reuse the same style if you like
-      
-      // 6) Calculated Score cell
-      const calcCell = document.createElement('td');
-      calcCell.classList.add('calc-cell');
-      
+      // 5) Slider for partial credit
+      const tdSlider = document.createElement('td');
+      tdSlider.classList.add('slider-cell');
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = "0";
+      slider.max = (PERCENTAGE_MAP.length - 1).toString(); // 6
+      slider.step = "1";
+      slider.value = DEFAULT_SLIDER_VALUE; // default to 100%
+
+      const pctLabel = document.createElement('span');
+
       // Determine ratio from existingScore
       let ratio;
       if (!hasScore) {
@@ -838,9 +841,8 @@
         const existingScore = Number(storedVal || 0);
         ratio = totalPoints ? (existingScore / totalPoints) : 0;
       }
-      
-      // Find best match index in PERCENTAGE_MAP
-      let bestIdx = 0, bestDiff = Infinity;
+      // Find best index in PERCENTAGE_MAP that matches our ratio
+      let bestIdx = 0, bestDiff = 999;
       PERCENTAGE_MAP.forEach((pctVal, idx) => {
         const diff = Math.abs(pctVal - ratio);
         if (diff < bestDiff) {
@@ -848,53 +850,33 @@
           bestIdx = idx;
         }
       });
-      
-      // Build a radio button for each percentage
-      PERCENTAGE_MAP.forEach((pctVal, idx) => {
-        // Example label: 0%, 25%, 33%, etc.
-        const labelText = (pctVal * 100).toFixed(0) + "%";
-      
-        const radioLabel = document.createElement('label');
-        radioLabel.style.marginRight = "8px";
-      
-        const radio = document.createElement('input');
-        radio.type = 'radio';
-        radio.name = `scoreOption-${uniqueQID}`; // group name so only one is selectable
-        radio.value = idx;
-        
-        // Pre-check the bestIdx match
-        if (idx === bestIdx) {
-          radio.checked = true;
-        }
-        
-        // When user changes, recalc score
-        radio.addEventListener('change', recalcScore);
-      
-        // Build label:  (o) 25%
-        radioLabel.appendChild(radio);
-        radioLabel.appendChild(document.createTextNode(" " + labelText));
-      
-        tdRadioGroup.appendChild(radioLabel);
-      });
-      
+      // Set the slider to that matched index
+      slider.value = bestIdx.toString();
+
+      // On slider input, recalc
+      const calcCell = document.createElement('td'); // "Calculated" cell
+      calcCell.classList.add('calc-cell');
+
       function recalcScore() {
-        // find the checked radio in this group
-        const chosenRadio = tdRadioGroup.querySelector(`input[name="scoreOption-${uniqueQID}"]:checked`);
-        if (!chosenRadio) return;
-      
-        const idx = Number(chosenRadio.value);
+        const idx = Number(slider.value);
         const pct = PERCENTAGE_MAP[idx];
-        const computedScore = totalPoints * pct;
-        calcCell.textContent = computedScore.toFixed(2); // show two decimals
+        pctLabel.textContent = (pct * 100).toFixed(0) + "%";
+        const s = totalPoints * pct;
+        calcCell.textContent = s.toFixed(2); // show two decimals for clarity
       }
-      
-      // Initial calculation
+      slider.addEventListener('input', recalcScore);
       recalcScore();
-      
-      // Append to row
-      tr.appendChild(tdRadioGroup);
+
+      tdSlider.appendChild(slider);
+      tdSlider.appendChild(pctLabel);
+      tr.appendChild(tdSlider);
+
+      // 6) Calculated Score
       tr.appendChild(calcCell);
 
+      questionTable.appendChild(tr);
+    });
+  }
 
   // Save Scores
   btnSaveScores.addEventListener('click', async () => {
