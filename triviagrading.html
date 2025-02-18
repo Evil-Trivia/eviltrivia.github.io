@@ -734,42 +734,66 @@
       const tdType = document.createElement('td');
       tdType.textContent = roundType;
       tr.appendChild(tdType);
-
+      
       // 2) Question
       const tdQ = document.createElement('td');
       
-      // Check if question text contains a "drive.google.com/open?id="
-      if (question.includes("drive.google.com/open?id=")) {
-        // We'll parse out the file ID
-        // Example: "https://drive.google.com/open?id=1TBWyEMcpGSBtdy-PVV_83c8ivyN98IS5&usp=drive_copy"
-        let fileId = "";
+      /**
+       * Attempt to extract the file ID from various Drive link patterns.
+       * Returns '' (empty) if no valid file ID is found.
+       * Supported examples:
+       *  - https://drive.google.com/open?id=FILE_ID
+       *  - https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+       */
+      function extractDriveFileId(driveUrl) {
+        let result = "";
+      
         try {
-          // Create a URL object to parse query params
-          const urlObj = new URL(question);
-          // e.g. new URL("https://drive.google.com/open?id=...&usp=...")
-          fileId = urlObj.searchParams.get("id"); 
-        } catch (err) {
-          console.warn("Could not parse Google Drive link as URL:", err);
+          const urlObj = new URL(driveUrl);
+      
+          // Case 1: ?id=FILE_ID
+          //  e.g. https://drive.google.com/open?id=...&usp=...
+          const paramId = urlObj.searchParams.get("id");
+          if (paramId) {
+            return paramId;
+          }
+      
+          // Case 2: /file/d/FILE_ID/
+          //  e.g. https://drive.google.com/file/d/1abc123XYZ/view?usp=sharing
+          // We'll split the path and look for "file", "d", "FILE_ID"
+          const pathParts = urlObj.pathname.split("/");
+          // pathParts might be ["", "file", "d", "1abc123XYZ", "view"]
+          const fileIndex = pathParts.indexOf("file");
+          const dIndex = pathParts.indexOf("d");
+      
+          if (fileIndex !== -1 && dIndex === fileIndex + 1 && pathParts[dIndex+1]) {
+            return pathParts[dIndex+1]; // The actual ID
+          }
+        } catch (e) {
+          // If it's not a valid URL, just ignore
+          console.warn("Could not parse as Drive URL:", driveUrl);
         }
       
+        return result;
+      }
+      
+      // If question references drive.google.com, try to parse it as an image
+      if (question.includes("drive.google.com")) {
+        const fileId = extractDriveFileId(question);
+      
         if (fileId) {
-          // Construct the direct image link
+          // Construct direct link
           const directLink = `https://drive.google.com/uc?export=view&id=${fileId}`;
+      
           const img = document.createElement('img');
           img.src = directLink;
           img.style.maxWidth = "300px";
           img.style.height = "auto";
           tdQ.appendChild(img);
         } else {
-          // Fallback: just display the question text
+          // Fallback - display the raw link if we couldn't parse an ID
           tdQ.textContent = question;
         }
-      
-      } else if (question.includes("drive.google.com")) {
-        // If it's some other drive link (not the 'open?id=' pattern), 
-        // you could attempt to parse differently or simply display text
-        // This is optional logic:
-        tdQ.textContent = question;
       } else {
         // Otherwise, just display the text
         tdQ.textContent = question;
