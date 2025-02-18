@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <title>Trivia Grading App</title>
-  <!-- Minimal styling for clarity -->
   <style>
     body {
       font-family: sans-serif;
@@ -72,7 +71,8 @@
 <!-- SCREEN B: Team Setup -->
 <div id="screenTeamSetup" class="screen">
   <h2>2. Enter Teams</h2>
-  <p>It seems there's no existing grading data for this date. Please add your teams:</p>
+  <p>If no existing grading data is found for this date, please add your teams below. 
+     Teams get unique IDs to avoid overwriting data.</p>
   
   <div>
     <input type="text" id="teamNameInput" placeholder="Team Name" />
@@ -81,7 +81,7 @@
   </div>
 
   <div class="section">
-    <h3>Teams Added (local)</h3>
+    <h3>Teams Added</h3>
     <ul id="teamList"></ul>
   </div>
 
@@ -93,7 +93,7 @@
 <!-- SCREEN C: Rubric (Team & Round Overview) -->
 <div id="screenRubric" class="screen">
   <h2>Rubric / Summary</h2>
-  <p>Teams for this date, showing round scores & bonuses. Sorted highest final score first.</p>
+  <p>Below are all teams found for this date, their scores per round (tenths place), bonus columns, penalty, and final score. Sorted by final score descending.</p>
   <button id="btnAddMoreTeams">Add / Edit Teams</button>
   <button id="btnSelectRoundFromRubric">Select a Round to Grade</button>
   <div id="rubricContent" class="section">
@@ -124,6 +124,7 @@
     <table id="questionTable">
       <thead>
         <tr>
+          <th>Round Type</th>
           <th>Question</th>
           <th>Answer</th>
           <th>Points</th>
@@ -144,7 +145,6 @@
   </div>
 </div>
 
-
 <!-- Firebase + JS Logic -->
 <script type="module">
   /***************************************************
@@ -155,7 +155,7 @@
     getDatabase, ref, child, get, set, update 
   } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
 
-  // TODO: Replace with your Firebase config
+  // Your Firebase config:
   const firebaseConfig = {
     apiKey: "AIzaSyBy8ExrgvBDto-BcNhlvrcC6ZB9G7HNaWE",
     authDomain: "eviltriviagrading.firebaseapp.com",
@@ -207,19 +207,17 @@
    ***************************************************/
   let currentDate = null;
 
-  // We'll store teams locally as an array of objects:
-  // { teamId: string, teamName: string, teamSize: number }
+  // We'll track teams as an array of { id, name, size }
   let allTeams = [];
-  
-  let currentRound = null; // e.g. "1", "2"
-  let currentRoundData = {}; // Flattened question data for the chosen round
-  let cachedTriviaData = {}; // { date: { [roundNum]: { Written: {...}, Puzzle: {...}... } } }
 
-  // We'll keep an array for the round order:
+  let currentRound = null; // e.g. "1", "2", etc.
+  let currentRoundData = {}; // Flattened question data for the chosen round
+  let cachedTriviaData = {}; // { date: { [roundNum]: { Written: {...}, Puzzle: {...}, ... } } }
+
+  // Round type order (for flattening & display in the grading table)
   const roundTypeOrder = ['Written','Puzzle','Visual','Fill-In','Music'];
 
-  // For the grading screen slider:
-  // We'll map the slider 0..6 to these percentages
+  // Slider mapping (0..6 => these percentages)
   const PERCENTAGE_MAP = [0.0, 0.25, 0.33, 0.50, 0.66, 0.75, 1.0];
   const DEFAULT_SLIDER_VALUE = 6; // i.e. 100%
 
@@ -227,8 +225,13 @@
    * 4) Screen Navigation Helpers
    ***************************************************/
   function showScreen(screenElem) {
-    [screenDateSelect, screenTeamSetup, screenRubric, screenRoundSelect, screenGrading]
-      .forEach(s => s.classList.remove('active'));
+    [
+      screenDateSelect, 
+      screenTeamSetup, 
+      screenRubric, 
+      screenRoundSelect, 
+      screenGrading
+    ].forEach(s => s.classList.remove('active'));
     screenElem.classList.add('active');
   }
 
@@ -269,10 +272,10 @@
       alert("Please select a date.");
       return;
     }
-    // Check if scores/date exist
+    // Check if scores/[currentDate] exists
     const snap = await get(child(ref(db), `scores/${currentDate}`));
     if (snap.exists()) {
-      // We have existing grading => Go to Rubric
+      // We have existing grading => go to Rubric
       showRubric();
     } else {
       // No existing grading => go to Team Setup
@@ -283,25 +286,8 @@
   });
 
   /***************************************************
-   * 7) Team Setup Screen
+   * 7) Team Setup Screen (with Unique IDs)
    ***************************************************/
-
-  // Generate a random unique ID (simple approach)
-  // Check if "scores/[currentDate]/TEAM-xxxxx" exists; if yes, regenerate.
-  async function generateTeamId() {
-    // We'll do a loop up to 10 tries
-    for (let i = 0; i < 10; i++) {
-      const r = Math.floor(Math.random() * 1000000);
-      const tid = `TEAM-${r}`;
-      const snap = await get(child(ref(db), `scores/${currentDate}/${tid}`));
-      if (!snap.exists()) {
-        return tid; // good to use
-      }
-    }
-    // fallback if extremely unlucky
-    return `TEAM-${Date.now()}`;
-  }
-
   btnAddTeam.addEventListener('click', async () => {
     const name = teamNameInput.value.trim();
     const size = Number(teamSizeInput.value.trim() || 0);
@@ -314,28 +300,37 @@
       return;
     }
 
-    // Check if we already have a local team with that name
-    let found = allTeams.find(t => t.teamName === name);
-    if (found) {
-      // just update the size in local
-      found.teamSize = size;
-    } else {
-      // Need a new teamId
-      const newId = await generateTeamId();
-      // Create local object
-      found = { teamId: newId, teamName: name, teamSize: size };
-      allTeams.push(found);
-    }
+    // Generate a unique ID for this team
+    // We'll keep re-generating until we find one not in use
+    const teamId = await generateUniqueTeamID(currentDate);
+
+    // Store locally
+    allTeams.push({ id: teamId, name, size });
     refreshTeamList();
+    // Clear inputs
     teamNameInput.value = "";
     teamSizeInput.value = "";
   });
+
+  // Helper to generate a random ID and check if it exists.
+  async function generateUniqueTeamID(date) {
+    // Just keep trying until we find one that doesn't exist
+    // For a small scale, collisions are extremely unlikely, but let's do a quick check
+    while (true) {
+      const candidate = "T-" + Math.random().toString(36).substring(2,10);
+      const snap = await get(child(ref(db), `scores/${date}/${candidate}`));
+      if (!snap.exists()) {
+        return candidate;
+      }
+      // else loop again
+    }
+  }
 
   function refreshTeamList() {
     teamList.innerHTML = "";
     allTeams.forEach(t => {
       const li = document.createElement('li');
-      li.textContent = `${t.teamName} (id: ${t.teamId}, size: ${t.teamSize})`;
+      li.textContent = `${t.name} (size: ${t.size}) [id:${t.id}]`;
       teamList.appendChild(li);
     });
   }
@@ -345,12 +340,12 @@
       alert("Please add at least one team first.");
       return;
     }
-    // Save these teams into the DB under scores/[date]/teamId
+    // Save these teams into DB => scores/[currentDate]/[teamId]
     for (let t of allTeams) {
-      const path = `scores/${currentDate}/${t.teamId}`;
-      await update(ref(db, path), {
-        team_name: t.teamName,
-        number_of_people: t.teamSize
+      const path = `scores/${currentDate}/${t.id}`;
+      await set(ref(db, path), {
+        team_name: t.name,
+        number_of_people: t.size
       });
     }
     // Now go to Round Select
@@ -377,7 +372,7 @@
     showScreen(screenRubric);
     rubricContent.innerHTML = "Loading...";
 
-    // 1) Load all round numbers from /trivia/[currentDate] for building columns
+    // Make sure we have the trivia loaded for this date (so we know round numbers)
     if (!cachedTriviaData[currentDate]) {
       const snap = await get(child(ref(db), `trivia/${currentDate}`));
       cachedTriviaData[currentDate] = snap.exists() ? snap.val() : {};
@@ -385,68 +380,72 @@
     const allRounds = Object.keys(cachedTriviaData[currentDate])
       .sort((a,b)=> Number(a)-Number(b));
 
-    // 2) Load team data from /scores/[date]
+    // Load team data from /scores/[currentDate]
     const snap = await get(child(ref(db), `scores/${currentDate}`));
     if (!snap.exists()) {
       rubricContent.innerHTML = "<p>No scores found for this date.</p>";
       return;
     }
     const dateScores = snap.val(); 
-    // dateScores => { [teamId]: { team_name, number_of_people, bonus, instagram_challenge, final_challenge, scores: {...} } }
+    // structure: { [teamId]: { team_name, number_of_people, bonus, instagram_challenge, final_challenge, scores: {...} } }
 
-    // We'll build an array of row data, then sort by final desc
-    let rowsData = [];
+    // We'll build a list of { teamId, name, size, bonus, insta, finalC, roundTotals, finalScore }
+    const teamEntries = [];
 
     Object.keys(dateScores).forEach(teamId => {
       const tObj = dateScores[teamId];
-      const tName = tObj.team_name || "Unknown";
-      const tSize = Number(tObj.number_of_people || 0);
+      const tName = tObj.team_name || "No Name";
+      const tSize = tObj.number_of_people || 0;
       const bonus = Number(tObj.bonus || 0);
       const insta = Number(tObj.instagram_challenge || 0);
-      const finalCh = Number(tObj.final_challenge || 0);
-      let sumOfRounds = 0;
-      let roundScoresMap = {}; // roundNum -> total
+      const finalC = Number(tObj.final_challenge || 0);
 
-      // If there's round scores
+      // sumOfRounds by scanning tObj.scores => { [roundNum]: { qid => score } }
+      let sumOfRounds = 0;
+      let roundScoreMap = {}; // { [roundNum]: total }
+
       if (tObj.scores) {
         Object.keys(tObj.scores).forEach(rNum => {
-          let roundTotal = 0;
+          let rTotal = 0;
           const qScoreObj = tObj.scores[rNum];
           if (qScoreObj) {
-            Object.keys(qScoreObj).forEach(k => {
-              roundTotal += Number(qScoreObj[k] || 0);
+            Object.values(qScoreObj).forEach(val => {
+              rTotal += Number(val || 0);
             });
           }
-          roundScoresMap[rNum] = roundTotal;
-          sumOfRounds += roundTotal;
+          roundScoreMap[rNum] = rTotal;
+          sumOfRounds += rTotal;
         });
       }
-      // Penalty
+
       const penalty = getTeamSizePenalty(tSize);
-      const finalScore = sumOfRounds + bonus + insta + finalCh + penalty;
-      
-      rowsData.push({
-        teamId, tName, tSize,
-        bonus, insta, finalCh,
-        sumOfRounds,
-        roundScoresMap,
+      const finalScore = sumOfRounds + bonus + insta + finalC + penalty;
+
+      teamEntries.push({
+        teamId, name: tName, size: tSize,
+        bonus, insta, finalC,
+        roundScores: roundScoreMap,
         penalty,
         finalScore
       });
     });
 
-    // Sort rows descending by finalScore
-    rowsData.sort((a,b) => b.finalScore - a.finalScore);
+    // Sort teamEntries by finalScore desc
+    teamEntries.sort((a,b) => b.finalScore - a.finalScore);
 
-    // 3) Build table header
+    // Build table
     let html = `<table>
       <thead>
         <tr>
           <th>Team</th>
           <th>Size</th>`;
+
+    // columns for each round
     allRounds.forEach(r => {
       html += `<th class="round-col">R${r}</th>`;
     });
+
+    // Extra columns: Bonus, Insta, Final Ch, Penalty, Final
     html += `
           <th class="round-col">Bonus</th>
           <th class="round-col">Instagram</th>
@@ -458,107 +457,116 @@
       <tbody>
     `;
 
-    // 4) Build each row
-    rowsData.forEach(rowObj => {
-      const {teamId, tName, tSize, bonus, insta, finalCh, roundScoresMap, penalty, finalScore} = rowObj;
+    teamEntries.forEach(entry => {
+      html += `<tr data-teamid="${entry.teamId}">
+        <td>${entry.name}</td>
+        <td>${entry.size}</td>`;
 
-      html += `<tr data-teamid="${teamId}">
-        <td>${tName}</td>
-        <td>${tSize}</td>
-      `;
-      // Each round's total
+      // round columns
       allRounds.forEach(r => {
-        const val = roundScoresMap[r] || 0;
-        html += `<td>${roundToTenth(val)}</td>`;
+        const rVal = entry.roundScores[r] || 0;
+        html += `<td>${rVal.toFixed(1)}</td>`; // round to tenths
       });
 
-      // Bonus fields (editable)
       html += `
-        <td><input type="number" class="bonusInput" value="${bonus}" style="width:60px"></td>
-        <td><input type="number" class="instaInput" value="${insta}" style="width:60px"></td>
-        <td><input type="number" class="finalChInput" value="${finalCh}" style="width:60px"></td>
-        <td>${roundToTenth(penalty)}</td>
-        <td>${roundToTenth(finalScore)}</td>
+        <td><input type="number" class="bonusInput" value="${entry.bonus}" style="width:60px"></td>
+        <td><input type="number" class="instaInput" value="${entry.insta}" style="width:60px"></td>
+        <td><input type="number" class="finalChInput" value="${entry.finalC}" style="width:60px"></td>
+        <td>${entry.penalty.toFixed(1)}</td>
+        <td>${entry.finalScore.toFixed(1)}</td>
       </tr>`;
     });
 
     html += `</tbody></table>`;
     rubricContent.innerHTML = html;
 
-    // Attach listeners
+    // Listen for changes in bonus/insta/final columns
     const rows = rubricContent.querySelectorAll('tr[data-teamid]');
     rows.forEach(row => {
-      const teamId = row.getAttribute('data-teamid');
       const bonusInput = row.querySelector('.bonusInput');
       const instaInput = row.querySelector('.instaInput');
       const finalChInput = row.querySelector('.finalChInput');
+
+      const teamId = row.getAttribute('data-teamid');
 
       function handleChange() {
         const b = Number(bonusInput.value || 0);
         const i = Number(instaInput.value || 0);
         const f = Number(finalChInput.value || 0);
-        // update in DB
-        const path = `scores/${currentDate}/${teamId}`;
-        update(ref(db, path), {
+
+        update(ref(db, `scores/${currentDate}/${teamId}`), {
           bonus: b,
           instagram_challenge: i,
           final_challenge: f
-        }).then(() => {
-          // re-calc row
+        })
+        .then(() => {
+          // Recompute that row's final
           recalcRow(row);
-        }).catch(err => {
-          console.error("Error saving bonus:", err);
+        })
+        .catch(err => {
+          console.error("Error saving bonus/insta/final:", err);
         });
       }
-
       bonusInput.addEventListener('change', handleChange);
       instaInput.addEventListener('change', handleChange);
       finalChInput.addEventListener('change', handleChange);
     });
   }
 
-  // Recompute final score for a single row (no resort)
+  // Recompute final score for one row => round columns + bonus + insta + finalCh + penalty
   function recalcRow(row) {
-    // We do not re-sort the entire table on each edit.
-    // Just recalc the final in place.
-    const tSize = Number(row.children[1].textContent || 0);
-    // find how many round columns
-    let colIndex = 2;
-    let sumOfRounds = 0;
+    // row structure:
+    //  0: Team Name
+    //  1: Size
+    //  2..(2+roundCount-1): Round Scores
+    //  next 3: bonus, insta, finalCh inputs
+    //  next: penalty (non-editable)
+    //  last: final (non-editable)
+    const cells = row.querySelectorAll('td');
+    const size = Number(cells[1].textContent) || 0;
+
+    // figure out how many round columns by scanning until we see an <input>
+    let roundSum = 0;
+    let col = 2;
     while (true) {
-      const cell = row.children[colIndex];
-      if (!cell) break;
-      // If there's an input, we've reached bonus col
-      if (cell.querySelector('input')) {
+      if (col >= cells.length) break;
+      const inputEl = cells[col].querySelector('input');
+      if (inputEl) {
+        // we've reached the bonus cell
         break;
       }
-      const val = parseFloat(cell.textContent || "0");
-      sumOfRounds += val;
-      colIndex++;
+      // else this is a round score cell
+      roundSum += Number(cells[col].textContent || 0);
+      col++;
     }
-    // bonus, insta, finalCh inputs
-    const bonus = Number(row.querySelector('.bonusInput').value || 0);
-    const insta = Number(row.querySelector('.instaInput').value || 0);
-    const finalCh = Number(row.querySelector('.finalChInput').value || 0);
-    const penaltyCell = row.children[row.children.length - 2];
-    const finalCell   = row.lastElementChild;
-    
-    const penalty = getTeamSizePenalty(tSize);
-    penaltyCell.textContent = roundToTenth(penalty);
-    const finalScore = sumOfRounds + bonus + insta + finalCh + penalty;
-    finalCell.textContent = roundToTenth(finalScore);
+    // now col points to the bonus cell
+    const bonusInput = cells[col].querySelector('input');
+    const bonus = Number(bonusInput.value || 0);
+    const instaInput = cells[col+1].querySelector('input');
+    const insta = Number(instaInput.value || 0);
+    const finalChInput = cells[col+2].querySelector('input');
+    const finalC = Number(finalChInput.value || 0);
+    // penalty cell => col+3
+    const penaltyCell = cells[col+3];
+    // finalCell => col+4
+    const finalCell = cells[col+4];
+
+    const penalty = getTeamSizePenalty(size);
+    penaltyCell.textContent = penalty.toFixed(1);
+
+    const finalScore = roundSum + bonus + insta + finalC + penalty;
+    finalCell.textContent = finalScore.toFixed(1);
+
+    // Note: We do NOT reorder the entire table here. 
+    // If you want the table to re-sort after each edit, you can re-run showRubric().
   }
 
-  function roundToTenth(num) {
-    // Return as a string with 1 decimal place
-    return (Math.round(num * 10) / 10).toFixed(1);
-  }
-
-  // Team size penalty: 6 or under => 0, 7 => -4, 8 => -6, 9 => -8, etc.
+  // Team size penalty: 6 or under => 0, 7 => -4, 8 => -6, etc.
   function getTeamSizePenalty(size) {
     if (size <= 6) return 0;
     const diff = size - 6;
-    // 7 => -4, 8 => -6, 9 => -8
+    // 7 => -4, 8 => -6, 9 => -8, etc.
+    // formula: -2 * diff - 2
     return -2 * diff - 2;
   }
 
@@ -566,12 +574,11 @@
    * 9) Round Selection Screen
    ***************************************************/
   btnOpenGrading.addEventListener('click', () => {
-    currentRound = roundSelect.value; 
+    currentRound = roundSelect.value;
     if (!currentRound) {
       alert("No round selected.");
       return;
     }
-    // Go to grading screen for that round
     showGradingScreen();
   });
 
@@ -606,25 +613,20 @@
    ***************************************************/
   async function showGradingScreen() {
     showScreen(screenGrading);
-    // 1) Load teams from DB (to get up-to-date list)
+    // 1) Load teams from DB so we have their IDs, names, sizes
     allTeams = await fetchTeamsForDate(currentDate);
-    // 2) Populate the <select>
+    // 2) Populate the <select> with each team's ID as value
     teamSelect.innerHTML = "";
     allTeams.forEach(t => {
       const opt = document.createElement("option");
-      opt.value = t.teamId; // store the ID
-      opt.textContent = t.teamName;
+      opt.value = t.id;   // store the ID
+      opt.textContent = t.name;
       teamSelect.appendChild(opt);
     });
-    // If at least one team
-    if (allTeams.length > 0) {
-      // 3) Load question data
-      loadQuestionDataForRound(currentRound);
-      // 4) By default, show the first team's data
-      loadTeamScoresIntoTable(teamSelect.value);
-    } else {
-      questionTable.innerHTML = "<tr><td colspan='5'>No teams found.</td></tr>";
-    }
+    // 3) Flatten question data for current round
+    loadQuestionDataForRound(currentRound);
+    // 4) Load table for the first team in the dropdown
+    loadTeamScoresIntoTable(teamSelect.value);
   }
 
   teamSelect.addEventListener('change', () => {
@@ -634,8 +636,9 @@
   function loadQuestionDataForRound(rNum) {
     const dataForDate = cachedTriviaData[currentDate] || {};
     const roundObj = dataForDate[rNum] || {};
-    // Flatten them in fixed order
-    currentRoundData = {};
+
+    // Flatten them in the order: Written, Puzzle, Visual, Fill-In, Music
+    currentRoundData = {}; // { uniqueQID => { roundType, question, answer, totalPoints } }
     roundTypeOrder.forEach(rType => {
       if (roundObj[rType]) {
         const questionsOfType = roundObj[rType];
@@ -654,46 +657,63 @@
   }
 
   async function loadTeamScoresIntoTable(teamId) {
-    if (!teamId) return;
-    // load this team's existing scores for currentRound
+    if (!teamId) {
+      questionTable.innerHTML = "";
+      return;
+    }
+    // Load existing scores from DB => scores/[date]/[teamId]/scores/[roundNum]
     const path = `scores/${currentDate}/${teamId}/scores/${currentRound}`;
     const snap = await get(child(ref(db), path));
-    let teamRoundScores = snap.exists() ? snap.val() : {};
+    const teamRoundScores = snap.exists() ? snap.val() : {};
 
+    // Build table rows in the same order as currentRoundData
     questionTable.innerHTML = "";
     const uniqueQIDs = Object.keys(currentRoundData);
 
-    uniqueQIDs.forEach((uqid, i) => {
-      const q = currentRoundData[uqid];
+    uniqueQIDs.forEach(uniqueQID => {
+      const {roundType, question, answer, totalPoints} = currentRoundData[uniqueQID];
+      const existingScore = Number(teamRoundScores[uniqueQID] || 0);
+
+      // Create <tr>
       const tr = document.createElement('tr');
-      // question
+
+      // 1) Round Type
+      const tdType = document.createElement('td');
+      tdType.textContent = roundType;
+      tr.appendChild(tdType);
+
+      // 2) Question
       const tdQ = document.createElement('td');
-      tdQ.textContent = q.question;
+      tdQ.textContent = question;
       tr.appendChild(tdQ);
-      // answer
+
+      // 3) Answer
       const tdA = document.createElement('td');
-      tdA.textContent = q.answer;
+      tdA.textContent = answer;
       tr.appendChild(tdA);
-      // total points
+
+      // 4) Points
       const tdPts = document.createElement('td');
-      tdPts.textContent = q.totalPoints;
+      tdPts.textContent = totalPoints;
       tr.appendChild(tdPts);
-      // slider cell
+
+      // 5) Slider for partial credit
       const tdSlider = document.createElement('td');
       tdSlider.classList.add('slider-cell');
+
       const slider = document.createElement('input');
       slider.type = 'range';
       slider.min = "0";
-      slider.max = (PERCENTAGE_MAP.length - 1).toString();
+      slider.max = (PERCENTAGE_MAP.length - 1).toString(); // 6
       slider.step = "1";
-      slider.value = DEFAULT_SLIDER_VALUE; // default 100%
+      slider.value = DEFAULT_SLIDER_VALUE; // default to 100%
+
       const pctLabel = document.createElement('span');
 
-      // existing partial
-      const existingScore = Number(teamRoundScores[uqid] || 0);
-      const ratio = q.totalPoints ? existingScore / q.totalPoints : 0;
-      let bestIdx = 0;
-      let bestDiff = 999;
+      // Determine ratio from existingScore
+      let ratio = totalPoints ? (existingScore / totalPoints) : 0;
+      // find best match index
+      let bestIdx = 0, bestDiff = 999;
       PERCENTAGE_MAP.forEach((pctVal, idx) => {
         const diff = Math.abs(pctVal - ratio);
         if (diff < bestDiff) {
@@ -701,68 +721,72 @@
           bestIdx = idx;
         }
       });
-      slider.value = bestIdx;
+      slider.value = bestIdx.toString();
 
-      const tdCalc = document.createElement('td');
-      tdCalc.classList.add('calc-cell');
+      // On slider input, recalc
+      const calcCell = document.createElement('td'); // "Calculated" cell
+      calcCell.classList.add('calc-cell');
 
-      const recalcScore = () => {
+      function recalcScore() {
         const idx = Number(slider.value);
         const pct = PERCENTAGE_MAP[idx];
-        pctLabel.textContent = (pct*100).toFixed(0)+"%";
-        const s = Math.round(q.totalPoints * pct * 100)/100;
-        tdCalc.textContent = s.toString();
-      };
+        pctLabel.textContent = (pct * 100).toFixed(0) + "%";
+        const s = totalPoints * pct;
+        calcCell.textContent = s.toFixed(2); // show two decimals for clarity
+      }
       slider.addEventListener('input', recalcScore);
-
-      // Init
       recalcScore();
 
       tdSlider.appendChild(slider);
       tdSlider.appendChild(pctLabel);
       tr.appendChild(tdSlider);
 
-      // final numeric
-      tr.appendChild(tdCalc);
+      // 6) Calculated Score
+      tr.appendChild(calcCell);
 
       questionTable.appendChild(tr);
     });
   }
 
+  // Save Scores
   btnSaveScores.addEventListener('click', async () => {
-    if (!teamSelect.value) {
+    const teamId = teamSelect.value;
+    if (!teamId) {
       alert("No team selected!");
       return;
     }
-    const teamId = teamSelect.value;
-    const rows = questionTable.querySelectorAll('tr');
+    // We'll assume each row corresponds to a uniqueQID in the same order
     const uniqueQIDs = Object.keys(currentRoundData);
+    const rows = questionTable.querySelectorAll('tr');
     let updates = {};
 
     rows.forEach((tr, i) => {
-      const slider = tr.querySelector('input[type="range"]');
+      const uniqueQID = uniqueQIDs[i];
+      const ptsCell = tr.children[3]; // 0=type,1=q,2=a,3=pts
+      const slider = tr.children[4].querySelector('input[type="range"]');
+      const totalPoints = Number(ptsCell.textContent || 0);
       if (!slider) return;
+
       const idx = Number(slider.value);
       const pct = PERCENTAGE_MAP[idx];
-      const totalPoints = Number(tr.children[2].textContent || 0);
-      const score = Math.round(totalPoints * pct * 100)/100;
-      const uqid = uniqueQIDs[i]; // assume same order
-      updates[uqid] = score;
+      const score = totalPoints * pct;
+      // store with 2 decimals
+      updates[uniqueQID] = Number(score.toFixed(2));
     });
 
     const path = `scores/${currentDate}/${teamId}/scores/${currentRound}`;
     try {
       await set(ref(db, path), updates);
       alert("Scores saved!");
-    } catch (err) {
-      console.error(err);
-      alert("Error saving scores.");
+    } catch (e) {
+      console.error(e);
+      alert("Error saving scores: " + e);
     }
   });
 
   btnSwitchTeam.addEventListener('click', () => {
-    const idx = teamSelect.selectedIndex;
     if (teamSelect.options.length > 1) {
+      const idx = teamSelect.selectedIndex;
       const newIdx = (idx + 1) % teamSelect.options.length;
       teamSelect.selectedIndex = newIdx;
       loadTeamScoresIntoTable(teamSelect.value);
@@ -777,39 +801,25 @@
 
   /***************************************************
    * 11) Utility: Fetch teams for a date
-   * We'll read all keys (teamIds), gather:
-   *  - teamId
-   *  - team_name
-   *  - number_of_people
    ***************************************************/
   async function fetchTeamsForDate(date) {
     const snap = await get(child(ref(db), `scores/${date}`));
-    let result = [];
-    if (snap.exists()) {
-      const data = snap.val(); 
-      // data => { teamId: { team_name, number_of_people, ...}, ... }
-      Object.keys(data).forEach(tid => {
-        const tObj = data[tid];
-        result.push({
-          teamId: tid,
-          teamName: tObj.team_name || "Unknown",
-          teamSize: tObj.number_of_people || 0
-        });
-      });
+    if (!snap.exists()) {
+      return [];
     }
-    return result;
+    const data = snap.val(); 
+    // data => { [teamId]: { team_name, number_of_people, ... } }
+    const results = [];
+    Object.keys(data).forEach(teamId => {
+      const tObj = data[teamId];
+      results.push({
+        id: teamId,
+        name: tObj.team_name || "Unnamed",
+        size: tObj.number_of_people || 0
+      });
+    });
+    return results;
   }
-
-  /***************************************************
-   * 12) Team Size Penalty Function
-   ***************************************************/
-  function getTeamSizePenalty(size) {
-    if (size <= 6) return 0;
-    const diff = size - 6; // how many over 6
-    // 7 => -4, 8 => -6, 9 => -8
-    return -2 * diff - 2;
-  }
-
 </script>
 
 </body>
