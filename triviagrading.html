@@ -343,11 +343,12 @@
     // Save these teams into DB => scores/[currentDate]/[teamId]
     for (let t of allTeams) {
       const path = `scores/${currentDate}/${t.id}`;
-      await set(ref(db, path), {
+      await update(ref(db, path), {
         team_name: t.name,
         number_of_people: t.size
       });
     }
+
     // Now go to Round Select
     await loadRoundOptions();
     showScreen(screenRoundSelect);
@@ -672,8 +673,9 @@
 
     uniqueQIDs.forEach(uniqueQID => {
       const {roundType, question, answer, totalPoints} = currentRoundData[uniqueQID];
-      const existingScore = Number(teamRoundScores[uniqueQID] || 0);
-
+      const storedVal = teamRoundScores[uniqueQID];
+      const hasScore = (storedVal !== undefined && storedVal !== null);
+      
       // Create <tr>
       const tr = document.createElement('tr');
 
@@ -711,8 +713,14 @@
       const pctLabel = document.createElement('span');
 
       // Determine ratio from existingScore
-      let ratio = totalPoints ? (existingScore / totalPoints) : 0;
-      // find best match index
+      let ratio;
+      if (!hasScore) {
+        ratio = 1.0; // 100%
+      } else {
+        const existingScore = Number(storedVal || 0);
+        ratio = totalPoints ? (existingScore / totalPoints) : 0;
+      }
+      // Find best index in PERCENTAGE_MAP that matches our ratio
       let bestIdx = 0, bestDiff = 999;
       PERCENTAGE_MAP.forEach((pctVal, idx) => {
         const diff = Math.abs(pctVal - ratio);
@@ -721,6 +729,7 @@
           bestIdx = idx;
         }
       });
+      // Set the slider to that matched index
       slider.value = bestIdx.toString();
 
       // On slider input, recalc
