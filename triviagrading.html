@@ -830,18 +830,33 @@
       // This cell will hold the final numeric score
       const calcCell = document.createElement('td');
       calcCell.classList.add('calc-cell');
-      
-      // Determine the existing ratio for this Q
+
+      /*********************************************
+       * 1) Figure out the ratio => bestIdx
+       *********************************************/
       let ratio;
       if (!hasScore) {
-        ratio = 1.0; // default to 100%
+        // If no DB score, default to 100%
+        ratio = 1.0;
       } else {
         const existingScore = Number(storedVal || 0);
         ratio = totalPoints ? existingScore / totalPoints : 0;
       }
       
-      // Find the best match index in PERCENTAGE_MAP for that ratio
-      let bestIdx = 0, bestDiff = Infinity;
+      // First pass: find which index is closest to our ratio
+      let bestIdx = 0;
+      let bestDiff = Infinity;
+      PERCENTAGE_MAP.forEach((pctVal, i) => {
+        const diff = Math.abs(pctVal - ratio);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestIdx = i;
+        }
+      });
+      
+      /*********************************************
+       * 2) Build the actual radio inputs
+       *********************************************/
       PERCENTAGE_MAP.forEach((pctVal, idx) => {
         const lbl = document.createElement('label');
         lbl.style.marginRight = "10px";
@@ -854,10 +869,10 @@
         // Enlarge 0%, 50%, and 100% radio buttons
         if (pctVal === 0.0 || pctVal === 0.50 || pctVal === 1.0) {
           radio.style.transform = "scale(1.5)";
-          lbl.style.fontSize = "150%"; // optional if you also want bigger label text
+          lbl.style.fontSize = "150%";
         }
       
-        // If this is the closest match, check it
+        // Check this radio if idx matches bestIdx
         if (idx === bestIdx) {
           radio.checked = true;
         }
@@ -866,9 +881,10 @@
         radio.addEventListener('change', recalcScore);
       
         lbl.appendChild(radio);
-        lbl.appendChild(document.createTextNode(` ${(pctVal*100).toFixed(0)}%`));
+        lbl.appendChild(document.createTextNode(` ${(pctVal * 100).toFixed(0)}%`));
         tdRadioGroup.appendChild(lbl);
       });
+
       
       // Recalc function => updates calcCell text
       function recalcScore() {
