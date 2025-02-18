@@ -820,29 +820,27 @@
       tdPts.textContent = totalPoints;
       tr.appendChild(tdPts);
 
-      // 5) Slider for partial credit
-      const tdSlider = document.createElement('td');
-      tdSlider.classList.add('slider-cell');
-
-      const slider = document.createElement('input');
-      slider.type = 'range';
-      slider.min = "0";
-      slider.max = (PERCENTAGE_MAP.length - 1).toString(); // 6
-      slider.step = "1";
-      slider.value = DEFAULT_SLIDER_VALUE; // default to 100%
-
-      const pctLabel = document.createElement('span');
-
-      // Determine ratio from existingScore
+      /**************************************************************
+       * 5) Single-Select Radio Buttons for partial credit
+       *************************************************************/
+      const tdRadioGroup = document.createElement('td');
+      tdRadioGroup.classList.add('slider-cell'); // reuse the same class if you like
+      
+      // We'll also create a cell for the final calculated score
+      const calcCell = document.createElement('td');
+      calcCell.classList.add('calc-cell');
+      
+      // Determine the existing ratio
       let ratio;
       if (!hasScore) {
-        ratio = 1.0; // 100%
+        ratio = 1.0; // 100% by default if no saved score
       } else {
         const existingScore = Number(storedVal || 0);
         ratio = totalPoints ? (existingScore / totalPoints) : 0;
       }
-      // Find best index in PERCENTAGE_MAP that matches our ratio
-      let bestIdx = 0, bestDiff = 999;
+      
+      // Find which percentage in PERCENTAGE_MAP is closest to the existing ratio
+      let bestIdx = 0, bestDiff = Infinity;
       PERCENTAGE_MAP.forEach((pctVal, idx) => {
         const diff = Math.abs(pctVal - ratio);
         if (diff < bestDiff) {
@@ -850,29 +848,49 @@
           bestIdx = idx;
         }
       });
-      // Set the slider to that matched index
-      slider.value = bestIdx.toString();
-
-      // On slider input, recalc
-      const calcCell = document.createElement('td'); // "Calculated" cell
-      calcCell.classList.add('calc-cell');
-
+      
+      // Build one radio button per PERCENTAGE_MAP entry
+      PERCENTAGE_MAP.forEach((pctVal, idx) => {
+        const label = document.createElement('label');
+        label.style.marginRight = "8px";
+      
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = `scoreOption-${uniqueQID}`; // group name => only one selected
+        radio.value = idx;
+      
+        // Check the radio if it’s the best match
+        if (idx === bestIdx) {
+          radio.checked = true;
+        }
+      
+        // On click => recalc
+        radio.addEventListener('change', recalcScore);
+      
+        label.appendChild(radio);
+        label.appendChild(document.createTextNode(` ${(pctVal * 100).toFixed(0)}%`));
+        tdRadioGroup.appendChild(label);
+      });
+      
+      // Recalc function
       function recalcScore() {
-        const idx = Number(slider.value);
+        // Which radio is checked?
+        const chosen = tdRadioGroup.querySelector(`input[name="scoreOption-${uniqueQID}"]:checked`);
+        if (!chosen) return;
+      
+        const idx = Number(chosen.value);
         const pct = PERCENTAGE_MAP[idx];
-        pctLabel.textContent = (pct * 100).toFixed(0) + "%";
-        const s = totalPoints * pct;
-        calcCell.textContent = s.toFixed(2); // show two decimals for clarity
+        const newScore = totalPoints * pct;
+        calcCell.textContent = newScore.toFixed(2); // show decimals
       }
-      slider.addEventListener('input', recalcScore);
+      
+      // Initial calc
       recalcScore();
-
-      tdSlider.appendChild(slider);
-      tdSlider.appendChild(pctLabel);
-      tr.appendChild(tdSlider);
-
-      // 6) Calculated Score
+      
+      // Add both cells to the row
+      tr.appendChild(tdRadioGroup);
       tr.appendChild(calcCell);
+
 
       questionTable.appendChild(tr);
     });
