@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Grading</title>
+
+  <!-- IMPORTANT: This meta viewport helps mobile devices scale properly -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    /* Basic Mobile Reset / Setup */
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #ffcc00;  /* Site background */
+      font-family: sans-serif;
+      margin: 0;
+      padding: 10px;
+    }
+
+    h1 {
+      font-size: 1.5em;
+      margin: 0.5em 0;
+      text-align: center;
+    }
+
+    .screen {
+      display: none; /* All screens hidden by default */
+      margin-bottom: 30px;
+    }
+    .screen.active {
+      display: block; /* The currently active screen */
+    }
+
+    .section {
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 10px;
+      background: #fff;
+      border-radius: 6px;
+    }
+
+    /* Buttons & Inputs - make them bigger for mobile taps */
+    button, select, input[type="text"], input[type="number"] {
+      font-size: 1.1em;
+      padding: 6px;
+      margin-right: 8px;
+    }
+    .button-row {
+      margin-top: 16px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .button-row button {
+      cursor: pointer;
+      background: #444;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+    }
+
+    /* Table Responsive: Let the table scroll horizontally if it's too wide */
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto; /* horizontal scroll if needed */
+    }
+    table {
+      min-width: 600px;  /* to encourage horizontal scrolling on small screens */
+      border-collapse: collapse;
+      margin-top: 10px;
+      width: 100%;
+      background-color: #ffffff;  /* Keep tables white */
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    /* Make headings a bit bigger */
+    h2, h3 {
+      margin: 0.5em 0;
+    }
+
+    /* Optional: slightly bigger radio / checkbox (if you had them)
+       or bigger partial-credit controls. Not used in this snippet, but a reference:
+       input[type="radio"], input[type="checkbox"] {
+         transform: scale(1.2);
+         margin: 0 5px 0 0;
+       }
+     */
+
+    /* Media Query for narrower screens */
+    @media (max-width: 600px) {
+      body {
+        padding: 5px;
+      }
+      h1 {
+        font-size: 1.3em;
+      }
+      button, select, input[type="text"], input[type="number"] {
+        font-size: 1em;
+      }
+      th, td {
+        padding: 4px;
+        font-size: 0.9em;
+      }
+      .round-col {
+        width: 50px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<h1>Evil Trivia: Grading These Dumb Idiots</h1>
+
+<!-- SCREEN A: Date Selection -->
+<div id="screenDateSelect" class="screen active">
+  <h2>1. Select Date</h2>
+  <p>Select a trivia date from the database:</p>
+  <select id="dateSelect"></select>
+  <div class="button-row">
+    <button id="btnCheckGrading">Continue</button>
+  </div>
+</div>
+
+<!-- SCREEN B: Team Setup -->
+<div id="screenTeamSetup" class="screen">
+  <h2>2. Enter Teams</h2>
+  <p>Please enter team names and number of people below.</p>
+
+  <div class="section">
+    <input type="text" id="teamNameInput" placeholder="Team Name" />
+    <input type="number" id="teamSizeInput" placeholder="Team Size" min="1" />
+    <button id="btnAddTeam">Add Team</button>
+  </div>
+
+  <div class="section">
+    <h3>Teams Added</h3>
+    <ul id="teamList"></ul>
+  </div>
+
+  <div class="button-row">
+    <button id="btnProceedToRounds">Proceed to Round Selection</button>
+  </div>
+</div>
+
+<!-- SCREEN C: Rubric (Team & Round Overview) -->
+<div id="screenRubric" class="screen">
+  <h2>Scores for these dumb idiots</h2>
+  <p>Scores below. Select from options to edit teams or continue grading. Or don't. I'm not your mom.</p>
+  <div class="button-row">
+    <button id="btnAddMoreTeams">Add / Edit Teams</button>
+    <button id="btnSwitchTeam">Switch Team</button>
+    <button id="btnSelectRoundFromRubric">Select Round to Grade</button>
+  </div>
+  <div class="section table-responsive" id="rubricContent">
+    <!-- dynamic table or card layout inserted here -->
+  </div>
+</div>
+
+<!-- SCREEN D: Select Round -->
+<div id="screenRoundSelect" class="screen">
+  <h2>3. Select Round to Grade</h2>
+  <p>Choose from the rounds found under <em>trivia/[date]</em> in the DB.</p>
+  <select id="roundSelect"></select>
+  <div class="button-row">
+    <button id="btnOpenGrading">Grade This Round</button>
+    <button id="btnBackToRubric">Back to Rubric</button>
+  </div>
+</div>
+
+<!-- SCREEN E: Grading for One Round -->
+<div id="screenGrading" class="screen">
+  <h2>4. Grade Round</h2>
+  <div class="section">
+    <label for="teamSelect">Team:</label>
+    <select id="teamSelect"></select>
+  </div>
+
+  <div class="section table-responsive">
+    <table id="questionTable">
+      <thead>
+        <tr>
+          <th>Round</th>
+          <th>Question</th>
+          <th>Answer</th>
+          <th>Points</th>
+          <th>Score (%)</th>
+          <th>Calculated</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Rows appended by JS -->
+      </tbody>
+    </table>
+  </div>
+
+  <div class="button-row">
+    <button id="btnSaveScores">Save Scores</button>
+    <button id="btnDoneRound">Done / Back</button>
+  </div>
+</div>
+
+<!-- Firebase + JS Logic -->
+<script type="module">
+  /***************************************************
+   * 1) Import Firebase + Initialize
+   ***************************************************/
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+  import { 
+    getDatabase, ref, child, get, set, update 
+  } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+  // Your Firebase config:
+  const firebaseConfig = {
+    apiKey: "AIzaSyBy8ExrgvBDto-BcNhlvrcC6ZB9G7HNaWE",
+    authDomain: "eviltriviagrading.firebaseapp.com",
+    databaseURL: "https://eviltriviagrading-default-rtdb.firebaseio.com",
+    projectId: "eviltriviagrading",
+    storageBucket: "eviltriviagrading.firebasestorage.app",
+    messagingSenderId: "738486013114",
+    appId: "1:738486013114:web:fe0f480cc3f66f42d6c683",
+    measurementId: "G-R84N89NTJZ"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  /***************************************************
+   * 2) DOM Elements
+   ***************************************************/
+  const screenDateSelect    = document.getElementById('screenDateSelect');
+  const screenTeamSetup     = document.getElementById('screenTeamSetup');
+  const screenRubric        = document.getElementById('screenRubric');
+  const screenRoundSelect   = document.getElementById('screenRoundSelect');
+  const screenGrading       = document.getElementById('screenGrading');
+
+  const dateSelect          = document.getElementById('dateSelect');
+  const btnCheckGrading     = document.getElementById('btnCheckGrading');
+
+  const teamNameInput       = document.getElementById('teamNameInput');
+  const teamSizeInput       = document.getElementById('teamSizeInput');
+  const btnAddTeam          = document.getElementById('btnAddTeam');
+  const teamList            = document.getElementById('teamList');
+  const btnProceedToRounds  = document.getElementById('btnProceedToRounds');
+
+  const rubricContent       = document.getElementById('rubricContent');
+  const btnAddMoreTeams     = document.getElementById('btnAddMoreTeams');
+  const btnSelectRoundFromRubric = document.getElementById('btnSelectRoundFromRubric');
+
+  const roundSelect         = document.getElementById('roundSelect');
+  const btnOpenGrading      = document.getElementById('btnOpenGrading');
+  const btnBackToRubric     = document.getElementById('btnBackToRubric');
+
+  const teamSelect          = document.getElementById('teamSelect');
+  const questionTable       = document.getElementById('questionTable').querySelector('tbody');
+  const btnSaveScores       = document.getElementById('btnSaveScores');
+  const btnSwitchTeam       = document.getElementById('btnSwitchTeam');
+  const btnDoneRound        = document.getElementById('btnDoneRound');
+
+  /***************************************************
+   * 3) App State Variables
+   ***************************************************/
+  let currentDate = null;
+
+  // We'll track teams as an array of { id, name, size }
+  let allTeams = [];
+
+  let currentRound = null; // e.g. "1", "2", etc.
+  let currentRoundData = {}; // Flattened question data for the chosen round
+  let cachedTriviaData = {}; // { date: { [roundNum]: { Written: {...}, Puzzle: {...}, ... } } }
+
+  // Round type order (for flattening & display in the grading table)
+  const roundTypeOrder = ['Written','Puzzle','Visual','Fill-In','Music'];
+
+  // Slider mapping (0..6 => these percentages)
+  const PERCENTAGE_MAP = [0.0, 0.25, 0.33, 0.50, 0.66, 0.75, 1.0];
+  const DEFAULT_SLIDER_VALUE = 6; // i.e. 100%
+
+  /***************************************************
+   * 4) Screen Navigation Helpers
+   ***************************************************/
+  function showScreen(screenElem) {
+    [
+      screenDateSelect, 
+      screenTeamSetup, 
+      screenRubric, 
+      screenRoundSelect, 
+      screenGrading
+    ].forEach(s => s.classList.remove('active'));
+    screenElem.classList.add('active');
+  }
+
+  /***************************************************
+   * 5) On Page Load: Populate the date dropdown
+   ***************************************************/
+  window.addEventListener('DOMContentLoaded', async () => {
+    await loadDates();
+  });
+
+  async function loadDates() {
+    dateSelect.innerHTML = "";
+    const snapshot = await get(child(ref(db), "trivia"));
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const dateKeys = Object.keys(data).sort().reverse();
+      dateKeys.forEach(d => {
+        const opt = document.createElement("option");
+        opt.value = d;
+        opt.textContent = d;
+        dateSelect.appendChild(opt);
+      });
+    } else {
+      // No trivia data
+      const opt = document.createElement("option");
+      opt.textContent = "No Trivia Data Found";
+      opt.disabled = true;
+      dateSelect.appendChild(opt);
+    }
+  }
+
+  /***************************************************
+   * 6) Date Selected -> Check if there's existing grading
+   ***************************************************/
+  btnCheckGrading.addEventListener('click', async () => {
+    currentDate = dateSelect.value;
+    if (!currentDate) {
+      alert("Please select a date.");
+      return;
+    }
+    // Check if scores/[currentDate] exists
+    const snap = await get(child(ref(db), `scores/${currentDate}`));
+    if (snap.exists()) {
+      // We have existing grading => go to Rubric
+      showRubric();
+    } else {
+      // No existing grading => go to Team Setup
+      allTeams = [];
+      teamList.innerHTML = "";
+      showScreen(screenTeamSetup);
+    }
+  });
+
+  /***************************************************
+   * 7) Team Setup Screen (with Unique IDs)
+   ***************************************************/
+  btnAddTeam.addEventListener('click', async () => {
+    const name = teamNameInput.value.trim();
+    const size = Number(teamSizeInput.value.trim() || 0);
+    if (!name) {
+      alert("Enter a team name.");
+      return;
+    }
+    if (size < 1) {
+      alert("Enter a valid team size.");
+      return;
+    }
+
+    // Generate a unique ID for this team
+    // We'll keep re-generating until we find one not in use
+    const teamId = await generateUniqueTeamID(currentDate);
+
+    // Store locally
+    allTeams.push({ id: teamId, name, size });
+    refreshTeamList();
+    // Clear inputs
+    teamNameInput.value = "";
+    teamSizeInput.value = "";
+  });
+
+  // Helper to generate a random ID and check if it exists.
+  async function generateUniqueTeamID(date) {
+    // Just keep trying until we find one that doesn't exist
+    // For a small scale, collisions are extremely unlikely, but let's do a quick check
+    while (true) {
+      const candidate = "T-" + Math.random().toString(36).substring(2,10);
+      const snap = await get(child(ref(db), `scores/${date}/${candidate}`));
+      if (!snap.exists()) {
+        return candidate;
+      }
+      // else loop again
+    }
+  }
+
+  function refreshTeamList() {
+    teamList.innerHTML = "";
+    allTeams.forEach(t => {
+      const li = document.createElement('li');
+
+      // Create inputs for editing name & size
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = t.name;
+
+      const sizeInput = document.createElement('input');
+      sizeInput.type = 'number';
+      sizeInput.min = '1';
+      sizeInput.value = t.size;
+
+      // Create "Save" button
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', async () => {
+        const newName = nameInput.value.trim();
+        const newSize = Number(sizeInput.value.trim() || 1);
+
+        if (!newName) {
+          alert("Team name cannot be empty.");
+          return;
+        }
+
+        // Update local array
+        t.name = newName;
+        t.size = newSize;
+
+        // Update Firebase
+        const path = `scores/${currentDate}/${t.id}`;
+        try {
+          await update(ref(db, path), {
+            team_name: t.name,
+            number_of_people: t.size
+          });
+          alert("Team updated!");
+        } catch (err) {
+          console.error("Error updating team:", err);
+          alert("Could not update team in DB.");
+        }
+      });
+
+      // Append everything
+      li.appendChild(nameInput);
+      li.appendChild(sizeInput);
+      li.appendChild(saveBtn);
+
+      // Optionally show the ID, if you like:
+      // const idSpan = document.createElement('span');
+      // idSpan.textContent = ` [id: ${t.id}]`;
+      // li.appendChild(idSpan);
+
+      teamList.appendChild(li);
+    });
+  }
+
+
+  btnProceedToRounds.addEventListener('click', async () => {
+    if (!allTeams.length) {
+      alert("Please add at least one team first.");
+      return;
+    }
+    // Save these teams into DB => scores/[currentDate]/[teamId]
+    for (let t of allTeams) {
+      const path = `scores/${currentDate}/${t.id}`;
+      await update(ref(db, path), {
+        team_name: t.name,
+        number_of_people: t.size
+      });
+    }
+
+    // Now go to Round Select
+    await loadRoundOptions();
+    showScreen(screenRoundSelect);
+  });
+
+  /***************************************************
+   * 8) Rubric Screen
+   ***************************************************/
+  btnAddMoreTeams.addEventListener('click', async () => {
+    // Re-fetch teams from DB, show in Team Setup
+    allTeams = await fetchTeamsForDate(currentDate);
+    refreshTeamList();
+    showScreen(screenTeamSetup);
+  });
+
+  btnSelectRoundFromRubric.addEventListener('click', async () => {
+    await loadRoundOptions();
+    showScreen(screenRoundSelect);
+  });
+
+  async function showRubric() {
+    showScreen(screenRubric);
+    rubricContent.innerHTML = "Loading...";
+
+    // Make sure we have the trivia loaded for this date (so we know round numbers)
+    if (!cachedTriviaData[currentDate]) {
+      const snap = await get(child(ref(db), `trivia/${currentDate}`));
+      cachedTriviaData[currentDate] = snap.exists() ? snap.val() : {};
+    }
+    const allRounds = Object.keys(cachedTriviaData[currentDate])
+      .sort((a,b)=> Number(a)-Number(b));
+
+    // Load team data from /scores/[currentDate]
+    const snap = await get(child(ref(db), `scores/${currentDate}`));
+    if (!snap.exists()) {
+      rubricContent.innerHTML = "<p>No scores found for this date.</p>";
+      return;
+    }
+    const dateScores = snap.val(); 
+    // structure: { [teamId]: { team_name, number_of_people, bonus, instagram_challenge, final_challenge, scores: {...} } }
+
+    // We'll build a list of { teamId, name, size, bonus, insta, finalC, roundTotals, finalScore }
+    const teamEntries = [];
+
+    Object.keys(dateScores).forEach(teamId => {
+      const tObj = dateScores[teamId];
+      const tName = tObj.team_name || "No Name";
+      const tSize = tObj.number_of_people || 0;
+      const bonus = Number(tObj.bonus || 0);
+      const insta = Number(tObj.instagram_challenge || 0);
+      const finalC = Number(tObj.final_challenge || 0);
+
+      // sumOfRounds by scanning tObj.scores => { [roundNum]: { qid => score } }
+      let sumOfRounds = 0;
+      let roundScoreMap = {}; // { [roundNum]: total }
+
+      if (tObj.scores) {
+        Object.keys(tObj.scores).forEach(rNum => {
+          let rTotal = 0;
+          const qScoreObj = tObj.scores[rNum];
+          if (qScoreObj) {
+            Object.values(qScoreObj).forEach(val => {
+              rTotal += Number(val || 0);
+            });
+          }
+          roundScoreMap[rNum] = rTotal;
+          sumOfRounds += rTotal;
+        });
+      }
+
+      const penalty = getTeamSizePenalty(tSize);
+      const finalScore = sumOfRounds + bonus + insta + finalC + penalty;
+
+      teamEntries.push({
+        teamId, name: tName, size: tSize,
+        bonus, insta, finalC,
+        roundScores: roundScoreMap,
+        penalty,
+        finalScore
+      });
+    });
+
+    // Sort teamEntries by finalScore desc
+    teamEntries.sort((a,b) => b.finalScore - a.finalScore);
+
+    // Build table
+    let html = `<table>
+      <thead>
+        <tr>
+          <th>#</th>        
+          <th>Team</th>
+          <th>Size</th>`;
+
+
+    // columns for each round
+    allRounds.forEach(r => {
+      html += `<th class="round-col">R${r}</th>`;
+    });
+
+    // Extra columns: Bonus, Insta, Final Ch, Penalty, Final
+    html += `
+          <th class="round-col">Team Name Bonus</th>
+          <th class="round-col">IG Ch.</th>
+          <th class="round-col">Final Ch.</th>
+          <th class="round-col">Size Penalty</th>
+          <th class="round-col">Final</th>
+        </tr>
+      </thead>
+      <tbody>
+    `;
+
+    teamEntries.forEach((entry, index) => {
+      html += `<tr data-teamid="${entry.teamId}">
+        <td>${index + 1}</td>      <!-- NEW rank cell -->
+        <td>${entry.name}</td>
+        <td>${entry.size}</td>`;
+
+
+      // round columns
+      allRounds.forEach(r => {
+        const rVal = entry.roundScores[r] || 0;
+        html += `<td>${rVal.toFixed(1)}</td>`; // round to tenths
+      });
+
+      html += `
+        <td><input type="number" class="bonusInput" value="${entry.bonus}" style="width:60px"></td>
+        <td><input type="number" class="instaInput" value="${entry.insta}" style="width:60px"></td>
+        <td><input type="number" class="finalChInput" value="${entry.finalC}" style="width:60px"></td>
+        <td>${entry.penalty.toFixed(1)}</td>
+        <td>${entry.finalScore.toFixed(1)}</td>
+      </tr>`;
+    });
+
+    html += `</tbody></table>`;
+    rubricContent.innerHTML = html;
+
+    // Listen for changes in bonus/insta/final columns
+    const rows = rubricContent.querySelectorAll('tr[data-teamid]');
+    rows.forEach(row => {
+      const bonusInput = row.querySelector('.bonusInput');
+      const instaInput = row.querySelector('.instaInput');
+      const finalChInput = row.querySelector('.finalChInput');
+
+      const teamId = row.getAttribute('data-teamid');
+
+      function handleChange() {
+        const b = Number(bonusInput.value || 0);
+        const i = Number(instaInput.value || 0);
+        const f = Number(finalChInput.value || 0);
+
+        update(ref(db, `scores/${currentDate}/${teamId}`), {
+          bonus: b,
+          instagram_challenge: i,
+          final_challenge: f
+        })
+        .then(() => {
+          // Recompute that row's final
+          recalcRow(row);
+        })
+        .catch(err => {
+          console.error("Error saving bonus/insta/final:", err);
+        });
+      }
+      bonusInput.addEventListener('change', handleChange);
+      instaInput.addEventListener('change', handleChange);
+      finalChInput.addEventListener('change', handleChange);
+    });
+  }
+
+  // Recompute final score for one row => round columns + bonus + insta + finalCh + penalty
+  function recalcRow(row) {
+    // row structure:
+    //  0: Team Name
+    //  1: Size
+    //  2..(2+roundCount-1): Round Scores
+    //  next 3: bonus, insta, finalCh inputs
+    //  next: penalty (non-editable)
+    //  last: final (non-editable)
+    const cells = row.querySelectorAll('td');
+    const size = Number(cells[1].textContent) || 0;
+
+    // figure out how many round columns by scanning until we see an <input>
+    let roundSum = 0;
+    let col = 2;
+    while (true) {
+      if (col >= cells.length) break;
+      const inputEl = cells[col].querySelector('input');
+      if (inputEl) {
+        // we've reached the bonus cell
+        break;
+      }
+      // else this is a round score cell
+      roundSum += Number(cells[col].textContent || 0);
+      col++;
+    }
+    // now col points to the bonus cell
+    const bonusInput = cells[col].querySelector('input');
+    const bonus = Number(bonusInput.value || 0);
+    const instaInput = cells[col+1].querySelector('input');
+    const insta = Number(instaInput.value || 0);
+    const finalChInput = cells[col+2].querySelector('input');
+    const finalC = Number(finalChInput.value || 0);
+    // penalty cell => col+3
+    const penaltyCell = cells[col+3];
+    // finalCell => col+4
+    const finalCell = cells[col+4];
+
+    const penalty = getTeamSizePenalty(size);
+    penaltyCell.textContent = penalty.toFixed(1);
+
+    const finalScore = roundSum + bonus + insta + finalC + penalty;
+    finalCell.textContent = finalScore.toFixed(1);
+
+    // Note: We do NOT reorder the entire table here. 
+    // If you want the table to re-sort after each edit, you can re-run showRubric().
+  }
+
+  // Team size penalty: 6 or under => 0, 7 => -4, 8 => -6, etc.
+  function getTeamSizePenalty(size) {
+    if (size <= 6) return 0;
+    const diff = size - 6;
+    // 7 => -4, 8 => -6, 9 => -8, etc.
+    // formula: -2 * diff - 2
+    return -2 * diff - 2;
+  }
+
+  /***************************************************
+   * 9) Round Selection Screen
+   ***************************************************/
+  btnOpenGrading.addEventListener('click', () => {
+    currentRound = roundSelect.value;
+    if (!currentRound) {
+      alert("No round selected.");
+      return;
+    }
+    showGradingScreen();
+  });
+
+  btnBackToRubric.addEventListener('click', () => {
+    showRubric();
+  });
+
+  async function loadRoundOptions() {
+    if (!cachedTriviaData[currentDate]) {
+      const snap = await get(child(ref(db), `trivia/${currentDate}`));
+      cachedTriviaData[currentDate] = snap.exists() ? snap.val() : {};
+    }
+    const data = cachedTriviaData[currentDate];
+    const roundKeys = Object.keys(data).sort((a,b) => Number(a) - Number(b));
+    roundSelect.innerHTML = "";
+    roundKeys.forEach(rNum => {
+      const opt = document.createElement("option");
+      opt.value = rNum;
+      opt.textContent = `Round ${rNum}`;
+      roundSelect.appendChild(opt);
+    });
+    if (!roundKeys.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No Rounds Found";
+      roundSelect.appendChild(opt);
+    }
+  }
+
+  /***************************************************
+   * 10) Grading Screen
+   ***************************************************/
+  async function showGradingScreen() {
+    showScreen(screenGrading);
+    // 1) Load teams from DB so we have their IDs, names, sizes
+    allTeams = await fetchTeamsForDate(currentDate);
+    // 2) Populate the <select> with each team's ID as value
+    teamSelect.innerHTML = "";
+    allTeams.forEach(t => {
+      const opt = document.createElement("option");
+      opt.value = t.id;   // store the ID
+      opt.textContent = t.name;
+      teamSelect.appendChild(opt);
+    });
+    // 3) Flatten question data for current round
+    loadQuestionDataForRound(currentRound);
+    // 4) Load table for the first team in the dropdown
+    loadTeamScoresIntoTable(teamSelect.value);
+  }
+
+  teamSelect.addEventListener('change', () => {
+    loadTeamScoresIntoTable(teamSelect.value);
+  });
+
+  function loadQuestionDataForRound(rNum) {
+    const dataForDate = cachedTriviaData[currentDate] || {};
+    const roundObj = dataForDate[rNum] || {};
+
+    // Flatten them in the order: Written, Puzzle, Visual, Fill-In, Music
+    currentRoundData = {}; // { uniqueQID => { roundType, question, answer, totalPoints } }
+    roundTypeOrder.forEach(rType => {
+      if (roundObj[rType]) {
+        const questionsOfType = roundObj[rType];
+        Object.keys(questionsOfType).forEach(qId => {
+          const q = questionsOfType[qId];
+          const uniqueQID = `${rType}-${qId}`;
+          currentRoundData[uniqueQID] = {
+            roundType: rType,
+            question: q.question || "",
+            answer: q.answer || "",
+            totalPoints: Number(q.total_possible_points) || 0
+          };
+        });
+      }
+    });
+  }
+
+  async function loadTeamScoresIntoTable(teamId) {
+    if (!teamId) {
+      questionTable.innerHTML = "";
+      return;
+    }
+    // Load existing scores from DB => scores/[date]/[teamId]/scores/[roundNum]
+    const path = `scores/${currentDate}/${teamId}/scores/${currentRound}`;
+    const snap = await get(child(ref(db), path));
+    const teamRoundScores = snap.exists() ? snap.val() : {};
+
+    // Build table rows in the same order as currentRoundData
+    questionTable.innerHTML = "";
+    const uniqueQIDs = Object.keys(currentRoundData);
+
+    uniqueQIDs.forEach(uniqueQID => {
+      const {roundType, question, answer, totalPoints} = currentRoundData[uniqueQID];
+      const storedVal = teamRoundScores[uniqueQID];
+      const hasScore = (storedVal !== undefined && storedVal !== null);
+
+      // Create <tr>
+      const tr = document.createElement('tr');
+
+      // 1) Round Type
+      const tdType = document.createElement('td');
+      tdType.textContent = roundType;
+      tr.appendChild(tdType);
+
+      // 2) Question
+      const tdQ = document.createElement('td');
+
+      /**
+       * Attempt to extract the file ID from various Drive link patterns.
+       * Returns '' (empty) if no valid file ID is found.
+       * Supported examples:
+       *  - https://drive.google.com/open?id=FILE_ID
+       *  - https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+       */
+      function extractDriveFileId(driveUrl) {
+        let result = "";
+
+        try {
+          const urlObj = new URL(driveUrl);
+
+          // Case 1: ?id=FILE_ID
+          //  e.g. https://drive.google.com/open?id=...&usp=...
+          const paramId = urlObj.searchParams.get("id");
+          if (paramId) {
+            return paramId;
+          }
+
+          // Case 2: /file/d/FILE_ID/
+          //  e.g. https://drive.google.com/file/d/1abc123XYZ/view?usp=sharing
+          // We'll split the path and look for "file", "d", "FILE_ID"
+          const pathParts = urlObj.pathname.split("/");
+          // pathParts might be ["", "file", "d", "1abc123XYZ", "view"]
+          const fileIndex = pathParts.indexOf("file");
+          const dIndex = pathParts.indexOf("d");
+
+          if (fileIndex !== -1 && dIndex === fileIndex + 1 && pathParts[dIndex+1]) {
+            return pathParts[dIndex+1]; // The actual ID
+          }
+        } catch (e) {
+          // If it's not a valid URL, just ignore
+          console.warn("Could not parse as Drive URL:", driveUrl);
+        }
+
+        return result;
+      }
+
+      // If question references drive.google.com, try to parse it as an image
+      if (question.includes("drive.google.com")) {
+        const fileId = extractDriveFileId(question);
+
+        if (fileId) {
+          // Construct direct link
+          const directLink = `https://drive.google.com/uc?export=view&id=${fileId}`;
+
+          const img = document.createElement('img');
+          img.src = directLink;
+          img.style.maxWidth = "300px";
+          img.style.height = "auto";
+          tdQ.appendChild(img);
+        } else {
+          // Fallback - display the raw link if we couldn't parse an ID
+          tdQ.textContent = question;
+        }
+      } else {
+        // Otherwise, just display the text
+        tdQ.textContent = question;
+      }
+
+      tr.appendChild(tdQ);
+
+
+
+      // 3) Answer
+      const tdA = document.createElement('td');
+      tdA.textContent = answer;
+      tr.appendChild(tdA);
+
+      // 4) Points
+      const tdPts = document.createElement('td');
+      tdPts.textContent = totalPoints;
+      tr.appendChild(tdPts);
+
+      /*********************************************************
+       * 5) Radio Buttons for partial credit
+       *********************************************************/
+      const tdRadioGroup = document.createElement('td');
+      tdRadioGroup.classList.add('slider-cell'); // re-use the same style if you'd like
+
+      // This cell will hold the final numeric score
+      const calcCell = document.createElement('td');
+      calcCell.classList.add('calc-cell');
+
+      /*********************************************
+       * 1) Figure out the ratio => bestIdx
+       *********************************************/
+      let ratio;
+      if (!hasScore) {
+        // If no DB score, default to 100%
+        ratio = 1.0;
+      } else {
+        const existingScore = Number(storedVal || 0);
+        ratio = totalPoints ? existingScore / totalPoints : 0;
+      }
+
+      // First pass: find which index is closest to our ratio
+      let bestIdx = 0;
+      let bestDiff = Infinity;
+      PERCENTAGE_MAP.forEach((pctVal, i) => {
+        const diff = Math.abs(pctVal - ratio);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestIdx = i;
+        }
+      });
+
+      /*********************************************
+       * 2) Build the actual radio inputs
+       *********************************************/
+      PERCENTAGE_MAP.forEach((pctVal, idx) => {
+        const lbl = document.createElement('label');
+        lbl.style.display = "block";
+        lbl.style.marginBottom = "6px";
+
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = `scoreRadioGroup${uniqueQID}`;
+        radio.value = idx;
+
+        // Enlarge 0%, 50%, and 100% radio buttons
+        if (pctVal === 0.0 || pctVal === 0.50 || pctVal === 1.0) {
+          radio.style.transform = "scale(2.0)";
+          lbl.style.fontSize = "200%";
+        }
+
+        // Check this radio if idx matches bestIdx
+        if (idx === bestIdx) {
+          radio.checked = true;
+        }
+
+        // On change => recalc
+        radio.addEventListener('change', recalcScore);
+
+        lbl.appendChild(radio);
+        lbl.appendChild(document.createTextNode(` ${(pctVal * 100).toFixed(0)}%`));
+        tdRadioGroup.appendChild(lbl);
+      });
+
+
+      // Recalc function => updates calcCell text
+      function recalcScore() {
+        const checkedRadio = tdRadioGroup.querySelector('input[type="radio"]:checked');
+        if (!checkedRadio) return;
+
+        const idx = Number(checkedRadio.value);
+        const pct = PERCENTAGE_MAP[idx];
+        const newScore = totalPoints * pct;
+        calcCell.textContent = newScore.toFixed(2); // show 2 decimals
+      }
+
+      // Initial calculation
+      recalcScore();
+
+      // Append to the row
+      tr.appendChild(tdRadioGroup);
+      tr.appendChild(calcCell);
+
+
+      questionTable.appendChild(tr);
+    });
+  }
+
+  // Save Scores
+  btnSaveScores.addEventListener('click', async () => {
+    const teamId = teamSelect.value;
+    if (!teamId) {
+      alert("No team selected!");
+      return;
+    }
+    // We'll assume each row corresponds to a uniqueQID in the same order
+    const uniqueQIDs = Object.keys(currentRoundData);
+    const rows = questionTable.querySelectorAll('tr');
+    let updates = {};
+
+    rows.forEach((tr, i) => {
+      const uniqueQID = uniqueQIDs[i];
+      // Cell #3 holds the "Points"
+      const ptsCell = tr.children[3];
+      const totalPoints = Number(ptsCell.textContent || 0);
+
+      // Column #4 has the radio group
+      const radioCell = tr.children[4];
+      const checkedRadio = radioCell.querySelector('input[type="radio"]:checked');
+
+      if (!checkedRadio) {
+        // No selection => store 0
+        updates[uniqueQID] = 0;
+        return;
+      }
+
+      const idx = Number(checkedRadio.value);
+      const pct = PERCENTAGE_MAP[idx];
+      const score = totalPoints * pct;
+      updates[uniqueQID] = Number(score.toFixed(2));
+    });
+
+
+    const path = `scores/${currentDate}/${teamId}/scores/${currentRound}`;
+    try {
+      await set(ref(db, path), updates);
+      alert("Scores saved!");
+    } catch (e) {
+      console.error(e);
+      alert("Error saving scores: " + e);
+    }
+  });
+
+  btnSwitchTeam.addEventListener('click', () => {
+    if (teamSelect.options.length > 1) {
+      const idx = teamSelect.selectedIndex;
+      const newIdx = (idx + 1) % teamSelect.options.length;
+      teamSelect.selectedIndex = newIdx;
+      loadTeamScoresIntoTable(teamSelect.value);
+    } else {
+      alert("Only one team in the list.");
+    }
+  });
+
+  btnDoneRound.addEventListener('click', () => {
+    showRubric();
+  });
+
+  /***************************************************
+   * 11) Utility: Fetch teams for a date
+   ***************************************************/
+  async function fetchTeamsForDate(date) {
+    const snap = await get(child(ref(db), `scores/${date}`));
+    if (!snap.exists()) {
+      return [];
+    }
+    const data = snap.val(); 
+    // data => { [teamId]: { team_name, number_of_people, ... } }
+    const results = [];
+    Object.keys(data).forEach(teamId => {
+      const tObj = data[teamId];
+      results.push({
+        id: teamId,
+        name: tObj.team_name || "Unnamed",
+        size: tObj.number_of_people || 0
+      });
+    });
+    return results;
+  }
+</script>
+
+</body>
+</html>
