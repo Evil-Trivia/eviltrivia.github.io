@@ -923,71 +923,58 @@
       const tdType = document.createElement('td');
       tdType.textContent = roundType;
       tr.appendChild(tdType);
-
-      // 2) Question
+      
+      // 2) Question cell logic using an iframe for Google Drive embeds
       const tdQ = document.createElement('td');
-
+      
       /**
        * Attempt to extract the file ID from various Drive link patterns.
        * Returns '' (empty) if no valid file ID is found.
-       * Supported examples:
-       *  - https://drive.google.com/open?id=FILE_ID
-       *  - https://drive.google.com/file/d/FILE_ID/view?usp=sharing
        */
       function extractDriveFileId(driveUrl) {
         let result = "";
-
         try {
           const urlObj = new URL(driveUrl);
-
           // Case 1: ?id=FILE_ID
-          //  e.g. https://drive.google.com/open?id=...&usp=...
           const paramId = urlObj.searchParams.get("id");
           if (paramId) {
             return paramId;
           }
-
           // Case 2: /file/d/FILE_ID/
-          //  e.g. https://drive.google.com/file/d/1abc123XYZ/view?usp=sharing
-          // We'll split the path and look for "file", "d", "FILE_ID"
           const pathParts = urlObj.pathname.split("/");
-          // pathParts might be ["", "file", "d", "1abc123XYZ", "view"]
           const fileIndex = pathParts.indexOf("file");
           const dIndex = pathParts.indexOf("d");
-
           if (fileIndex !== -1 && dIndex === fileIndex + 1 && pathParts[dIndex+1]) {
-            return pathParts[dIndex+1]; // The actual ID
+            return pathParts[dIndex+1];
           }
         } catch (e) {
-          // If it's not a valid URL, just ignore
           console.warn("Could not parse as Drive URL:", driveUrl);
         }
-
         return result;
       }
-
-      // If question references drive.google.com, try to parse it as an image
+      
       if (question.includes("drive.google.com")) {
         const fileId = extractDriveFileId(question);
-
         if (fileId) {
-          // Construct direct link
-          const directLink = `https://drive.google.com/uc?export=view&id=${fileId}`;
-
-          const img = document.createElement('img');
-          img.src = directLink;
-          img.style.maxWidth = "300px";
-          img.style.height = "auto";
-          tdQ.appendChild(img);
+          // Construct the preview URL using Google Drive's embed feature
+          const previewUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+          // Create an iframe with adjusted sizing to fit the table
+          const iframe = document.createElement('iframe');
+          iframe.src = previewUrl;
+          iframe.width = "300";   // adjust width as needed
+          iframe.height = "200";  // adjust height as needed
+          iframe.allow = "autoplay";
+          tdQ.innerHTML = "";
+          tdQ.appendChild(iframe);
         } else {
-          // Fallback - display the raw link if we couldn't parse an ID
+          // Fallback: display the raw link if fileId can't be extracted
           tdQ.textContent = question;
         }
       } else {
-        // Otherwise, just display the text
+        // For non-Drive links, simply display the text
         tdQ.textContent = question;
       }
-
+      
       tr.appendChild(tdQ);
 
 
