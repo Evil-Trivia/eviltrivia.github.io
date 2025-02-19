@@ -120,6 +120,17 @@
 
 <h1>Evil Trivia: Grading These Dumb Idiots</h1>
 
+<!-- SNIPPET 1A: Add this HTML block -->
+<div id="screenPasswordPrompt" class="screen">
+  <h2>Admin Password</h2>
+  <p>Please enter the password to unlock grading:</p>
+  <input type="password" id="adminPassInput" />
+  <div class="button-row">
+    <button id="btnCheckAdminPass">Unlock</button>
+  </div>
+</div>
+
+
 <!-- SCREEN A: Date Selection -->
 <div id="screenDateSelect" class="screen active">
   <h2>1. Select Date</h2>
@@ -264,6 +275,82 @@
   const btnSaveScores       = document.getElementById('btnSaveScores');
   const btnSwitchTeam       = document.getElementById('btnSwitchTeam');
   const btnDoneRound        = document.getElementById('btnDoneRound');
+
+  /***************************************************
+   * SNIPPET 1B: Password Prompt Logic
+   ***************************************************/
+  const screenPasswordPrompt = document.getElementById('screenPasswordPrompt');
+  const adminPassInput       = document.getElementById('adminPassInput');
+  const btnCheckAdminPass    = document.getElementById('btnCheckAdminPass');
+  
+  // 2) We'll store the fetched DB password in memory once
+  let dbAdminPassword = null;
+  
+  // 3) Right after you initialize or on page load, fetch the DB password:
+  window.addEventListener('DOMContentLoaded', async () => {
+    await loadDates();
+    await loadAdminPassword(); // after loadDates, or before, doesn't matter much
+  });
+  
+  async function loadAdminPassword() {
+    try {
+      const snap = await get(child(ref(db), 'adminSettings/password'));
+      if (snap.exists()) {
+        dbAdminPassword = snap.val(); 
+        console.log("Fetched admin password from DB:", dbAdminPassword);
+      } else {
+        console.warn("No admin password found in DB!");
+        dbAdminPassword = null;
+      }
+    } catch(e) {
+      console.error("Error fetching admin password:", e);
+    }
+  }
+  
+  // 4) Modify your 'btnCheckGrading' handler to show the password screen first
+  btnCheckGrading.removeEventListener('click', /* whatever was there */); 
+  // We'll re-add below
+  
+  btnCheckGrading.addEventListener('click', async () => {
+    currentDate = dateSelect.value;
+    if (!currentDate) {
+      alert("Please select a date.");
+      return;
+    }
+    // Instead of jumping to showRubric / showScreen now,
+    // we show the password screen to validate. The user must enter it.
+    showScreen(screenPasswordPrompt);
+  });
+  
+  // 5) On "Unlock" button => compare user input vs. dbAdminPassword
+  btnCheckAdminPass.addEventListener('click', () => {
+    const typed = adminPassInput.value.trim();
+    if (!dbAdminPassword) {
+      alert("No admin password was found in DB. Contact admin!");
+      return;
+    }
+    if (typed === dbAdminPassword) {
+      // success => proceed with the logic you'd do after date selection
+      checkIfScoresExistThenShowRubric();
+    } else {
+      alert("Incorrect password. Try again.");
+    }
+  });
+  
+  // 6) Helper to do what you originally did in 'btnCheckGrading'
+  async function checkIfScoresExistThenShowRubric() {
+    // We already have currentDate
+    const snap = await get(child(ref(db), `scores/${currentDate}`));
+    if (snap.exists()) {
+      // We have existing grading => go to Rubric
+      showRubric();
+    } else {
+      // No existing grading => go to Team Setup
+      allTeams = [];
+      teamList.innerHTML = "";
+      showScreen(screenTeamSetup);
+    }
+  }
 
   /***************************************************
    * 3) App State Variables
@@ -713,12 +800,40 @@
     const data = cachedTriviaData[currentDate];
     const roundKeys = Object.keys(data).sort((a,b) => Number(a) - Number(b));
     roundSelect.innerHTML = "";
+        /***************************************************
+     * SNIPPET 2: Filter the RoundSelect by availableRounds
+     ***************************************************/
+    // Right after you get `roundKeys` from trivia
+    const adminAvailSnap = await get(child(ref(db), `adminSettings/${currentDate}/availableRounds`));
+    let availableMap = {}; // e.g. { '1': true, '2': false, ... }
+    if (adminAvailSnap.exists()) {
+      availableMap = adminAvailSnap.val();
+    }
+    
+    // Now build the dropdown
+    roundSelect.innerHTML = "";
+    let anyAvailable = false;
+    
     roundKeys.forEach(rNum => {
-      const opt = document.createElement("option");
-      opt.value = rNum;
-      opt.textContent = `Round ${rNum}`;
-      roundSelect.appendChild(opt);
+      // Only create <option> if availableMap[rNum] is true 
+      // (or if the key isn't found, default to false => skip)
+      if (availableMap[rNum]) {
+        anyAvailable = true;
+        const opt = document.createElement("option");
+        opt.value = rNum;
+        opt.textContent = `Round ${rNum}`;
+        roundSelect.appendChild(opt);
+      }
     });
+    
+    // If none are available, show a "No Rounds Found" message 
+    if (!anyAvailable) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No Rounds Available";
+      roundSelect.appendChild(opt);
+    }
+
     if (!roundKeys.length) {
       const opt = document.createElement("option");
       opt.value = "";
