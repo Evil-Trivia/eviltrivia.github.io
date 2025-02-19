@@ -969,24 +969,32 @@
       // If question references drive.google.com, try to parse it as an image
       if (question.includes("drive.google.com")) {
         const fileId = extractDriveFileId(question);
-
+      
         if (fileId) {
-          // Construct direct link
-          const directLink = `https://drive.google.com/uc?export=view&id=${fileId}`;
-
+          // Try using export=download for embedding
+          const directLink = `https://drive.google.com/uc?export=download&id=${fileId}`;
+      
           const img = document.createElement('img');
-          img.src = directLink;
           img.style.maxWidth = "300px";
           img.style.height = "auto";
+      
+          // First attempt: direct link
+          img.src = directLink;
+      
+          // If it fails to load (sometimes Google Drive blocks inline embedding),
+          // fallback to the original question link (which you know is shareable).
+          img.onerror = () => {
+            console.warn("Direct link failed, falling back to the original link: ", question);
+            img.src = question;
+          };
+      
           tdQ.appendChild(img);
         } else {
           // Fallback - display the raw link if we couldn't parse an ID
           tdQ.textContent = question;
         }
-      } else {
-        // Otherwise, just display the text
-        tdQ.textContent = question;
       }
+
 
       tr.appendChild(tdQ);
 
