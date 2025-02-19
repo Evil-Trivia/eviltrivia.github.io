@@ -1,28 +1,235 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trivia Score Report</title>
-    <script type="module" src="scoreexporter.js"></script>
+  <meta charset="UTF-8" />
+  <title>Trivia Results</title>
 </head>
 <body>
-    <h1>Trivia Score Report</h1>
-    <label for="datePicker">Select Date:</label>
-    <input type="date" id="datePicker">
-    <button id="fetchData">Fetch Results</button>
+  <h1>Trivia Results</h1>
+  <!-- Date selection -->
+  <label for="dateInput">Select Date:</label>
+  <input type="date" id="dateInput" />
+  <button id="loadBtn">Load Data</button>
 
-    <table border="1">
-        <thead>
-            <tr>
-                <th>Round Type</th>
-                <th>Question</th>
-                <th>Answer</th>
-                <th>Score Correct</th>
-                <th>Total Possible</th>
-            </tr>
-        </thead>
-        <tbody id="resultsTable"></tbody>
-    </table>
+  <!-- Table to display results -->
+  <table border="1" id="resultsTable">
+    <thead>
+      <tr>
+        <th>Round Type</th>
+        <th>Question</th>
+        <th>Answer</th>
+        <th>Score Correct</th>
+        <th>Total Possible</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Rows will be inserted here by JavaScript -->
+    </tbody>
+  </table>
+
+  <!-- Firebase SDKs -->
+  <script type="module">
+    // --- Import Firebase libraries (v9+ modular) ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.14.0/firebase-app.js";
+    import { getDatabase, ref, child, get } from "https://www.gstatic.com/firebasejs/9.14.0/firebase-database.js";
+
+    // --- Your web app's Firebase configuration ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyBy8ExrgvBDto-BcNhlvrcC6ZB9G7HNaWE",
+      authDomain: "eviltriviagrading.firebaseapp.com",
+      databaseURL: "https://eviltriviagrading-default-rtdb.firebaseio.com",
+      projectId: "eviltriviagrading",
+      storageBucket: "eviltriviagrading.firebasestorage.app",
+      messagingSenderId: "738486013114",
+      appId: "1:738486013114:web:fe0f480cc3f66f42d6c683",
+      measurementId: "G-R84N89NTJZ"
+    };
+
+    // --- Initialize Firebase ---
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // --- Helper function to flatten the trivia structure ---
+    // It extracts each question’s data into a dictionary keyed by "Puzzle-puzzle-128-1", etc.
+    // Example key => { roundType, roundName, question, answer, totalPossible }
+    function flattenTrivia(triviaRounds) {
+      const result = {};
+      // triviaRounds is an array: index 0 is null, indexes 1..n are round data objects
+      for (let roundIndex = 1; roundIndex < triviaRounds.length; roundIndex++) {
+        const roundData = triviaRounds[roundIndex];
+        if (!roundData) continue;
+
+        // Each roundData may have keys like "Puzzle", "Visual", "Written", "Music", ...
+        for (const groupKey of Object.keys(roundData)) {
+          const groupVal = roundData[groupKey]; // e.g. { puzzle-127-1: {...}, puzzle-127-2: {...} } or an array
+          if (!groupVal) continue;
+
+          if (Array.isArray(groupVal)) {
+            // For "Written" or "Music" that come as arrays
+            // Example: groupVal[1], groupVal[2], ...
+            for (let i = 1; i < groupVal.length; i++) {
+              const questionObj = groupVal[i];
+              if (!questionObj) continue;
+              // questionObj might look like:
+              // { answer: "...", question: "...", round_name: "...", round_type: "...", total_possible_points: 2 }
+              const questionKey = `${groupKey}-${i}`; 
+              // This is an artificial key, but matches how 'scores' might store them 
+              // (some are "Written-3", "Music-2", etc.). Adjust as needed if your real keys differ.
+              result[questionKey] = {
+                roundType: questionObj.round_type || groupKey,
+                roundName: questionObj.round_name || "",
+                question: questionObj.question || "",
+                answer: questionObj.answer || "",
+                totalPossible: questionObj.total_possible_points || 0,
+              };
+            }
+          } else {
+            // For "Puzzle" or "Visual" that come as an object of objects
+            // e.g. "Puzzle": {"puzzle-127-1": { answer: "...", ... } }
+            for (const questionId of Object.keys(groupVal)) {
+              const qObj = groupVal[questionId];
+              if (!qObj) continue;
+              // questionId might be "puzzle-127-1" or "Visual-364-Q1", etc.
+              // We'll store them in a dictionary
+              result[`${groupKey}-${questionId}`] = {
+                roundType: qObj.round_type || groupKey,
+                roundName: qObj.round_name || "",
+                question: qObj.question || "",
+                answer: qObj.answer || "",
+                totalPossible: qObj.total_possible_points || 0,
+              };
+            }
+          }
+        }
+      }
+      return result;
+    }
+
+    // --- Event listener for the "Load Data" button ---
+    document.getElementById('loadBtn').addEventListener('click', async () => {
+      const date = document.getElementById('dateInput').value;
+      if (!date) {
+        alert('Please select a date!');
+        return;
+      }
+
+      // Clear the table
+      const tbody = document.querySelector('#resultsTable tbody');
+      tbody.innerHTML = '';
+
+      try {
+        // Get trivia data for that date
+        const triviaSnapshot = await get(child(ref(db), `trivia/${date}`));
+        // Get scores data for that date
+        const scoresSnapshot = await get(child(ref(db), `scores/${date}`));
+
+        if (!triviaSnapshot.exists() || !scoresSnapshot.exists()) {
+          alert('No trivia or scores found for that date!');
+          return;
+        }
+
+        const triviaData = triviaSnapshot.val(); 
+        const scoresData = scoresSnapshot.val(); 
+
+        // Flatten the trivia into a dictionary keyed by "Puzzle-puzzle-127-1", etc.
+        const flattenedTrivia = flattenTrivia(triviaData);
+
+        // For each question in flattenedTrivia, let’s sum up the scores from all teams
+        // The "scores" structure is:
+        //  "T-xxxxxx": {
+        //     scores: [ null, {...}, {...}, ... ] // each object has "Puzzle-puzzle-127-1" => numeric score, etc.
+        //  }
+        //
+        // We'll do a map questionKey -> { totalScore: ..., totalPossible: ... } 
+        // But totalPossible for each question is questionObj.totalPossible * numberOfTeamsThatRound
+        // For simplicity, we’ll just multiply by the number of times it appears.
+        const aggregatedScores = {};
+        Object.keys(flattenedTrivia).forEach(k => {
+          aggregatedScores[k] = { sum: 0, countAppearances: 0 };
+        });
+
+        // Loop over each team
+        for (const teamId of Object.keys(scoresData)) {
+          const teamObj = scoresData[teamId];
+          if (!teamObj || !teamObj.scores) continue;
+
+          // teamObj.scores is an array like [null, {Puzzle-puzzle-127-1: x, ...}, {Puzzle-puzzle-128-1: y, ...}, ...]
+          for (let roundIndex = 0; roundIndex < teamObj.scores.length; roundIndex++) {
+            const roundScores = teamObj.scores[roundIndex];
+            if (!roundScores) continue;
+            // roundScores is an object of questionId => numeric score
+
+            // Each question ID in roundScores might look like "Puzzle-puzzle-127-1"
+            // Our flattenedTrivia keys look like "Puzzle-puzzle-127-1" as well.
+            // If they match, add to aggregatedScores
+            for (const questionId of Object.keys(roundScores)) {
+              const questionKey = `${questionId}`; // e.g. "Puzzle-puzzle-127-1"
+              // But note in flattenTrivia we used the pattern: "Puzzle-puzzle-127-1" = "Puzzle" + "-" + "puzzle-127-1"
+              // So we need to ensure the logic matches. If your real data matches exactly, you can use the same key directly.
+              // If not, adjust accordingly. For example:
+              // maybe your actual question keys in the "scores" object are "Puzzle-puzzle-127-1" directly, 
+              // then you’d do:
+              // if (flattenedTrivia.hasOwnProperty(questionKey)) { ...
+              //   aggregatedScores[questionKey].sum += roundScores[questionId];
+              //   aggregatedScores[questionKey].countAppearances += 1;
+              // }
+              // Some data sets keep "Puzzle-127-1" or "puzzle-127-1" etc. Adjust as needed.
+
+              // For simplicity, let's suppose the keys are exactly the same:
+              if (flattenedTrivia.hasOwnProperty(questionKey)) {
+                aggregatedScores[questionKey].sum += roundScores[questionId];
+                aggregatedScores[questionKey].countAppearances += 1;
+              }
+            }
+          }
+        }
+
+        // Now build table rows
+        Object.keys(flattenedTrivia).forEach(questionKey => {
+          const qData = flattenedTrivia[questionKey];
+          const agg = aggregatedScores[questionKey];
+
+          // If no teams had that question, skip
+          if (!agg || agg.countAppearances === 0) {
+            return;
+          }
+
+          // Score correct is the sum
+          const scoreCorrect = agg.sum;
+          // Total possible is qData.totalPossible * the number of times teams actually answered it
+          const totalPossible = qData.totalPossible * agg.countAppearances;
+
+          // Create table row
+          const row = document.createElement('tr');
+
+          const tdRoundType = document.createElement('td');
+          tdRoundType.textContent = qData.roundType || "";
+          row.appendChild(tdRoundType);
+
+          const tdQuestion = document.createElement('td');
+          tdQuestion.textContent = qData.question || questionKey;
+          row.appendChild(tdQuestion);
+
+          const tdAnswer = document.createElement('td');
+          tdAnswer.textContent = qData.answer || "";
+          row.appendChild(tdAnswer);
+
+          const tdScore = document.createElement('td');
+          tdScore.textContent = scoreCorrect;
+          row.appendChild(tdScore);
+
+          const tdTotal = document.createElement('td');
+          tdTotal.textContent = totalPossible;
+          row.appendChild(tdTotal);
+
+          tbody.appendChild(row);
+        });
+
+      } catch (err) {
+        console.error(err);
+        alert('Error loading data. Check console for details.');
+      }
+    });
+  </script>
 </body>
 </html>
