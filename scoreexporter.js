@@ -59,18 +59,22 @@ async function fetchTriviaResults() {
 function aggregateScores(trivia, scores) {
     let questionScores = {};
 
-    // Process trivia questions
+    // Iterate over trivia rounds
     for (let roundType in trivia) {
-        for (let questionID in trivia[roundType]) {
-            const questionData = trivia[roundType][questionID];
+        const roundQuestions = trivia[roundType];
 
-            // Initialize question in results object
+        for (let questionID in roundQuestions) {
+            const questionData = roundQuestions[questionID];
+
+            if (!questionData) continue; // Skip null or undefined entries
+
+            // Initialize the question entry
             if (!questionScores[questionID]) {
                 questionScores[questionID] = {
-                    roundType: questionData.round_type,
-                    question: questionData.question,
-                    answer: questionData.answer,
-                    totalPossible: questionData.total_possible_points,
+                    roundType: questionData.round_type || roundType,
+                    question: questionData.question || "No question text available",
+                    answer: questionData.answer || "No answer available",
+                    totalPossible: questionData.total_possible_points || 0,
                     scoreCorrect: 0
                 };
             }
@@ -79,14 +83,14 @@ function aggregateScores(trivia, scores) {
 
     // Process scores from all teams
     for (let team in scores) {
-        const teamScores = scores[team].scores;
+        const teamScores = scores[team]?.scores || [];
 
         for (let round of teamScores) {
-            if (round) {
-                for (let questionID in round) {
-                    if (questionScores[questionID]) {
-                        questionScores[questionID].scoreCorrect += round[questionID];
-                    }
+            if (!round) continue; // Skip empty or null rounds
+
+            for (let questionID in round) {
+                if (questionScores[questionID]) {
+                    questionScores[questionID].scoreCorrect += round[questionID] || 0;
                 }
             }
         }
