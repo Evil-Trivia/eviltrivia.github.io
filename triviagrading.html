@@ -288,24 +288,30 @@
   
   // 3) Right after you initialize or on page load, fetch the DB password:
   window.addEventListener('DOMContentLoaded', async () => {
+    console.log("Loading admin password...");
+    await loadAdminPassword(); // Fetch password FIRST
+    console.log("Admin password loaded:", dbAdminPassword);
     await loadDates();
-    await loadAdminPassword(); // after loadDates, or before, doesn't matter much
   });
+
   
   async function loadAdminPassword() {
     try {
-      const snap = await get(child(ref(db), 'adminSettings/password'));
+      const dbRef = ref(db); // Ensure database reference is set
+      const snap = await get(child(dbRef, 'adminSettings/password'));
+      
       if (snap.exists()) {
-        dbAdminPassword = snap.val(); 
+        dbAdminPassword = snap.val();
         console.log("Fetched admin password from DB:", dbAdminPassword);
       } else {
         console.warn("No admin password found in DB!");
         dbAdminPassword = null;
       }
-    } catch(e) {
+    } catch (e) {
       console.error("Error fetching admin password:", e);
     }
   }
+
   
   // 4) Modify your 'btnCheckGrading' handler to show the password screen first
   btnCheckGrading.removeEventListener('click', /* whatever was there */); 
@@ -325,17 +331,23 @@
   // 5) On "Unlock" button => compare user input vs. dbAdminPassword
   btnCheckAdminPass.addEventListener('click', () => {
     const typed = adminPassInput.value.trim();
+    console.log("Entered password:", typed);
+    console.log("Stored password:", dbAdminPassword);
+  
     if (!dbAdminPassword) {
-      alert("No admin password was found in DB. Contact admin!");
+      alert("Error: Admin password not loaded. Try refreshing the page.");
       return;
     }
+    
     if (typed === dbAdminPassword) {
-      // Success: Hide the password prompt and continue with your original logic
+      console.log("Password correct. Proceeding...");
       checkIfScoresExistThenShowRubric();
     } else {
+      console.log("Incorrect password entered.");
       alert("Incorrect password. Try again.");
     }
   });
+
 
   
   // 6) Helper to do what you originally did in 'btnCheckGrading'
@@ -378,21 +390,18 @@
    * 4) Screen Navigation Helpers
    ***************************************************/
   function showScreen(screenElem) {
-    [
-      screenDateSelect, 
-      screenTeamSetup, 
-      screenRubric, 
-      screenRoundSelect, 
-      screenGrading
-    ].forEach(s => s.classList.remove('active'));
+    console.log("Switching to screen:", screenElem.id);
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     screenElem.classList.add('active');
   }
+
 
   /***************************************************
    * 5) On Page Load: Populate the date dropdown
    ***************************************************/
   window.addEventListener('DOMContentLoaded', async () => {
     await loadDates();
+    await loadAdminPassword();
   });
 
   async function loadDates() {
