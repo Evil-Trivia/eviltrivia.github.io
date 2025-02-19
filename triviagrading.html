@@ -130,16 +130,6 @@
   </div>
 </div>
 
-<!-- Date Selection should NOT be active initially -->
-<div id="screenDateSelect" class="screen">
-  <h2>1. Select Date</h2>
-  <p>Select a trivia date from the database:</p>
-  <select id="dateSelect"></select>
-  <div class="button-row">
-    <button id="btnCheckGrading">Continue</button>
-  </div>
-</div>
-
 
 <!-- SCREEN B: Team Setup -->
 <div id="screenTeamSetup" class="screen">
@@ -247,15 +237,12 @@
   /***************************************************
    * 2) DOM Elements
    ***************************************************/
-  const screenDateSelect    = document.getElementById('screenDateSelect');
   const screenTeamSetup     = document.getElementById('screenTeamSetup');
   const screenRubric        = document.getElementById('screenRubric');
   const screenRoundSelect   = document.getElementById('screenRoundSelect');
   const screenGrading       = document.getElementById('screenGrading');
 
   const dateSelect          = document.getElementById('dateSelect');
-  const btnCheckGrading     = document.getElementById('btnCheckGrading');
-
   const teamNameInput       = document.getElementById('teamNameInput');
   const teamSizeInput       = document.getElementById('teamSizeInput');
   const btnAddTeam          = document.getElementById('btnAddTeam');
@@ -314,38 +301,38 @@
 
 
   
-  btnCheckGrading.addEventListener('click', async () => {
-    currentDate = dateSelect.value;
-    if (!currentDate) {
-      alert("Please select a date.");
-      return;
-    }
-    // Instead of showing the date select screen, show the password prompt
-    showScreen(screenPasswordPrompt);
-  });
+
 
   
   // 5) On "Unlock" button => compare user input vs. dbAdminPassword
-  btnCheckAdminPass.addEventListener('click', () => {
+  btnCheckAdminPass.addEventListener('click', async () => {
     const typed = adminPassInput.value.trim();
-    console.log("Entered password:", typed);
-    console.log("Stored password:", dbAdminPassword);
-  
-    if (!dbAdminPassword) {
-      alert("Error: Admin password not loaded. Try refreshing the page.");
-      return;
-    }
-  
+    ...
     if (typed === dbAdminPassword) {
-      console.log("Password correct. Proceeding...");
-      
-      // Clear the input for security
-      adminPassInput.value = "";
+      // SNIPPET B: Fetch the active date from DB
+      const snapActive = await get(child(ref(db), 'adminSettings/activeDate'));
+      if (!snapActive.exists()) {
+        alert("No active date is set by the Admin. Please contact the Admin!");
+        return;
+      }
+      currentDate = snapActive.val();
+      console.log("Grading page sees active date:", currentDate);
   
-      // Hide password screen and show the next step
-      checkIfScoresExistThenShowRubric();
+      // Check if there's existing grading data
+      const snapScores = await get(child(ref(db), `scores/${currentDate}`));
+      if (snapScores.exists()) {
+        // We have existing grading => show the Rubric
+        showRubric();
+      } else {
+        // No grading => clear local teams, proceed to Team Setup
+        allTeams = [];
+        teamList.innerHTML = "";
+        showScreen(screenTeamSetup);
+      }
+  
+      // Clear password input
+      adminPassInput.value = "";
     } else {
-      console.log("Incorrect password entered.");
       alert("Incorrect password. Try again.");
     }
   });
@@ -433,27 +420,7 @@
     }
   }
 
-  /***************************************************
-   * 6) Date Selected -> Check if there's existing grading
-   ***************************************************/
-  btnCheckGrading.addEventListener('click', async () => {
-    currentDate = dateSelect.value;
-    if (!currentDate) {
-      alert("Please select a date.");
-      return;
-    }
-    // Check if scores/[currentDate] exists
-    const snap = await get(child(ref(db), `scores/${currentDate}`));
-    if (snap.exists()) {
-      // We have existing grading => go to Rubric
-      showRubric();
-    } else {
-      // No existing grading => go to Team Setup
-      allTeams = [];
-      teamList.innerHTML = "";
-      showScreen(screenTeamSetup);
-    }
-  });
+
 
   /***************************************************
    * 7) Team Setup Screen (with Unique IDs)
