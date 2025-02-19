@@ -271,31 +271,50 @@
   
   // 2) We'll store the fetched DB password in memory once
   let dbAdminPassword = null;
+
+  adminPassInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      btnCheckAdminPass.click();
+    }
+  });
   
   // 3) Right after you initialize or on page load, fetch the DB password:
   window.addEventListener('DOMContentLoaded', async () => {
     console.log("Loading admin password...");
-    await loadAdminPassword(); // Fetch password FIRST
+    await loadAdminPassword(); // this sets dbAdminPassword
     console.log("Admin password loaded:", dbAdminPassword);
+  
+    // SNIPPET A: Check localStorage, skip prompt if it matches
+    const savedPass = localStorage.getItem("evilTriviaSavedPw");
+    if (savedPass && dbAdminPassword && savedPass === dbAdminPassword) {
+      console.log("LocalStorage password matches DB password. Skipping prompt.");
+  
+      // Hide the password screen completely
+      screenPasswordPrompt.classList.remove('active');
+      screenPasswordPrompt.style.display = 'none'; 
+  
+      // === Now replicate the "correct password" flow:
+      const snapActive = await get(child(ref(db), 'adminSettings/activeDate'));
+      if (!snapActive.exists()) {
+        alert("No active date is set by the Admin. Please contact the Admin!");
+        return;
+      }
+      currentDate = snapActive.val();
+      console.log("Grading page sees active date:", currentDate);
+  
+      // Check if there's existing grading data under scores/[currentDate]
+      const snapScores = await get(child(ref(db), `scores/${currentDate}`));
+      if (snapScores.exists()) {
+        showRubric();
+      } else {
+        // No grading => clear local teams, proceed to Team Setup
+        allTeams = [];
+        teamList.innerHTML = "";
+        showScreen(screenTeamSetup);
+      }
+    }
   });
 
-  
-  async function loadAdminPassword() {
-    try {
-      const dbRef = ref(db); // Ensure database reference is set
-      const snap = await get(child(dbRef, 'adminSettings/password'));
-      
-      if (snap.exists()) {
-        dbAdminPassword = snap.val();
-        console.log("Fetched admin password from DB:", dbAdminPassword);
-      } else {
-        console.warn("No admin password found in DB!");
-        dbAdminPassword = null;
-      }
-    } catch (e) {
-      console.error("Error fetching admin password:", e);
-    }
-  }
 
 
   
