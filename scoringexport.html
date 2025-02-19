@@ -2,16 +2,21 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Trivia Scores</title>
+  <title>Trivia Aggregation Example</title>
+  <!-- Include Firebase scripts -->
   <script src="https://www.gstatic.com/firebasejs/9.6.8/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.8/firebase-analytics-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.8/firebase-database-compat.js"></script>
 </head>
 <body>
   <h1>Trivia Questions and Scores</h1>
+
+  <!-- Date Picker -->
   <label for="dateInput">Select Date:</label>
   <input type="date" id="dateInput" />
   <button onclick="fetchAndDisplayData()">Load Data</button>
-  
+
+  <!-- Table to display results -->
   <table border="1" id="resultsTable" style="margin-top: 20px; border-collapse: collapse;">
     <thead>
       <tr>
@@ -20,14 +25,17 @@
         <th>Question Number</th>
         <th>Question</th>
         <th>Answer</th>
-        <th>Score Correct</th>
+        <th>Score Correct (Sum)</th>
         <th>Total Possible</th>
       </tr>
     </thead>
-    <tbody></tbody>
+    <tbody>
+      <!-- Rows will be inserted dynamically -->
+    </tbody>
   </table>
 
   <script>
+    // Your web app's Firebase configuration
     const firebaseConfig = {
       apiKey: "AIzaSyBy8ExrgvBDto-BcNhlvrcC6ZB9G7HNaWE",
       authDomain: "eviltriviagrading.firebaseapp.com",
@@ -35,96 +43,215 @@
       projectId: "eviltriviagrading",
       storageBucket: "eviltriviagrading.firebasestorage.app",
       messagingSenderId: "738486013114",
-      appId: "1:738486013114:web:fe0f480cc3f66f42d6c683"
+      appId: "1:738486013114:web:fe0f480cc3f66f42d6c683",
+      measurementId: "G-R84N89NTJZ"
     };
 
-    firebase.initializeApp(firebaseConfig);
+    // Initialize Firebase
+    const app = firebase.initializeApp(firebaseConfig);
+    const analytics = firebase.analytics();
 
+    // Main function called when clicking "Load Data"
     async function fetchAndDisplayData() {
-      const selectedDate = document.getElementById("dateInput").value;
+      const dateInput = document.getElementById("dateInput");
+      const selectedDate = dateInput.value;
+
       if (!selectedDate) {
         alert("Please select a date first!");
         return;
       }
 
-      const db = firebase.database();
-      const triviaRef = db.ref("trivia/" + selectedDate);
-      const scoresRef = db.ref("scores/" + selectedDate);
+      // Clear previous table rows
+      const tbody = document.getElementById("resultsTable").querySelector("tbody");
+      tbody.innerHTML = "";
 
-      const triviaData = (await triviaRef.get()).val();
-      const scoresData = (await scoresRef.get()).val();
+      try {
+        // Fetch trivia data for that date
+        const triviaSnapshot = await firebase.database()
+          .ref("trivia/" + selectedDate)
+          .once("value");
+        const triviaData = triviaSnapshot.val();
 
-      if (!triviaData || !scoresData) {
-        alert("No data found for this date.");
-        return;
+        // Fetch scores data for that date
+        const scoresSnapshot = await firebase.database()
+          .ref("scores/" + selectedDate)
+          .once("value");
+        const scoresData = scoresSnapshot.val();
+
+        if (!triviaData) {
+          alert("No trivia data found for " + selectedDate);
+          return;
+        }
+
+        // Build a flat list of all questions with relevant info:
+        // Each entry: { roundIndex, roundType, questionKey, questionText, answerText, totalPossiblePoints }
+        const allQuestions = getAllQuestions(triviaData);
+
+        // Calculate aggregated scores for each question
+        // Score is the sum from all teams that have a matching question key
+        // "Total Possible" = question’s totalPossiblePoints * numberOfTeamsThatAnswered
+        const aggregated = aggregateScores(allQuestions, scoresData);
+
+        // Render results to table
+        for (const row of aggregated) {
+          const tr = document.createElement("tr");
+
+          // Round Number
+          const tdRound = document.createElement("td");
+          tdRound.textContent = row.roundIndex;
+          tr.appendChild(tdRound);
+
+          // Round Type
+          const tdType = document.createElement("td");
+          tdType.textContent = row.roundType;
+          tr.appendChild(tdType);
+
+          // Question Number
+          const tdQNum = document.createElement("td");
+          tdQNum.textContent = row.questionKey;
+          tr.appendChild(tdQNum);
+
+          // Question
+          const tdQuestion = document.createElement("td");
+          tdQuestion.textContent = row.questionText;
+          tr.appendChild(tdQuestion);
+
+          // Answer
+          const tdAnswer = document.createElement("td");
+          tdAnswer.textContent = row.answerText;
+          tr.appendChild(tdAnswer);
+
+          // Score Correct (Sum)
+          const tdScore = document.createElement("td");
+          tdScore.textContent = row.totalScore;
+          tr.appendChild(tdScore);
+
+          // Total Possible
+          const tdPossible = document.createElement("td");
+          tdPossible.textContent = row.totalPossible;
+          tr.appendChild(tdPossible);
+
+          tbody.appendChild(tr);
+        }
+      } catch (err) {
+        console.error("Error fetching data:", err);
+        alert("Error fetching data. Check console for details.");
       }
-
-      const allQuestions = parseTriviaData(triviaData);
-      const aggregatedScores = aggregateScores(allQuestions, scoresData);
-      displayResults(aggregatedScores);
     }
 
-    function parseTriviaData(triviaData) {
-      let results = [];
-      Object.keys(triviaData).forEach(roundIndex => {
+    /**
+     * Extracts all questions from the trivia data (by round) into a flat array.
+     * Trivia structure looks like: [null, {Puzzle:{...}, Visual:{...}, Written: [...] }, {...}, {...} ]
+     */
+    function getAllQuestions(triviaData) {
+      const results = [];
+
+      // triviaData is typically an array-like structure indexed 1,2,3,... for rounds
+      // e.g. triviaData[1].Puzzle, triviaData[1].Visual, or arrays for Written, etc.
+      // We'll iterate over object keys (likely '1','2','3','4') ignoring nulls or undefined.
+      Object.keys(triviaData).forEach((roundIndex) => {
         const roundObj = triviaData[roundIndex];
-        Object.keys(roundObj).forEach(roundType => {
+        if (!roundObj) return; // skip empty
+
+        // roundObj might have keys like Puzzle, Visual, Written, or Fill-In, Music, etc.
+        // Each of these can be an object or an array of question objects.
+        Object.keys(roundObj).forEach((roundType) => {
           const questionSet = roundObj[roundType];
-          Object.keys(questionSet).forEach(qKey => {
-            const qData = questionSet[qKey];
-            results.push({
-              roundIndex,
-              roundType,
-              questionKey: qKey,
-              questionText: qData.question,
-              answerText: qData.answer,
-              totalPossiblePoints: qData.total_possible_points || 0
+
+          // Some round types are objects, some are arrays
+          // e.g. "Puzzle": { "puzzle-127-1": {...} }, "Written": [ null, {...}, {...} ]
+          if (Array.isArray(questionSet)) {
+            // It's an array of questions
+            questionSet.forEach((qObj, idx) => {
+              if (!qObj || !qObj.question) return;
+              const questionKey = roundType + "-" + idx; // or any ID you like
+              results.push({
+                roundIndex,
+                roundType,
+                questionKey,
+                questionText: qObj.question,
+                answerText: qObj.answer || "",
+                totalPossiblePoints: qObj.total_possible_points || 0
+              });
             });
-          });
+          } else {
+            // It's an object of questionKey => questionData
+            Object.keys(questionSet).forEach((qKey) => {
+              const qData = questionSet[qKey];
+              if (!qData || !qData.question) return;
+              results.push({
+                roundIndex,
+                roundType,
+                questionKey: qKey,
+                questionText: qData.question,
+                answerText: qData.answer || "",
+                totalPossiblePoints: qData.total_possible_points || 0
+              });
+            });
+          }
         });
       });
+
       return results;
     }
 
+    /**
+     * Given a list of question metadata and the scores data from all teams,
+     * returns an array of the same question objects plus "totalScore" and "totalPossible".
+     *
+     * Scores data structure:
+     * scores[TEAM_ID].scores[ roundIndex ][ questionKey ] = numericScore
+     */
     function aggregateScores(allQuestions, scoresData) {
-      let scoreSums = {};
-      let teamCounts = {};
-      Object.keys(scoresData).forEach(teamId => {
-        const teamScores = scoresData[teamId].scores;
-        teamScores.forEach((roundScores, rIndex) => {
-          if (!roundScores) return;
-          Object.keys(roundScores).forEach(qKey => {
-            const compositeKey = rIndex + "~" + qKey;
-            scoreSums[compositeKey] = (scoreSums[compositeKey] || 0) + roundScores[qKey];
-            teamCounts[compositeKey] = (teamCounts[compositeKey] || 0) + 1;
+      if (!scoresData) scoresData = {};
+
+      // We'll make a lookup from questionKey => sum of scores, and also count how many teams answered
+      // But note: questionKey is actually (roundIndex, roundType, questionKey)
+      // Because different rounds can have the same questionKey name like "Written-1"
+      // So let's form a composite ID: roundIndex + "~" + questionKey
+      const scoreSums = {};
+      const teamCounts = {};
+
+      // Loop over each team
+      Object.keys(scoresData).forEach((teamId) => {
+        const teamInfo = scoresData[teamId];
+        if (!teamInfo || !teamInfo.scores) return;
+
+        const teamRounds = teamInfo.scores; // array or object of round indexes
+        // teamRounds[1][ questionKey ] = numericScore
+        teamRounds.forEach((roundScores, rIndex) => {
+          if (!roundScores) return; // skip null or undefined
+          // roundScores is an object mapping questionKey => score
+          Object.keys(roundScores).forEach((qKey) => {
+            const scoreValue = roundScores[qKey];
+            if (typeof scoreValue === "number") {
+              const compositeKey = rIndex + "~" + qKey;
+              // Add to sums
+              scoreSums[compositeKey] = (scoreSums[compositeKey] || 0) + scoreValue;
+              // Count how many teams answered
+              // We'll only count once per compositeKey for each team that has a numeric score
+              if (!teamCounts[compositeKey]) teamCounts[compositeKey] = 0;
+              teamCounts[compositeKey]++;
+            }
           });
         });
       });
-      return allQuestions.map(q => {
+
+      // Now map each question in allQuestions to an aggregated row
+      return allQuestions.map((q) => {
         const compositeKey = q.roundIndex + "~" + q.questionKey;
+        const totalScore = scoreSums[compositeKey] || 0;
+        const teamsThatAnswered = teamCounts[compositeKey] || 0;
+
+        // total possible for that question = question's total_possible_points * teamsThatAnswered
+        // Adjust if you prefer a different calculation
+        const totalPossible = q.totalPossiblePoints * teamsThatAnswered;
+
         return {
           ...q,
-          totalScore: scoreSums[compositeKey] || 0,
-          totalPossible: q.totalPossiblePoints * (teamCounts[compositeKey] || 1)
+          totalScore,
+          totalPossible
         };
-      });
-    }
-
-    function displayResults(aggregated) {
-      const tbody = document.getElementById("resultsTable").querySelector("tbody");
-      tbody.innerHTML = "";
-      aggregated.forEach(row => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${row.roundIndex}</td>
-          <td>${row.roundType}</td>
-          <td>${row.questionKey}</td>
-          <td>${row.questionText}</td>
-          <td>${row.answerText}</td>
-          <td>${row.totalScore}</td>
-          <td>${row.totalPossible}</td>
-        `;
-        tbody.appendChild(tr);
       });
     }
   </script>
