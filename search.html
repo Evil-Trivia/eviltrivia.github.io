@@ -7,49 +7,268 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
     <style>
-        /* ... (existing styles) ... */
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .search-container {
+            margin-bottom: 20px;
+        }
+        .search-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .search-input {
+            flex-grow: 1;
+            padding: 8px;
+            font-size: 16px;
+        }
+        select {
+            padding: 8px;
+            font-size: 16px;
+            min-width: 120px;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f5f5f5;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f0f0f0;
+        }
+        #loading {
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+            color: #666;
+        }
+        .results-count {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
     </style>
 </head>
 <body>
     <h1>Trivia Question Search</h1>
     
     <div class="search-container">
-        <!-- ... (existing search controls) ... -->
+        <div class="search-controls">
+            <input type="text" id="searchInput" class="search-input" 
+                   placeholder="Search (use * for wildcards, ? for single character wildcards)">
+            
+            <select id="searchField">
+                <option value="all">All Fields</option>
+                <option value="Question">Question</option>
+                <option value="Answer">Answer</option>
+                <option value="Round Name">Round Name</option>
+                <option value="Round Instruction">Round Instruction</option>
+            </select>
+
+            <select id="roundTypeFilter">
+                <option value="">All Round Types</option>
+                <option value="Fill-In">Fill-In</option>
+                <option value="Written">Written</option>
+                <option value="Visual">Visual</option>
+                <option value="Music">Music</option>
+            </select>
+
+            <button id="searchButton">Search</button>
+        </div>
     </div>
 
     <div id="loading" style="display: none;">Searching...</div>
     <div id="resultsCount" class="results-count"></div>
 
     <div id="results">
-        <!-- ... (existing results table) ... -->
+        <table>
+            <thead>
+                <tr>
+                    <th>Trivia #</th>
+                    <th>Date</th>
+                    <th>Trivia Name</th>
+                    <th>Round Name</th>
+                    <th>Question</th>
+                    <th>Answer</th>
+                </tr>
+            </thead>
+            <tbody id="resultsBody">
+                <tr><td colspan="6">Enter a search term and press Search or Enter to begin.</td></tr>
+            </tbody>
+        </table>
     </div>
 
     <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // Initialize Firebase
-        const firebaseConfig = {
-            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-            authDomain: "eviltrivia-47664.firebaseapp.com",
-            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-            projectId: "eviltrivia-47664",
-            storageBucket: "eviltrivia-47664.firebaseestorage.app",
-            messagingSenderId: "401826818140",
-            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
-            measurementId: "G-2W6RK96Y34" 
-        };
-        firebase.initializeApp(firebaseConfig);
-        
-        // ... (existing search and display functions) ...
+        document.addEventListener('DOMContentLoaded', function() {
+            const firebaseConfig = {
+                apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+                authDomain: "eviltrivia-47664.firebaseapp.com",
+                databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+                projectId: "eviltrivia-47664",
+                storageBucket: "eviltrivia-47664.firebaseestorage.app", 
+                messagingSenderId: "401826818140",
+                appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+                measurementId: "G-2W6RK96Y34"
+            };
+            firebase.initializeApp(firebaseConfig);
+            const database = firebase.database();
 
-        // Add event listeners
-        document.getElementById('searchButton').addEventListener('click', searchQuestions);
-        
-        document.getElementById('searchInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                searchQuestions();
+            function wildcardToRegExp(pattern) {
+                if (!pattern) return new RegExp('.*');
+                const escapedPattern = pattern
+                    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                    .replace(/\*/g, '.*')
+                    .replace(/\?/g, '.');
+                return new RegExp(escapedPattern, 'i');
             }
+
+            function formatDate(dateString) {
+                if (!dateString) return 'Unknown';
+                return new Date(dateString).toLocaleDateString();
+            }
+
+            async function searchQuestions() {
+                const searchText = document.getElementById('searchInput').value.trim();
+                const searchField = document.getElementById('searchField').value;
+                const roundType = document.getElementById('roundTypeFilter').value;
+                
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('resultsCount').textContent = '';
+                
+                if (!searchText) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('resultsBody').innerHTML = 
+                        '<tr><td colspan="6">Please enter a search term.</td></tr>';
+                    return;
+                }
+
+                try {
+                    const archiveRef = firebase.database().ref('trivia-archive/archive');
+                    const overviewRef = firebase.database().ref('trivia-archive/overview');
+                    
+                    const [archiveSnapshot, overviewSnapshot] = await Promise.all([
+                        archiveRef.once('value'),
+                        overviewRef.once('value')
+                    ]);
+                    
+                    const triviaData = archiveSnapshot.val();
+                    const overviewData = overviewSnapshot.val();
+                    
+                    if (!triviaData) {
+                        throw new Error('No trivia data found');
+                    }
+                    
+                    const searchRegex = wildcardToRegExp(searchText);
+                    const results = [];
+                    
+                    for (const triviaNumber in triviaData) {
+                        const triviaEvent = triviaData[triviaNumber];
+                        const overview = overviewData?.[triviaNumber] || {};
+                        
+                        if (!triviaEvent.trivia) continue;
+                        
+                        for (const format in triviaEvent.trivia) {
+                            if (roundType && format !== roundType) continue;
+                            
+                            const rounds = triviaEvent.trivia[format];
+                            if (!Array.isArray(rounds)) continue;
+                            
+                            rounds.forEach(question => {
+                                if (!question) return;
+                                
+                                let isMatch = false;
+                                if (searchField === 'all') {
+                                    isMatch = ['Question', 'Answer', 'Round Name', 'Round Instruction']
+                                        .some(field => question[field] && searchRegex.test(question[field]));
+                                } else {
+                                    isMatch = question[searchField] && searchRegex.test(question[searchField]);
+                                }
+
+                                if (isMatch) {
+                                    results.push({
+                                        triviaNumber,
+                                        date: triviaEvent.date || overview.Date,
+                                        triviaName: overview['Trivia Name'] || question['Trivia Name'] || 'Unknown',
+                                        roundName: question['Round Name'] || 'Unknown',
+                                        question: question.Question || 'Unknown',
+                                        answer: question.Answer || 'Unknown'
+                                    });
+                                }
+                            });
+                        }
+                    }
+                    
+                    displayResults(results);
+                    
+                } catch (error) {
+                    console.error("Error searching questions:", error);
+                    document.getElementById('resultsBody').innerHTML = 
+                        '<tr><td colspan="6">Error searching questions. Please try again.</td></tr>';
+                } finally {
+                    document.getElementById('loading').style.display = 'none';
+                }
+            }
+
+            function displayResults(results) {
+                const tbody = document.getElementById('resultsBody');
+                const countDiv = document.getElementById('resultsCount');
+                
+                if (results.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6">No results found.</td></tr>';
+                    countDiv.textContent = 'No results found';
+                    return;
+                }
+                
+                countDiv.textContent = `Found ${results.length} results`;
+                
+                tbody.innerHTML = results.map(result => `
+                    <tr>
+                        <td>${result.triviaNumber}</td>
+                        <td>${formatDate(result.date)}</td>
+                        <td>${result.triviaName}</td>
+                        <td>${result.roundName}</td>
+                        <td>${result.question}</td>
+                        <td>${result.answer}</td>
+                    </tr>
+                `).join('');
+            }
+
+            document.getElementById('searchButton').addEventListener('click', searchQuestions);
+            
+            document.getElementById('searchInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    searchQuestions();
+                }
+            });
         });
-    });
     </script>
 </body>
 </html>
