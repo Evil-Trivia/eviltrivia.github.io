@@ -253,34 +253,52 @@
                         }
 
                         // Process all round types in the trivia event
-                    for (const currentRoundType in triviaEvent.trivia) {
+                    for (const roundTypeKey in triviaEvent.trivia) {
                         // Skip if a specific round type is selected and this isn't it
-                        if (roundType && currentRoundType !== roundType) {
-                            log(`Skipping round type ${currentRoundType} (filter: ${roundType})`);
+                        if (roundType && roundTypeKey !== roundType) {
+                            log(`Skipping round type ${roundTypeKey} (filter: ${roundType})`);
                             continue;
                         }
 
-                        const roundTypeData = triviaEvent.trivia[currentRoundType];
-                        log(`Processing round type: ${currentRoundType}`, {
+                        const roundTypeData = triviaEvent.trivia[roundTypeKey];
+                        log(`Processing round type: ${roundTypeKey}`, {
                             dataType: typeof roundTypeData,
-                            isArray: Array.isArray(roundTypeData),
                             keys: Object.keys(roundTypeData)
                         });
 
-                        // Handle both array and object structures
-                        const rounds = Array.isArray(roundTypeData) ? roundTypeData : roundTypeData;
-                        
-                        // Iterate through rounds
-                        for (const roundKey in rounds) {
-                            const round = rounds[roundKey];
-                            
-                            // Skip if required fields are missing
-                            if (!round || typeof round !== 'object') {
-                                log(`Invalid round found in ${triviaNumber}/${currentRoundType}/${roundKey}`);
-                                continue;
-                            }
+                        // Iterate through each category within the round type
+                        for (const categoryKey in roundTypeData) {
+                            const category = roundTypeData[categoryKey];
+                            log(`Processing category: ${categoryKey} in ${roundTypeKey}`);
 
-                            const { Question, Answer, 'Round Name': roundName } = round;
+                            // Check if this is a question object or a container of questions
+                            if (category && typeof category === 'object') {
+                                // If it's a container, iterate through its questions
+                                if (category.hasOwnProperty('Fill-In') || 
+                                    category.hasOwnProperty('Written') || 
+                                    category.hasOwnProperty('Visual') || 
+                                    category.hasOwnProperty('Music')) {
+                                    for (const subKey in category) {
+                                        const questions = category[subKey];
+                                        processQuestions(questions);
+                                    }
+                                } else {
+                                    // It's a direct question object or array of questions
+                                    processQuestions(category);
+                                }
+                            }
+                        }
+                    }
+
+                    // Helper function to process question objects
+                    function processQuestions(questions) {
+                        // Handle both single questions and arrays of questions
+                        const questionArray = Array.isArray(questions) ? questions : [questions];
+                        
+                        for (const question of questionArray) {
+                            if (!question || typeof question !== 'object') continue;
+
+                            const { Question, Answer, 'Round Name': roundName } = question;
 
                                 let isMatch = false;
                                 const fieldsToSearch = {
