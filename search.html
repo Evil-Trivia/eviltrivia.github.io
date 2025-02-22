@@ -145,7 +145,7 @@
         
         function log(message, data = null) {
             const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-            const logMessage = `[${timestamp}] ${message}`;
+            const logMessage = [${timestamp}] ${message};
             debugLog.push(logMessage);
             if (data) {
                 debugLog.push(JSON.stringify(data, null, 2));
@@ -245,10 +245,10 @@
 
                     for (const triviaNumber in triviaData) {
                         const triviaEvent = triviaData[triviaNumber];
-                        log(`Processing trivia #${triviaNumber}`);
+                        log(Processing trivia #${triviaNumber});
 
                         if (!triviaEvent.trivia) {
-                            log(`No trivia data found for #${triviaNumber}`);
+                            log(No trivia data found for #${triviaNumber});
                             continue;
                         }
 
@@ -256,12 +256,12 @@
                     for (const roundTypeKey in triviaEvent.trivia) {
                         // Skip if a specific round type is selected and this isn't it
                         if (roundType && roundTypeKey !== roundType) {
-                            log(`Skipping round type ${roundTypeKey} (filter: ${roundType})`);
+                            log(Skipping round type ${roundTypeKey} (filter: ${roundType}));
                             continue;
                         }
 
                         const roundTypeData = triviaEvent.trivia[roundTypeKey];
-                        log(`Processing round type: ${roundTypeKey}`, {
+                        log(Processing round type: ${roundTypeKey}, {
                             dataType: typeof roundTypeData,
                             keys: Object.keys(roundTypeData)
                         });
@@ -269,7 +269,7 @@
                         // Iterate through each category within the round type
                         for (const categoryKey in roundTypeData) {
                             const category = roundTypeData[categoryKey];
-                            log(`Processing category: ${categoryKey} in ${roundTypeKey}`);
+                            log(Processing category: ${categoryKey} in ${roundTypeKey});
 
                             // Check if this is a question object or a container of questions
                             if (category && typeof category === 'object') {
@@ -291,91 +291,55 @@
                     }
 
                     // Helper function to process question objects
-                    function processQuestions(questions, triviaEvent) {
+                    function processQuestions(questions) {
+                        // Handle both single questions and arrays of questions
                         const questionArray = Array.isArray(questions) ? questions : [questions];
-                
+                        
                         for (const question of questionArray) {
                             if (!question || typeof question !== 'object') continue;
-                
-                            const {
-                                Question,
-                                Answer,
-                                "Round Name": roundName,
-                                "Round Format": roundFormat,
-                                "Round Instruction": roundInstruction,
-                                "Image Link": imageLink,
-                                "Music Clip Link": musicClipLink
-                            } = question;
-                
-                            // Determine the correct question text based on the fallback logic
-                            let finalQuestion = Question;
-                            if (!finalQuestion) {
-                                if (imageLink) {
-                                    finalQuestion = `<a href="${imageLink}" target="_blank">[Image]</a>`;
-                                } else if (roundFormat === "Music" || roundFormat === "Audio") {
-                                    finalQuestion = `<a href="${musicClipLink}" target="_blank">[Audio Clip]</a>`;
+
+                            const { Question, Answer, 'Round Name': roundName } = question;
+
+                                let isMatch = false;
+                                const fieldsToSearch = {
+                                    Question,
+                                    Answer,
+                                    'Round Name': roundName
+                                };
+
+                                if (searchField === 'all') {
+                                    isMatch = Object.values(fieldsToSearch).some(value => 
+                                        value && searchRegex.test(value));
                                 } else {
-                                    finalQuestion = "Unknown";
+                                    isMatch = fieldsToSearch[searchField] && 
+                                        searchRegex.test(fieldsToSearch[searchField]);
+                                }
+
+                                if (isMatch) {
+                                    log(Found match in trivia #${triviaNumber});
+                                    results.push({
+                                        triviaNumber,
+                                        date: formatDate(triviaEvent.date),
+                                        triviaName: triviaEvent['Trivia Name'] || 'Unknown',
+                                        roundName: roundName || 'Unknown',
+                                        question: Question || 'Unknown',
+                                        answer: Answer || 'Unknown'
+                                    });
                                 }
                             }
-                
-                            let isMatch = false;
-                            const fieldsToSearch = { Question, Answer, "Round Name": roundName };
-                
-                            if (searchField === 'all') {
-                                isMatch = Object.values(fieldsToSearch).some(value =>
-                                    value && searchRegex.test(value)
-                                );
-                            } else {
-                                isMatch = fieldsToSearch[searchField] &&
-                                    searchRegex.test(fieldsToSearch[searchField]);
-                            }
-                
-                            if (isMatch) {
-                                log(`Found match in trivia #${triviaEvent.Trivia Number}`);
-                                results.push({
-                                    triviaNumber: triviaEvent["Trivia Number"] || "Unknown",
-                                    date: formatDate(triviaEvent.date),
-                                    triviaName: triviaEvent["Trivia Name"] || "Unknown",
-                                    roundName: roundName || "Unknown",
-                                    roundFormat: roundFormat || "Unknown",
-                                    roundInstruction: roundInstruction || "Unknown",
-                                    question: finalQuestion,
-                                    answer: Answer || "Unknown"
-                                });
-                            }
                         }
                     }
-                
-                    function displayResults(results) {
-                        const tbody = document.getElementById('resultsBody');
-                        const countDiv = document.getElementById('resultsCount');
-                
-                        if (results.length === 0) {
-                            log('No results to display');
-                            tbody.innerHTML = '<tr><td colspan="7">No results found.</td></tr>';
-                            countDiv.textContent = 'No results found';
-                            return;
-                        }
-                
-                        log(`Displaying ${results.length} results`);
-                        countDiv.textContent = `Found ${results.length} results`;
-                
-                        tbody.innerHTML = results.map(result => `
-                            <tr>
-                                <td>${result.triviaNumber}</td>
-                                <td>${result.date}</td>
-                                <td>${result.triviaName}</td>
-                                <td>${result.roundName}</td>
-                                <td>${result.roundFormat}</td>
-                                <td>${result.roundInstruction}</td>
-                                <td>${result.question}</td>
-                                <td>${result.answer}</td>
-                            </tr>
-                        `).join('');
-                    }
 
-
+                    log(Search completed. Found ${results.length} results);
+                    displayResults(results);
+                } catch (error) {
+                    log('Error during search:', error);
+                    document.getElementById('resultsBody').innerHTML = 
+                        '<tr><td colspan="6">Error searching questions. Please try again.</td></tr>';
+                } finally {
+                    document.getElementById('loading').style.display = 'none';
+                }
+            }
 
             function displayResults(results) {
                 const tbody = document.getElementById('resultsBody');
@@ -388,10 +352,10 @@
                     return;
                 }
                 
-                log(`Displaying ${results.length} results`);
-                countDiv.textContent = `Found ${results.length} results`;
+                log(Displaying ${results.length} results);
+                countDiv.textContent = Found ${results.length} results;
                 
-                tbody.innerHTML = results.map(result => `
+                tbody.innerHTML = results.map(result => 
                     <tr>
                         <td>${result.triviaNumber}</td>
                         <td>${result.date}</td>
@@ -400,7 +364,7 @@
                         <td>${result.question}</td>
                         <td>${result.answer}</td>
                     </tr>
-                `).join('');
+                ).join('');
             }
 
             document.getElementById('searchButton').addEventListener('click', searchQuestions);
