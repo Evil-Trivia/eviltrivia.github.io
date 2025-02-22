@@ -75,6 +75,19 @@
             font-style: italic;
             color: #666;
         }
+        #debugLog {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .debug-toggle {
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -102,10 +115,12 @@
 
             <button id="searchButton">Search</button>
         </div>
+        <button onclick="toggleDebug()" class="debug-toggle">Toggle Debug Log</button>
     </div>
 
     <div id="loading" style="display: none;">Searching...</div>
     <div id="resultsCount" class="results-count"></div>
+    <div id="debugLog"></div>
 
     <div id="results">
         <table>
@@ -126,6 +141,33 @@
     </div>
 
     <script>
+        let debugLog = [];
+        
+        function log(message, data = null) {
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const logMessage = `[${timestamp}] ${message}`;
+            debugLog.push(logMessage);
+            if (data) {
+                debugLog.push(JSON.stringify(data, null, 2));
+            }
+            updateDebugLog();
+        }
+
+        function updateDebugLog() {
+            const debugElement = document.getElementById('debugLog');
+            debugElement.textContent = debugLog.join('\n');
+        }
+
+        function toggleDebug() {
+            const debugElement = document.getElementById('debugLog');
+            debugElement.style.display = debugElement.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function clearDebugLog() {
+            debugLog = [];
+            updateDebugLog();
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             const firebaseConfig = {
                 apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -137,8 +179,13 @@
                 appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
                 measurementId: "G-2W6RK96Y34"
             };
-            firebase.initializeApp(firebaseConfig);
-            const database = firebase.database();
+
+            try {
+                firebase.initializeApp(firebaseConfig);
+                log('Firebase initialized successfully');
+            } catch (error) {
+                log('Error initializing Firebase:', error);
+            }
 
             function wildcardToRegExp(pattern) {
                 if (!pattern) return new RegExp('.*');
@@ -146,6 +193,7 @@
                     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
                     .replace(/\*/g, '.*')
                     .replace(/\?/g, '.');
+                log('Converted pattern to regex:', { pattern, regex: escapedPattern });
                 return new RegExp(escapedPattern, 'i');
             }
 
@@ -155,14 +203,22 @@
             }
 
             async function searchQuestions() {
+                clearDebugLog();
                 const searchText = document.getElementById('searchInput').value.trim();
                 const searchField = document.getElementById('searchField').value;
                 const roundType = document.getElementById('roundTypeFilter').value;
                 
+                log('Starting search with parameters:', {
+                    searchText,
+                    searchField,
+                    roundType
+                });
+
                 document.getElementById('loading').style.display = 'block';
                 document.getElementById('resultsCount').textContent = '';
                 
                 if (!searchText) {
+                    log('No search text provided');
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('resultsBody').innerHTML = 
                         '<tr><td colspan="6">Please enter a search term.</td></tr>';
@@ -170,51 +226,73 @@
                 }
 
                 try {
+                    log('Fetching data from Firebase');
                     const archiveRef = firebase.database().ref('trivia-archive/archive');
                     const snapshot = await archiveRef.once('value');
                     const triviaData = snapshot.val();
 
                     if (!triviaData) {
+                        log('No trivia data found in snapshot');
                         throw new Error('No trivia data found');
                     }
+
+                    log('Retrieved trivia data:', { 
+                        numberOfEvents: Object.keys(triviaData).length 
+                    });
 
                     const searchRegex = wildcardToRegExp(searchText);
                     const results = [];
 
                     for (const triviaNumber in triviaData) {
                         const triviaEvent = triviaData[triviaNumber];
-                        const { date, firstHostedLocation } = triviaEvent;
+                        log(`Processing trivia #${triviaNumber}`);
 
-                        for (const roundType in triviaEvent.trivia) {
-                            if (searchField !== 'all' && searchField !== roundType) {
+                        if (!triviaEvent.trivia) {
+                            log(`No trivia data found for #${triviaNumber}`);
+                            continue;
+                        }
+
+                        for (const currentRoundType in triviaEvent.trivia) {
+                            if (roundType && currentRoundType !== roundType) {
                                 continue;
                             }
 
-                            const rounds = triviaEvent.trivia[roundType];
+                            const rounds = triviaEvent.trivia[currentRoundType];
+                            log(`Processing ${currentRoundType} rounds:`, {
+                                numberOfRounds: Object.keys(rounds).length
+                            });
+
                             for (const roundKey in rounds) {
                                 const round = rounds[roundKey];
+                                
+                                // Skip if required fields are missing
+                                if (!round) {
+                                    log(`Empty round found in ${triviaNumber}/${currentRoundType}/${roundKey}`);
+                                    continue;
+                                }
+
                                 const { Question, Answer, 'Round Name': roundName } = round;
 
                                 let isMatch = false;
+                                const fieldsToSearch = {
+                                    Question,
+                                    Answer,
+                                    'Round Name': roundName
+                                };
 
                                 if (searchField === 'all') {
-                                    isMatch = (
-                                        (Question && searchRegex.test(Question)) ||
-                                        (Answer && searchRegex.test(Answer)) ||
-                                        (roundName && searchRegex.test(roundName))
-                                    );
-                                } else if (searchField === 'Question') {
-                                    isMatch = Question && searchRegex.test(Question);
-                                } else if (searchField === 'Answer') {
-                                    isMatch = Answer && searchRegex.test(Answer);
-                                } else if (searchField === 'Round Name') {
-                                    isMatch = roundName && searchRegex.test(roundName);
+                                    isMatch = Object.values(fieldsToSearch).some(value => 
+                                        value && searchRegex.test(value));
+                                } else {
+                                    isMatch = fieldsToSearch[searchField] && 
+                                        searchRegex.test(fieldsToSearch[searchField]);
                                 }
 
                                 if (isMatch) {
+                                    log(`Found match in trivia #${triviaNumber}`);
                                     results.push({
                                         triviaNumber,
-                                        date: formatDate(date),
+                                        date: formatDate(triviaEvent.date),
                                         triviaName: triviaEvent['Trivia Name'] || 'Unknown',
                                         roundName: roundName || 'Unknown',
                                         question: Question || 'Unknown',
@@ -225,9 +303,10 @@
                         }
                     }
 
+                    log(`Search completed. Found ${results.length} results`);
                     displayResults(results);
                 } catch (error) {
-                    console.error("Error searching questions:", error);
+                    log('Error during search:', error);
                     document.getElementById('resultsBody').innerHTML = 
                         '<tr><td colspan="6">Error searching questions. Please try again.</td></tr>';
                 } finally {
@@ -240,11 +319,13 @@
                 const countDiv = document.getElementById('resultsCount');
                 
                 if (results.length === 0) {
+                    log('No results to display');
                     tbody.innerHTML = '<tr><td colspan="6">No results found.</td></tr>';
                     countDiv.textContent = 'No results found';
                     return;
                 }
                 
+                log(`Displaying ${results.length} results`);
                 countDiv.textContent = `Found ${results.length} results`;
                 
                 tbody.innerHTML = results.map(result => `
@@ -266,6 +347,8 @@
                     searchQuestions();
                 }
             });
+
+            log('Page initialized and ready');
         });
     </script>
 </body>
