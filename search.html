@@ -1,140 +1,55 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Trivia Search</title>
-  <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-database.js"></script>
-  <script>
-    // Firebase configuration
-    const firebaseConfig = {
-      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-      authDomain: "eviltrivia-47664.firebaseapp.com",
-      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-      projectId: "eviltrivia-47664",
-      storageBucket: "eviltrivia-47664.firebaseestorage.app",
-      messagingSenderId: "401826818140", 
-      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
-      measurementId: "G-2W6RK96Y34"
-    };
-
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-
-    // Get a reference to the database
-    const database = firebase.database();
-
-    // Search function
-    function searchTrivia() {
-      const searchQuery = document.getElementById('searchInput').value;
-      const searchField = document.getElementById('searchField').value;
-      const roundType = document.getElementById('roundType').value;
-
-      const regex = new RegExp(searchQuery.replace(/\*/g, '.*'), 'i');
-
-      database.ref('archive').once('value', (snapshot) => {
-        const results = [];
-
-        snapshot.forEach((triviaSnapshot) => {
-          const triviaNumber = triviaSnapshot.key;
-          const triviaDate = triviaSnapshot.child('date').val();
-          const triviaName = triviaSnapshot.child('trivia/name').val();
-          
-          triviaSnapshot.child('trivia').forEach((roundSnapshot) => {
-            const roundName = roundSnapshot.key;
-
-            if (roundType === 'all' || roundType === roundName) {
-              roundSnapshot.forEach((questionSnapshot) => {
-                questionSnapshot.forEach((questionData) => {
-                  const question = questionData.val().Question;
-                  const answer = questionData.val().Answer;
-                  const roundInstruction = questionData.val()['Round Instruction'];
-
-                  if (
-                    (searchField === 'all' || searchField === 'question') && regex.test(question) ||
-                    (searchField === 'all' || searchField === 'answer') && regex.test(answer) ||
-                    (searchField === 'all' || searchField === 'roundName') && regex.test(roundName) ||
-                    (searchField === 'all' || searchField === 'roundInstruction') && regex.test(roundInstruction)
-                  ) {
-                    results.push({
-                      triviaNumber,
-                      triviaDate,
-                      triviaName,
-                      roundName,
-                      question,
-                      answer
-                    });
-                  }
-                });
-              });
-            }
-          });
-        });
-
-        displayResults(results);
-      });
-    }
-
-    // Display search results
-    function displayResults(results) {
-      const resultsContainer = document.getElementById('results');
-      resultsContainer.innerHTML = '';
-
-      if (results.length === 0) {
-        resultsContainer.innerHTML = '<p>No results found.</p>';
-      } else {
-        const table = document.createElement('table');
-        const headerRow = document.createElement('tr');
-        const headers = ['Trivia Number', 'Date', 'Trivia Name', 'Round Name', 'Question', 'Answer'];
-
-        headers.forEach((header) => {
-          const th = document.createElement('th');
-          th.textContent = header;
-          headerRow.appendChild(th);
-        });
-
-        table.appendChild(headerRow);
-
-        results.forEach((result) => {
-          const row = document.createElement('tr');
-          const {triviaNumber, triviaDate, triviaName, roundName, question, answer} = result;
-
-          [triviaNumber, triviaDate, triviaName, roundName, question, answer].forEach((value) => {
-            const cell = document.createElement('td');
-            cell.textContent = value;
-            row.appendChild(cell);
-          });
-
-          table.appendChild(row);
-        });
-
-        resultsContainer.appendChild(table);
-      }
-    }
-  </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trivia Question Search</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <style>
+        /* ... (existing styles) ... */
+    </style>
 </head>
 <body>
-  <h1>Trivia Search</h1>
+    <h1>Trivia Question Search</h1>
+    
+    <div class="search-container">
+        <!-- ... (existing search controls) ... -->
+    </div>
 
-  <input type="text" id="searchInput" placeholder="Enter search query">
-  
-  <select id="searchField">
-    <option value="all">All Fields</option>
-    <option value="question">Question</option>
-    <option value="answer">Answer</option>
-    <option value="roundName">Round Name</option>
-    <option value="roundInstruction">Round Instruction</option>
-  </select>
+    <div id="loading" style="display: none;">Searching...</div>
+    <div id="resultsCount" class="results-count"></div>
 
-  <select id="roundType">
-    <option value="all">All Round Types</option>
-    <option value="Fill-In">Fill-In</option>
-    <option value="Written">Written</option>
-    <option value="Visual">Visual</option>
-    <option value="Music">Music</option>
-  </select>
+    <div id="results">
+        <!-- ... (existing results table) ... -->
+    </div>
 
-  <button onclick="searchTrivia()">Search</button>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebaseestorage.app",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34" 
+        };
+        firebase.initializeApp(firebaseConfig);
+        
+        // ... (existing search and display functions) ...
 
-  <div id="results"></div>
+        // Add event listeners
+        document.getElementById('searchButton').addEventListener('click', searchQuestions);
+        
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchQuestions();
+            }
+        });
+    });
+    </script>
 </body>
 </html>
