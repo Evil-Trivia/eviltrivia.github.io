@@ -172,6 +172,63 @@
 
                 try {
                     const archiveRef = firebase.database().ref('trivia-archive/archive');
+                    const snapshot = await archiveRef.once('value');
+                    const triviaData = snapshot.val();
+
+                    if (!triviaData) {
+                        throw new Error('No trivia data found');
+                    }
+
+                    const searchRegex = wildcardToRegExp(searchText);
+                    const results = [];
+
+                    for (const triviaNumber in triviaData) {
+                        const triviaEvent = triviaData[triviaNumber];
+                        const { date, firstHostedLocation } = triviaEvent;
+
+                        for (const roundType in triviaEvent.trivia) {
+                            if (searchField !== 'all' && searchField !== roundType) {
+                                continue;
+                            }
+
+                            const rounds = triviaEvent.trivia[roundType];
+                            for (const roundKey in rounds) {
+                                const round = rounds[roundKey];
+                                const { Question, Answer, 'Round Name': roundName } = round;
+
+                                let isMatch = false;
+
+                                if (searchField === 'all') {
+                                    isMatch = (
+                                        (Question && searchRegex.test(Question)) ||
+                                        (Answer && searchRegex.test(Answer)) ||
+                                        (roundName && searchRegex.test(roundName))
+                                    );
+                                } else if (searchField === 'Question') {
+                                    isMatch = Question && searchRegex.test(Question);
+                                } else if (searchField === 'Answer') {
+                                    isMatch = Answer && searchRegex.test(Answer);
+                                } else if (searchField === 'Round Name') {
+                                    isMatch = roundName && searchRegex.test(roundName);
+                                }
+
+                                if (isMatch) {
+                                    results.push({
+                                        triviaNumber,
+                                        date: formatDate(date),
+                                        triviaName: triviaEvent['Trivia Name'] || 'Unknown',
+                                        roundName: roundName || 'Unknown',
+                                        question: Question || 'Unknown',
+                                        answer: Answer || 'Unknown'
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    displayResults(results);
+                } catch (error) {
+                    const archiveRef = firebase.database().ref('trivia-archive/archive');
                     const overviewRef = firebase.database().ref('trivia-archive/overview');
                     
                     const [archiveSnapshot, overviewSnapshot] = await Promise.all([
