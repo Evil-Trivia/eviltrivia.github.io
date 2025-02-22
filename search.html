@@ -130,12 +130,14 @@
                     <th>Date</th>
                     <th>Trivia Name</th>
                     <th>Round Name</th>
-                    <th>Question</th>
+                    <th>Round Format</th>
+                    <th>Round Instruction</th>
+                    <th>Question/Content</th>
                     <th>Answer</th>
                 </tr>
             </thead>
             <tbody id="resultsBody">
-                <tr><td colspan="6">Enter a search term and press Search or Enter to begin.</td></tr>
+                <tr><td colspan="8">Enter a search term and press Search or Enter to begin.</td></tr>
             </tbody>
         </table>
     </div>
@@ -202,6 +204,20 @@
                 return new Date(dateString).toLocaleDateString();
             }
 
+            function getQuestionContent(question, roundFormat) {
+                if (question.Question && question.Question.trim()) {
+                    return question.Question;
+                }
+                if (question['Image Link'] && question['Image Link'].trim()) {
+                    return `[Image] ${question['Image Link']}`;
+                }
+                if ((roundFormat === 'Music' || roundFormat === 'Audio') && 
+                    question['Music Clip Link'] && question['Music Clip Link'].trim()) {
+                    return `[Audio] ${question['Music Clip Link']}`;
+                }
+                return 'No content available';
+            }
+
             async function searchQuestions() {
                 clearDebugLog();
                 const searchText = document.getElementById('searchInput').value.trim();
@@ -221,7 +237,7 @@
                     log('No search text provided');
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('resultsBody').innerHTML = 
-                        '<tr><td colspan="6">Please enter a search term.</td></tr>';
+                        '<tr><td colspan="8">Please enter a search term.</td></tr>';
                     return;
                 }
 
@@ -245,7 +261,8 @@
 
                     for (const triviaNumber in triviaData) {
                         const triviaEvent = triviaData[triviaNumber];
-                        log(`Processing trivia #${triviaNumber}`);
+                        const triviaName = triviaEvent['Trivia Name'] || 'Unknown';
+                        log(`Processing trivia #${triviaNumber}: ${triviaName}`);
 
                         if (!triviaEvent.trivia) {
                             log(`No trivia data found for #${triviaNumber}`);
@@ -253,56 +270,53 @@
                         }
 
                         // Process all round types in the trivia event
-                    for (const roundTypeKey in triviaEvent.trivia) {
-                        // Skip if a specific round type is selected and this isn't it
-                        if (roundType && roundTypeKey !== roundType) {
-                            log(`Skipping round type ${roundTypeKey} (filter: ${roundType})`);
-                            continue;
-                        }
+                        for (const roundTypeKey in triviaEvent.trivia) {
+                            // Skip if a specific round type is selected and this isn't it
+                            if (roundType && roundTypeKey !== roundType) {
+                                log(`Skipping round type ${roundTypeKey} (filter: ${roundType})`);
+                                continue;
+                            }
 
-                        const roundTypeData = triviaEvent.trivia[roundTypeKey];
-                        log(`Processing round type: ${roundTypeKey}`, {
-                            dataType: typeof roundTypeData,
-                            keys: Object.keys(roundTypeData)
-                        });
+                            const roundTypeData = triviaEvent.trivia[roundTypeKey];
+                            log(`Processing round type: ${roundTypeKey}`);
 
-                        // Iterate through each category within the round type
-                        for (const categoryKey in roundTypeData) {
-                            const category = roundTypeData[categoryKey];
-                            log(`Processing category: ${categoryKey} in ${roundTypeKey}`);
+                            // Iterate through each category within the round type
+                            for (const categoryKey in roundTypeData) {
+                                const category = roundTypeData[categoryKey];
+                                log(`Processing category: ${categoryKey}`);
 
-                            // Check if this is a question object or a container of questions
-                            if (category && typeof category === 'object') {
-                                // If it's a container, iterate through its questions
-                                if (category.hasOwnProperty('Fill-In') || 
-                                    category.hasOwnProperty('Written') || 
-                                    category.hasOwnProperty('Visual') || 
-                                    category.hasOwnProperty('Music')) {
-                                    for (const subKey in category) {
-                                        const questions = category[subKey];
-                                        processQuestions(questions);
+                                if (category && typeof category === 'object') {
+                                    // If it's a container, iterate through its questions
+                                    if (category.hasOwnProperty('Fill-In') || 
+                                        category.hasOwnProperty('Written') || 
+                                        category.hasOwnProperty('Visual') || 
+                                        category.hasOwnProperty('Music')) {
+                                        for (const subKey in category) {
+                                            const questions = category[subKey];
+                                            processQuestions(questions, roundTypeKey);
+                                        }
+                                    } else {
+                                        // It's a direct question object or array of questions
+                                        processQuestions(category, roundTypeKey);
                                     }
-                                } else {
-                                    // It's a direct question object or array of questions
-                                    processQuestions(category);
                                 }
                             }
                         }
-                    }
 
-                    // Helper function to process question objects
-                    function processQuestions(questions) {
-                        // Handle both single questions and arrays of questions
-                        const questionArray = Array.isArray(questions) ? questions : [questions];
-                        
-                        for (const question of questionArray) {
-                            if (!question || typeof question !== 'object') continue;
+                        // Helper function to process question objects
+                        function processQuestions(questions, roundFormat) {
+                            // Handle both single questions and arrays of questions
+                            const questionArray = Array.isArray(questions) ? questions : [questions];
+                            
+                            for (const question of questionArray) {
+                                if (!question || typeof question !== 'object') continue;
 
-                            const { Question, Answer, 'Round Name': roundName } = question;
+                                const questionContent = getQuestionContent(question, roundFormat);
+                                const { Answer, 'Round Name': roundName, 'Round Instruction': roundInstruction } = question;
 
                                 let isMatch = false;
                                 const fieldsToSearch = {
-                                    Question,
+                                    Question: questionContent,
                                     Answer,
                                     'Round Name': roundName
                                 };
@@ -320,9 +334,11 @@
                                     results.push({
                                         triviaNumber,
                                         date: formatDate(triviaEvent.date),
-                                        triviaName: triviaEvent['Trivia Name'] || 'Unknown',
+                                        triviaName,
                                         roundName: roundName || 'Unknown',
-                                        question: Question || 'Unknown',
+                                        roundFormat: roundFormat || 'Unknown',
+                                        roundInstruction: roundInstruction || 'None',
+                                        questionContent,
                                         answer: Answer || 'Unknown'
                                     });
                                 }
@@ -335,7 +351,7 @@
                 } catch (error) {
                     log('Error during search:', error);
                     document.getElementById('resultsBody').innerHTML = 
-                        '<tr><td colspan="6">Error searching questions. Please try again.</td></tr>';
+                        '<tr><td colspan="8">Error searching questions. Please try again.</td></tr>';
                 } finally {
                     document.getElementById('loading').style.display = 'none';
                 }
@@ -347,7 +363,7 @@
                 
                 if (results.length === 0) {
                     log('No results to display');
-                    tbody.innerHTML = '<tr><td colspan="6">No results found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8">No results found.</td></tr>';
                     countDiv.textContent = 'No results found';
                     return;
                 }
@@ -361,7 +377,9 @@
                         <td>${result.date}</td>
                         <td>${result.triviaName}</td>
                         <td>${result.roundName}</td>
-                        <td>${result.question}</td>
+                        <td>${result.roundFormat}</td>
+                        <td>${result.roundInstruction}</td>
+                        <td>${result.questionContent}</td>
                         <td>${result.answer}</td>
                     </tr>
                 `).join('');
