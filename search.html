@@ -1,383 +1,378 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trivia Question Search</title>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-  <style>
-      body {
-          font-family: Arial, sans-serif;
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 20px;
-      }
-      .search-container {
-          margin-bottom: 20px;
-      }
-      .search-controls {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 20px;
-      }
-      .search-input {
-          flex-grow: 1;
-          padding: 8px;
-          font-size: 16px;
-      }
-      select {
-          padding: 8px;
-          font-size: 16px;
-          min-width: 120px;
-      }
-      button {
-          padding: 8px 16px;
-          font-size: 16px;
-          background-color: #4CAF50;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-      }
-      button:hover {
-          background-color: #45a049;
-      }
-      table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 20px;
-      }
-      th, td {
-          border: 1px solid #ddd;
-          padding: 12px;
-          text-align: left;
-      }
-      th {
-          background-color: #f5f5f5;
-          position: sticky;
-          top: 0;
-      }
-      tr:nth-child(even) {
-          background-color: #f9f9f9;
-      }
-      tr:hover {
-          background-color: #f0f0f0;
-      }
-      #loading {
-          text-align: center;
-          padding: 20px;
-          font-style: italic;
-          color: #666;
-      }
-      .results-count {
-          margin-top: 10px;
-          font-style: italic;
-          color: #666;
-      }
-      #debugLog {
-          margin-top: 20px;
-          padding: 10px;
-          background-color: #f5f5f5;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-family: monospace;
-          white-space: pre-wrap;
-          display: none;
-      }
-      .debug-toggle {
-          margin-top: 10px;
-      }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trivia Question Search</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .search-container {
+            margin-bottom: 20px;
+        }
+        .search-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .search-input {
+            flex-grow: 1;
+            padding: 8px;
+            font-size: 16px;
+        }
+        select {
+            padding: 8px;
+            font-size: 16px;
+            min-width: 120px;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f5f5f5;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f0f0f0;
+        }
+        #loading {
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+            color: #666;
+        }
+        .results-count {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
+        #debugLog {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .debug-toggle {
+            margin-top: 10px;
+        }
+    </style>
 </head>
 <body>
-  <h1>Trivia Question Search</h1>
-  
-  <div class="search-container">
-      <div class="search-controls">
-          <input type="text" id="searchInput" class="search-input" 
-                 placeholder="Search (use * for wildcards, ? for single character wildcards)">
-          
-          <select id="searchField">
-              <option value="all">All Fields</option>
-              <option value="Question">Question</option>
-              <option value="Answer">Answer</option>
-              <option value="Round Name">Round Name</option>
-          </select>
+    <h1>Trivia Question Search</h1>
+    
+    <div class="search-container">
+        <div class="search-controls">
+            <input type="text" id="searchInput" class="search-input" 
+                   placeholder="Search (use * for wildcards, ? for single character wildcards)">
+            
+            <select id="searchField">
+                <option value="all">All Fields</option>
+                <option value="Question">Question</option>
+                <option value="Answer">Answer</option>
+                <option value="Round Name">Round Name</option>
+            </select>
 
-          <select id="roundTypeFilter">
-              <option value="">All Round Types</option>
-              <option value="Fill-In">Fill-In</option>
-              <option value="Written">Written</option>
-              <option value="Visual">Visual</option>
-              <option value="Music">Music</option>
-          </select>
+            <select id="roundTypeFilter">
+                <option value="">All Round Types</option>
+                <option value="Fill-In">Fill-In</option>
+                <option value="Written">Written</option>
+                <option value="Visual">Visual</option>
+                <option value="Music">Music</option>
+            </select>
 
-          <button id="searchButton">Search</button>
-      </div>
-      <button onclick="toggleDebug()" class="debug-toggle">Toggle Debug Log</button>
-  </div>
+            <button id="searchButton">Search</button>
+        </div>
+        <button onclick="toggleDebug()" class="debug-toggle">Toggle Debug Log</button>
+    </div>
 
-  <div id="loading" style="display: none;">Searching...</div>
-  <div id="resultsCount" class="results-count"></div>
-  <div id="debugLog"></div>
+    <div id="loading" style="display: none;">Searching...</div>
+    <div id="resultsCount" class="results-count"></div>
+    <div id="debugLog"></div>
 
-  <div id="results">
-      <table>
-          <thead>
-              <tr>
-                  <th>Trivia #</th>
-                  <th>Date</th>
-                  <th>Trivia Name</th>
-                  <th>Round Name</th>
-                  <th>Round Format</th>
-                  <th>Round Instruction</th>
-                  <th>Question</th>
-                  <th>Answer</th>
-              </tr>
-          </thead>
-          <tbody id="resultsBody">
-              <tr><td colspan="6">Enter a search term and press Search or Enter to begin.</td></tr>
-          </tbody>
-      </table>
-  </div>
+    <div id="results">
+        <table>
+            <thead>
+                <tr>
+                    <th>Trivia #</th>
+                    <th>Date</th>
+                    <th>Trivia Name</th>
+                    <th>Round Name</th>
+                    <th>Round Format</th>
+                    <th>Round Instruction</th>
+                    <th>Question</th>
+                    <th>Answer</th>
+                </tr>
+            </thead>
+            <tbody id="resultsBody">
+                <tr><td colspan="6">Enter a search term and press Search or Enter to begin.</td></tr>
+            </tbody>
+        </table>
+    </div>
 
-  <script>
-      let debugLog = [];
-      
-      function log(message, data = null) {
-          const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
-          const logMessage = `[${timestamp}] ${message}`;
-          debugLog.push(logMessage);
-          if (data) {
-              debugLog.push(JSON.stringify(data, null, 2));
-          }
-          updateDebugLog();
-      }
+    <script>
+        let debugLog = [];
+        
+        function log(message, data = null) {
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const logMessage = `[${timestamp}] ${message}`;
+            debugLog.push(logMessage);
+            if (data) {
+                debugLog.push(JSON.stringify(data, null, 2));
+            }
+            updateDebugLog();
+        }
 
-      function updateDebugLog() {
-          const debugElement = document.getElementById('debugLog');
-          debugElement.textContent = debugLog.join('\n');
-      }
+        function updateDebugLog() {
+            const debugElement = document.getElementById('debugLog');
+            debugElement.textContent = debugLog.join('\n');
+        }
 
-      function toggleDebug() {
-          const debugElement = document.getElementById('debugLog');
-          debugElement.style.display = debugElement.style.display === 'none' ? 'block' : 'none';
-      }
+        function toggleDebug() {
+            const debugElement = document.getElementById('debugLog');
+            debugElement.style.display = debugElement.style.display === 'none' ? 'block' : 'none';
+        }
 
-      function clearDebugLog() {
-          debugLog = [];
-          updateDebugLog();
-      }
+        function clearDebugLog() {
+            debugLog = [];
+            updateDebugLog();
+        }
 
-      document.addEventListener('DOMContentLoaded', function() {
-          const firebaseConfig = {
-              apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-              authDomain: "eviltrivia-47664.firebaseapp.com",
-              databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-              projectId: "eviltrivia-47664",
-              storageBucket: "eviltrivia-47664.firebaseestorage.app",
-              messagingSenderId: "401826818140",
-              appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
-              measurementId: "G-2W6RK96Y34"
-          };
+        document.addEventListener('DOMContentLoaded', function() {
+            const firebaseConfig = {
+                apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+                authDomain: "eviltrivia-47664.firebaseapp.com",
+                databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+                projectId: "eviltrivia-47664",
+                storageBucket: "eviltrivia-47664.firebaseestorage.app",
+                messagingSenderId: "401826818140",
+                appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+                measurementId: "G-2W6RK96Y34"
+            };
 
-          try {
-              firebase.initializeApp(firebaseConfig);
-              log('Firebase initialized successfully');
-          } catch (error) {
-              log('Error initializing Firebase:', error);
-          }
+            try {
+                firebase.initializeApp(firebaseConfig);
+                log('Firebase initialized successfully');
+            } catch (error) {
+                log('Error initializing Firebase:', error);
+            }
 
-          function wildcardToRegExp(pattern) {
-              if (!pattern) return new RegExp('.*');
-              const escapedPattern = pattern
-                  .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-                  .replace(/\*/g, '.*')
-                  .replace(/\?/g, '.');
-              log('Converted pattern to regex:', { pattern, regex: escapedPattern });
-              return new RegExp(escapedPattern, 'i');
-          }
+            function wildcardToRegExp(pattern) {
+                if (!pattern) return new RegExp('.*');
+                const escapedPattern = pattern
+                    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                    .replace(/\*/g, '.*')
+                    .replace(/\?/g, '.');
+                log('Converted pattern to regex:', { pattern, regex: escapedPattern });
+                return new RegExp(escapedPattern, 'i');
+            }
 
-          function formatDate(dateString) {
-              if (!dateString) return 'Unknown';
-              return new Date(dateString).toLocaleDateString();
-          }
+            function formatDate(dateString) {
+                if (!dateString) return 'Unknown';
+                return new Date(dateString).toLocaleDateString();
+            }
 
-          async function searchQuestions() {
-              try {
-                  clearDebugLog();
-                  const searchText = document.getElementById('searchInput').value.trim();
-                  const searchField = document.getElementById('searchField').value;
-                  const roundTypeFilter = document.getElementById('roundTypeFilter').value;
-              
-                  // Fixed: using roundTypeFilter instead of undefined roundType
-                  log('Starting search with parameters:', {
-                      searchText,
-                      searchField,
-                      roundTypeFilter
-                  });
+            function searchQuestions() {
+                clearDebugLog();
+                const searchText = document.getElementById('searchInput').value.trim();
+                const searchField = document.getElementById('searchField').value;
+                const roundTypeFilter = document.getElementById('roundTypeFilter').value;
+                
+                log('Starting search with parameters:', {
+                    searchText,
+                    searchField,
+                    roundType
+                });
 
-                  document.getElementById('loading').style.display = 'block';
-                  document.getElementById('resultsCount').textContent = '';
-                  
-                  if (!searchText) {
-                      log('No search text provided');
-                      document.getElementById('loading').style.display = 'none';
-                      document.getElementById('resultsBody').innerHTML = 
-                          '<tr><td colspan="6">Please enter a search term.</td></tr>';
-                      return;
-                  }
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('resultsCount').textContent = '';
+                
+                if (!searchText) {
+                    log('No search text provided');
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('resultsBody').innerHTML = 
+                        '<tr><td colspan="6">Please enter a search term.</td></tr>';
+                    return;
+                }
 
-                  try {
-                      log('Fetching data from Firebase');
-                      const archiveRef = firebase.database().ref('trivia-archive/archive');
-                      const snapshot = await archiveRef.once('value');
-                      const triviaData = snapshot.val();
+                log('Fetching data from Firebase');
+                const archiveRef = firebase.database().ref('trivia-archive/archive');
+                
+                archiveRef.once('value')
+                    .then(snapshot => {
+                        const triviaData = snapshot.val();
 
-                      if (!triviaData) {
-                          log('No trivia data found in snapshot');
-                          throw new Error('No trivia data found');
-                      }
+                    if (!triviaData) {
+                        log('No trivia data found in snapshot');
+                        throw new Error('No trivia data found');
+                    }
 
-                      log('Retrieved trivia data:', { 
-                          numberOfEvents: Object.keys(triviaData).length 
-                      });
+                    log('Retrieved trivia data:', { 
+                        numberOfEvents: Object.keys(triviaData).length 
+                    });
 
-                      const searchRegex = wildcardToRegExp(searchText);
-                      const results = [];
+                    const searchRegex = wildcardToRegExp(searchText);
+                    const results = [];
 
-                      for (const triviaNumber in triviaData) {
-                          const triviaEvent = triviaData[triviaNumber];
-                          log(`Processing trivia #${triviaNumber}`);
+                    for (const triviaNumber in triviaData) {
+                        const triviaEvent = triviaData[triviaNumber];
+                        log(`Processing trivia #${triviaNumber}`);
 
-                          if (!triviaEvent.trivia) {
-                              log(`No trivia data found for #${triviaNumber}`);
-                              continue;
-                          }
+                        if (!triviaEvent.trivia) {
+                            log(`No trivia data found for #${triviaNumber}`);
+                            continue;
+                        }
 
-                          // Process all round types in the trivia event
-                          for (const roundType in triviaEvent.trivia) {
-                              // Skip if a specific round type is selected and this isn't it
-                              if (roundTypeFilter && roundType !== roundTypeFilter) {
-                                  log(`Skipping round type ${roundType} (filter: ${roundTypeFilter})`);
-                                  continue;
-                              }
+                        // Process all round types in the trivia event
+                    for (const roundType in triviaEvent.trivia) {
+                        // Skip if a specific round type is selected and this isn't it
+                        if (roundTypeFilter && roundType !== roundTypeFilter) {
+                            log(`Skipping round type ${roundType} (filter: ${roundTypeFilter})`);
+                            continue;
+                        }
 
-                              const rounds = triviaEvent.trivia[roundType];
-                              log(`Processing ${roundType} rounds`, {
-                                  numberOfRounds: Object.keys(rounds).length
-                              });
+                        const rounds = triviaEvent.trivia[roundType];
+                        log(`Processing ${roundType} rounds`, {
+                            numberOfRounds: Object.keys(rounds).length
+                        });
 
-                              // Process each round
-                              for (const roundKey in rounds) {
-                                  const round = rounds[roundKey];
-                                  if (!round || typeof round !== 'object') continue;
+                        // Process each round
+                        for (const roundKey in rounds) {
+                            const round = rounds[roundKey];
+                            if (!round || typeof round !== 'object') continue;
 
-                                  const { 
-                                      Question, 
-                                      Answer, 
-                                      'Round Name': roundName,
-                                      'Round Format': roundFormat,
-                                      'Round Instruction': roundInstruction,
-                                      'Image Link': imageLink,
-                                      'Music Clip Link': musicClipLink
-                                  } = round;
+                            const { 
+                                Question, 
+                                Answer, 
+                                'Round Name': roundName,
+                                'Round Format': roundFormat,
+                                'Round Instruction': roundInstruction,
+                                'Image Link': imageLink,
+                                'Music Clip Link': musicClipLink
+                            } = round;
 
-                                  // Determine the question display text
-                                  let displayQuestion = Question;
-                                  if (!displayQuestion || displayQuestion.trim() === '') {
-                                      if (roundFormat === 'Music' || roundFormat === 'Audio') {
-                                          displayQuestion = musicClipLink || 'No clip available';
-                                      } else {
-                                          displayQuestion = imageLink || 'No content available';
-                                      }
-                                  }
+                            // Determine the question display text
+                            let displayQuestion = Question;
+                            if (!displayQuestion || displayQuestion.trim() === '') {
+                                if (roundFormat === 'Music' || roundFormat === 'Audio') {
+                                    displayQuestion = musicClipLink || 'No clip available';
+                                } else {
+                                    displayQuestion = imageLink || 'No content available';
+                                }
 
-                                  let isMatch = false;
-                                  const fieldsToSearch = {
-                                      Question,
-                                      Answer,
-                                      'Round Name': roundName
-                                  };
+                                let isMatch = false;
+                                const fieldsToSearch = {
+                                    Question,
+                                    Answer,
+                                    'Round Name': roundName
+                                };
 
-                                  if (searchField === 'all') {
-                                      isMatch = Object.values(fieldsToSearch).some(value => 
-                                          value && searchRegex.test(value));
-                                  } else {
-                                      isMatch = fieldsToSearch[searchField] && 
-                                          searchRegex.test(fieldsToSearch[searchField]);
-                                  }
+                                if (searchField === 'all') {
+                                    isMatch = Object.values(fieldsToSearch).some(value => 
+                                        value && searchRegex.test(value));
+                                } else {
+                                    isMatch = fieldsToSearch[searchField] && 
+                                        searchRegex.test(fieldsToSearch[searchField]);
+                                }
 
-                                  if (isMatch) {
-                                      log(`Found match in trivia #${triviaNumber}`);
-                                      results.push({
-                                          triviaNumber,
-                                          date: formatDate(triviaEvent.date),
-                                          triviaName: triviaEvent['Trivia Name'] || 'Unknown',
-                                          roundName: roundName || 'Unknown',
-                                          roundFormat: roundFormat || 'Unknown',
-                                          roundInstruction: roundInstruction || 'Unknown',
-                                          question: Question || 'Unknown',
-                                          answer: Answer || 'Unknown'
-                                      });
-                                  }
-                              }
-                          }
-                      }
+                                if (isMatch) {
+                                    log(`Found match in trivia #${triviaNumber}`);
+                                    results.push({
+                                        triviaNumber,
+                                        date: formatDate(triviaEvent.date),
+                                        triviaName: triviaEvent['Trivia Name'] || 'Unknown',
+                                        roundName: roundName || 'Unknown',
+                                        question: Question || 'Unknown',
+                                        answer: Answer || 'Unknown'
+                                    });
+                                }
+                            }
+                        }
+                    }
 
-                      log(`Search completed. Found ${results.length} results`);
-                      displayResults(results);
-                  } catch (error) {
-                      log('Error during search:', error);
-                      document.getElementById('resultsBody').innerHTML = 
-                          '<tr><td colspan="6">Error searching questions. Please try again.</td></tr>';
-                  } finally {
-                      document.getElementById('loading').style.display = 'none';
-                  }
-              } catch (outerError) {
-                  log('Unexpected error:', outerError);
-              }
-          }
+                    log(`Search completed. Found ${results.length} results`);
+                    displayResults(results);
+                    })
+                    .catch(error => {
+                        log('Error during search:', error);
+                        document.getElementById('resultsBody').innerHTML = 
+                            '<tr><td colspan="8">Error searching questions. Please try again.</td></tr>';
+                    })
+                    .finally(() => {
+                        document.getElementById('loading').style.display = 'none';
+                    });
+            }
 
-          function displayResults(results) {
-              const tbody = document.getElementById('resultsBody');
-              const countDiv = document.getElementById('resultsCount');
-              
-              if (results.length === 0) {
-                  log('No results to display');
-                  tbody.innerHTML = '<tr><td colspan="6">No results found.</td></tr>';
-                  countDiv.textContent = 'No results found';
-                  return;
-              }
-              
-              log(`Displaying ${results.length} results`);
-              countDiv.textContent = `Found ${results.length} results`;
-              
-              tbody.innerHTML = results.map(result => `
-                  <tr>
-                      <td>${result.triviaNumber}</td>
-                      <td>${result.date}</td>
-                      <td>${result.triviaName}</td>
-                      <td>${result.roundName}</td>
-                      <td>${result.roundFormat}</td>
-                      <td>${result.roundInstruction}</td>
-                      <td>${result.question}</td>
-                      <td>${result.answer}</td>
-                  </tr>
-              `).join('');
-          }
+            function displayResults(results) {
+                const tbody = document.getElementById('resultsBody');
+                const countDiv = document.getElementById('resultsCount');
+                
+                if (results.length === 0) {
+                    log('No results to display');
+                    tbody.innerHTML = '<tr><td colspan="6">No results found.</td></tr>';
+                    countDiv.textContent = 'No results found';
+                    return;
+                }
+                
+                log(`Displaying ${results.length} results`);
+                countDiv.textContent = `Found ${results.length} results`;
+                
+                tbody.innerHTML = results.map(result => `
+                    <tr>
+                        <td>${result.triviaNumber}</td>
+                        <td>${result.date}</td>
+                        <td>${result.triviaName}</td>
+                        <td>${result.roundName}</td>
+                        <td>${result.roundFormat}</td>
+                        <td>${result.roundInstruction}</td>
+                        <td>${result.question}</td>
+                        <td>${result.answer}</td>
+                    </tr>
+                `).join('');
+            }
 
-          document.getElementById('searchButton').addEventListener('click', searchQuestions);
-          
-          document.getElementById('searchInput').addEventListener('keypress', function(e) {
-              if (e.key === 'Enter') {
-                  searchQuestions();
-              }
-          });
+            document.getElementById('searchButton').addEventListener('click', searchQuestions);
+            
+            document.getElementById('searchInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    searchQuestions();
+                }
+            });
 
-          log('Page initialized and ready');
-      });
-  </script>
+            log('Page initialized and ready');
+        });
+    </script>
 </body>
 </html>
