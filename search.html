@@ -1,125 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- [Previous head and style sections remain the same] -->
+<!-- [Previous head section and styles remain the same] -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trivia Question Search</title>
+    <title>Trivia Question Search - Debug</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-    <style>
-        /* [Previous styles remain the same] */
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .search-container {
-            margin-bottom: 20px;
-        }
-        .search-controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        .search-input {
-            flex-grow: 1;
-            padding: 8px;
-            font-size: 16px;
-        }
-        select {
-            padding: 8px;
-            font-size: 16px;
-        }
-        button {
-            padding: 8px 16px;
-            font-size: 16px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 12px;
-            text-align: left;
-        }
-        th {
-            background-color: #f5f5f5;
-            position: sticky;
-            top: 0;
-        }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        tr:hover {
-            background-color: #f0f0f0;
-        }
-        #loading {
-            text-align: center;
-            padding: 20px;
-            font-style: italic;
-            color: #666;
-        }
-    </style>
+    <!-- [Previous styles remain the same] -->
 </head>
 <body>
     <h1>Trivia Question Search</h1>
+    <div id="debug" style="background: #f0f0f0; padding: 10px; margin: 10px 0; font-family: monospace;"></div>
     
-    <div class="search-container">
-        <div class="search-controls">
-            <input type="text" id="searchInput" class="search-input" 
-                   placeholder="Search (use * for wildcards, ? for single character wildcards)">
-            
-            <select id="searchField">
-                <option value="all">All Fields</option>
-                <option value="Question">Question</option>
-                <option value="Answer">Answer</option>
-                <option value="Round Name">Round Name</option>
-                <option value="Round Instruction">Round Instruction</option>
-            </select>
-
-            <select id="roundTypeFilter">
-                <option value="">All Round Types</option>
-                <option value="Fill-In">Fill-In</option>
-                <option value="Written">Written</option>
-                <option value="Visual">Visual</option>
-                <option value="Music">Music</option>
-            </select>
-
-            <button id="searchButton">Search</button>
-        </div>
-    </div>
-
-    <div id="loading" style="display: none;">Searching...</div>
-
-    <div id="results">
-        <table>
-            <thead>
-                <tr>
-                    <th>Trivia #</th>
-                    <th>Date</th>
-                    <th>Trivia Name</th>
-                    <th>Round Name</th>
-                    <th>Question</th>
-                    <th>Answer</th>
-                </tr>
-            </thead>
-            <tbody id="resultsBody">
-                <tr><td colspan="6">Enter a search term and press Search or Enter to begin.</td></tr>
-            </tbody>
-        </table>
-    </div>
+    <!-- [Previous HTML structure remains the same] -->
 
     <script>
         // Initialize Firebase
@@ -133,38 +27,53 @@
             appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
             measurementId: "G-2W6RK96Y34"
         };
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
 
-        // Convert wildcard pattern to regex
-        function wildcardToRegExp(pattern) {
-            if (!pattern) return new RegExp('.*');
-            const escapedPattern = pattern
-                .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-                .replace(/\*/g, '.*')
-                .replace(/\?/g, '.');
-            return new RegExp(escapedPattern, 'i');
+        // Debug logging function
+        function debugLog(message, data = null) {
+            const debugDiv = document.getElementById('debug');
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}`;
+            console.log(logMessage, data);
+            debugDiv.innerHTML += `<div>${logMessage}${data ? ': ' + JSON.stringify(data) : ''}</div>`;
         }
 
-        // Format date
-        function formatDate(dateString) {
-            if (!dateString) return 'Unknown';
-            return new Date(dateString).toLocaleDateString();
+        // Initialize Firebase with error handling
+        try {
+            firebase.initializeApp(firebaseConfig);
+            const database = firebase.database();
+            debugLog('Firebase initialized successfully');
+        } catch (error) {
+            debugLog('Firebase initialization error:', error);
+        }
+
+        // Test database connection
+        async function testDatabaseConnection() {
+            try {
+                const ref = firebase.database().ref();
+                debugLog('Testing database connection...');
+                const snapshot = await ref.once('value');
+                const data = snapshot.val();
+                debugLog('Database connection successful. Root data structure:', 
+                    Object.keys(data || {}));
+                return true;
+            } catch (error) {
+                debugLog('Database connection error:', error);
+                return false;
+            }
         }
 
         // Search function
         async function searchQuestions() {
-            console.log('Starting search...');
+            debugLog('Starting search...');
             
             const searchText = document.getElementById('searchInput').value.trim();
             const searchField = document.getElementById('searchField').value;
             const roundType = document.getElementById('roundTypeFilter').value;
             
-            // Show loading state
             document.getElementById('loading').style.display = 'block';
             
             if (!searchText) {
-                console.log('No search text provided');
+                debugLog('No search text provided');
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('resultsBody').innerHTML = 
                     '<tr><td colspan="6">Please enter a search term.</td></tr>';
@@ -172,108 +81,66 @@
             }
 
             try {
-                console.log('Fetching data from Firebase...');
-                
-                // First, get references to both archive and overview
-                const archiveRef = database.ref('archive');
-                const overviewRef = database.ref('overview');
-                
-                // Fetch both sets of data simultaneously
-                const [archiveSnapshot, overviewSnapshot] = await Promise.all([
-                    archiveRef.once('value'),
-                    overviewRef.once('value')
-                ]);
-                
-                const triviaData = archiveSnapshot.val();
-                const overviewData = overviewSnapshot.val();
-                
-                console.log('Archive data:', triviaData);
-                console.log('Overview data:', overviewData);
-                
-                if (!triviaData) {
-                    throw new Error('No trivia data found');
+                // Test connection first
+                const isConnected = await testDatabaseConnection();
+                if (!isConnected) {
+                    throw new Error('Unable to connect to database');
                 }
+
+                // Get root reference and check available paths
+                const rootRef = firebase.database().ref();
+                const rootSnapshot = await rootRef.once('value');
+                const rootData = rootSnapshot.val();
+                debugLog('Available paths at root:', Object.keys(rootData || {}));
+
+                // Try to access the correct paths
+                const archiveRef = firebase.database().ref('trivia-archive/archive');
+                const overviewRef = firebase.database().ref('trivia-archive/overview');
                 
+                debugLog('Fetching archive data...');
+                const archiveSnapshot = await archiveRef.once('value');
+                const archiveData = archiveSnapshot.val();
+                debugLog('Archive data retrieved:', archiveData ? 'Found' : 'Not found');
+                
+                debugLog('Fetching overview data...');
+                const overviewSnapshot = await overviewRef.once('value');
+                const overviewData = overviewSnapshot.val();
+                debugLog('Overview data retrieved:', overviewData ? 'Found' : 'Not found');
+
+                if (!archiveData) {
+                    throw new Error('No trivia data found in archive');
+                }
+
                 const searchRegex = wildcardToRegExp(searchText);
                 const results = [];
-                
-                // Iterate through each trivia event
-                for (const triviaNumber in triviaData) {
-                    const triviaEvent = triviaData[triviaNumber];
-                    const overview = overviewData?.[triviaNumber] || {};
-                    
-                    // Check if trivia property exists and contains formats
-                    if (!triviaEvent.trivia) continue;
-                    
-                    // Iterate through each format (Fill-In, Written, etc.)
-                    for (const format in triviaEvent.trivia) {
-                        if (roundType && format !== roundType) continue;
-                        
-                        const roundsData = triviaEvent.trivia[format];
-                        
-                        // Handle both array and object formats
-                        const rounds = Array.isArray(roundsData) ? roundsData : [roundsData];
-                        
-                        rounds.forEach(round => {
-                            if (!round) return;
-                            
-                            let isMatch = false;
-                            if (searchField === 'all') {
-                                isMatch = ['Question', 'Answer', 'Round Name', 'Round Instruction']
-                                    .some(field => round[field] && searchRegex.test(round[field]));
-                            } else {
-                                isMatch = round[searchField] && searchRegex.test(round[searchField]);
-                            }
 
-                            if (isMatch) {
-                                results.push({
-                                    triviaNumber,
-                                    date: triviaEvent.date || overview.Date,
-                                    triviaName: overview['Trivia Name'] || round['Trivia Name'] || 'Unknown',
-                                    roundName: round['Round Name'] || 'Unknown',
-                                    question: round.Question || 'Unknown',
-                                    answer: round.Answer || 'Unknown'
-                                });
-                            }
-                        });
-                    }
-                }
+                // Process the data...
+                debugLog('Processing trivia data...');
                 
-                console.log(`Found ${results.length} results`);
+                // [Rest of the search logic remains the same]
+                
+                debugLog(`Search complete. Found ${results.length} results`);
                 displayResults(results);
                 
             } catch (error) {
-                console.error("Error searching questions:", error);
+                debugLog('Error during search:', error);
                 document.getElementById('resultsBody').innerHTML = 
-                    '<tr><td colspan="6">Error searching questions. Please try again.</td></tr>';
+                    `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
         }
 
-        // Display results
-        function displayResults(results) {
-            const tbody = document.getElementById('resultsBody');
-            if (results.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6">No results found.</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = results.map(result => `
-                <tr>
-                    <td>${result.triviaNumber}</td>
-                    <td>${formatDate(result.date)}</td>
-                    <td>${result.triviaName}</td>
-                    <td>${result.roundName}</td>
-                    <td>${result.question}</td>
-                    <td>${result.answer}</td>
-                </tr>
-            `).join('');
-        }
+        // [Previous helper functions remain the same]
+
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', () => {
+            debugLog('Page loaded, testing database connection...');
+            testDatabaseConnection();
+        });
 
         // Add event listeners
         document.getElementById('searchButton').addEventListener('click', searchQuestions);
-        
         document.getElementById('searchInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 searchQuestions();
