@@ -205,10 +205,11 @@
             }
 
             async function searchQuestions() {
-                clearDebugLog();
-                const searchText = document.getElementById('searchInput').value.trim();
-                const searchField = document.getElementById('searchField').value;
-                const roundType = document.getElementById('roundTypeFilter').value;
+                try {
+                    clearDebugLog();
+                    const searchText = document.getElementById('searchInput').value.trim();
+                    const searchField = document.getElementById('searchField').value;
+                    const roundTypeFilter = document.getElementById('roundTypeFilter').value;
                 
                 log('Starting search with parameters:', {
                     searchText,
@@ -255,50 +256,22 @@
                         }
 
                         // Process all round types in the trivia event
-                    for (const roundTypeKey in triviaEvent.trivia) {
+                    for (const roundType in triviaEvent.trivia) {
                         // Skip if a specific round type is selected and this isn't it
-                        if (roundType && roundTypeKey !== roundType) {
-                            log(`Skipping round type ${roundTypeKey} (filter: ${roundType})`);
+                        if (roundTypeFilter && roundType !== roundTypeFilter) {
+                            log(`Skipping round type ${roundType} (filter: ${roundTypeFilter})`);
                             continue;
                         }
 
-                        const roundTypeData = triviaEvent.trivia[roundTypeKey];
-                        log(`Processing round type: ${roundTypeKey}`, {
-                            dataType: typeof roundTypeData,
-                            keys: Object.keys(roundTypeData)
+                        const rounds = triviaEvent.trivia[roundType];
+                        log(`Processing ${roundType} rounds`, {
+                            numberOfRounds: Object.keys(rounds).length
                         });
 
-                        // Iterate through each category within the round type
-                        for (const categoryKey in roundTypeData) {
-                            const category = roundTypeData[categoryKey];
-                            log(`Processing category: ${categoryKey} in ${roundTypeKey}`);
-
-                            // Check if this is a question object or a container of questions
-                            if (category && typeof category === 'object') {
-                                // If it's a container, iterate through its questions
-                                if (category.hasOwnProperty('Fill-In') || 
-                                    category.hasOwnProperty('Written') || 
-                                    category.hasOwnProperty('Visual') || 
-                                    category.hasOwnProperty('Music')) {
-                                    for (const subKey in category) {
-                                        const questions = category[subKey];
-                                        processQuestions(questions);
-                                    }
-                                } else {
-                                    // It's a direct question object or array of questions
-                                    processQuestions(category);
-                                }
-                            }
-                        }
-                    }
-
-                    // Helper function to process question objects
-                    function processQuestions(questions) {
-                        // Handle both single questions and arrays of questions
-                        const questionArray = Array.isArray(questions) ? questions : [questions];
-                        
-                        for (const question of questionArray) {
-                            if (!question || typeof question !== 'object') continue;
+                        // Process each round
+                        for (const roundKey in rounds) {
+                            const round = rounds[roundKey];
+                            if (!round || typeof round !== 'object') continue;
 
                             const { 
                                 Question, 
@@ -308,7 +281,7 @@
                                 'Round Instruction': roundInstruction,
                                 'Image Link': imageLink,
                                 'Music Clip Link': musicClipLink
-                            } = question;
+                            } = round;
 
                             // Determine the question display text
                             let displayQuestion = Question;
