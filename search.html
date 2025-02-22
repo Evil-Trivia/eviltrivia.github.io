@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+<!-- [Previous head and style sections remain the same] -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
     <style>
+        /* [Previous styles remain the same] */
         body {
             font-family: Arial, sans-serif;
             max-width: 1400px;
@@ -168,13 +170,15 @@
                     '<tr><td colspan="6">Please enter a search term.</td></tr>';
                 return;
             }
-            
-            const archiveRef = database.ref('trivia-archive/archive');
-            const overviewRef = database.ref('trivia-archive/overview');
-            const results = [];
-            
+
             try {
                 console.log('Fetching data from Firebase...');
+                
+                // First, get references to both archive and overview
+                const archiveRef = database.ref('archive');
+                const overviewRef = database.ref('overview');
+                
+                // Fetch both sets of data simultaneously
                 const [archiveSnapshot, overviewSnapshot] = await Promise.all([
                     archiveRef.once('value'),
                     overviewRef.once('value')
@@ -183,44 +187,52 @@
                 const triviaData = archiveSnapshot.val();
                 const overviewData = overviewSnapshot.val();
                 
+                console.log('Archive data:', triviaData);
+                console.log('Overview data:', overviewData);
+                
                 if (!triviaData) {
                     throw new Error('No trivia data found');
                 }
                 
-                console.log('Processing search...');
                 const searchRegex = wildcardToRegExp(searchText);
+                const results = [];
                 
-                // Search through all trivia events
+                // Iterate through each trivia event
                 for (const triviaNumber in triviaData) {
                     const triviaEvent = triviaData[triviaNumber];
-                    const overview = overviewData[triviaNumber] || {};
+                    const overview = overviewData?.[triviaNumber] || {};
                     
-                    // Search through round types
+                    // Check if trivia property exists and contains formats
+                    if (!triviaEvent.trivia) continue;
+                    
+                    // Iterate through each format (Fill-In, Written, etc.)
                     for (const format in triviaEvent.trivia) {
                         if (roundType && format !== roundType) continue;
                         
-                        const rounds = triviaEvent.trivia[format];
-                        if (!Array.isArray(rounds)) continue;
+                        const roundsData = triviaEvent.trivia[format];
                         
-                        rounds.forEach(question => {
+                        // Handle both array and object formats
+                        const rounds = Array.isArray(roundsData) ? roundsData : [roundsData];
+                        
+                        rounds.forEach(round => {
+                            if (!round) return;
+                            
                             let isMatch = false;
                             if (searchField === 'all') {
-                                isMatch = searchRegex.test(question.Question) || 
-                                        searchRegex.test(question.Answer) || 
-                                        searchRegex.test(question['Round Name']) ||
-                                        searchRegex.test(question['Round Instruction']);
+                                isMatch = ['Question', 'Answer', 'Round Name', 'Round Instruction']
+                                    .some(field => round[field] && searchRegex.test(round[field]));
                             } else {
-                                isMatch = searchRegex.test(question[searchField]);
+                                isMatch = round[searchField] && searchRegex.test(round[searchField]);
                             }
 
                             if (isMatch) {
                                 results.push({
                                     triviaNumber,
-                                    date: overview.Date,
-                                    triviaName: overview['Trivia Name'] || 'Unknown',
-                                    roundName: question['Round Name'],
-                                    question: question.Question,
-                                    answer: question.Answer
+                                    date: triviaEvent.date || overview.Date,
+                                    triviaName: overview['Trivia Name'] || round['Trivia Name'] || 'Unknown',
+                                    roundName: round['Round Name'] || 'Unknown',
+                                    question: round.Question || 'Unknown',
+                                    answer: round.Answer || 'Unknown'
                                 });
                             }
                         });
