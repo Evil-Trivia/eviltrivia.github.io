@@ -30,6 +30,18 @@
             padding: 8px;
             font-size: 16px;
         }
+        button {
+            padding: 8px 16px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -50,6 +62,12 @@
         }
         tr:hover {
             background-color: #f0f0f0;
+        }
+        #loading {
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+            color: #666;
         }
     </style>
 </head>
@@ -76,8 +94,12 @@
                 <option value="Visual">Visual</option>
                 <option value="Music">Music</option>
             </select>
+
+            <button id="searchButton">Search</button>
         </div>
     </div>
+
+    <div id="loading" style="display: none;">Searching...</div>
 
     <div id="results">
         <table>
@@ -91,7 +113,9 @@
                     <th>Answer</th>
                 </tr>
             </thead>
-            <tbody id="resultsBody"></tbody>
+            <tbody id="resultsBody">
+                <tr><td colspan="6">Enter a search term and press Search or Enter to begin.</td></tr>
+            </tbody>
         </table>
     </div>
 
@@ -122,20 +146,35 @@
 
         // Format date
         function formatDate(dateString) {
+            if (!dateString) return 'Unknown';
             return new Date(dateString).toLocaleDateString();
         }
 
         // Search function
         async function searchQuestions() {
-            const searchText = document.getElementById('searchInput').value;
+            console.log('Starting search...');
+            
+            const searchText = document.getElementById('searchInput').value.trim();
             const searchField = document.getElementById('searchField').value;
             const roundType = document.getElementById('roundTypeFilter').value;
+            
+            // Show loading state
+            document.getElementById('loading').style.display = 'block';
+            
+            if (!searchText) {
+                console.log('No search text provided');
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('resultsBody').innerHTML = 
+                    '<tr><td colspan="6">Please enter a search term.</td></tr>';
+                return;
+            }
             
             const archiveRef = database.ref('trivia-archive/archive');
             const overviewRef = database.ref('trivia-archive/overview');
             const results = [];
             
             try {
+                console.log('Fetching data from Firebase...');
                 const [archiveSnapshot, overviewSnapshot] = await Promise.all([
                     archiveRef.once('value'),
                     overviewRef.once('value')
@@ -143,6 +182,12 @@
                 
                 const triviaData = archiveSnapshot.val();
                 const overviewData = overviewSnapshot.val();
+                
+                if (!triviaData) {
+                    throw new Error('No trivia data found');
+                }
+                
+                console.log('Processing search...');
                 const searchRegex = wildcardToRegExp(searchText);
                 
                 // Search through all trivia events
@@ -182,11 +227,15 @@
                     }
                 }
                 
+                console.log(`Found ${results.length} results`);
                 displayResults(results);
+                
             } catch (error) {
                 console.error("Error searching questions:", error);
                 document.getElementById('resultsBody').innerHTML = 
                     '<tr><td colspan="6">Error searching questions. Please try again.</td></tr>';
+            } finally {
+                document.getElementById('loading').style.display = 'none';
             }
         }
 
@@ -211,9 +260,13 @@
         }
 
         // Add event listeners
-        document.getElementById('searchInput').addEventListener('input', searchQuestions);
-        document.getElementById('searchField').addEventListener('change', searchQuestions);
-        document.getElementById('roundTypeFilter').addEventListener('change', searchQuestions);
+        document.getElementById('searchButton').addEventListener('click', searchQuestions);
+        
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchQuestions();
+            }
+        });
     </script>
 </body>
 </html>
