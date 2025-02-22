@@ -216,7 +216,7 @@
                 if (!dateString) return 'Unknown';
                 return new Date(dateString).toLocaleDateString();
             }
-
+            
             function searchQuestions() {
                 clearDebugLog();
                 const searchText = document.getElementById('searchInput').value.trim();
@@ -226,9 +226,9 @@
                 log('Starting search with parameters:', {
                     searchText,
                     searchField,
-                    roundType
+                    roundTypeFilter
                 });
-
+            
                 document.getElementById('loading').style.display = 'block';
                 document.getElementById('resultsCount').textContent = '';
                 
@@ -236,107 +236,110 @@
                     log('No search text provided');
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('resultsBody').innerHTML = 
-                        '<tr><td colspan="6">Please enter a search term.</td></tr>';
+                        '<tr><td colspan="8">Please enter a search term.</td></tr>';
                     return;
                 }
-
+            
                 log('Fetching data from Firebase');
                 const archiveRef = firebase.database().ref('trivia-archive/archive');
                 
                 archiveRef.once('value')
                     .then(snapshot => {
                         const triviaData = snapshot.val();
-
-                    if (!triviaData) {
-                        log('No trivia data found in snapshot');
-                        throw new Error('No trivia data found');
-                    }
-
-                    log('Retrieved trivia data:', { 
-                        numberOfEvents: Object.keys(triviaData).length 
-                    });
-
-                    const searchRegex = wildcardToRegExp(searchText);
-                    const results = [];
-
-                    for (const triviaNumber in triviaData) {
-                        const triviaEvent = triviaData[triviaNumber];
-                        log(`Processing trivia #${triviaNumber}`);
-
-                        if (!triviaEvent.trivia) {
-                            log(`No trivia data found for #${triviaNumber}`);
-                            continue;
+            
+                        if (!triviaData) {
+                            log('No trivia data found in snapshot');
+                            throw new Error('No trivia data found');
                         }
-
-                        // Process all round types in the trivia event
-                    for (const roundType in triviaEvent.trivia) {
-                        // Skip if a specific round type is selected and this isn't it
-                        if (roundTypeFilter && roundType !== roundTypeFilter) {
-                            log(`Skipping round type ${roundType} (filter: ${roundTypeFilter})`);
-                            continue;
-                        }
-
-                        const rounds = triviaEvent.trivia[roundType];
-                        log(`Processing ${roundType} rounds`, {
-                            numberOfRounds: Object.keys(rounds).length
+            
+                        log('Retrieved trivia data:', { 
+                            numberOfEvents: Object.keys(triviaData).length 
                         });
-
-                        // Process each round
-                        for (const roundKey in rounds) {
-                            const round = rounds[roundKey];
-                            if (!round || typeof round !== 'object') continue;
-
-                            const { 
-                                Question, 
-                                Answer, 
-                                'Round Name': roundName,
-                                'Round Format': roundFormat,
-                                'Round Instruction': roundInstruction,
-                                'Image Link': imageLink,
-                                'Music Clip Link': musicClipLink
-                            } = round;
-
-                            // Determine the question display text
-                            let displayQuestion = Question;
-                            if (!displayQuestion || displayQuestion.trim() === '') {
-                                if (roundFormat === 'Music' || roundFormat === 'Audio') {
-                                    displayQuestion = musicClipLink || 'No clip available';
-                                } else {
-                                    displayQuestion = imageLink || 'No content available';
+            
+                        const searchRegex = wildcardToRegExp(searchText);
+                        const results = [];
+            
+                        for (const triviaNumber in triviaData) {
+                            const triviaEvent = triviaData[triviaNumber];
+                            log(`Processing trivia #${triviaNumber}`);
+            
+                            if (!triviaEvent.trivia) {
+                                log(`No trivia data found for #${triviaNumber}`);
+                                continue;
+                            }
+            
+                            // Process all round types in the trivia event
+                            for (const roundType in triviaEvent.trivia) {
+                                // Skip if a specific round type is selected and this isn't it
+                                if (roundTypeFilter && roundType !== roundTypeFilter) {
+                                    log(`Skipping round type ${roundType} (filter: ${roundTypeFilter})`);
+                                    continue;
                                 }
-
-                                let isMatch = false;
-                                const fieldsToSearch = {
-                                    Question,
-                                    Answer,
-                                    'Round Name': roundName
-                                };
-
-                                if (searchField === 'all') {
-                                    isMatch = Object.values(fieldsToSearch).some(value => 
-                                        value && searchRegex.test(value));
-                                } else {
-                                    isMatch = fieldsToSearch[searchField] && 
-                                        searchRegex.test(fieldsToSearch[searchField]);
-                                }
-
-                                if (isMatch) {
-                                    log(`Found match in trivia #${triviaNumber}`);
-                                    results.push({
-                                        triviaNumber,
-                                        date: formatDate(triviaEvent.date),
-                                        triviaName: triviaEvent['Trivia Name'] || 'Unknown',
-                                        roundName: roundName || 'Unknown',
-                                        question: Question || 'Unknown',
-                                        answer: Answer || 'Unknown'
-                                    });
+            
+                                const rounds = triviaEvent.trivia[roundType];
+                                log(`Processing ${roundType} rounds`, {
+                                    numberOfRounds: Object.keys(rounds).length
+                                });
+            
+                                // Process each round
+                                for (const roundKey in rounds) {
+                                    const round = rounds[roundKey];
+                                    if (!round || typeof round !== 'object') continue;
+            
+                                    const { 
+                                        Question, 
+                                        Answer, 
+                                        'Round Name': roundName,
+                                        'Round Format': roundFormat,
+                                        'Round Instruction': roundInstruction,
+                                        'Image Link': imageLink,
+                                        'Music Clip Link': musicClipLink
+                                    } = round;
+            
+                                    // Determine the question display text
+                                    let displayQuestion = Question;
+                                    if (!displayQuestion || displayQuestion.trim() === '') {
+                                        if (roundFormat === 'Music' || roundFormat === 'Audio') {
+                                            displayQuestion = musicClipLink || 'No clip available';
+                                        } else {
+                                            displayQuestion = imageLink || 'No content available';
+                                        }
+                                    }
+            
+                                    let isMatch = false;
+                                    const fieldsToSearch = {
+                                        Question,
+                                        Answer,
+                                        'Round Name': roundName
+                                    };
+            
+                                    if (searchField === 'all') {
+                                        isMatch = Object.values(fieldsToSearch).some(value => 
+                                            value && searchRegex.test(value));
+                                    } else {
+                                        isMatch = fieldsToSearch[searchField] && 
+                                            searchRegex.test(fieldsToSearch[searchField]);
+                                    }
+            
+                                    if (isMatch) {
+                                        log(`Found match in trivia #${triviaNumber}`);
+                                        results.push({
+                                            triviaNumber,
+                                            date: formatDate(triviaEvent.date),
+                                            triviaName: triviaEvent['Trivia Name'] || 'Unknown',
+                                            roundName: roundName || 'Unknown',
+                                            roundFormat: roundFormat || 'Unknown',
+                                            roundInstruction: roundInstruction || 'Unknown',
+                                            question: displayQuestion,
+                                            answer: Answer || 'Unknown'
+                                        });
+                                    }
                                 }
                             }
                         }
-                    }
-
-                    log(`Search completed. Found ${results.length} results`);
-                    displayResults(results);
+            
+                        log(`Search completed. Found ${results.length} results`);
+                        displayResults(results);
                     })
                     .catch(error => {
                         log('Error during search:', error);
@@ -347,7 +350,6 @@
                         document.getElementById('loading').style.display = 'none';
                     });
             }
-
             function displayResults(results) {
                 const tbody = document.getElementById('resultsBody');
                 const countDiv = document.getElementById('resultsCount');
