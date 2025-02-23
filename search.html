@@ -88,6 +88,19 @@
         .debug-toggle {
             margin-top: 10px;
         }
+        th[data-sort] {
+            position: relative;
+        }
+        th[data-sort]:after {
+            content: '▼';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        th[data-sort='asc']:after {
+            content: '▲';
+        }
     </style>
 </head>
 <body>
@@ -349,12 +362,10 @@
                                             let iframeContent = null;
 
                                             if (format === 'Music' || format === 'Audio') {
-                                                // For music rounds, show the Music Link
+                                                // For music rounds, only show the iframe
                                                 const musicUrl = question['Music Link'] || question['Music Clip Link'];
-                                                displayQuestion = musicUrl || 'No music available';
                                                 if (musicUrl && musicUrl.includes('drive.google.com')) {
                                                     iframeContent = createIframeContent(musicUrl, 'audio');
-                                                    log('Created audio iframe:', { musicUrl, iframeContent });
                                                 }
                                             } else {
                                                 // For other rounds
@@ -362,7 +373,6 @@
                                                 const imageUrl = question['Image Link'];
                                                 if (imageUrl && imageUrl.includes('drive.google.com')) {
                                                     iframeContent = createIframeContent(imageUrl, 'image');
-                                                    log('Created image iframe:', { imageUrl, iframeContent });
                                                 }
                                             }
 
@@ -408,15 +418,28 @@
                 const countDiv = document.getElementById('resultsCount');
                 
                 if (results.length === 0) {
-                    log('No results to display');
                     tbody.innerHTML = '<tr><td colspan="8">No results found.</td></tr>';
                     countDiv.textContent = 'No results found';
                     return;
                 }
                 
-                log(`Displaying ${results.length} results`);
                 countDiv.textContent = `Found ${results.length} results`;
                 
+                // Store results globally for sorting
+                window.searchResults = results;
+                
+                // Add click handlers to all th elements
+                document.querySelectorAll('th').forEach(th => {
+                    th.style.cursor = 'pointer';
+                    th.addEventListener('click', () => sortTable(th.cellIndex));
+                });
+                
+                // Initial render
+                renderResults(results);
+            }
+
+            function renderResults(results) {
+                const tbody = document.getElementById('resultsBody');
                 tbody.innerHTML = results.map(result => `
                     <tr>
                         <td>${result.triviaNumber}</td>
@@ -429,6 +452,47 @@
                         <td>${result.answer}</td>
                     </tr>
                 `).join('');
+            }
+
+            function sortTable(columnIndex) {
+                const results = window.searchResults;
+                if (!results) return;
+                
+                // Get the column name based on index
+                const columns = ['triviaNumber', 'date', 'triviaName', 'roundName', 'roundFormat', 'roundInstruction', 'question', 'answer'];
+                const column = columns[columnIndex];
+                
+                // Toggle sort direction
+                const th = document.getElementsByTagName('th')[columnIndex];
+                const isAscending = th.getAttribute('data-sort') !== 'asc';
+                
+                // Update sort direction indicator
+                document.querySelectorAll('th').forEach(header => header.removeAttribute('data-sort'));
+                th.setAttribute('data-sort', isAscending ? 'asc' : 'desc');
+                
+                // Sort the results
+                results.sort((a, b) => {
+                    let valueA = a[column];
+                    let valueB = b[column];
+                    
+                    // Special handling for triviaNumber (numeric sort)
+                    if (column === 'triviaNumber') {
+                        return isAscending ? 
+                            Number(valueA) - Number(valueB) : 
+                            Number(valueB) - Number(valueA);
+                    }
+                    
+                    // String comparison for other columns
+                    valueA = valueA.toString().toLowerCase();
+                    valueB = valueB.toString().toLowerCase();
+                    
+                    return isAscending ? 
+                        valueA.localeCompare(valueB) : 
+                        valueB.localeCompare(valueA);
+                });
+                
+                // Re-render the results
+                renderResults(results);
             }
 
             document.getElementById('searchButton').addEventListener('click', searchQuestions);
