@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Admin Settings</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background-color: #FFCC00;
+        }
+        .hidden {
+            display: none;
+        }
+        .section {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-top: 15px;
+            background-color: white;
+            border-radius: 8px;
+            max-width: 800px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .input-row {
+            margin: 15px 0;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 14px;
+            background-color: #000000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #333333;
+        }
+        input[type="text"], 
+        input[type="password"],
+        select {
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 200px;
+        }
+        .checkbox-container {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Evil Trivia Admin Settings</h1>
+
+    <div id="passwordPrompt" class="section">
+        <p>Enter admin password to continue:</p>
+        <input type="password" id="adminPassInput" />
+        <button id="btnVerifyPass">Submit</button>
+    </div>
+
+    <div id="adminUI" class="hidden">
+        <div class="section">
+            <h2>Grading Availability</h2>
+            <p>Select grading session to manage round availability:</p>
+            <select id="gradingSessionSelect" style="margin-bottom: 15px;"></select>
+            
+            <div id="roundsContainer" class="checkbox-container">
+                <!-- Rounds will be populated here -->
+            </div>
+
+            <div id="finalChallengeSection" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; display: none;">
+                <label style="font-weight: bold;">Final Challenge:</label>
+                <div style="margin-top: 10px;">
+                    <input type="radio" id="finalGraded" name="finalChallenge" value="graded">
+                    <label for="finalGraded">Graded</label>
+                    
+                    <input type="radio" id="finalManual" name="finalChallenge" value="manual" style="margin-left: 15px;">
+                    <label for="finalManual">Manual</label>
+                    
+                    <input type="radio" id="finalDisable" name="finalChallenge" value="disable" style="margin-left: 15px;">
+                    <label for="finalDisable">Disable</label>
+                </div>
+            </div>
+
+            <button id="saveAvailability" style="margin-top: 20px; display: none;">Save Availability</button>
+        </div>
+
+        <div class="section">
+            <h2>Password Management</h2>
+            <div class="input-row">
+                <label>Admin Settings Password:</label><br>
+                <input type="text" id="adminPassword" placeholder="Current: eviltrivia" />
+                <button id="saveAdminPass">Save</button>
+                <small style="display: block; margin-top: 5px; color: #666;">
+                    Controls access to this admin settings page
+                </small>
+            </div>
+            <div class="input-row" style="margin-top: 20px;">
+                <label>Grading Page Password:</label><br>
+                <input type="text" id="gradingPassword" placeholder="Current: eviltrivia" />
+                <button id="saveGradingPass">Save</button>
+                <small style="display: block; margin-top: 5px; color: #666;">
+                    Controls access to the grading page
+                </small>
+            </div>
+            <div class="input-row" style="margin-top: 20px;">
+                <label>Search Page Password:</label><br>
+                <input type="text" id="searchPassword" placeholder="Current: evil" />
+                <button id="saveSearchPass">Save</button>
+                <small style="display: block; margin-top: 5px; color: #666;">
+                    Controls access to the search page
+                </small>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Location Management</h2>
+            <div class="input-row">
+                <label>Add New Location:</label><br>
+                <input type="text" id="newLocation" placeholder="e.g., Seattle" />
+                <button id="addLocation">Add</button>
+            </div>
+            <div id="locationsList" style="margin-top: 15px;">
+                <!-- Locations will be listed here -->
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Session Management</h2>
+            <div class="subsection">
+                <h3>Active Sessions</h3>
+                <select id="activeSessionsSelect" style="width: 300px; margin: 10px 0;">
+                    <option value="">Select a session to close...</option>
+                </select>
+                <button id="btnCloseSession" 
+                        style="background-color: #ff4444; color: white; margin-left: 10px;">
+                    Close Selected Session
+                </button>
+            </div>
+            <div class="subsection" style="margin-top: 20px;">
+                <h3>Closed Sessions</h3>
+                <select id="closedSessionsSelect" style="width: 300px; margin: 10px 0;">
+                    <option value="">Select a session to reopen...</option>
+                </select>
+                <button id="btnReopenSession" 
+                        style="background-color: #4CAF50; color: white; margin-left: 10px;">
+                    Reopen Selected Session
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getDatabase, ref, child, get, set, update }
+            from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebasestorage.app",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // DOM Elements
+        const passwordPrompt = document.getElementById('passwordPrompt');
+        const adminPassInput = document.getElementById('adminPassInput');
+        const btnVerifyPass = document.getElementById('btnVerifyPass');
+        const adminUI = document.getElementById('adminUI');
+
+        // Add password verification and storage functions
+        async function hashPassword(password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            const hash = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(hash))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        async function checkStoredPassword() {
+            try {
+                const storedHash = localStorage.getItem('adminPasswordHash');
+                if (!storedHash) return false;
+
+                const settingsSnap = await get(child(ref(db), "adminSettings"));
+                if (!settingsSnap.exists()) return false;
+
+                const settings = settingsSnap.val();
+                const currentPassword = settings.adminPassword;
+
+                const currentHash = await hashPassword(currentPassword);
+                return storedHash === currentHash;
+            } catch (error) {
+                console.error("Error checking stored password:", error);
+                return false;
+            }
+        }
+
+        // Add enter key handler for password input
+        adminPassInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                btnVerifyPass.click();
+            }
+        });
+
+        // Update initialization to properly check stored password
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Check if stored password is still valid
+                const isValid = await checkStoredPassword();
+                
+                if (isValid) {
+                    // Skip password prompt if stored password is valid
+                    passwordPrompt.classList.add('hidden');
+                    adminUI.classList.remove('hidden');
+                    loadInitialData();
+                } else {
+                    // Clear stored hash and show password prompt
+                    localStorage.removeItem('adminPasswordHash');
+                    passwordPrompt.classList.remove('hidden');
+                    adminUI.classList.add('hidden');
+                }
+            } catch (error) {
+                console.error("Error during initialization:", error);
+                // Show password prompt on error
+                passwordPrompt.classList.remove('hidden');
+                adminUI.classList.add('hidden');
+            }
+        });
+
+        // Update password verification
+        btnVerifyPass.addEventListener('click', async () => {
+            try {
+                const settingsSnap = await get(child(ref(db), "adminSettings"));
+                if (!settingsSnap.exists()) {
+                    alert("Error: Could not verify password");
+                    return;
+                }
+
+                const settings = settingsSnap.val();
+                if (adminPassInput.value === settings.adminPassword) {
+                    const hash = await hashPassword(settings.adminPassword);
+                    localStorage.setItem('adminPasswordHash', hash);
+                    
+                    passwordPrompt.classList.add('hidden');
+                    adminUI.classList.remove('hidden');
+                    loadInitialData();
+                } else {
+                    alert("Incorrect password");
+                }
+            } catch (error) {
+                console.error("Error verifying password:", error);
+                alert("Error verifying password");
+            }
+        });
+
+        // Load initial data after successful login
+        async function loadInitialData() {
+            // Load existing passwords
+            const settingsSnap = await get(child(ref(db), "adminSettings"));
+            if (settingsSnap.exists()) {
+                const settings = settingsSnap.val();
+                document.getElementById('adminPassword').value = settings.adminPassword || '';
+                document.getElementById('gradingPassword').value = settings.gradingPassword || '';
+                document.getElementById('searchPassword').value = settings.searchPassword || '';
+            }
+
+            // Load grading sessions
+            await loadSessions();
+
+            // Load locations
+            await loadLocations();
+        }
+
+        // Save password handlers
+        document.getElementById('saveAdminPass').addEventListener('click', async () => {
+            const password = document.getElementById('adminPassword').value;
+            if (!password) {
+                alert('Please enter a new password');
+                return;
+            }
+            
+            try {
+                await set(ref(db, 'adminSettings/adminPassword'), password);
+                // Clear stored hash to require re-authentication
+                localStorage.removeItem('adminPasswordHash');
+                alert('Admin password updated! You will need to re-enter the new password next time.');
+                document.getElementById('adminPassword').value = '';
+            } catch (error) {
+                console.error("Error saving admin password:", error);
+                alert('Error saving password. Please try again.');
+            }
+        });
+
+        document.getElementById('saveGradingPass').addEventListener('click', async () => {
+            const password = document.getElementById('gradingPassword').value;
+            if (!password) {
+                alert('Please enter a new password');
+                return;
+            }
+            
+            try {
+                await set(ref(db, 'adminSettings/gradingPassword'), password);
+                alert('Grading password updated!');
+                document.getElementById('gradingPassword').value = '';
+            } catch (error) {
+                console.error("Error saving grading password:", error);
+                alert('Error saving password. Please try again.');
+            }
+        });
+
+        document.getElementById('saveSearchPass').addEventListener('click', async () => {
+            const password = document.getElementById('searchPassword').value;
+            if (!password) {
+                alert('Please enter a new password');
+                return;
+            }
+            
+            try {
+                await set(ref(db, 'adminSettings/searchPassword'), password);
+                alert('Search password updated!');
+                document.getElementById('searchPassword').value = '';
+            } catch (error) {
+                console.error("Error saving search password:", error);
+                alert('Error saving password. Please try again.');
+            }
+        });
+
+        // Load grading sessions
+        async function loadSessions() {
+            try {
+                const sessionsSnap = await get(child(ref(db), "grading"));
+                const activeSelect = document.getElementById('activeSessionsSelect');
+                const closedSelect = document.getElementById('closedSessionsSelect');
+                
+                // Reset dropdowns
+                activeSelect.innerHTML = '<option value="">Select a session to close...</option>';
+                closedSelect.innerHTML = '<option value="">Select a session to reopen...</option>';
+
+                if (sessionsSnap.exists()) {
+                    const sessions = sessionsSnap.val();
+                    
+                    // Sort sessions by date (newest first)
+                    const sortedSessions = Object.entries(sessions)
+                        .map(([id, session]) => ({
+                            id,
+                            ...session,
+                            displayName: `${session.location} - Trivia #${session.triviaNumber} (${session.date})`
+                        }))
+                        .sort((a, b) => b.id.localeCompare(a.id));
+
+                    sortedSessions.forEach(session => {
+                        const option = document.createElement('option');
+                        option.value = session.id;
+                        option.textContent = session.displayName;
+                        
+                        if (session.closed) {
+                            closedSelect.appendChild(option);
+                        } else {
+                            activeSelect.appendChild(option);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error("Error loading sessions:", error);
+            }
+        }
+
+        // Load rounds for selected grading session
+        async function loadRoundsForSession(sessionId) {
+            try {
+                // Get session info
+                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
+                if (!sessionSnap.exists()) return;
+                
+                const session = sessionSnap.val();
+                const triviaNumber = session.triviaNumber;
+
+                // Get trivia info from archive
+                const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}`));
+                if (!triviaSnap.exists()) return;
+
+                const triviaData = triviaSnap.val();
+                const rounds = Object.keys(triviaData.trivia || {})
+                    .filter(key => !isNaN(key))
+                    .sort((a, b) => Number(a) - Number(b));
+
+                // Get current availability settings
+                const availabilitySnap = await get(child(ref(db), `grading/${sessionId}/availability`));
+                const availability = availabilitySnap.exists() ? availabilitySnap.val() : {};
+
+                // Set Final Challenge radio based on saved value, default to manual
+                const finalChallenge = availability.finalChallenge || 'manual';
+                document.getElementById(`final${finalChallenge.charAt(0).toUpperCase() + finalChallenge.slice(1)}`).checked = true;
+
+                // Populate rounds container
+                const container = document.getElementById('roundsContainer');
+                container.innerHTML = rounds.map(round => `
+                    <div>
+                        <input type="checkbox" id="round_${round}" 
+                               ${availability[round] ? 'checked' : ''}>
+                        <label for="round_${round}">Round ${round}</label>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error("Error loading rounds:", error);
+            }
+        }
+
+        // Update session selection handler
+        document.getElementById('gradingSessionSelect').addEventListener('change', (e) => {
+            const sessionId = e.target.value;
+            const finalChallengeSection = document.getElementById('finalChallengeSection');
+            const saveButton = document.getElementById('saveAvailability');
+            
+            if (sessionId) {
+                loadRoundsForSession(sessionId);
+                finalChallengeSection.style.display = 'block';
+                saveButton.style.display = 'block';
+            } else {
+                document.getElementById('roundsContainer').innerHTML = '';
+                finalChallengeSection.style.display = 'none';
+                saveButton.style.display = 'none';
+                // Reset Final Challenge to Manual
+                document.getElementById('finalManual').checked = true;
+            }
+        });
+
+        document.getElementById('saveAvailability').addEventListener('click', async () => {
+            const sessionId = document.getElementById('gradingSessionSelect').value;
+            if (!sessionId) {
+                alert("Please select a grading session");
+                return;
+            }
+
+            try {
+                const container = document.getElementById('roundsContainer');
+                const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+                
+                const availability = {};
+                checkboxes.forEach(cb => {
+                    const roundNum = cb.id.split('_')[1];
+                    availability[roundNum] = cb.checked;
+                });
+
+                // Add Final Challenge state
+                const finalChallengeValue = document.querySelector('input[name="finalChallenge"]:checked').value;
+                availability.finalChallenge = finalChallengeValue;
+
+                await set(ref(db, `grading/${sessionId}/availability`), availability);
+                alert('Availability settings saved!');
+            } catch (error) {
+                console.error("Error saving availability:", error);
+                alert("Error saving availability settings");
+            }
+        });
+
+        // Add these new functions for location management
+        async function loadLocations() {
+            try {
+                const locationsSnap = await get(child(ref(db), "adminSettings/locations"));
+                const locationsList = document.getElementById('locationsList');
+                locationsList.innerHTML = '';
+
+                if (locationsSnap.exists()) {
+                    const locations = locationsSnap.val();
+                    Object.entries(locations).forEach(([id, location]) => {
+                        const div = document.createElement('div');
+                        div.style.margin = '5px 0';
+                        div.innerHTML = `
+                            <span>${location.name}</span>
+                            <button onclick="deleteLocation('${id}')" 
+                                    style="margin-left: 10px; padding: 4px 8px;">
+                                Delete
+                            </button>
+                        `;
+                        locationsList.appendChild(div);
+                    });
+                }
+            } catch (error) {
+                console.error("Error loading locations:", error);
+            }
+        }
+
+        // Add location handler
+        document.getElementById('addLocation').addEventListener('click', async () => {
+            const locationInput = document.getElementById('newLocation');
+            const locationName = locationInput.value.trim();
+            
+            if (!locationName) {
+                alert("Please enter a location name");
+                return;
+            }
+
+            try {
+                const locationId = Date.now().toString();
+                await set(ref(db, `adminSettings/locations/${locationId}`), {
+                    name: locationName,
+                    createdAt: new Date().toISOString()
+                });
+                
+                locationInput.value = '';
+                await loadLocations();
+                alert('Location added successfully!');
+            } catch (error) {
+                console.error("Error adding location:", error);
+                alert("Error adding location. Please try again.");
+            }
+        });
+
+        // Delete location function
+        window.deleteLocation = async (locationId) => {
+            if (!confirm("Are you sure you want to delete this location?")) {
+                return;
+            }
+
+            try {
+                await set(ref(db, `adminSettings/locations/${locationId}`), null);
+                await loadLocations();
+                alert('Location deleted successfully!');
+            } catch (error) {
+                console.error("Error deleting location:", error);
+                alert("Error deleting location. Please try again.");
+            }
+        };
+
+        // Add these functions to handle session status changes
+        window.closeSession = async (sessionId) => {
+            if (!confirm("Are you sure you want to close this session? This will prevent further grading.")) {
+                return;
+            }
+
+            try {
+                await set(ref(db, `grading/${sessionId}/closed`), true);
+                await loadSessions();
+                alert('Session closed successfully!');
+            } catch (error) {
+                console.error("Error closing session:", error);
+                alert("Error closing session. Please try again.");
+            }
+        };
+
+        window.reopenSession = async (sessionId) => {
+            if (!confirm("Are you sure you want to reopen this session?")) {
+                return;
+            }
+
+            try {
+                await set(ref(db, `grading/${sessionId}/closed`), false);
+                await loadSessions();
+                alert('Session reopened successfully!');
+            } catch (error) {
+                console.error("Error reopening session:", error);
+                alert("Error reopening session. Please try again.");
+            }
+        };
+
+        // Add button event listeners
+        document.getElementById('btnCloseSession').addEventListener('click', async () => {
+            const sessionId = document.getElementById('activeSessionsSelect').value;
+            if (!sessionId) {
+                alert("Please select a session to close");
+                return;
+            }
+
+            if (!confirm("Are you sure you want to close this session? This will prevent further grading.")) {
+                return;
+            }
+
+            try {
+                await set(ref(db, `grading/${sessionId}/closed`), true);
+                await loadSessions();
+                alert('Session closed successfully!');
+            } catch (error) {
+                console.error("Error closing session:", error);
+                alert("Error closing session. Please try again.");
+            }
+        });
+
+        document.getElementById('btnReopenSession').addEventListener('click', async () => {
+            const sessionId = document.getElementById('closedSessionsSelect').value;
+            if (!sessionId) {
+                alert("Please select a session to reopen");
+                return;
+            }
+
+            if (!confirm("Are you sure you want to reopen this session?")) {
+                return;
+            }
+
+            try {
+                await set(ref(db, `grading/${sessionId}/closed`), false);
+                await loadSessions();
+                alert('Session reopened successfully!');
+            } catch (error) {
+                console.error("Error reopening session:", error);
+                alert("Error reopening session. Please try again.");
+            }
+        });
+
+        // Add styles
+        const style = document.createElement('style');
+        style.textContent = `
+            select {
+                padding: 8px;
+                font-size: 14px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+            button {
+                padding: 8px 16px;
+                font-size: 14px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                transition: background-color 0.3s;
+            }
+            #btnCloseSession:hover {
+                background-color: #ff0000;
+            }
+            #btnReopenSession:hover {
+                background-color: #45a049;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadSessions();
+        });
+    </script>
+</body>
+</html>
