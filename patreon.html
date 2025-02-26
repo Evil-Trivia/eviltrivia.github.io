@@ -164,36 +164,23 @@
      * - pledgeCents (the user's current monthly pledge in cents)
      */
     async function verifyActiveMembership(patreonUserId) {
-      try {
-        const snapshot = await db.ref(`patreonUsers/${patreonUserId}`).once('value');
-        const userData = snapshot.val();
-        
-        if (!userData) {
-          console.log('[INFO] No user data in DB. Removing local auth...');
-          localStorage.removeItem('patreonAuthenticated');
-          localStorage.removeItem('patreonUserId');
-          return false;
-        }
-
-        const isActive = !!userData.isActiveMember;
-        const userPledgeCents = userData.pledgeCents || 0; 
-        console.log('[INFO] isActiveMember:', isActive);
-        console.log('[INFO] pledgeCents:', userPledgeCents);
-
-        // Must be active AND meet the required pledge amount
-        if (!isActive || userPledgeCents < REQUIRED_CENTS) {
-          localStorage.removeItem('patreonAuthenticated');
-          localStorage.removeItem('patreonUserId');
-          return false;
-        }
-
-        // If everything checks out:
-        return true;
-      } catch (error) {
-        console.error('[ERROR] verifyActiveMembership failed:', error);
+      const snapshot = await db.ref(`patreonUsers/${patreonUserId}`).once('value');
+      const userData = snapshot.val();
+      if (!userData) { ... }
+    
+      const isActive = !!userData.isActiveMember;
+      
+      // Instead of reading top-level pledgeCents,
+      // read membershipData.attributes.currently_entitled_amount_cents:
+      const userPledgeCents = userData.membershipData?.attributes?.currently_entitled_amount_cents || 0;
+      
+      if (!isActive || userPledgeCents < REQUIRED_CENTS) {
+        ...
         return false;
       }
+      return true;
     }
+
 
     /*
      * 4) CHECK AUTH ON PAGE LOAD
