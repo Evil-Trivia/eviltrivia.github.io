@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Evil Trivia - Patreon Exclusive Content</title>
+  <title>Evil Trivia - Patreon Tier-Gated Content</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -77,13 +77,13 @@
 <body>
   <header>
     <h1>Evil Trivia - Patron Exclusive Content</h1>
-    <p>Special content and benefits for our awesome Patreon supporters</p>
+    <p>Only certain Patreon tiers can access this page.</p>
   </header>
   
-  <!-- Locked content section shown to NON-logged in users -->
+  <!-- Locked content section shown to NON-logged in or ineligible patrons -->
   <div id="login-section" class="locked-content">
-    <h2>This content is exclusive to our Patreon supporters</h2>
-    <p>Please log in with your Patreon account to access exclusive trivia content and perks.</p>
+    <h2>This content is exclusive to higher-level Patreon supporters</h2>
+    <p>Please log in with your Patreon account to access this premium content.</p>
     <div class="loader" id="login-loader"></div>
     <a id="patreon-login-btn" href="#" class="patreon-btn">
       <img
@@ -95,53 +95,34 @@
     </a>
   </div>
 
-  <!-- Patron-only content -->
+  <!-- Patron-only content (shown if user meets the tier requirement) -->
   <div id="content-section" class="patron-content">
-    <h2>Welcome, Patron!</h2>
-    <p>Thank you for supporting Evil Trivia on Patreon. Here's your exclusive content:</p>
+    <h2>Welcome, Premium Patron!</h2>
+    <p>Thanks for pledging at (or above) our required tier.</p>
     
     <div class="exclusive-section">
-      <h3>Upcoming Trivia Questions</h3>
-      <p>Get a sneak peek at questions for next week's trivia night:</p>
-      <ul>
-        <li>Which country consumes the most chocolate per capita?</li>
-        <li>What was the first song played on MTV?</li>
-        <li>In what year was the first email sent?</li>
-      </ul>
-    </div>
-    
-    <div class="exclusive-section">
-      <h3>Behind the Scenes</h3>
-      <p>Learn about how we create our devilishly difficult questions:</p>
-      <p>
-        Our process involves researching obscure facts, verifying from multiple sources, 
-        and crafting questions that are challenging but fair. We aim to create questions 
-        that make you think, "I should have known that!"
-      </p>
-    </div>
-    
-    <div class="exclusive-section">
-      <h3>Patron-Only Downloads</h3>
-      <p>Access to downloadable trivia sets for your own events:</p>
-      <ul>
-        <li><a href="#">Movie Trivia Pack (PDF)</a></li>
-        <li><a href="#">90s Music Trivia Sheet (PDF)</a></li>
-        <li><a href="#">Science Facts Trivia (PDF)</a></li>
-      </ul>
+      <h3>Exclusive Behind-the-Scenes</h3>
+      <p>Here is some insider info that only our top supporters get to see...</p>
     </div>
     
     <button id="logout-btn" class="logout-btn">Logout</button>
   </div>
 
   <!-- 
-    1) Include Firebase scripts (for Realtime Database checks).
-    2) We'll read the "patreonUsers/<patreonId>/isActiveMember" to confirm the user 
-       is still active after the webhook updates. 
+    WEBHOOK NOTE:
+    Your Firebase Function receives Patreon webhooks whenever a membership changes
+    (via /webhooks/patreon). That function updates the DB with 'pledgeCents', 'isActiveMember',
+    etc. This file just checks those DB fields to see if the user meets the tier requirement.
   -->
+
+  <!-- Firebase SDK (for Realtime Database) -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script>
-    // TODO: Replace with your actual Firebase config
+    /* -------------------------------------------
+     * 1) CONFIGURE FIREBASE
+     * -------------------------------------------
+     */
     const firebaseConfig = {
       apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
       authDomain: "eviltrivia-47664.firebaseapp.com",
@@ -152,112 +133,131 @@
       appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
       measurementId: "G-2W6RK96Y34"
     };
-
-    // Initialize Firebase
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     
-    // Your Firebase function URL - replace with your actual URL
     // This is your Cloud Function that handles /auth/patreon, etc.
     const firebaseFunctionUrl = "https://us-central1-eviltrivia-47664.cloudfunctions.net/patreonAuth";
-    
-    // Elements
+
+    /* -------------------------------------------
+     * 2) DEFINE TIER REQUIREMENTS
+     * -------------------------------------------
+     * Example: set minimum pledge to $10 => 1000 cents
+     * Or you can do an array of allowed Tier IDs if you prefer tier-based logic.
+     */
+    const REQUIRED_CENTS = 1000; // e.g. $10.00 or higher
+
+    /* -------------------------------------------
+     * ELEMENTS
+     * -------------------------------------------
+     */
     const loginSection = document.getElementById('login-section');
     const contentSection = document.getElementById('content-section');
     const loginBtn = document.getElementById('patreon-login-btn');
     const logoutBtn = document.getElementById('logout-btn');
     const loginLoader = document.getElementById('login-loader');
-    
-    // Check membership status in the DB
+
+    /*
+     * 3) CHECK MEMBERSHIP STATUS
+     * This function checks:
+     * - isActiveMember (true/false)
+     * - pledgeCents (the user's current monthly pledge in cents)
+     */
     async function verifyActiveMembership(patreonUserId) {
       try {
-        // Read from "patreonUsers/<patreonUserId>/isActiveMember"
         const snapshot = await db.ref(`patreonUsers/${patreonUserId}`).once('value');
         const userData = snapshot.val();
         
         if (!userData) {
-          // No record means user never finished or membership not recognized
-          console.log('[INFO] No user data in DB, removing local auth.');
+          console.log('[INFO] No user data in DB. Removing local auth...');
           localStorage.removeItem('patreonAuthenticated');
           localStorage.removeItem('patreonUserId');
           return false;
         }
 
         const isActive = !!userData.isActiveMember;
+        const userPledgeCents = userData.pledgeCents || 0; 
         console.log('[INFO] isActiveMember:', isActive);
-        
-        if (!isActive) {
-          // The user is not active, so log them out
+        console.log('[INFO] pledgeCents:', userPledgeCents);
+
+        // Must be active AND meet the required pledge amount
+        if (!isActive || userPledgeCents < REQUIRED_CENTS) {
           localStorage.removeItem('patreonAuthenticated');
           localStorage.removeItem('patreonUserId');
           return false;
         }
 
-        // If isActive is true, keep them logged in
+        // If everything checks out:
         return true;
       } catch (error) {
-        console.error('[ERROR] Could not verify membership:', error);
+        console.error('[ERROR] verifyActiveMembership failed:', error);
         return false;
       }
     }
 
-    // Check if user is authenticated (based on localStorage),
-    // then confirm with DB that they remain active.
+    /*
+     * 4) CHECK AUTH ON PAGE LOAD
+     * If the user is "logged in" locally, confirm with DB that they're still
+     * above the required tier. If not, lock them out.
+     */
     async function checkAuth() {
-      const isAuthenticated = (localStorage.getItem('patreonAuthenticated') === 'true');
+      const isAuthenticated = localStorage.getItem('patreonAuthenticated') === 'true';
       const patreonUserId = localStorage.getItem('patreonUserId');
       
       if (isAuthenticated && patreonUserId) {
-        // Double-check in DB
-        const stillActive = await verifyActiveMembership(patreonUserId);
-        if (stillActive) {
+        const stillEligible = await verifyActiveMembership(patreonUserId);
+        if (stillEligible) {
           loginSection.style.display = 'none';
           contentSection.style.display = 'block';
           return;
         }
       }
       
-      // If not active or no ID:
       loginSection.style.display = 'block';
       contentSection.style.display = 'none';
     }
     
-    // Handle Patreon login
-    loginBtn.addEventListener('click', function(e) {
+    /*
+     * 5) HANDLE PATREON LOGIN
+     */
+    loginBtn.addEventListener('click', (e) => {
       e.preventDefault();
       loginLoader.style.display = 'block';
       window.location.href = `${firebaseFunctionUrl}/auth/patreon`;
     });
     
-    // Handle logout
-    logoutBtn.addEventListener('click', function() {
+    /*
+     * 6) HANDLE LOGOUT
+     */
+    logoutBtn.addEventListener('click', () => {
       localStorage.removeItem('patreonAuthenticated');
       localStorage.removeItem('patreonUserId');
       checkAuth();
     });
     
-    // Check URL parameters for auth response
+    /*
+     * 7) CHECK URL PARAMS FOR AUTH SUCCESS
+     *    (If your server redirects with ?auth_success=true&patreon_id=...)
+     */
     function checkUrlParams() {
       const urlParams = new URLSearchParams(window.location.search);
       const authSuccess = urlParams.get('auth_success');
-      const patreonId = urlParams.get('patreon_id'); // You can pass the user ID from the server if you wish
+      const patreonId = urlParams.get('patreon_id');
 
       if (authSuccess === 'true') {
         localStorage.setItem('patreonAuthenticated', 'true');
-        
-        // If your Firebase Function appends something like ?patreon_id=XYZ
-        // store it locally so we know which DB record to check:
         if (patreonId) {
           localStorage.setItem('patreonUserId', patreonId);
         }
-        
         // Clear the URL parameters
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
     
-    // On page load
-    document.addEventListener('DOMContentLoaded', async function() {
+    /*
+     * 8) ON PAGE LOAD
+     */
+    document.addEventListener('DOMContentLoaded', async () => {
       checkUrlParams();
       await checkAuth();
     });
