@@ -1,71 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Evil Trivia - Patreon Tier-Gated Content</title>
+  <title>Patreon Tier-Gated Content</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      line-height: 1.6;
-      max-width: 800px;
       margin: 0 auto;
       padding: 20px;
+      max-width: 600px;
       color: #333;
     }
-    header {
-      text-align: center;
-      margin-bottom: 30px;
-    }
     h1 {
+      text-align: center;
       color: #FF424D; /* Patreon color */
     }
-    .locked-content, .patron-content {
-      padding: 25px;
-      border-radius: 8px;
-      margin-top: 20px;
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    }
-    .locked-content {
-      text-align: center;
-      background-color: #f9f9f9;
-    }
-    .patron-content {
-      display: none;
-      background-color: #fff;
-    }
-    .patreon-btn {
-      display: inline-block;
-      transition: transform 0.2s;
+    .section {
       margin: 20px 0;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
     }
-    .patreon-btn:hover {
-      transform: scale(1.05);
+    .hidden {
+      display: none;
+    }
+    .center {
+      text-align: center;
+    }
+    .login-btn {
+      display: inline-block;
+      margin-top: 10px;
     }
     .logout-btn {
       background-color: #FF424D;
-      color: white;
+      color: #fff;
       border: none;
       padding: 10px 15px;
       border-radius: 4px;
       cursor: pointer;
       font-size: 16px;
-      margin-top: 20px;
     }
-    .exclusive-section {
-      margin-top: 25px;
-      padding: 15px;
-      border-left: 4px solid #FF424D;
-      background-color: #f9f9f9;
-    }
+    /* Loader (optional) */
     .loader {
-      border: 5px solid #f3f3f3;
-      border-top: 5px solid #FF424D;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #FF424D;
       border-radius: 50%;
       width: 30px;
       height: 30px;
       animation: spin 1s linear infinite;
-      margin: 20px auto;
+      margin: 10px auto;
       display: none;
     }
     @keyframes spin {
@@ -75,175 +59,183 @@
   </style>
 </head>
 <body>
-  <header>
-    <h1>Evil Trivia - Patron Exclusive Content</h1>
-    <p>Only certain Patreon tiers can access this page.</p>
-  </header>
-  
-  <!-- Locked content section shown to NON-logged in or ineligible patrons -->
-  <div id="login-section" class="locked-content">
-    <h2>This content is exclusive to higher-level Patreon supporters</h2>
-    <p>Please log in with your Patreon account to access this premium content.</p>
-    <div class="loader" id="login-loader"></div>
-    <a id="patreon-login-btn" href="#" class="patreon-btn">
+  <h1>Patreon Tier-Gated Content</h1>
+
+  <!-- 1) LOGIN SECTION (if not authenticated) -->
+  <div id="login-section" class="section center">
+    <p>This content is for our supporters at $5 or higher.</p>
+    <div id="login-loader" class="loader"></div>
+    <a id="patreon-login-btn" href="#" class="login-btn">
       <img
-        src="https://c5.patreon.com/external/logo/login_with_patreon@2x.png"
-        width="272"
+        src="https://c5.patreon.com/external/login-with-patreon-medium@2x.png"
+        width="230"
         height="44"
         alt="Login with Patreon"
       />
     </a>
   </div>
 
-  <!-- Patron-only content (shown if user meets the tier requirement) -->
-  <div id="content-section" class="patron-content">
-    <h2>Welcome, Premium Patron!</h2>
-    <p>Thanks for pledging at (or above) our required tier.</p>
-    
-    <div class="exclusive-section">
-      <h3>Exclusive Behind-the-Scenes</h3>
-      <p>Here is some insider info that only our top supporters get to see...</p>
-    </div>
-    
+  <!-- 2) UPGRADE SECTION (if logged in but pledge is too low) -->
+  <div id="upgrade-section" class="section hidden center">
+    <h2>Your pledge is not high enough.</h2>
+    <p>You need to pledge at least $5 to view this content.</p>
+    <p><a href="https://www.patreon.com/EvilTrivia" target="_blank">Upgrade your pledge on Patreon</a></p>
     <button id="logout-btn" class="logout-btn">Logout</button>
   </div>
 
-  <!-- 
-    WEBHOOK NOTE:
-    Your Firebase Function receives Patreon webhooks whenever a membership changes
-    (via /webhooks/patreon). That function updates the DB with 'pledgeCents', 'isActiveMember',
-    etc. This file just checks those DB fields to see if the user meets the tier requirement.
-  -->
+  <!-- 3) CONTENT SECTION (if user meets pledge requirement) -->
+  <div id="content-section" class="section hidden">
+    <h2>Exclusive Content</h2>
+    <p>Welcome! You have access because your pledge is at least $5.</p>
+    <button id="logout-btn-2" class="logout-btn">Logout</button>
+  </div>
 
-  <!-- Firebase SDK (for Realtime Database) -->
+  <!-- Firebase & Script -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script>
-    /* -------------------------------------------
+    /************************************************
      * 1) CONFIGURE FIREBASE
-     * -------------------------------------------
-     */
+     ************************************************/
     const firebaseConfig = {
-      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-      authDomain: "eviltrivia-47664.firebaseapp.com",
-      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-      projectId: "eviltrivia-47664",
-      storageBucket: "eviltrivia-47664.firebasestorage.app",
-      messagingSenderId: "401826818140",
-      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
-      measurementId: "G-2W6RK96Y34"
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_APP.firebaseapp.com",
+      databaseURL: "https://YOUR_APP.firebaseio.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_BUCKET.appspot.com",
+      messagingSenderId: "SENDER_ID",
+      appId: "APP_ID"
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-    
-    // This is your Cloud Function that handles /auth/patreon, etc.
-    const firebaseFunctionUrl = "https://us-central1-eviltrivia-47664.cloudfunctions.net/patreonAuth";
 
-    /* -------------------------------------------
-     * 2) DEFINE TIER REQUIREMENTS
-     * -------------------------------------------
-     * Example: set minimum pledge to $10 => 1000 cents
-     * Or you can do an array of allowed Tier IDs if you prefer tier-based logic.
-     */
-    const REQUIRED_CENTS = 500; // e.g. $10.00 or higher
+    // Your Cloud Function URL
+    const firebaseFunctionUrl = "https://us-central1-YOUR_APP.cloudfunctions.net/patreonAuth";
 
-    /* -------------------------------------------
-     * ELEMENTS
-     * -------------------------------------------
-     */
+    // Required pledge in cents (e.g. $5 => 500)
+    const REQUIRED_CENTS = 500;
+
+    /************************************************
+     * 2) DOM ELEMENTS
+     ************************************************/
     const loginSection = document.getElementById('login-section');
+    const upgradeSection = document.getElementById('upgrade-section');
     const contentSection = document.getElementById('content-section');
     const loginBtn = document.getElementById('patreon-login-btn');
     const logoutBtn = document.getElementById('logout-btn');
+    const logoutBtn2 = document.getElementById('logout-btn-2');
     const loginLoader = document.getElementById('login-loader');
 
-    /*
-     * 3) CHECK MEMBERSHIP STATUS
-     * This function checks:
-     * - isActiveMember (true/false)
-     * - pledgeCents (the user's current monthly pledge in cents)
-     */
+    /************************************************
+     * 3) VERIFY MEMBERSHIP
+     ************************************************/
     async function verifyActiveMembership(patreonUserId) {
-      const snapshot = await db.ref(`patreonUsers/${patreonUserId}`).once('value');
-      const userData = snapshot.val();
-      if (!userData) { ... }
-    
-      const isActive = !!userData.isActiveMember;
-      
-      // Instead of reading top-level pledgeCents,
-      // read membershipData.attributes.currently_entitled_amount_cents:
-      const userPledgeCents = userData.membershipData?.attributes?.currently_entitled_amount_cents || 0;
-      
-      if (!isActive || userPledgeCents < REQUIRED_CENTS) {
-        ...
-        return false;
+      try {
+        const snapshot = await db.ref(`patreonUsers/${patreonUserId}`).once('value');
+        const userData = snapshot.val();
+        if (!userData) return { active: false, meetsTier: false };
+
+        const isActive = !!userData.isActiveMember;
+        // If your DB is storing pledgeCents at top-level:
+        // const userPledgeCents = userData.pledgeCents || 0;
+
+        // If your DB is storing it in membershipData.attributes:
+        const userPledgeCents = userData.membershipData?.attributes?.currently_entitled_amount_cents || 0;
+
+        return {
+          active: isActive,
+          meetsTier: (userPledgeCents >= REQUIRED_CENTS)
+        };
+      } catch (error) {
+        console.error('[ERROR] verifyActiveMembership failed:', error);
+        return { active: false, meetsTier: false };
       }
-      return true;
     }
 
-
-    /*
+    /************************************************
      * 4) CHECK AUTH ON PAGE LOAD
-     * If the user is "logged in" locally, confirm with DB that they're still
-     * above the required tier. If not, lock them out.
-     */
+     ************************************************/
     async function checkAuth() {
       const isAuthenticated = localStorage.getItem('patreonAuthenticated') === 'true';
       const patreonUserId = localStorage.getItem('patreonUserId');
-      
-      if (isAuthenticated && patreonUserId) {
-        const stillEligible = await verifyActiveMembership(patreonUserId);
-        if (stillEligible) {
-          loginSection.style.display = 'none';
-          contentSection.style.display = 'block';
-          return;
-        }
+
+      if (!isAuthenticated || !patreonUserId) {
+        showLoginSection();
+        return;
       }
-      
-      loginSection.style.display = 'block';
-      contentSection.style.display = 'none';
+
+      const { active, meetsTier } = await verifyActiveMembership(patreonUserId);
+
+      if (!active) {
+        // Not an active patron
+        showLoginSection();
+      } else if (!meetsTier) {
+        // Active but pledge is below required tier
+        showUpgradeSection();
+      } else {
+        // Active and meets tier
+        showContentSection();
+      }
     }
-    
-    /*
-     * 5) HANDLE PATREON LOGIN
-     */
+
+    function showLoginSection() {
+      loginSection.classList.remove('hidden');
+      upgradeSection.classList.add('hidden');
+      contentSection.classList.add('hidden');
+    }
+
+    function showUpgradeSection() {
+      loginSection.classList.add('hidden');
+      upgradeSection.classList.remove('hidden');
+      contentSection.classList.add('hidden');
+    }
+
+    function showContentSection() {
+      loginSection.classList.add('hidden');
+      upgradeSection.classList.add('hidden');
+      contentSection.classList.remove('hidden');
+    }
+
+    /************************************************
+     * 5) HANDLE PATREON LOGIN BUTTON
+     ************************************************/
     loginBtn.addEventListener('click', (e) => {
       e.preventDefault();
       loginLoader.style.display = 'block';
+      // Redirect to your function that handles OAuth with Patreon
       window.location.href = `${firebaseFunctionUrl}/auth/patreon`;
     });
-    
-    /*
+
+    /************************************************
      * 6) HANDLE LOGOUT
-     */
-    logoutBtn.addEventListener('click', () => {
+     ************************************************/
+    function logout() {
       localStorage.removeItem('patreonAuthenticated');
       localStorage.removeItem('patreonUserId');
       checkAuth();
-    });
-    
-    /*
+    }
+    logoutBtn.addEventListener('click', logout);
+    logoutBtn2.addEventListener('click', logout);
+
+    /************************************************
      * 7) CHECK URL PARAMS FOR AUTH SUCCESS
-     *    (If your server redirects with ?auth_success=true&patreon_id=...)
-     */
+     ************************************************/
     function checkUrlParams() {
       const urlParams = new URLSearchParams(window.location.search);
       const authSuccess = urlParams.get('auth_success');
       const patreonId = urlParams.get('patreon_id');
 
-      if (authSuccess === 'true') {
+      if (authSuccess === 'true' && patreonId) {
         localStorage.setItem('patreonAuthenticated', 'true');
-        if (patreonId) {
-          localStorage.setItem('patreonUserId', patreonId);
-        }
-        // Clear the URL parameters
+        localStorage.setItem('patreonUserId', patreonId);
+        // Remove query params from URL
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
-    
-    /*
+
+    /************************************************
      * 8) ON PAGE LOAD
-     */
+     ************************************************/
     document.addEventListener('DOMContentLoaded', async () => {
       checkUrlParams();
       await checkAuth();
