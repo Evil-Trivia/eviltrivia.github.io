@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Evil Trivia - Patreon Exclusive Content</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      color: #333;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    h1 {
+      color: #FF424D; /* Patreon color */
+    }
+    .locked-content, .patron-content {
+      padding: 25px;
+      border-radius: 8px;
+      margin-top: 20px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    .locked-content {
+      text-align: center;
+      background-color: #f9f9f9;
+    }
+    .patron-content {
+      display: none;
+      background-color: #fff;
+    }
+    .patreon-btn {
+      display: inline-block;
+      transition: transform 0.2s;
+      margin: 20px 0;
+    }
+    .patreon-btn:hover {
+      transform: scale(1.05);
+    }
+    .logout-btn {
+      background-color: #FF424D;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 20px;
+    }
+    .exclusive-section {
+      margin-top: 25px;
+      padding: 15px;
+      border-left: 4px solid #FF424D;
+      background-color: #f9f9f9;
+    }
+    .loader {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #FF424D;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+      display: none;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Evil Trivia - Patron Exclusive Content</h1>
+    <p>Special content and benefits for our awesome Patreon supporters</p>
+  </header>
+  
+  <!-- Locked content section shown to NON-logged in users -->
+  <div id="login-section" class="locked-content">
+    <h2>This content is exclusive to our Patreon supporters</h2>
+    <p>Please log in with your Patreon account to access exclusive trivia content and perks.</p>
+    <div class="loader" id="login-loader"></div>
+    <a id="patreon-login-btn" href="#" class="patreon-btn">
+      <img
+        src="https://c5.patreon.com/external/logo/login_with_patreon@2x.png"
+        width="272"
+        height="44"
+        alt="Login with Patreon"
+      />
+    </a>
+  </div>
+
+  <!-- Patron-only content -->
+  <div id="content-section" class="patron-content">
+    <h2>Welcome, Patron!</h2>
+    <p>Thank you for supporting Evil Trivia on Patreon. Here's your exclusive content:</p>
+    
+    <div class="exclusive-section">
+      <h3>Upcoming Trivia Questions</h3>
+      <p>Get a sneak peek at questions for next week's trivia night:</p>
+      <ul>
+        <li>Which country consumes the most chocolate per capita?</li>
+        <li>What was the first song played on MTV?</li>
+        <li>In what year was the first email sent?</li>
+      </ul>
+    </div>
+    
+    <div class="exclusive-section">
+      <h3>Behind the Scenes</h3>
+      <p>Learn about how we create our devilishly difficult questions:</p>
+      <p>
+        Our process involves researching obscure facts, verifying from multiple sources, 
+        and crafting questions that are challenging but fair. We aim to create questions 
+        that make you think, "I should have known that!"
+      </p>
+    </div>
+    
+    <div class="exclusive-section">
+      <h3>Patron-Only Downloads</h3>
+      <p>Access to downloadable trivia sets for your own events:</p>
+      <ul>
+        <li><a href="#">Movie Trivia Pack (PDF)</a></li>
+        <li><a href="#">90s Music Trivia Sheet (PDF)</a></li>
+        <li><a href="#">Science Facts Trivia (PDF)</a></li>
+      </ul>
+    </div>
+    
+    <button id="logout-btn" class="logout-btn">Logout</button>
+  </div>
+
+  <!-- 
+    1) Include Firebase scripts (for Realtime Database checks).
+    2) We'll read the "patreonUsers/<patreonId>/isActiveMember" to confirm the user 
+       is still active after the webhook updates. 
+  -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <script>
+    // TODO: Replace with your actual Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.firebasestorage.app",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    
+    // Your Firebase function URL - replace with your actual URL
+    // This is your Cloud Function that handles /auth/patreon, etc.
+    const firebaseFunctionUrl = "https://us-central1-eviltrivia-47664.cloudfunctions.net/patreonAuth";
+    
+    // Elements
+    const loginSection = document.getElementById('login-section');
+    const contentSection = document.getElementById('content-section');
+    const loginBtn = document.getElementById('patreon-login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const loginLoader = document.getElementById('login-loader');
+    
+    // Check membership status in the DB
+    async function verifyActiveMembership(patreonUserId) {
+      try {
+        // Read from "patreonUsers/<patreonUserId>/isActiveMember"
+        const snapshot = await db.ref(`patreonUsers/${patreonUserId}`).once('value');
+        const userData = snapshot.val();
+        
+        if (!userData) {
+          // No record means user never finished or membership not recognized
+          console.log('[INFO] No user data in DB, removing local auth.');
+          localStorage.removeItem('patreonAuthenticated');
+          localStorage.removeItem('patreonUserId');
+          return false;
+        }
+
+        const isActive = !!userData.isActiveMember;
+        console.log('[INFO] isActiveMember:', isActive);
+        
+        if (!isActive) {
+          // The user is not active, so log them out
+          localStorage.removeItem('patreonAuthenticated');
+          localStorage.removeItem('patreonUserId');
+          return false;
+        }
+
+        // If isActive is true, keep them logged in
+        return true;
+      } catch (error) {
+        console.error('[ERROR] Could not verify membership:', error);
+        return false;
+      }
+    }
+
+    // Check if user is authenticated (based on localStorage),
+    // then confirm with DB that they remain active.
+    async function checkAuth() {
+      const isAuthenticated = (localStorage.getItem('patreonAuthenticated') === 'true');
+      const patreonUserId = localStorage.getItem('patreonUserId');
+      
+      if (isAuthenticated && patreonUserId) {
+        // Double-check in DB
+        const stillActive = await verifyActiveMembership(patreonUserId);
+        if (stillActive) {
+          loginSection.style.display = 'none';
+          contentSection.style.display = 'block';
+          return;
+        }
+      }
+      
+      // If not active or no ID:
+      loginSection.style.display = 'block';
+      contentSection.style.display = 'none';
+    }
+    
+    // Handle Patreon login
+    loginBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      loginLoader.style.display = 'block';
+      window.location.href = `${firebaseFunctionUrl}/auth/patreon`;
+    });
+    
+    // Handle logout
+    logoutBtn.addEventListener('click', function() {
+      localStorage.removeItem('patreonAuthenticated');
+      localStorage.removeItem('patreonUserId');
+      checkAuth();
+    });
+    
+    // Check URL parameters for auth response
+    function checkUrlParams() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const authSuccess = urlParams.get('auth_success');
+      const patreonId = urlParams.get('patreon_id'); // You can pass the user ID from the server if you wish
+
+      if (authSuccess === 'true') {
+        localStorage.setItem('patreonAuthenticated', 'true');
+        
+        // If your Firebase Function appends something like ?patreon_id=XYZ
+        // store it locally so we know which DB record to check:
+        if (patreonId) {
+          localStorage.setItem('patreonUserId', patreonId);
+        }
+        
+        // Clear the URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+    
+    // On page load
+    document.addEventListener('DOMContentLoaded', async function() {
+      checkUrlParams();
+      await checkAuth();
+    });
+  </script>
+</body>
+</html>
