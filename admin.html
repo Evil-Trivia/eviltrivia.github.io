@@ -42,6 +42,7 @@
         }
         input[type="text"], 
         input[type="password"],
+        input[type="number"],
         select {
             padding: 8px;
             margin: 5px 0;
@@ -153,97 +154,38 @@
                 </button>
             </div>
         </div>
-    </div>
-    <!-- Add this section to your admin.html page -->
-    <div class="card mb-4">
-      <div class="card-header">
-        <h5>Patreon Tier Settings</h5>
-      </div>
-      <div class="card-body">
-        <form id="patreon-tier-form">
-          <div class="mb-3">
-            <label for="tier-amount" class="form-label">Minimum Tier Required (in USD)</label>
-            <div class="input-group">
-              <span class="input-group-text">$</span>
-              <input type="number" class="form-control" id="tier-amount" min="0" step="0.01" required>
+
+        <!-- Patreon Tier Settings Section -->
+        <div class="section">
+            <h2>Patreon Tier Settings</h2>
+            <form id="patreon-tier-form">
+                <div class="input-row">
+                    <label for="tier-amount">Minimum Tier Required (in USD)</label><br>
+                    <div style="display: flex; align-items: center;">
+                        <span style="margin-right: 5px;">$</span>
+                        <input type="number" id="tier-amount" min="0" step="0.01" required>
+                    </div>
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        Users must pledge at least this amount to access Patreon content.
+                    </small>
+                </div>
+                
+                <div class="input-row" style="margin-top: 20px;">
+                    <label for="tier-description">Tier Description</label><br>
+                    <input type="text" id="tier-description" placeholder="e.g., Evil Genius Tier or higher">
+                    <small style="display: block; margin-top: 5px; color: #666;">
+                        This will be shown to users who need to upgrade.
+                    </small>
+                </div>
+                
+                <button type="submit" style="margin-top: 20px;">Save Tier Settings</button>
+            </form>
+            
+            <div id="tier-success-alert" style="display: none; margin-top: 15px; padding: 10px; background-color: #dff0d8; color: #3c763d; border-radius: 4px;">
+                Tier settings saved successfully!
             </div>
-            <div class="form-text">Users must pledge at least this amount to access Patreon content.</div>
-          </div>
-          
-          <div class="mb-3">
-            <label for="tier-description" class="form-label">Tier Description</label>
-            <input type="text" class="form-control" id="tier-description" placeholder="e.g., Evil Genius Tier or higher">
-            <div class="form-text">This will be shown to users who need to upgrade.</div>
-          </div>
-          
-          <button type="submit" class="btn btn-primary">Save Tier Settings</button>
-        </form>
-        
-        <div class="alert alert-success mt-3 d-none" id="tier-success-alert">
-          Tier settings saved successfully!
         </div>
-      </div>
     </div>
-    
-    <!-- Add this JavaScript to your admin.js file or in a script tag -->
-    <script>
-      // Initialize Firebase (should already be in your admin page)
-      // const db = firebase.database();
-      
-      // Load current tier settings
-      function loadTierSettings() {
-        db.ref('adminSettings/patreon').once('value').then((snapshot) => {
-          const data = snapshot.val() || {};
-          
-          // Convert cents to dollars for display
-          const amountInDollars = data.requiredAmountCents ? (data.requiredAmountCents / 100).toFixed(2) : '';
-          
-          document.getElementById('tier-amount').value = amountInDollars;
-          document.getElementById('tier-description').value = data.tierDescription || '';
-        }).catch((error) => {
-          console.error('Error loading tier settings:', error);
-        });
-      }
-      
-      // Save tier settings
-      document.getElementById('patreon-tier-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        
-        const amountInput = document.getElementById('tier-amount');
-        const descriptionInput = document.getElementById('tier-description');
-        
-        // Validate input
-        if (!amountInput.value) {
-          alert('Please enter a minimum tier amount');
-          return;
-        }
-        
-        // Convert dollars to cents for storage
-        const amountInCents = Math.round(parseFloat(amountInput.value) * 100);
-        
-        // Save to Firebase
-        db.ref('adminSettings/patreon').set({
-          requiredAmountCents: amountInCents,
-          tierDescription: descriptionInput.value,
-          updatedAt: firebase.database.ServerValue.TIMESTAMP
-        }).then(() => {
-          // Show success message
-          const alert = document.getElementById('tier-success-alert');
-          alert.classList.remove('d-none');
-          
-          // Hide after 3 seconds
-          setTimeout(() => {
-            alert.classList.add('d-none');
-          }, 3000);
-        }).catch((error) => {
-          console.error('Error saving tier settings:', error);
-          alert('Error saving settings: ' + error.message);
-        });
-      });
-      
-      // Load settings when page loads
-      document.addEventListener('DOMContentLoaded', loadTierSettings);
-    </script>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
@@ -374,8 +316,29 @@
 
             // Load locations
             await loadLocations();
+            
+            // Load Patreon tier settings
+            await loadTierSettings();
         }
 
+        // Patreon Tier Settings functions
+        async function loadTierSettings() {
+            try {
+                const tierSettingsSnap = await get(child(ref(db), 'adminSettings/patreon'));
+                if (tierSettingsSnap.exists()) {
+                    const data = tierSettingsSnap.val() || {};
+                    
+                    // Convert cents to dollars for display
+                    const amountInDollars = data.requiredAmountCents ? (data.requiredAmountCents / 100).toFixed(2) : '';
+                    
+                    document.getElementById('tier-amount').value = amountInDollars;
+                    document.getElementById('tier-description').value = data.tierDescription || '';
+                }
+            } catch (error) {
+                console.error('Error loading tier settings:', error);
+            }
+        }
+        
         // Save password handlers
         document.getElementById('saveAdminPass').addEventListener('click', async () => {
             const password = document.getElementById('adminPassword').value;
@@ -617,6 +580,44 @@
             } catch (error) {
                 console.error("Error adding location:", error);
                 alert("Error adding location. Please try again.");
+            }
+        });
+
+        // Patreon tier form submission
+        document.getElementById('patreon-tier-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const amountInput = document.getElementById('tier-amount');
+            const descriptionInput = document.getElementById('tier-description');
+            
+            // Validate input
+            if (!amountInput.value) {
+                alert('Please enter a minimum tier amount');
+                return;
+            }
+            
+            // Convert dollars to cents for storage
+            const amountInCents = Math.round(parseFloat(amountInput.value) * 100);
+            
+            try {
+                // Use the new Firebase format
+                await set(ref(db, 'adminSettings/patreon'), {
+                    requiredAmountCents: amountInCents,
+                    tierDescription: descriptionInput.value,
+                    updatedAt: new Date().toISOString()
+                });
+                
+                // Show success message
+                const alert = document.getElementById('tier-success-alert');
+                alert.style.display = 'block';
+                
+                // Hide after 3 seconds
+                setTimeout(() => {
+                    alert.style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                console.error('Error saving tier settings:', error);
+                alert('Error saving settings: ' + error.message);
             }
         });
 
