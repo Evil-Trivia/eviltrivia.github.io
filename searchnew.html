@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trivia Question Search</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #FFCC00;
+        }
+        .search-container {
+            margin-bottom: 20px;
+        }
+        .search-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .search-input {
+            flex-grow: 1;
+            padding: 8px;
+            font-size: 16px;
+        }
+        select {
+            padding: 8px;
+            font-size: 16px;
+            min-width: 120px;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 16px;
+            background-color: #000000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #333333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: white;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f5f5f5;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f0f0f0;
+        }
+        #loading {
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+            color: #666;
+        }
+        .results-count {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
+        #debugLog {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            display: none;
+        }
+        .debug-toggle {
+            margin-top: 10px;
+        }
+        th[data-sort] {
+            position: relative;
+        }
+        th[data-sort]:after {
+            content: '▼';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        th[data-sort='asc']:after {
+            content: '▲';
+        }
+        .toggle-button {
+            padding: 8px 16px;
+            font-size: 14px;
+            background-color: #000000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            min-width: 120px;
+        }
+        .toggle-button:hover {
+            background-color: #333333;
+        }
+        .answer-content {
+            display: none;
+        }
+        .answer-content.visible {
+            display: block;
+        }
+        /* Add styles for column visibility */
+        .answer-column {
+            display: table-cell;
+        }
+        .answer-column.hidden {
+            display: none !important;
+        }
+        .media-container {
+            position: relative;
+            width: 320px;
+            height: 240px;
+        }
+        .media-container.audio {
+            height: 80px;
+        }
+        .media-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.01); /* Nearly transparent but enough to block */
+            z-index: 2; /* Higher z-index to ensure it's on top */
+            cursor: pointer;
+        }
+        .media-overlay:hover {
+            display: none;
+        }
+        iframe {
+            border: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        .section {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-top: 15px;
+            background-color: white;
+            border-radius: 8px;
+            max-width: 800px;
+        }
+        .hidden {
+            display: none;
+        }
+        /* Auth UI styles */
+        .auth-section {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-top: 15px;
+            background-color: white;
+            border-radius: 8px;
+            max-width: 400px;
+        }
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .auth-form input {
+            padding: 8px;
+            font-size: 16px;
+        }
+        .auth-toggle {
+            margin-top: 10px;
+            text-align: center;
+            cursor: pointer;
+            color: #0066cc;
+        }
+        .auth-message {
+            margin-top: 10px;
+            color: #666;
+        }
+        .auth-error {
+            color: #cc0000;
+        }
+        .user-info {
+            font-size: 14px;
+            margin-top: 5px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <!-- Auth UI Section -->
+    <div id="authContainer" class="auth-section">
+        <h2>Trivia Question Search</h2>
+        <p>Please sign in to access the database</p>
+        
+        <!-- Login Form -->
+        <div id="loginForm" class="auth-form">
+            <input type="email" id="loginEmail" placeholder="Email" />
+            <input type="password" id="loginPassword" placeholder="Password" />
+            <button id="btnLogin">Sign In</button>
+            <div id="loginMessage" class="auth-message"></div>
+            <div class="auth-toggle" id="showSignup">Need an account? Sign up</div>
+        </div>
+        
+        <!-- Signup Form (hidden by default) -->
+        <div id="signupForm" class="auth-form" style="display: none;">
+            <input type="email" id="signupEmail" placeholder="Email" />
+            <input type="password" id="signupPassword" placeholder="Password" />
+            <button id="btnSignup">Create Account</button>
+            <div id="signupMessage" class="auth-message"></div>
+            <div class="auth-toggle" id="showLogin">Already have an account? Sign in</div>
+        </div>
+    </div>
+
+    <!-- Password Prompt (for backwards compatibility, hidden by default) -->
+    <div id="passwordPrompt" class="section hidden">
+        <p>Enter search password to continue:</p>
+        <input type="password" id="searchPassInput" />
+        <button id="btnVerifyPass">Submit</button>
+    </div>
+
+    <!-- Search UI (hidden until authenticated) -->
+    <div id="searchUI" class="hidden">
+        <h1>Trivia Question Search</h1>
+        <div class="user-info" id="userInfoDisplay"></div>
+        
+        <div class="search-container">
+            <div class="search-controls">
+                <input type="text" id="searchInput" class="search-input" 
+                       placeholder="Search (use * for wildcards, ? for single character wildcards)">
+                
+                <select id="searchField">
+                    <option value="all">All Fields</option>
+                    <option value="triviaNumber">Trivia #</option>
+                    <option value="triviaName">Trivia Name</option>
+                    <option value="roundName">Round Name</option>
+                    <option value="roundFormat">Round Format</option>
+                    <option value="roundInstruction">Round Instruction</option>
+                    <option value="Question">Question</option>
+                    <option value="Answer">Answer</option>
+                </select>
+
+                <select id="roundTypeFilter">
+                    <option value="">All Round Types</option>
+                    <option value="Written">Written</option>
+                    <option value="Visual">Visual</option>
+                    <option value="Puzzle">Puzzle</option>
+                    <option value="Music">Music</option>
+                    <option value="Fill-In">Fill-In</option>
+                    <option value="Challenge">Challenge</option>
+                </select>
+
+                <button id="searchButton">Search</button>
+                <button id="btnSignOut" class="toggle-button">Sign Out</button>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                <button onclick="toggleDebug()" class="debug-toggle">Toggle Debug Log</button>
+                <button id="toggleAnswers" class="toggle-button">Hide Answers</button>
+            </div>
+        </div>
+
+        <div id="loading" style="display: none;">Searching...</div>
+        <div id="resultsCount" class="results-count"></div>
+        <div id="debugLog"></div>
+
+        <div id="results">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Trivia #<div class="resizer"></div></th>
+                        <th>Date<div class="resizer"></div></th>
+                        <th>Trivia Name<div class="resizer"></div></th>
+                        <th>Round Name<div class="resizer"></div></th>
+                        <th>Round Format<div class="resizer"></div></th>
+                        <th>Round Instruction<div class="resizer"></div></th>
+                        <th>Question<div class="resizer"></div></th>
+                        <th class="answer-column">Answer<div class="resizer"></div></th>
+                        <th class="answer-column">Answer Image<div class="resizer"></div></th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody">
+                    <tr><td colspan="9">Enter a search term and press Search or Enter to begin.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let debugLog = [];
+        let currentPasswordHash = '';
+        let auth;
+        
+        function log(message, data = null) {
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const logMessage = `[${timestamp}] ${message}`;
+            debugLog.push(logMessage);
+            if (data) {
+                debugLog.push(JSON.stringify(data, null, 2));
+            }
+            updateDebugLog();
+        }
+
+        function updateDebugLog() {
+            const debugElement = document.getElementById('debugLog');
+            debugElement.textContent = debugLog.join('\n');
+        }
+
+        function toggleDebug() {
+            const debugElement = document.getElementById('debugLog');
+            debugElement.style.display = debugElement.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function clearDebugLog() {
+            debugLog = [];
+            updateDebugLog();
+        }
+
+        function extractGoogleId(url) {
+            if (!url) return null;
+            
+            // Handle all Google Drive URL formats:
+            // - /open?id=
+            // - /file/d/
+            // - /uc?export=view&id=
+            const match = url.match(/(?:\/open\?id=|\/file\/d\/|[?&]id=)([-\w]{25,})/);
+            log('Extracting Google ID:', { url, match: match ? match[1] : null });
+            return match ? match[1] : null;
+        }
+
+        function createIframeContent(url, type = 'image') {
+            const id = extractGoogleId(url);
+            if (!id) {
+                log('Failed to extract ID from URL:', { url });
+                return null;
+            }
+
+            log('Creating iframe for:', { id, type, originalUrl: url });
+            
+            const commonAttributes = `
+                frameborder="0"
+                allow="autoplay; encrypted-media; picture-in-picture"
+                allowfullscreen
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+            `.trim();
+
+            if (type === 'audio') {
+                return `
+                    <div class="media-container audio">
+                        <div class="media-overlay"></div>
+                        <iframe 
+                            src="https://drive.google.com/file/d/${id}/preview"
+                            ${commonAttributes}
+                        ></iframe>
+                    </div>`;
+            } else {
+                return `
+                    <div class="media-container">
+                        <div class="media-overlay"></div>
+                        <iframe 
+                            src="https://drive.google.com/file/d/${id}/preview"
+                            ${commonAttributes}
+                        ></iframe>
+                    </div>`;
+            }
+        }
+
+        // Legacy password check function
+        async function checkPassword() {
+            try {
+                // Get the stored password hash
+                const storedHash = localStorage.getItem('searchPasswordHash');
+                
+                // Get the current password from adminSettings
+                const settingsSnap = await firebase.database().ref("adminSettings/searchPassword").once('value');
+                if (!settingsSnap.exists()) {
+                    console.error("No search password set in admin settings");
+                    return false;
+                }
+                
+                const currentPassword = settingsSnap.val();
+                currentPasswordHash = await hashPassword(currentPassword);
+                
+                // If stored hash matches current hash, auto-authenticate
+                if (storedHash === currentPasswordHash) {
+                    document.getElementById('passwordPrompt').classList.add('hidden');
+                    document.getElementById('searchUI').classList.remove('hidden');
+                    return true;
+                }
+                
+                return false;
+            } catch (error) {
+                console.error("Error checking password:", error);
+                return false;
+            }
+        }
+        
+        async function hashPassword(password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            const hash = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(hash))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+        
+        // New function to check user permissions
+        async function checkUserPermissions() {
+            const user = firebase.auth().currentUser;
+            if (!user) {
+                log('No authenticated user');
+                return false;
+            }
+            
+            log('Checking permissions for user:', { email: user.email, uid: user.uid });
+            
+            try {
+                // First, try to check if the user has roles in the database
+                const userRolesRef = firebase.database().ref(`userRoles/${user.uid}`);
+                const snapshot = await userRolesRef.once('value');
+                
+                if (snapshot.exists()) {
+                    const roles = snapshot.val();
+                    log('User roles:', roles);
+                    
+                    // Check if user is admin or has search permission
+                    if (roles.admin === true || roles.canSearch === true) {
+                        return true;
+                    }
+                } else {
+                    // If no roles are set yet, check if this is the first user (consider them admin)
+                    const allUsersSnapshot = await firebase.database().ref('userRoles').once('value');
+                    
+                    if (!allUsersSnapshot.exists()) {
+                        // This is the first user, automatically set as admin
+                        log('No users in database, setting current user as admin');
+                        await userRolesRef.set({
+                            admin: true,
+                            displayName: user.displayName || user.email
+                        });
+                        return true;
+                    }
+                    
+                    // For temporary backwards compatibility - check if old password still works
+                    try {
+                        const isLegacyAuth = await checkPassword();
+                        if (isLegacyAuth) {
+                            // If legacy auth works, grant this user search permission
+                            await userRolesRef.set({
+                                canSearch: true,
+                                legacyUser: true,
+                                displayName: user.displayName || user.email
+                            });
+                            return true;
+                        }
+                    } catch (error) {
+                        log('Legacy auth check failed:', error);
+                    }
+                }
+                
+                return false;
+            } catch (error) {
+                log('Error checking permissions:', error);
+                return false;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', async function() {
+            const firebaseConfig = {
+                apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+                authDomain: "eviltrivia-47664.firebaseapp.com",
+                databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+                projectId: "eviltrivia-47664",
+                storageBucket: "eviltrivia-47664.firebasestorage.app",
+                messagingSenderId: "401826818140",
+                appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+                measurementId: "G-2W6RK96Y34"
+            };
+
+            try {
+                firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                log('Firebase initialized successfully');
+                
+                // Set up authentication UI handlers
+                setupAuthUI();
+                
+                // Listen for auth state changes
+                auth.onAuthStateChanged(async (user) => {
+                    if (user) {
+                        log('User signed in:', { email: user.email, uid: user.uid });
+                        
+                        // Check permissions and show appropriate UI
+                        const hasPermission = await checkUserPermissions();
+                        
+                        if (hasPermission) {
+                            document.getElementById('authContainer').classList.add('hidden');
+                            document.getElementById('searchUI').classList.remove('hidden');
+                            document.getElementById('userInfoDisplay').textContent = `Signed in as: ${user.email}`;
+                            initializeSearch();
+                        } else {
+                            document.getElementById('authContainer').classList.add('hidden');
+                            alert('Your account does not have permission to access the search. Please contact an administrator.');
+                            auth.signOut();
+                        }
+                    } else {
+                        log('User is signed out');
+                        document.getElementById('authContainer').classList.remove('hidden');
+                        document.getElementById('searchUI').classList.add('hidden');
+                    }
+                });
+                
+                // Legacy password verification handler
+                document.getElementById('btnVerifyPass').addEventListener('click', async () => {
+                    const enteredPassword = document.getElementById('searchPassInput').value;
+                    
+                    try {
+                        // Get the current password from adminSettings
+                        const settingsSnap = await firebase.database().ref("adminSettings/searchPassword").once('value');
+                        if (!settingsSnap.exists()) {
+                            alert("No search password set. Please contact administrator.");
+                            return;
+                        }
+                        
+                        if (enteredPassword === settingsSnap.val()) {
+                            // Store the hash of the current password
+                            const hash = await hashPassword(enteredPassword);
+                            localStorage.setItem('searchPasswordHash', hash);
+                            
+                            // Show the search UI
+                            document.getElementById('passwordPrompt').classList.add('hidden');
+                            document.getElementById('searchUI').classList.remove('hidden');
+                        } else {
+                            alert("Incorrect password");
+                        }
+                    } catch (error) {
+                        console.error("Error verifying password:", error);
+                        alert("Error verifying password. Please try again.");
+                    }
+                });
+                
+                // Add enter key handler for password input
+                document.getElementById('searchPassInput').addEventListener("keydown", (event) => {
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        document.getElementById('btnVerifyPass').click();
+                    }
+                });
+                
+                // Initialize functions for search
+                initializeSearchFunctions();
+                
+            } catch (error) {
+                log('Error during initialization:', error);
+                alert(`Error initializing application: ${error.message}`);
+            }
+        });
+        
+        function setupAuthUI() {
+            // Toggle between login and signup forms
+            document.getElementById('showSignup').addEventListener('click', () => {
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('signupForm').style.display = 'flex';
+            });
+            
+            document.getElementById('showLogin').addEventListener('click', () => {
+                document.getElementById('signupForm').style.display = 'none';
+                document.getElementById('loginForm').style.display = 'flex';
+            });
+            
+            // Login handler
+            document.getElementById('btnLogin').addEventListener('click', () => {
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+                const messageEl = document.getElementById('loginMessage');
+                
+                messageEl.textContent = 'Signing in...';
+                messageEl.className = 'auth-message';
+                
+                auth.signInWithEmailAndPassword(email, password)
+                    .catch((error) => {
+                        messageEl.textContent = error.message;
+                        messageEl.className = 'auth-message auth-error';
+                    });
+            });
+            
+            // Signup handler
+            document.getElementById('btnSignup').addEventListener('click', () => {
+                const email = document.getElementById('signupEmail').value;
+                const password = document.getElementById('signupPassword').value;
+                const messageEl = document.getElementById('signupMessage');
+                
+                messageEl.textContent = 'Creating account...';
+                messageEl.className = 'auth-message';
+                
+                auth.createUserWithEmailAndPassword(email, password)
+                    .catch((error) => {
+                        messageEl.textContent = error.message;
+                        messageEl.className = 'auth-message auth-error';
+                    });
+            });
+            
+            // Sign out handler
+            document.getElementById('btnSignOut').addEventListener('click', () => {
+                auth.signOut();
+            });
+            
+            // Enter key handlers
+            document.getElementById('loginEmail').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('loginPassword').focus();
+                }
+            });
+            
+            document.getElementById('loginPassword').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('btnLogin').click();
+                }
+            });
+            
+            document.getElementById('signupEmail').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('signupPassword').focus();
+                }
+            });
+            
+            document.getElementById('signupPassword').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('btnSignup').click();
+                }
+            });
+        }
+        
+        function initializeSearchFunctions() {
+            // Define utility functions used by the search functionality
+            window.wildcardToRegExp = function(pattern) {
+                if (!pattern) return new RegExp('.*');
+                
+                // Check if pattern contains wildcards
+                if (!pattern.includes('*') && !pattern.includes('?')) {
+                    // For exact match, add ^ and $ anchors
+                    return new RegExp(`^${pattern}$`, 'i');
+                }
+                
+                const escapedPattern = pattern
+                    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                    .replace(/\*/g, '.*')
+                    .replace(/\?/g, '.');
+                log('Converted pattern to regex:', { pattern, regex: escapedPattern });
+                return new RegExp(escapedPattern, 'i');
+            };
+
+            window.formatDate = function(dateString) {
+                if (!dateString) return 'Unknown';
+                return new Date(dateString).toLocaleDateString();
+            };
+        }
+        
+        function initializeSearch() {
+            // This function sets up the search functionality after authentication
+            
+            // Add event listeners for search button and input
+            document.getElementById('searchButton').addEventListener('click', searchQuestions);
+            
+            document.getElementById('searchInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    searchQuestions();
+                }
+            });
+
+            document.getElementById('toggleAnswers').addEventListener('click', function() {
+                const isShowing = this.textContent === 'Show Answers';
+                
+                // Toggle all cells with answer-column class
+                document.querySelectorAll('.answer-column').forEach(cell => {
+                    cell.classList.toggle('hidden', !isShowing);
+                });
+                
+                this.textContent = isShowing ? 'Hide Answers' : 'Show Answers';
+            });
+
+            // Set initial button text when page loads
+            document.getElementById('toggleAnswers').textContent = 'Hide Answers';
+
+            // Add the answer-column class to the header cells
+            const headerRow = document.querySelector('thead tr');
+            if (headerRow) {
+                const answerHeaders = headerRow.querySelectorAll('th:nth-last-child(-n+2)');
+                answerHeaders.forEach(th => {
+                    th.classList.add('answer-column');
+                });
+            }
+            
+            // Initialize table sorting
+            document.querySelectorAll('th').forEach(th => {
+                th.style.cursor = 'pointer';
+                th.addEventListener('click', () => sortTable(th.cellIndex));
+            });
+
+            log('Search functionality initialized');
+        }
+
+        async function searchQuestions() {
+            clearDebugLog();
+            const searchText = document.getElementById('searchInput').value.trim();
+            const searchField = document.getElementById('searchField').value;
+            const roundType = document.getElementById('roundTypeFilter').value;
+            
+            log('Starting search with parameters:', {
+                searchText,
+                searchField,
+                roundType
+            });
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('resultsCount').textContent = '';
+            
+            if (!searchText) {
+                log('No search text provided');
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('resultsBody').innerHTML = 
+                    '<tr><td colspan="9">Please enter a search term.</td></tr>';
+                return;
+            }
+
+            try {
+                // Verify user is still authenticated
+                const user = firebase.auth().currentUser;
+                if (!user) {
+                    throw new Error('You must be signed in to search');
+                }
+
+                log('Fetching data from Firebase');
+                const archiveRef = firebase.database().ref('trivia-archive/archive');
+                const snapshot = await archiveRef.once('value');
+                const triviaData = snapshot.val();
+
+                if (!triviaData) {
+                    log('No trivia data found in snapshot');
+                    throw new Error('No trivia data found');
+                }
+
+                log('Retrieved trivia data:', { 
+                    numberOfEvents: Object.keys(triviaData).length 
+                });
+
+                const searchRegex = wildcardToRegExp(searchText);
+                const results = [];
+
+                for (const triviaNumber in triviaData) {
+                    const triviaEvent = triviaData[triviaNumber];
+                    log(`Processing trivia #${triviaNumber}`, {
+                        eventKeys: Object.keys(triviaEvent),
+                        eventData: {
+                            name: triviaEvent.name,
+                            triviaName: triviaEvent.triviaName,
+                            'Trivia Name': triviaEvent['Trivia Name'],
+                            date: triviaEvent.date
+                        }
+                    });
+
+                    if (!triviaEvent || !triviaEvent.trivia) continue;
+
+                    try {
+                        // Process each round type (1, 2, etc.)
+                        for (const roundNum in triviaEvent.trivia) {
+                            const roundData = triviaEvent.trivia[roundNum];
+                            
+                            // Process each format (Fill-In, Written, etc.)
+                            for (const format in roundData) {
+                                if (roundType && format !== roundType) continue;
+
+                                const questions = roundData[format];
+                                if (!Array.isArray(questions)) continue;
+
+                                // Process each question
+                                for (const question of questions) {
+                                    if (!question || typeof question !== 'object') continue;
+
+                                    // Check for match
+                                    let isMatch = false;
+                                    if (searchField === 'all') {
+                                        isMatch = (
+                                            (question.Question && searchRegex.test(question.Question)) ||
+                                            (question.Answer && searchRegex.test(question.Answer)) ||
+                                            (question['Round Name'] && searchRegex.test(question['Round Name'])) ||
+                                            (format && searchRegex.test(format)) ||
+                                            (triviaNumber && searchRegex.test(triviaNumber)) ||
+                                            (triviaEvent.name && searchRegex.test(triviaEvent.name))
+                                        );
+                                    } else if (searchField === 'triviaNumber') {
+                                        isMatch = searchRegex.test(triviaNumber);
+                                    } else if (searchField === 'triviaName') {
+                                        isMatch = triviaEvent.name && searchRegex.test(triviaEvent.name);
+                                    } else if (searchField === 'roundFormat') {
+                                        isMatch = format && searchRegex.test(format);
+                                    } else {
+                                        isMatch = question[searchField] && searchRegex.test(question[searchField]);
+                                    }
+
+                                    if (isMatch) {
+                                        log('Found match:', { 
+                                            triviaNumber, 
+                                            format,
+                                            eventData: {
+                                                name: triviaEvent.name,
+                                                triviaName: triviaEvent.triviaName,
+                                                'Trivia Name': triviaEvent['Trivia Name'],
+                                                date: triviaEvent.date
+                                            },
+                                            question: question.Question,
+                                            musicLink: question['Music Link'],
+                                            musicClipLink: question['Music Clip Link'],
+                                            imageLink: question['Image Link']
+                                        });
+                                        
+                                        let displayQuestion = '';
+                                        let iframeContent = null;
+                                        let answerIframeContent = null;
+
+                                        if (format === 'Music' || format === 'Audio') {
+                                            // For music rounds, only show the iframe
+                                            const musicUrl = question['Music Link'] || question['Music Clip Link'];
+                                            if (musicUrl && musicUrl.includes('drive.google.com')) {
+                                                iframeContent = createIframeContent(musicUrl, 'audio');
+                                                log('Created audio iframe:', { musicUrl, iframeContent });
+                                            }
+                                        } else if (format === 'Visual' || format === 'Puzzle' || format === 'Challenge') {
+                                            // For visual/puzzle/challenge rounds, only show the iframe
+                                            const imageUrl = question['Image Link'];
+                                            if (imageUrl && imageUrl.includes('drive.google.com')) {
+                                                iframeContent = createIframeContent(imageUrl, 'image');
+                                                log('Created image iframe:', { imageUrl, iframeContent });
+                                            }
+                                        } else {
+                                            // For other rounds
+                                            displayQuestion = question.Question || '';
+                                            const imageUrl = question['Image Link'];
+                                            if (imageUrl && imageUrl.includes('drive.google.com')) {
+                                                iframeContent = createIframeContent(imageUrl, 'image');
+                                                log('Created image iframe:', { imageUrl, iframeContent });
+                                            }
+                                        }
+
+                                        // Handle answer image
+                                        const answerImageUrl = question['Answer Image Link'];
+                                        if (answerImageUrl && answerImageUrl.includes('drive.google.com')) {
+                                            answerIframeContent = createIframeContent(answerImageUrl, 'image');
+                                            log('Created answer image iframe:', { answerImageUrl, answerIframeContent });
+                                        }
+
+                                        results.push({
+                                            triviaNumber,
+                                            date: formatDate(triviaEvent.date),
+                                            triviaName: triviaEvent.name || triviaEvent.triviaName || triviaEvent['Trivia Name'] || 'Unknown',
+                                            roundName: question['Round Name'] || format,
+                                            roundFormat: format,
+                                            roundInstruction: question['Round Instruction'] || '',
+                                            question: iframeContent || displayQuestion || '',
+                                            answer: question.Answer || 'Unknown',
+                                            answerImage: answerIframeContent || ''
+                                        });
