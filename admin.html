@@ -191,6 +191,10 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
         import { getDatabase, ref, child, get, set, update }
             from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } 
+            from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+        import { getFunctions, httpsCallable } 
+            from "https://www.gstatic.com/firebasejs/9.17.2/firebase-functions.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -205,6 +209,12 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
+        const auth = getAuth(app);
+        const functions = getFunctions(app);
+        
+        // Get references to our secure functions
+        const secureAdminOperation = httpsCallable(functions, 'secureAdminOperation');
+        const publicData = httpsCallable(functions, 'publicData');
 
         // DOM Elements
         const passwordPrompt = document.getElementById('passwordPrompt');
@@ -276,17 +286,22 @@
 
         // Update password verification
         btnVerifyPass.addEventListener('click', async () => {
+            const password = adminPassInput.value;
+            if (!password) {
+                alert("Please enter password");
+                return;
+            }
+            
             try {
-                const settingsSnap = await get(child(ref(db), "adminSettings"));
-                if (!settingsSnap.exists()) {
-                    alert("Error: Could not verify password");
-                    return;
-                }
-
-                const settings = settingsSnap.val();
-                if (adminPassInput.value === settings.adminPassword) {
-                    const hash = await hashPassword(settings.adminPassword);
-                    localStorage.setItem('adminPasswordHash', hash);
+                // Call our secure admin function to verify the password
+                const result = await secureAdminOperation({
+                    operation: 'verifyAdminPassword',
+                    password: password
+                });
+                
+                if (result.data.success) {
+                    // Sign in with admin credentials
+                    await signInWithEmailAndPassword(auth, result.data.email, result.data.token);
                     
                     passwordPrompt.classList.add('hidden');
                     adminUI.classList.remove('hidden');
@@ -296,29 +311,43 @@
                 }
             } catch (error) {
                 console.error("Error verifying password:", error);
-                alert("Error verifying password");
+                alert("Error verifying password: " + error.message);
             }
         });
 
         // Load initial data after successful login
         async function loadInitialData() {
-            // Load existing passwords
-            const settingsSnap = await get(child(ref(db), "adminSettings"));
-            if (settingsSnap.exists()) {
-                const settings = settingsSnap.val();
-                document.getElementById('adminPassword').value = settings.adminPassword || '';
-                document.getElementById('gradingPassword').value = settings.gradingPassword || '';
-                document.getElementById('searchPassword').value = settings.searchPassword || '';
+            try {
+                // Load settings data from secure admin operation
+                const settingsResult = await secureAdminOperation({
+                    operation: 'getAdminSettings'
+                });
+                
+                if (settingsResult.data.success) {
+                    const settings = settingsResult.data.settings;
+                    document.getElementById('adminPassword').value = settings.adminPassword || '';
+                    document.getElementById('gradingPassword').value = settings.gradingPassword || '';
+                    document.getElementById('searchPassword').value = settings.searchPassword || '';
+                    
+                    // Load Patreon tier settings
+                    if (settings.patreon) {
+                        const amountInDollars = settings.patreon.requiredAmountCents ? 
+                            (settings.patreon.requiredAmountCents / 100).toFixed(2) : '';
+                        
+                        document.getElementById('tier-amount').value = amountInDollars;
+                        document.getElementById('tier-description').value = settings.patreon.tierDescription || '';
+                    }
+                }
+
+                // Load grading sessions
+                await loadSessions();
+
+                // Load locations
+                await loadLocations();
+            } catch (error) {
+                console.error("Error loading initial data:", error);
+                alert("Error loading settings data: " + error.message);
             }
-
-            // Load grading sessions
-            await loadSessions();
-
-            // Load locations
-            await loadLocations();
-            
-            // Load Patreon tier settings
-            await loadTierSettings();
         }
 
         // Patreon Tier Settings functions
@@ -348,14 +377,24 @@
             }
             
             try {
-                await set(ref(db, 'adminSettings/adminPassword'), password);
-                // Clear stored hash to require re-authentication
-                localStorage.removeItem('adminPasswordHash');
-                alert('Admin password updated! You will need to re-enter the new password next time.');
-                document.getElementById('adminPassword').value = '';
+                const result = await secureAdminOperation({
+                    operation: 'updateAdminPassword',
+                    newPassword: password
+                });
+                
+                if (result.data.success) {
+                    alert('Admin password updated! You will need to re-enter the new password next time.');
+                    document.getElementById('adminPassword').value = '';
+                    
+                    // Sign out to force re-authentication
+                    await signOut(auth);
+                    location.reload();
+                } else {
+                    throw new Error(result.data.message || "Failed to update password");
+                }
             } catch (error) {
                 console.error("Error saving admin password:", error);
-                alert('Error saving password. Please try again.');
+                alert('Error saving password: ' + error.message);
             }
         });
 
@@ -600,21 +639,24 @@
             const amountInCents = Math.round(parseFloat(amountInput.value) * 100);
             
             try {
-                // Use the new Firebase format
-                await set(ref(db, 'adminSettings/patreon'), {
+                const result = await secureAdminOperation({
+                    operation: 'updatePatreonTier',
                     requiredAmountCents: amountInCents,
-                    tierDescription: descriptionInput.value,
-                    updatedAt: new Date().toISOString()
+                    tierDescription: descriptionInput.value
                 });
                 
-                // Show success message
-                const alert = document.getElementById('tier-success-alert');
-                alert.style.display = 'block';
-                
-                // Hide after 3 seconds
-                setTimeout(() => {
-                    alert.style.display = 'none';
-                }, 3000);
+                if (result.data.success) {
+                    // Show success message
+                    const alert = document.getElementById('tier-success-alert');
+                    alert.style.display = 'block';
+                    
+                    // Hide after 3 seconds
+                    setTimeout(() => {
+                        alert.style.display = 'none';
+                    }, 3000);
+                } else {
+                    throw new Error(result.data.message || "Failed to update tier settings");
+                }
             } catch (error) {
                 console.error('Error saving tier settings:', error);
                 alert('Error saving settings: ' + error.message);
