@@ -1,12 +1,10 @@
-// Only run if we're not on the 404 page
+// Create and inject banner as soon as possible
 if (document.title !== "Oops!") {
-    // Create script element with absolute path
+    // Create script element
     const script = document.createElement('script');
     
-    // Use absolute path starting from domain root
-    script.src = 'https://eviltrivia.com/banner.js';
-    // Or alternatively use root-relative path:
-    // script.src = '/banner.js';
+    // Use relative path instead of absolute URL
+    script.src = '/banner.js';
     
     // Add it to the head
     document.head.appendChild(script);
