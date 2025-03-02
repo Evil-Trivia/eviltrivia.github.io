@@ -102,10 +102,10 @@
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         console.log("User is signed in with ID:", user.uid);
-                        // User is signed in
+                        // User is signed in - hide login link, show logout and user info
                         loginLink.style.display = 'none';
-                        logoutBtn.style.display = 'block';
-                        userInfo.style.display = 'block';
+                        logoutBtn.style.display = 'inline-block';
+                        userInfo.style.display = 'inline-block';
 
                         // Get user's first name from the database
                         try {
@@ -115,14 +115,12 @@
                             if (userData?.firstName) {
                                 userGreeting.textContent = `Hi, ${userData.firstName}`;
                             } else {
-                                // If no firstName, use email or 'Guest'
                                 const displayName = user.email ? user.email.split('@')[0] : 'Guest';
                                 userGreeting.textContent = `Hi, ${displayName}`;
                                 console.log('No firstName found, using:', displayName);
                             }
                         } catch (error) {
                             console.error('Error fetching user data:', error);
-                            // Fallback to email if database fetch fails
                             const displayName = user.email ? user.email.split('@')[0] : 'Guest';
                             userGreeting.textContent = `Hi, ${displayName}`;
                         }
@@ -130,8 +128,8 @@
                         // Check Patreon status
                         checkPatreonAuth();
                     } else {
-                        // User is signed out
-                        loginLink.style.display = 'block';
+                        // User is signed out - show login link, hide logout and user info
+                        loginLink.style.display = 'inline-block';
                         logoutBtn.style.display = 'none';
                         userInfo.style.display = 'none';
                         userGreeting.textContent = 'Hi, Guest';
