@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Evil Trivia Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #FFCC00;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .login-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+            margin: 20px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #000000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #333333;
+        }
+        .error {
+            color: #ff0000;
+            margin-top: 10px;
+            text-align: center;
+            display: none;
+        }
+        .toggle-form {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+        }
+        .toggle-form span {
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        #createAccountForm {
+            display: none;
+        }
+        .back-to-login {
+            color: #666;
+            cursor: pointer;
+            text-decoration: underline;
+            text-align: center;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <!-- Login Form -->
+        <div id="loginForm">
+            <h1>Evil Trivia Login</h1>
+            <div class="form-group">
+                <label for="loginEmail">Email</label>
+                <input type="email" id="loginEmail" placeholder="Enter your email">
+            </div>
+            <div class="form-group">
+                <label for="loginPassword">Password</label>
+                <input type="password" id="loginPassword" placeholder="Enter your password">
+            </div>
+            <button id="loginBtn">Login</button>
+            <p id="loginError" class="error"></p>
+            <div class="toggle-form">
+                Need an account? <span id="showCreateAccount">Create one</span>
+            </div>
+        </div>
+
+        <!-- Create Account Form -->
+        <div id="createAccountForm">
+            <h1>Create Account</h1>
+            <div class="form-group">
+                <label for="registrationCode">Registration Code</label>
+                <input type="password" id="registrationCode" placeholder="Enter registration code">
+            </div>
+            <div class="form-group">
+                <label for="newEmail">Email</label>
+                <input type="email" id="newEmail" placeholder="Enter your email">
+            </div>
+            <div class="form-group">
+                <label for="newPassword">Password</label>
+                <input type="password" id="newPassword" placeholder="Enter your password">
+            </div>
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <input type="password" id="confirmPassword" placeholder="Confirm your password">
+            </div>
+            <button id="createAccountBtn">Create Account</button>
+            <p id="createError" class="error"></p>
+            <div class="back-to-login" id="backToLogin">
+                Back to Login
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } 
+            from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+        import { getDatabase, ref, get, set } 
+            from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebaseapp.com",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        // Toggle between forms
+        document.getElementById('showCreateAccount').addEventListener('click', () => {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('createAccountForm').style.display = 'block';
+        });
+
+        document.getElementById('backToLogin').addEventListener('click', () => {
+            document.getElementById('createAccountForm').style.display = 'none';
+            document.getElementById('loginForm').style.display = 'block';
+        });
+
+        // Login handler
+        document.getElementById('loginBtn').addEventListener('click', async () => {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorElement = document.getElementById('loginError');
+
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                const token = await userCredential.user.getIdToken();
+                localStorage.setItem('authToken', token);
+                
+                // Check user role and redirect accordingly
+                const userRoleRef = ref(db, `users/${userCredential.user.uid}/role`);
+                const roleSnapshot = await get(userRoleRef);
+                
+                if (roleSnapshot.exists()) {
+                    const role = roleSnapshot.val();
+                    if (role === 'admin') {
+                        window.location.href = 'admin.html';
+                    } else if (role === 'grader') {
+                        window.location.href = 'grading.html';
+                    }
+                } else {
+                    errorElement.textContent = "User role not set. Please contact administrator.";
+                    errorElement.style.display = 'block';
+                }
+            } catch (error) {
+                console.error("Login error:", error);
+                errorElement.textContent = "Login failed: " + error.message;
+                errorElement.style.display = 'block';
+            }
+        });
+
+        // Create account handler
+        document.getElementById('createAccountBtn').addEventListener('click', async () => {
+            const registrationCode = document.getElementById('registrationCode').value;
+            const email = document.getElementById('newEmail').value;
+            const password = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            const errorElement = document.getElementById('createError');
+
+            try {
+                // Verify registration code
+                const codesRef = ref(db, 'adminSettings/registrationCodes');
+                const codesSnapshot = await get(codesRef);
+                
+                if (!codesSnapshot.exists()) {
+                    errorElement.textContent = "Registration is currently disabled";
+                    errorElement.style.display = 'block';
+                    return;
+                }
+
+                const codes = codesSnapshot.val();
+                let role = null;
+
+                if (registrationCode === codes.admin) {
+                    role = 'admin';
+                } else if (registrationCode === codes.grader) {
+                    role = 'grader';
+                } else {
+                    errorElement.textContent = "Invalid registration code";
+                    errorElement.style.display = 'block';
+                    return;
+                }
+
+                if (password !== confirmPassword) {
+                    errorElement.textContent = "Passwords do not match";
+                    errorElement.style.display = 'block';
+                    return;
+                }
+
+                if (password.length < 6) {
+                    errorElement.textContent = "Password must be at least 6 characters";
+                    errorElement.style.display = 'block';
+                    return;
+                }
+
+                // Create the authentication user
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                
+                // Store user data in Realtime Database
+                await set(ref(db, `users/${userCredential.user.uid}`), {
+                    email: email,
+                    role: role,
+                    createdAt: new Date().toISOString()
+                });
+
+                // For existing authenticated users that don't have database entries
+                if (!role) {
+                    errorElement.textContent = "Account created but role not set. Please contact administrator.";
+                    errorElement.style.display = 'block';
+                    return;
+                }
+
+                // Redirect based on role
+                window.location.href = role === 'admin' ? 'admin.html' : 'grading.html';
+            } catch (error) {
+                console.error("Account creation error:", error);
+                errorElement.textContent = "Account creation failed: " + error.message;
+                errorElement.style.display = 'block';
+            }
+        });
+
+        // Add enter key handlers
+        document.getElementById('loginPassword').addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                document.getElementById('loginBtn').click();
+            }
+        });
+
+        document.getElementById('confirmPassword').addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                document.getElementById('createAccountBtn').click();
+            }
+        });
+    </script>
+</body>
+</html> 

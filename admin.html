@@ -53,49 +53,67 @@
         .checkbox-container {
             margin: 10px 0;
         }
+        input[type="email"],
+        input[type="password"] {
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 200px;
+        }
     </style>
 </head>
 <body>
     <h1>Evil Trivia Admin Settings</h1>
 
-    <div id="passwordPrompt" class="section">
-        <p>Enter admin password to continue:</p>
-        <input type="password" id="adminPassInput" />
-        <button id="btnVerifyPass">Submit</button>
+    <div id="loginPrompt" class="section">
+        <h2>Admin Login</h2>
+        <div style="margin-bottom: 10px;">
+            <input type="email" id="emailInput" placeholder="Email" />
+        </div>
+        <div style="margin-bottom: 10px;">
+            <input type="password" id="passwordInput" placeholder="Password" />
+        </div>
+        <button id="btnLogin">Login</button>
+        <p id="loginStatus" style="color: red; display: none;"></p>
     </div>
 
     <div id="adminUI" class="hidden">
         <div class="section">
             <h2>Grading Availability</h2>
             <p>Select grading session to manage round availability:</p>
-            <select id="gradingSessionSelect" style="margin-bottom: 15px;"></select>
+            <select id="gradingSessionSelect">
+                <option value="">Select a session...</option>
+                <!-- Options populated by loadSessions() -->
+            </select>
             
-            <div id="roundsContainer" class="checkbox-container">
-                <!-- Rounds will be populated here -->
-            </div>
-
-            <div id="finalChallengeSection" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; display: none;">
-                <label style="font-weight: bold;">Final Challenge:</label>
-                <div style="margin-top: 10px;">
+            <!-- Add these elements right after your select -->
+            <div id="roundsContainer" style="margin-top: 20px;"></div>
+            
+            <div id="finalChallengeSection" style="display: none; margin-top: 20px;">
+                <h3>Final Challenge Availability</h3>
+                <div>
                     <input type="radio" id="finalGraded" name="finalChallenge" value="graded">
                     <label for="finalGraded">Graded</label>
-                    
-                    <input type="radio" id="finalManual" name="finalChallenge" value="manual" style="margin-left: 15px;">
+                </div>
+                <div>
+                    <input type="radio" id="finalManual" name="finalChallenge" value="manual">
                     <label for="finalManual">Manual</label>
-                    
-                    <input type="radio" id="finalDisable" name="finalChallenge" value="disable" style="margin-left: 15px;">
-                    <label for="finalDisable">Disable</label>
+                </div>
+                <div>
+                    <input type="radio" id="finalDisabled" name="finalChallenge" value="disable">
+                    <label for="finalDisabled">Disabled</label>
                 </div>
             </div>
-
-            <button id="saveAvailability" style="margin-top: 20px; display: none;">Save Availability</button>
+            
+            <button id="saveAvailability" style="display: none; margin-top: 20px;">Save Availability Settings</button>
         </div>
 
         <div class="section">
             <h2>Password Management</h2>
             <div class="input-row">
                 <label>Admin Settings Password:</label><br>
-                <input type="text" id="adminPassword" placeholder="Current: eviltrivia" />
+                <input type="text" id="adminPassword" placeholder="Current password" />
                 <button id="saveAdminPass">Save</button>
                 <small style="display: block; margin-top: 5px; color: #666;">
                     Controls access to this admin settings page
@@ -103,7 +121,7 @@
             </div>
             <div class="input-row" style="margin-top: 20px;">
                 <label>Grading Page Password:</label><br>
-                <input type="text" id="gradingPassword" placeholder="Current: eviltrivia" />
+                <input type="text" id="gradingPassword" placeholder="Current password" />
                 <button id="saveGradingPass">Save</button>
                 <small style="display: block; margin-top: 5px; color: #666;">
                     Controls access to the grading page
@@ -111,7 +129,7 @@
             </div>
             <div class="input-row" style="margin-top: 20px;">
                 <label>Search Page Password:</label><br>
-                <input type="text" id="searchPassword" placeholder="Current: evil" />
+                <input type="text" id="searchPassword" placeholder="Current password" />
                 <button id="saveSearchPass">Save</button>
                 <small style="display: block; margin-top: 5px; color: #666;">
                     Controls access to the search page
@@ -185,257 +203,158 @@
                 Woo! Tier settings saved successfully!
             </div>
         </div>
+
+        <!-- Add this new section to your admin interface -->
+        <div class="section">
+            <h2>User Management</h2>
+            
+            <!-- Registration Codes -->
+            <div style="margin-bottom: 20px;">
+                <h3>Registration Codes</h3>
+                <div class="form-group">
+                    <label for="adminCode">Admin Registration Code</label>
+                    <input type="text" id="adminCode" placeholder="Set admin registration code">
+                </div>
+                <div class="form-group">
+                    <label for="graderCode">Grader Registration Code</label>
+                    <input type="text" id="graderCode" placeholder="Set grader registration code">
+                </div>
+                <button id="saveRegCodes">Save Registration Codes</button>
+            </div>
+
+            <!-- User List -->
+            <div>
+                <h3>User List</h3>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Created At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } 
+            from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
         import { getDatabase, ref, child, get, set, update }
             from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
-        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } 
-            from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
-        import { getFunctions, httpsCallable } 
-            from "https://www.gstatic.com/firebasejs/9.17.2/firebase-functions.js";
 
+        // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
             authDomain: "eviltrivia-47664.firebaseapp.com",
             databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
             projectId: "eviltrivia-47664",
-            storageBucket: "eviltrivia-47664.firebasestorage.app",
+            storageBucket: "eviltrivia-47664.firebaseapp.com",
             messagingSenderId: "401826818140",
             appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
             measurementId: "G-2W6RK96Y34"
         };
 
+        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
         const auth = getAuth(app);
-        const functions = getFunctions(app);
+        const db = getDatabase(app);
         
-        // Get references to our secure functions
-        const secureAdminOperation = httpsCallable(functions, 'secureAdminOperation');
-        const publicData = httpsCallable(functions, 'publicData');
-
+        // Default admin password (only used if not found in database)
+        const DEFAULT_ADMIN_PASSWORD = "eviltrivia";
+        
         // DOM Elements
-        const passwordPrompt = document.getElementById('passwordPrompt');
-        const adminPassInput = document.getElementById('adminPassInput');
-        const btnVerifyPass = document.getElementById('btnVerifyPass');
+        const loginPrompt = document.getElementById('loginPrompt');
         const adminUI = document.getElementById('adminUI');
+        const emailInput = document.getElementById('emailInput');
+        const passwordInput = document.getElementById('passwordInput');
+        const btnLogin = document.getElementById('btnLogin');
+        const loginStatus = document.getElementById('loginStatus');
 
-        // Add password verification and storage functions
-        async function hashPassword(password) {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(password);
-            const hash = await crypto.subtle.digest('SHA-256', data);
-            return Array.from(new Uint8Array(hash))
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
-        }
-
-        async function checkStoredPassword() {
-            try {
-                const storedHash = localStorage.getItem('adminPasswordHash');
-                if (!storedHash) return false;
-
-                const settingsSnap = await get(child(ref(db), "adminSettings"));
-                if (!settingsSnap.exists()) return false;
-
-                const settings = settingsSnap.val();
-                const currentPassword = settings.adminPassword;
-
-                const currentHash = await hashPassword(currentPassword);
-                return storedHash === currentHash;
-            } catch (error) {
-                console.error("Error checking stored password:", error);
-                return false;
-            }
-        }
-
-        // Add enter key handler for password input
-        adminPassInput.addEventListener('keypress', (event) => {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                btnVerifyPass.click();
-            }
-        });
-
-        // Update initialization to properly check stored password
-        document.addEventListener('DOMContentLoaded', async () => {
-            try {
-                // Check if stored password is still valid
-                const isValid = await checkStoredPassword();
-                
-                if (isValid) {
-                    // Skip password prompt if stored password is valid
-                    passwordPrompt.classList.add('hidden');
-                    adminUI.classList.remove('hidden');
-                    loadInitialData();
-                } else {
-                    // Clear stored hash and show password prompt
-                    localStorage.removeItem('adminPasswordHash');
-                    passwordPrompt.classList.remove('hidden');
-                    adminUI.classList.add('hidden');
-                }
-            } catch (error) {
-                console.error("Error during initialization:", error);
-                // Show password prompt on error
-                passwordPrompt.classList.remove('hidden');
+        // Check auth state
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // User is signed in
+                console.log("User is signed in");
+                loginPrompt.classList.add('hidden');
+                adminUI.classList.remove('hidden');
+                loadInitialData();
+            } else {
+                // User is signed out
+                console.log("User is signed out");
+                loginPrompt.classList.remove('hidden');
                 adminUI.classList.add('hidden');
             }
         });
 
-        // Update password verification
-        btnVerifyPass.addEventListener('click', async () => {
-            const password = adminPassInput.value;
-            if (!password) {
-                alert("Please enter password");
-                return;
-            }
+        // Login handler
+        btnLogin.addEventListener('click', async () => {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
             
             try {
-                // Call our secure admin function to verify the password
-                const result = await secureAdminOperation({
-                    operation: 'verifyAdminPassword',
-                    password: password
-                });
-                
-                if (result.data.success) {
-                    // Sign in with admin credentials
-                    await signInWithEmailAndPassword(auth, result.data.email, result.data.token);
-                    
-                    passwordPrompt.classList.add('hidden');
-                    adminUI.classList.remove('hidden');
-                    loadInitialData();
-                } else {
-                    alert("Incorrect password");
-                }
+                loginStatus.style.display = 'none';
+                await signInWithEmailAndPassword(auth, email, password);
+                // Auth state change listener will handle UI updates
             } catch (error) {
-                console.error("Error verifying password:", error);
-                alert("Error verifying password: " + error.message);
+                console.error("Login error:", error);
+                loginStatus.textContent = "Login failed: " + error.message;
+                loginStatus.style.display = 'block';
             }
         });
 
-        // Load initial data after successful login
+        // Add enter key handler
+        passwordInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                btnLogin.click();
+            }
+        });
+
+        // Initial data loading function
         async function loadInitialData() {
             try {
-                // Load settings data from secure admin operation
-                const settingsResult = await secureAdminOperation({
-                    operation: 'getAdminSettings'
-                });
-                
-                if (settingsResult.data.success) {
-                    const settings = settingsResult.data.settings;
-                    document.getElementById('adminPassword').value = settings.adminPassword || '';
-                    document.getElementById('gradingPassword').value = settings.gradingPassword || '';
-                    document.getElementById('searchPassword').value = settings.searchPassword || '';
+                console.log("Loading initial data...");
+                // Load settings
+                const settingsSnap = await get(ref(db, 'adminSettings'));
+                if (settingsSnap.exists()) {
+                    const settings = settingsSnap.val();
+                    // Update password fields
+                    document.getElementById('adminPassword').placeholder = `Current: ${settings.adminPassword || 'not set'}`;
+                    document.getElementById('gradingPassword').placeholder = `Current: ${settings.gradingPassword || 'not set'}`;
+                    document.getElementById('searchPassword').placeholder = `Current: ${settings.searchPassword || 'not set'}`;
                     
-                    // Load Patreon tier settings
+                    // Load Patreon settings if they exist
                     if (settings.patreon) {
                         const amountInDollars = settings.patreon.requiredAmountCents ? 
                             (settings.patreon.requiredAmountCents / 100).toFixed(2) : '';
-                        
                         document.getElementById('tier-amount').value = amountInDollars;
                         document.getElementById('tier-description').value = settings.patreon.tierDescription || '';
                     }
                 }
 
-                // Load grading sessions
+                // Load sessions
                 await loadSessions();
-
                 // Load locations
                 await loadLocations();
+                
+                console.log("Initial data loaded successfully");
             } catch (error) {
                 console.error("Error loading initial data:", error);
-                alert("Error loading settings data: " + error.message);
             }
         }
 
-        // Patreon Tier Settings functions
-        async function loadTierSettings() {
-            try {
-                const tierSettingsSnap = await get(child(ref(db), 'adminSettings/patreon'));
-                if (tierSettingsSnap.exists()) {
-                    const data = tierSettingsSnap.val() || {};
-                    
-                    // Convert cents to dollars for display
-                    const amountInDollars = data.requiredAmountCents ? (data.requiredAmountCents / 100).toFixed(2) : '';
-                    
-                    document.getElementById('tier-amount').value = amountInDollars;
-                    document.getElementById('tier-description').value = data.tierDescription || '';
-                }
-            } catch (error) {
-                console.error('Error loading tier settings:', error);
-            }
-        }
-        
-        // Save password handlers
-        document.getElementById('saveAdminPass').addEventListener('click', async () => {
-            const password = document.getElementById('adminPassword').value;
-            if (!password) {
-                alert('Please enter a new password');
-                return;
-            }
-            
-            try {
-                const result = await secureAdminOperation({
-                    operation: 'updateAdminPassword',
-                    newPassword: password
-                });
-                
-                if (result.data.success) {
-                    alert('Admin password updated! You will need to re-enter the new password next time.');
-                    document.getElementById('adminPassword').value = '';
-                    
-                    // Sign out to force re-authentication
-                    await signOut(auth);
-                    location.reload();
-                } else {
-                    throw new Error(result.data.message || "Failed to update password");
-                }
-            } catch (error) {
-                console.error("Error saving admin password:", error);
-                alert('Error saving password: ' + error.message);
-            }
-        });
-
-        document.getElementById('saveGradingPass').addEventListener('click', async () => {
-            const password = document.getElementById('gradingPassword').value;
-            if (!password) {
-                alert('Please enter a new password');
-                return;
-            }
-            
-            try {
-                await set(ref(db, 'adminSettings/gradingPassword'), password);
-                alert('Grading password updated!');
-                document.getElementById('gradingPassword').value = '';
-            } catch (error) {
-                console.error("Error saving grading password:", error);
-                alert('Error saving password. Please try again.');
-            }
-        });
-
-        document.getElementById('saveSearchPass').addEventListener('click', async () => {
-            const password = document.getElementById('searchPassword').value;
-            if (!password) {
-                alert('Please enter a new password');
-                return;
-            }
-            
-            try {
-                await set(ref(db, 'adminSettings/searchPassword'), password);
-                alert('Search password updated!');
-                document.getElementById('searchPassword').value = '';
-            } catch (error) {
-                console.error("Error saving search password:", error);
-                alert('Error saving password. Please try again.');
-            }
-        });
-
-        // Load grading sessions
+        // Load sessions function
         async function loadSessions() {
             try {
-                const sessionsSnap = await get(child(ref(db), "grading"));
+                console.log("Loading sessions...");
+                const sessionsSnap = await get(ref(db, "grading"));
                 const activeSelect = document.getElementById('activeSessionsSelect');
                 const closedSelect = document.getElementById('closedSessionsSelect');
                 const gradingSelect = document.getElementById('gradingSessionSelect');
@@ -447,6 +366,7 @@
 
                 if (sessionsSnap.exists()) {
                     const sessions = sessionsSnap.val();
+                    console.log("Found sessions:", sessions);
                     
                     // Sort sessions by date (newest first)
                     const sortedSessions = Object.entries(sessions)
@@ -462,117 +382,24 @@
                         option.value = session.id;
                         option.textContent = session.displayName;
                         
-                        // Add to grading session select (only active sessions)
-                        if (!session.closed) {
+                        if (session.closed) {
+                            closedSelect.appendChild(option.cloneNode(true));
+                        } else {
+                            activeSelect.appendChild(option.cloneNode(true));
                             gradingSelect.appendChild(option.cloneNode(true));
                         }
-                        
-                        // Add to active/closed selects
-                        if (session.closed) {
-                            closedSelect.appendChild(option);
-                        } else {
-                            activeSelect.appendChild(option);
-                        }
                     });
+                    console.log("Sessions loaded successfully");
                 }
             } catch (error) {
                 console.error("Error loading sessions:", error);
             }
         }
 
-        // Load rounds for selected grading session
-        async function loadRoundsForSession(sessionId) {
-            try {
-                // Get session info
-                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
-                if (!sessionSnap.exists()) return;
-                
-                const session = sessionSnap.val();
-                const triviaNumber = session.triviaNumber;
-
-                // Get trivia info from archive
-                const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}`));
-                if (!triviaSnap.exists()) return;
-
-                const triviaData = triviaSnap.val();
-                const rounds = Object.keys(triviaData.trivia || {})
-                    .filter(key => !isNaN(key))
-                    .sort((a, b) => Number(a) - Number(b));
-
-                // Get current availability settings
-                const availabilitySnap = await get(child(ref(db), `grading/${sessionId}/availability`));
-                const availability = availabilitySnap.exists() ? availabilitySnap.val() : {};
-
-                // Set Final Challenge radio based on saved value, default to manual
-                const finalChallenge = availability.finalChallenge || 'manual';
-                document.getElementById(`final${finalChallenge.charAt(0).toUpperCase() + finalChallenge.slice(1)}`).checked = true;
-
-                // Populate rounds container
-                const container = document.getElementById('roundsContainer');
-                container.innerHTML = rounds.map(round => `
-                    <div>
-                        <input type="checkbox" id="round_${round}" 
-                               ${availability[round] ? 'checked' : ''}>
-                        <label for="round_${round}">Round ${round}</label>
-                    </div>
-                `).join('');
-            } catch (error) {
-                console.error("Error loading rounds:", error);
-            }
-        }
-
-        // Update session selection handler
-        document.getElementById('gradingSessionSelect').addEventListener('change', (e) => {
-            const sessionId = e.target.value;
-            const finalChallengeSection = document.getElementById('finalChallengeSection');
-            const saveButton = document.getElementById('saveAvailability');
-            
-            if (sessionId) {
-                loadRoundsForSession(sessionId);
-                finalChallengeSection.style.display = 'block';
-                saveButton.style.display = 'block';
-            } else {
-                document.getElementById('roundsContainer').innerHTML = '';
-                finalChallengeSection.style.display = 'none';
-                saveButton.style.display = 'none';
-                // Reset Final Challenge to Manual
-                document.getElementById('finalManual').checked = true;
-            }
-        });
-
-        document.getElementById('saveAvailability').addEventListener('click', async () => {
-            const sessionId = document.getElementById('gradingSessionSelect').value;
-            if (!sessionId) {
-                alert("Please select a grading session");
-                return;
-            }
-
-            try {
-                const container = document.getElementById('roundsContainer');
-                const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-                
-                const availability = {};
-                checkboxes.forEach(cb => {
-                    const roundNum = cb.id.split('_')[1];
-                    availability[roundNum] = cb.checked;
-                });
-
-                // Add Final Challenge state
-                const finalChallengeValue = document.querySelector('input[name="finalChallenge"]:checked').value;
-                availability.finalChallenge = finalChallengeValue;
-
-                await set(ref(db, `grading/${sessionId}/availability`), availability);
-                alert('Availability settings saved!');
-            } catch (error) {
-                console.error("Error saving availability:", error);
-                alert("Error saving availability settings");
-            }
-        });
-
-        // Add these new functions for location management
+        // Load locations function
         async function loadLocations() {
             try {
-                const locationsSnap = await get(child(ref(db), "adminSettings/locations"));
+                const locationsSnap = await get(ref(db, "adminSettings/locations"));
                 const locationsList = document.getElementById('locationsList');
                 locationsList.innerHTML = '';
 
@@ -596,56 +423,262 @@
             }
         }
 
-        // Add location handler
-        document.getElementById('addLocation').addEventListener('click', async () => {
-            const locationInput = document.getElementById('newLocation');
-            const locationName = locationInput.value.trim();
-            
-            if (!locationName) {
-                alert("Please enter a location name");
-                return;
-            }
-
-            try {
-                const locationId = Date.now().toString();
-                await set(ref(db, `adminSettings/locations/${locationId}`), {
-                    name: locationName,
-                    createdAt: new Date().toISOString()
+        // Set up event listeners for the admin UI
+        function setupEventListeners() {
+            // Delete location buttons
+            document.querySelectorAll('.delete-location').forEach(button => {
+                button.addEventListener('click', async () => {
+                    const locationId = button.getAttribute('data-id');
+                    await deleteLocation(locationId);
                 });
-                
-                locationInput.value = '';
-                await loadLocations();
-                alert('Location added successfully!');
-            } catch (error) {
-                console.error("Error adding location:", error);
-                alert("Error adding location. Please try again.");
-            }
-        });
+            });
 
-        // Patreon tier form submission
-        document.getElementById('patreon-tier-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const amountInput = document.getElementById('tier-amount');
-            const descriptionInput = document.getElementById('tier-description');
-            
-            // Validate input
-            if (!amountInput.value) {
-                alert('Please enter a minimum tier amount');
-                return;
-            }
-            
-            // Convert dollars to cents for storage
-            const amountInCents = Math.round(parseFloat(amountInput.value) * 100);
-            
-            try {
-                const result = await secureAdminOperation({
-                    operation: 'updatePatreonTier',
-                    requiredAmountCents: amountInCents,
-                    tierDescription: descriptionInput.value
-                });
+            // Grading session selection change
+            document.getElementById('gradingSessionSelect').addEventListener('change', async (e) => {
+                console.log("Session selected:", e.target.value);
+                const sessionId = e.target.value;
+                if (!sessionId) {
+                    document.getElementById('roundsContainer').innerHTML = '';
+                    document.getElementById('finalChallengeSection').style.display = 'none';
+                    document.getElementById('saveAvailability').style.display = 'none';
+                    return;
+                }
+
+                try {
+                    console.log("Loading availability for session:", sessionId);
+                    // Get availability settings for this session
+                    const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
+                    console.log("Availability snapshot:", availabilitySnap.val());
+                    const availability = availabilitySnap.exists() ? availabilitySnap.val() : {};
+
+                    // Populate rounds container (always show rounds 1-3)
+                    const container = document.getElementById('roundsContainer');
+                    console.log("Found rounds container:", container);
+                    if (container) {
+                        container.innerHTML = [1, 2, 3].map(round => `
+                            <div style="margin: 10px 0;">
+                                <input type="checkbox" id="round_${round}" 
+                                    ${availability[round] === true ? 'checked' : ''}>
+                                <label for="round_${round}">Round ${round}</label>
+                            </div>
+                        `).join('');
+                    } else {
+                        console.error("Rounds container not found!");
+                    }
+
+                    // Show the Final Challenge section
+                    const finalSection = document.getElementById('finalChallengeSection');
+                    console.log("Found final section:", finalSection);
+                    if (finalSection) {
+                        finalSection.style.display = 'block';
+
+                        // Set Final Challenge radio based on saved value, default to 'disable'
+                        const finalChallenge = availability.finalChallenge || 'disable';
+                        const finalRadio = document.querySelector(`input[name="finalChallenge"][value="${finalChallenge}"]`);
+                        if (finalRadio) {
+                            finalRadio.checked = true;
+                        }
+                    } else {
+                        console.error("Final challenge section not found!");
+                    }
+
+                    // Show the save button
+                    const saveButton = document.getElementById('saveAvailability');
+                    if (saveButton) {
+                        saveButton.style.display = 'block';
+                    } else {
+                        console.error("Save button not found!");
+                    }
+
+                } catch (error) {
+                    console.error("Error loading availability settings:", error);
+                    console.error(error.stack);
+                    alert("Error loading availability settings. Please try again.");
+                }
+            });
+
+            // Save availability button handler
+            document.getElementById('saveAvailability').addEventListener('click', async () => {
+                const sessionId = document.getElementById('gradingSessionSelect').value;
+                if (!sessionId) {
+                    alert("Please select a grading session");
+                    return;
+                }
+
+                try {
+                    console.log("Saving availability for session:", sessionId);
+                    
+                    // Get the state of all checkboxes and radio buttons
+                    const availability = {
+                        1: document.getElementById('round_1').checked,
+                        2: document.getElementById('round_2').checked,
+                        3: document.getElementById('round_3').checked,
+                        finalChallenge: document.querySelector('input[name="finalChallenge"]:checked').value
+                    };
+
+                    console.log("Saving availability settings:", availability);
+
+                    // Save to Firebase
+                    await set(ref(db, `grading/${sessionId}/availability`), availability);
+                    
+                    alert('Availability settings saved successfully!');
+                    
+                    // Optionally reload the availability display to confirm changes
+                    const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
+                    console.log("Saved availability confirmed:", availabilitySnap.val());
+
+                } catch (error) {
+                    console.error("Error saving availability:", error);
+                    alert("Error saving availability settings. Please try again.");
+                }
+            });
+
+            // Password save buttons
+            document.getElementById('saveAdminPass').addEventListener('click', async () => {
+                const password = document.getElementById('adminPassword').value;
+                if (!password) {
+                    alert('Please enter a new password');
+                    return;
+                }
                 
-                if (result.data.success) {
+                try {
+                    await set(ref(db, 'adminSettings/adminPassword'), password);
+                    alert('Admin password updated! You will need to use the new password next time.');
+                    document.getElementById('adminPassword').value = '';
+                    document.getElementById('adminPassword').placeholder = `Current: ${password}`;
+                } catch (error) {
+                    console.error("Error saving admin password:", error);
+                    alert('Error saving password: ' + error.message);
+                }
+            });
+
+            document.getElementById('saveGradingPass').addEventListener('click', async () => {
+                const password = document.getElementById('gradingPassword').value;
+                if (!password) {
+                    alert('Please enter a new password');
+                    return;
+                }
+                
+                try {
+                    await set(ref(db, 'adminSettings/gradingPassword'), password);
+                    alert('Grading password updated!');
+                    document.getElementById('gradingPassword').value = '';
+                    document.getElementById('gradingPassword').placeholder = `Current: ${password}`;
+                } catch (error) {
+                    console.error("Error saving grading password:", error);
+                    alert('Error saving password: ' + error.message);
+                }
+            });
+
+            document.getElementById('saveSearchPass').addEventListener('click', async () => {
+                const password = document.getElementById('searchPassword').value;
+                if (!password) {
+                    alert('Please enter a new password');
+                    return;
+                }
+                
+                try {
+                    await set(ref(db, 'adminSettings/searchPassword'), password);
+                    alert('Search password updated!');
+                    document.getElementById('searchPassword').value = '';
+                    document.getElementById('searchPassword').placeholder = `Current: ${password}`;
+                } catch (error) {
+                    console.error("Error saving search password:", error);
+                    alert('Error saving password: ' + error.message);
+                }
+            });
+
+            // Add location button
+            document.getElementById('addLocation').addEventListener('click', async () => {
+                const locationInput = document.getElementById('newLocation');
+                const locationName = locationInput.value.trim();
+                
+                if (!locationName) {
+                    alert("Please enter a location name");
+                    return;
+                }
+
+                try {
+                    const locationId = Date.now().toString();
+                    await set(ref(db, `adminSettings/locations/${locationId}`), {
+                        name: locationName,
+                        createdAt: new Date().toISOString()
+                    });
+                    
+                    locationInput.value = '';
+                    await loadLocations();
+                    alert('Location added successfully!');
+                } catch (error) {
+                    console.error("Error adding location:", error);
+                    alert("Error adding location. Please try again.");
+                }
+            });
+
+            // Session management buttons
+            document.getElementById('btnCloseSession').addEventListener('click', async () => {
+                const sessionId = document.getElementById('activeSessionsSelect').value;
+                if (!sessionId) {
+                    alert("Please select a session to close");
+                    return;
+                }
+
+                if (!confirm("Are you sure you want to close this session? This will prevent further grading.")) {
+                    return;
+                }
+
+                try {
+                    await set(ref(db, `grading/${sessionId}/closed`), true);
+                    await loadSessions();
+                    alert('Session closed successfully!');
+                } catch (error) {
+                    console.error("Error closing session:", error);
+                    alert("Error closing session. Please try again.");
+                }
+            });
+
+            document.getElementById('btnReopenSession').addEventListener('click', async () => {
+                const sessionId = document.getElementById('closedSessionsSelect').value;
+                if (!sessionId) {
+                    alert("Please select a session to reopen");
+                    return;
+                }
+
+                if (!confirm("Are you sure you want to reopen this session?")) {
+                    return;
+                }
+
+                try {
+                    await set(ref(db, `grading/${sessionId}/closed`), false);
+                    await loadSessions();
+                    alert('Session reopened successfully!');
+                } catch (error) {
+                    console.error("Error reopening session:", error);
+                    alert("Error reopening session. Please try again.");
+                }
+            });
+
+            // Patreon tier form
+            document.getElementById('patreon-tier-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const amountInput = document.getElementById('tier-amount');
+                const descriptionInput = document.getElementById('tier-description');
+                
+                // Validate input
+                if (!amountInput.value) {
+                    alert('Please enter a minimum tier amount');
+                    return;
+                }
+                
+                // Convert dollars to cents for storage
+                const amountInCents = Math.round(parseFloat(amountInput.value) * 100);
+                
+                try {
+                    await set(ref(db, 'adminSettings/patreon'), {
+                        requiredAmountCents: amountInCents,
+                        tierDescription: descriptionInput.value
+                    });
+                    
                     // Show success message
                     const alert = document.getElementById('tier-success-alert');
                     alert.style.display = 'block';
@@ -654,17 +687,65 @@
                     setTimeout(() => {
                         alert.style.display = 'none';
                     }, 3000);
-                } else {
-                    throw new Error(result.data.message || "Failed to update tier settings");
+                } catch (error) {
+                    console.error('Error saving tier settings:', error);
+                    alert('Error saving settings: ' + error.message);
                 }
+            });
+        }
+
+        // Load rounds for selected grading session
+        async function loadRoundsForSession(sessionId) {
+            try {
+                // Get session info
+                const sessionSnap = await get(ref(db, `grading/${sessionId}`));
+                if (!sessionSnap.exists()) return;
+                
+                const session = sessionSnap.val();
+                const triviaNumber = session.triviaNumber;
+
+                // Get trivia info from archive
+                const triviaSnap = await get(ref(db, `trivia-archive/archive/${triviaNumber}/trivia`));
+                if (!triviaSnap.exists()) return;
+
+                // Get all round numbers that exist in the archive
+                const rounds = Object.keys(triviaSnap.val())
+                    .filter(key => !isNaN(key))
+                    .sort((a, b) => Number(a) - Number(b));
+
+                // Get current availability settings
+                const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
+                const availability = availabilitySnap.exists() ? availabilitySnap.val() : {};
+
+                // Set Final Challenge radio based on saved value, default to 'manual'
+                const finalChallenge = availability.finalChallenge || 'manual';
+                const finalRadio = document.getElementById(`final${finalChallenge.charAt(0).toUpperCase() + finalChallenge.slice(1)}`);
+                if (finalRadio) {
+                    finalRadio.checked = true;
+                }
+
+                // Populate rounds container
+                const container = document.getElementById('roundsContainer');
+                container.innerHTML = rounds.map(round => `
+                    <div style="margin: 10px 0;">
+                        <input type="checkbox" id="round_${round}" 
+                            ${availability[round] ? 'checked' : ''}>
+                        <label for="round_${round}">Round ${round}</label>
+                    </div>
+                `).join('');
+
+                // Show the save button and final challenge section
+                document.getElementById('finalChallengeSection').style.display = 'block';
+                document.getElementById('saveAvailability').style.display = 'block';
+
             } catch (error) {
-                console.error('Error saving tier settings:', error);
-                alert('Error saving settings: ' + error.message);
+                console.error("Error loading rounds:", error);
+                alert("Error loading rounds. Please try again.");
             }
-        });
+        }
 
         // Delete location function
-        window.deleteLocation = async (locationId) => {
+        async function deleteLocation(locationId) {
             if (!confirm("Are you sure you want to delete this location?")) {
                 return;
             }
@@ -677,112 +758,273 @@
                 console.error("Error deleting location:", error);
                 alert("Error deleting location. Please try again.");
             }
-        };
+        }
 
-        // Add these functions to handle session status changes
-        window.closeSession = async (sessionId) => {
-            if (!confirm("Are you sure you want to close this session? This will prevent further grading.")) {
-                return;
-            }
-
+        // Load registration codes
+        async function loadRegistrationCodes() {
             try {
-                await set(ref(db, `grading/${sessionId}/closed`), true);
-                await loadSessions();
-                alert('Session closed successfully!');
+                const codesRef = ref(db, 'adminSettings/registrationCodes');
+                const snapshot = await get(codesRef);
+                if (snapshot.exists()) {
+                    const codes = snapshot.val();
+                    document.getElementById('adminCode').value = codes.admin || '';
+                    document.getElementById('graderCode').value = codes.grader || '';
+                }
             } catch (error) {
-                console.error("Error closing session:", error);
-                alert("Error closing session. Please try again.");
+                console.error("Error loading registration codes:", error);
             }
-        };
+        }
 
-        window.reopenSession = async (sessionId) => {
-            if (!confirm("Are you sure you want to reopen this session?")) {
-                return;
-            }
-
+        // Save registration codes
+        document.getElementById('saveRegCodes').addEventListener('click', async () => {
             try {
-                await set(ref(db, `grading/${sessionId}/closed`), false);
-                await loadSessions();
-                alert('Session reopened successfully!');
+                const adminCode = document.getElementById('adminCode').value.trim();
+                const graderCode = document.getElementById('graderCode').value.trim();
+                
+                await set(ref(db, 'adminSettings/registrationCodes'), {
+                    admin: adminCode,
+                    grader: graderCode
+                });
+                
+                alert('Registration codes saved successfully!');
             } catch (error) {
-                console.error("Error reopening session:", error);
-                alert("Error reopening session. Please try again.");
-            }
-        };
-
-        // Add button event listeners
-        document.getElementById('btnCloseSession').addEventListener('click', async () => {
-            const sessionId = document.getElementById('activeSessionsSelect').value;
-            if (!sessionId) {
-                alert("Please select a session to close");
-                return;
-            }
-
-            if (!confirm("Are you sure you want to close this session? This will prevent further grading.")) {
-                return;
-            }
-
-            try {
-                await set(ref(db, `grading/${sessionId}/closed`), true);
-                await loadSessions();
-                alert('Session closed successfully!');
-            } catch (error) {
-                console.error("Error closing session:", error);
-                alert("Error closing session. Please try again.");
+                console.error("Error saving registration codes:", error);
+                alert('Error saving registration codes: ' + error.message);
             }
         });
 
-        document.getElementById('btnReopenSession').addEventListener('click', async () => {
-            const sessionId = document.getElementById('closedSessionsSelect').value;
-            if (!sessionId) {
-                alert("Please select a session to reopen");
-                return;
-            }
-
-            if (!confirm("Are you sure you want to reopen this session?")) {
-                return;
-            }
-
+        // Load users
+        async function loadUsers() {
             try {
-                await set(ref(db, `grading/${sessionId}/closed`), false);
-                await loadSessions();
-                alert('Session reopened successfully!');
+                const usersRef = ref(db, 'users');
+                const snapshot = await get(usersRef);
+                const userTableBody = document.getElementById('userTableBody');
+                userTableBody.innerHTML = '';
+
+                if (snapshot.exists()) {
+                    const users = snapshot.val();
+                    Object.entries(users).forEach(([uid, userData]) => {
+                        const row = document.createElement('tr');
+                        const createdAt = userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : 'N/A';
+                        
+                        row.innerHTML = `
+                            <td>${userData.email || 'No email'}</td>
+                            <td>
+                                <select class="role-select" data-uid="${uid}">
+                                    <option value="admin" ${userData.role === 'admin' ? 'selected' : ''}>Admin</option>
+                                    <option value="grader" ${userData.role === 'grader' ? 'selected' : ''}>Grader</option>
+                                    <option value="none" ${!userData.role ? 'selected' : ''}>No Role</option>
+                                </select>
+                            </td>
+                            <td>${createdAt}</td>
+                            <td>
+                                <button onclick="deleteUser('${uid}')" class="delete-btn">Delete</button>
+                            </td>
+                        `;
+                        userTableBody.appendChild(row);
+
+                        // Add change listener to the role select
+                        const select = row.querySelector('.role-select');
+                        select.addEventListener('change', async (e) => {
+                            try {
+                                await set(ref(db, `users/${uid}/role`), e.target.value === 'none' ? null : e.target.value);
+                                alert('User role updated successfully!');
+                            } catch (error) {
+                                console.error("Error updating role:", error);
+                                alert('Error updating role: ' + error.message);
+                                e.target.value = userData.role || 'none'; // Reset to previous value
+                            }
+                        });
+                    });
+                }
             } catch (error) {
-                console.error("Error reopening session:", error);
-                alert("Error reopening session. Please try again.");
+                console.error("Error loading users:", error);
+            }
+        }
+
+        // Delete user function
+        async function deleteUser(uid) {
+            if (confirm('Are you sure you want to delete this user?')) {
+                try {
+                    await set(ref(db, `users/${uid}`), null);
+                    alert('User deleted successfully!');
+                    await loadUsers(); // Reload the user list
+                } catch (error) {
+                    console.error("Error deleting user:", error);
+                    alert('Error deleting user: ' + error.message);
+                }
+            }
+        }
+
+        // Load everything when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("Setting up grading session change listener");
+            const gradingSelect = document.getElementById('gradingSessionSelect');
+            if (gradingSelect) {
+                gradingSelect.addEventListener('change', async (e) => {
+                    console.log("Session selected:", e.target.value);
+                    const sessionId = e.target.value;
+                    if (!sessionId) {
+                        document.getElementById('roundsContainer').innerHTML = '';
+                        document.getElementById('finalChallengeSection').style.display = 'none';
+                        document.getElementById('saveAvailability').style.display = 'none';
+                        return;
+                    }
+
+                    try {
+                        console.log("Loading availability for session:", sessionId);
+                        // Get availability settings for this session
+                        const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
+                        console.log("Availability snapshot:", availabilitySnap.val());
+                        const availability = availabilitySnap.exists() ? availabilitySnap.val() : {};
+
+                        // Populate rounds container (always show rounds 1-3)
+                        const container = document.getElementById('roundsContainer');
+                        console.log("Found rounds container:", container);
+                        if (container) {
+                            container.innerHTML = [1, 2, 3].map(round => `
+                                <div style="margin: 10px 0;">
+                                    <input type="checkbox" id="round_${round}" 
+                                        ${availability[round] === true ? 'checked' : ''}>
+                                    <label for="round_${round}">Round ${round}</label>
+                                </div>
+                            `).join('');
+                        } else {
+                            console.error("Rounds container not found!");
+                        }
+
+                        // Show the Final Challenge section
+                        const finalSection = document.getElementById('finalChallengeSection');
+                        console.log("Found final section:", finalSection);
+                        if (finalSection) {
+                            finalSection.style.display = 'block';
+
+                            // Set Final Challenge radio based on saved value, default to 'disable'
+                            const finalChallenge = availability.finalChallenge || 'disable';
+                            const finalRadio = document.querySelector(`input[name="finalChallenge"][value="${finalChallenge}"]`);
+                            if (finalRadio) {
+                                finalRadio.checked = true;
+                            }
+                        } else {
+                            console.error("Final challenge section not found!");
+                        }
+
+                        // Show the save button
+                        const saveButton = document.getElementById('saveAvailability');
+                        if (saveButton) {
+                            saveButton.style.display = 'block';
+                        } else {
+                            console.error("Save button not found!");
+                        }
+
+                    } catch (error) {
+                        console.error("Error loading availability settings:", error);
+                        console.error(error.stack);
+                        alert("Error loading availability settings. Please try again.");
+                    }
+                });
+                console.log("Change listener attached successfully");
+            } else {
+                console.error("Could not find gradingSessionSelect element!");
+            }
+            loadRegistrationCodes();
+            loadUsers();
+
+            console.log("Setting up save availability button handler");
+            const saveButton = document.getElementById('saveAvailability');
+            
+            if (saveButton) {
+                console.log("Found save button, attaching click handler");
+                saveButton.onclick = async () => {
+                    console.log("Save button clicked!");
+                    const sessionId = document.getElementById('gradingSessionSelect').value;
+                    if (!sessionId) {
+                        alert("Please select a grading session");
+                        return;
+                    }
+
+                    try {
+                        console.log("Saving availability for session:", sessionId);
+                        
+                        // Get the state of all checkboxes and radio buttons
+                        const availability = {
+                            1: document.getElementById('round_1').checked,
+                            2: document.getElementById('round_2').checked,
+                            3: document.getElementById('round_3').checked,
+                            finalChallenge: document.querySelector('input[name="finalChallenge"]:checked').value
+                        };
+
+                        console.log("Saving availability settings:", availability);
+
+                        // Save to Firebase
+                        await set(ref(db, `grading/${sessionId}/availability`), availability);
+                        
+                        alert('Availability settings saved successfully!');
+                        
+                        // Optionally reload the availability display to confirm changes
+                        const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
+                        console.log("Saved availability confirmed:", availabilitySnap.val());
+
+                    } catch (error) {
+                        console.error("Error saving availability:", error);
+                        alert("Error saving availability settings. Please try again.");
+                    }
+                };
+                console.log("Click handler attached successfully");
+            } else {
+                console.error("Save button not found! Make sure the button has id='saveAvailability'");
             }
         });
 
-        // Add styles
-        const style = document.createElement('style');
-        style.textContent = `
-            select {
-                padding: 8px;
-                font-size: 14px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }
-            button {
-                padding: 8px 16px;
-                font-size: 14px;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                transition: background-color 0.3s;
-            }
-            #btnCloseSession:hover {
-                background-color: #ff0000;
-            }
-            #btnReopenSession:hover {
-                background-color: #45a049;
-            }
-        `;
-        document.head.appendChild(style);
+        // Add this function to admin.html
+        async function migrateAuthUsers() {
+            try {
+                // First, get all existing database users to avoid duplicates
+                const dbUsersSnap = await get(ref(db, 'users'));
+                const existingDbUsers = dbUsersSnap.exists() ? dbUsersSnap.val() : {};
 
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', async () => {
-            await loadSessions();
-        });
+                // Get the list of all auth users
+                const usersListResponse = await fetch('https://eviltrivia-47664.firebaseapp.com/__/auth/users', {
+                    headers: {
+                        'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
+                    }
+                });
+                
+                if (!usersListResponse.ok) {
+                    throw new Error('Failed to fetch auth users');
+                }
+
+                const authUsers = await usersListResponse.json();
+
+                // For each auth user that doesn't exist in the database
+                for (const user of authUsers.users) {
+                    if (!existingDbUsers[user.uid]) {
+                        await set(ref(db, `users/${user.uid}`), {
+                            email: user.email,
+                            role: 'grader', // Default to grader, you can change this later
+                            createdAt: new Date(user.metadata.creationTime).toISOString()
+                        });
+                        console.log(`Migrated user: ${user.email}`);
+                    }
+                }
+
+                alert('Migration completed successfully!');
+                // Reload the user list
+                await loadUsers();
+            } catch (error) {
+                console.error('Migration error:', error);
+                alert('Error during migration: ' + error.message);
+            }
+        }
+
+        // Add a migration button to the admin interface
+        const migrationButton = document.createElement('button');
+        migrationButton.textContent = 'Migrate Auth Users to Database';
+        migrationButton.onclick = migrateAuthUsers;
+        migrationButton.style.marginTop = '20px';
+
+        // Add the button to the user management section
+        document.querySelector('.section h2').insertAdjacentElement('afterend', migrationButton);
     </script>
 </body>
 </html>
