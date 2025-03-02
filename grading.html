@@ -507,15 +507,6 @@
 
     <h1>Evil Trivia: Grading</h1>
 
-    <!-- Password Screen -->
-    <div id="screenPasswordPrompt" class="screen active">
-        <div class="section">
-            <h2>Enter Password</h2>
-            <input type="password" id="gradingPassInput" />
-            <button id="btnVerifyPass">Submit</button>
-        </div>
-    </div>
-
     <!-- Session Setup Screen -->
     <div id="screenSessionSetup" class="screen">
         <div class="section">
@@ -694,7 +685,6 @@
                         if (role === 'admin' || role === 'grader') {
                             // User has correct role, show grading interface
                             document.getElementById('authContainer').style.display = 'none';
-                            document.getElementById('screenPasswordPrompt').style.display = 'none'; // Hide password prompt
                             document.getElementById('screenSessionSetup').style.display = 'block';
                             // Load any necessary data
                             if (typeof loadSessions === 'function') {
@@ -717,7 +707,6 @@
             } else {
                 // No user is signed in
                 document.getElementById('authContainer').style.display = 'block';
-                document.getElementById('screenPasswordPrompt').style.display = 'none';
                 document.getElementById('screenSessionSetup').style.display = 'none';
             }
         });
@@ -741,180 +730,6 @@
         function showScreen(screenId) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(screenId).classList.add('active');
-        }
-
-        // Event Listeners
-        document.getElementById('btnVerifyPass').addEventListener('click', async () => {
-            const enteredPassword = document.getElementById('gradingPassInput').value;
-            const settingsSnap = await get(child(ref(db), "adminSettings/gradingPassword"));
-            
-            if (enteredPassword === settingsSnap.val()) {
-                const hash = await hashPassword(enteredPassword);
-                localStorage.setItem('evilTriviaGradingHash', hash);
-                showScreen('screenSessionSetup');
-            } else {
-                alert("Incorrect password");
-            }
-        });
-
-        // Add the setDefaultDate function that was missing
-        function setDefaultDate() {
-            const today = new Date();
-            const year = today.getFullYear();
-            const month = String(today.getMonth() + 1).padStart(2, '0');
-            const day = String(today.getDate()).padStart(2, '0');
-            document.getElementById('dateInput').value = `${year}-${month}-${day}`;
-        }
-
-        // Update loadTriviaOptions function
-        async function loadTriviaOptions() {
-            try {
-                console.log("Loading trivia options...");
-                const triviaSnap = await get(child(ref(db), "trivia-archive/archive"));
-                const triviaSelect = document.getElementById('triviaNumSelect');
-                triviaSelect.innerHTML = '<option value="">Select a trivia...</option>';
-
-                if (triviaSnap.exists()) {
-                    console.log("Trivia data:", triviaSnap.val());
-                    const triviaData = triviaSnap.val();
-                    // Get all trivia entries and sort by number (descending)
-                    const triviaEntries = Object.entries(triviaData)
-                        .map(([number, data]) => ({
-                            number: parseInt(number),
-                            name: data.triviaName || `Trivia #${number}`
-                        }))
-                        .sort((a, b) => b.number - a.number);
-
-                    console.log("Processed trivia entries:", triviaEntries);
-
-                    triviaEntries.forEach(trivia => {
-                        const option = document.createElement('option');
-                        option.value = trivia.number;
-                        option.textContent = `Trivia #${trivia.number} - ${trivia.name}`;
-                        triviaSelect.appendChild(option);
-                    });
-                }
-            } catch (error) {
-                console.error("Error loading trivia options:", error);
-                console.error(error.stack);
-                alert("Error loading trivia options. Please try again.");
-            }
-        }
-
-        // Update loadLocations function
-        async function loadLocations() {
-            try {
-                console.log("Loading locations...");
-                const locationsSnap = await get(child(ref(db), "adminSettings/locations"));
-                const locationSelect = document.getElementById('locationSelect');
-                
-                locationSelect.innerHTML = '<option value="">Select a location...</option>';
-
-                if (locationsSnap.exists()) {
-                    console.log("Locations data:", locationsSnap.val());
-                    const locations = locationsSnap.val();
-                    // Get all location entries and sort by name
-                    Object.values(locations)
-                        .filter(loc => loc.name) // Ensure location has a name
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .forEach(location => {
-                            const option = document.createElement('option');
-                            option.value = location.name;
-                            option.textContent = location.name;
-                            locationSelect.appendChild(option);
-                        });
-                } else {
-                    console.log("No locations found in database");
-                }
-            } catch (error) {
-                console.error("Error loading locations:", error);
-                console.error(error.stack);
-                alert("Error loading locations. Please try again.");
-            }
-        }
-
-        // Add setupTeamScreen function
-        async function setupTeamScreen() {
-            try {
-                // Clear existing teams
-                document.getElementById('teamTableBody').innerHTML = '';
-                
-                // Clear input fields
-                document.getElementById('newTeamName').value = '';
-                document.getElementById('newTeamSize').value = '';
-
-                // Load any existing teams
-                await loadTeams();
-            } catch (error) {
-                console.error("Error setting up team screen:", error);
-            }
-        }
-
-        // Add loadTeams function if not already present
-        async function loadTeams() {
-            const sessionId = localStorage.getItem('currentGradingSession');
-            if (!sessionId) return;
-
-            try {
-                const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
-                const tableBody = document.getElementById('teamTableBody');
-                tableBody.innerHTML = '';
-
-                if (teamsSnap.exists()) {
-                    const teams = teamsSnap.val();
-                    Object.entries(teams).forEach(([teamId, team]) => {
-                        const row = document.createElement('tr');
-                        row.id = `team_${teamId}`;
-                        row.innerHTML = `
-                            <td class="team-name">${team.name}</td>
-                            <td class="team-size">${team.size}</td>
-                            <td>
-                                <button onclick="editTeam('${teamId}')">Edit</button>
-                                <button onclick="deleteTeam('${teamId}')">Delete</button>
-                            </td>
-                        `;
-                        tableBody.appendChild(row);
-                    });
-                }
-            } catch (error) {
-                console.error("Error loading teams:", error);
-            }
-        }
-
-        // Update loadExistingSessions function
-        async function loadExistingSessions() {
-            try {
-                const sessionsSnap = await get(child(ref(db), "grading"));
-                const sessionSelect = document.getElementById('existingSessionSelect');
-                sessionSelect.innerHTML = '<option value="">Select a session...</option>';
-
-                if (sessionsSnap.exists()) {
-                    const sessions = sessionsSnap.val();
-                    // Filter out closed sessions and sort by date (newest first)
-                    const sortedSessions = Object.entries(sessions)
-                        .filter(([_, session]) => !session.closed) // Only include sessions that aren't closed
-                        .map(([id, session]) => ({
-                            id: id,
-                            name: `${session.location} - ${session.date} - Trivia #${session.triviaNumber}`
-                        }))
-                        .sort((a, b) => b.id.localeCompare(a.id));
-
-                    if (sortedSessions.length === 0) {
-                        sessionSelect.innerHTML = '<option value="">No active sessions available</option>';
-                        return;
-                    }
-
-                    sortedSessions.forEach(session => {
-                        const option = document.createElement('option');
-                        option.value = session.id;
-                        option.textContent = session.name;
-                        sessionSelect.appendChild(option);
-                    });
-                }
-            } catch (error) {
-                console.error("Error loading existing sessions:", error);
-                sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
-            }
         }
 
         // Event Listeners
@@ -1182,7 +997,6 @@
                             (roleSnapshot.val() === 'admin' || roleSnapshot.val() === 'grader')) {
                             console.log("User has correct role");
                             document.getElementById('authContainer').style.display = 'none';
-                            document.getElementById('screenPasswordPrompt').style.display = 'none';
                             document.getElementById('screenSessionSetup').style.display = 'block';
                             
                             // Check for existing session
@@ -1196,7 +1010,6 @@
                     } else {
                         console.log("No user authenticated");
                         document.getElementById('authContainer').style.display = 'block';
-                        document.getElementById('screenPasswordPrompt').style.display = 'none';
                         document.getElementById('screenSessionSetup').style.display = 'none';
                     }
                 });
