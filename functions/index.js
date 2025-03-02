@@ -114,13 +114,14 @@ app.get("/auth/patreon/callback", async (req, res) => {
 });
 
 // Export the Express app as the patreonAuth function
-exports.patreonAuthHttp = functions.https.onRequest(app);
+exports.patreonAuth = functions.https.onRequest(app);
 
 /**
  * Helper function for verifyAdminPassword operation
  */
 async function verifyAdminPassword(data) {
-  const password = data.password;
+  // Extract password safely
+  const password = data?.password || '';
   
   if (!password) {
     throw new functions.https.HttpsError(
@@ -135,19 +136,16 @@ async function verifyAdminPassword(data) {
     const correctPassword = snapshot.val();
     
     if (password === correctPassword) {
-      // Generate credentials for admin login
-      const adminEmail = "admin@eviltrivia.com";
-      
       return {
         success: true,
-        email: adminEmail,
-        token: correctPassword
+        email: "admin@eviltrivia.com",
+        token: "admin-authenticated"  // Don't send back the actual password
       };
     } else {
       return { success: false };
     }
   } catch (error) {
-    console.error("Error verifying admin password:", error);
+    console.error("Error verifying admin password:", error.message);
     throw new functions.https.HttpsError("internal", error.message);
   }
 }
@@ -258,25 +256,38 @@ exports.secureAdminOperation = functions.https.onCall((data, context) => {
  * Public data function for retrieving non-sensitive data
  */
 exports.publicData = functions.https.onCall(async (data, context) => {
-  const { requestType } = data;
+  const operation = data?.operation || '';
   
-  switch (requestType) {
-    case "getPublicSettings":
-      try {
-        const settingsSnap = await rtdb.ref('gameSettings/public').once('value');
-        return { 
-          success: true, 
-          data: settingsSnap.val() || {} 
+  try {
+    if (operation === 'getGradingSessions') {
+      // Retrieve grading sessions
+      const snapshot = await rtdb.ref('grading').once('value');
+      const sessions = snapshot.val() || {};
+      
+      // Format sessions for display
+      const formattedSessions = {};
+      Object.entries(sessions).forEach(([id, session]) => {
+        formattedSessions[id] = {
+          location: session.location || 'Unknown',
+          triviaNumber: session.triviaNumber || '0',
+          date: session.date || 'Unknown',
+          closed: session.closed || false
         };
-      } catch (error) {
-        console.error("Error getting public settings:", error);
-        throw new functions.https.HttpsError("internal", error.message);
-      }
-    default:
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Unknown request type"
-      );
+      });
+      
+      return { 
+        success: true, 
+        sessions: formattedSessions 
+      };
+    }
+    
+    throw new Error("Unknown operation");
+  } catch (error) {
+    console.error("Error in publicData:", error.message);
+    return {
+      success: false,
+      message: error.message
+    };
   }
 });
 
@@ -311,5 +322,140 @@ exports.bootstrapAdmin = functions.https.onCall(async (data, context) => {
   } catch (error) {
     console.error("Error bootstrapping admin settings:", error);
     throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+// Update this function to avoid circular references
+exports.testAdminAuth = functions.https.onCall(async (data, context) => {
+  // Log minimally to avoid circular references
+  console.log("testAdminAuth called with data:", typeof data);
+  
+  try {
+    // Extract password safely
+    const password = data?.password || '';
+    
+    if (!password) {
+      return { 
+        success: false, 
+        message: "Password is required"
+      };
+    }
+    
+    // Get admin password from database
+    const snapshot = await rtdb.ref('adminSettings/adminPassword').once('value');
+    const correctPassword = snapshot.val();
+    
+    return {
+      success: password === correctPassword,
+      message: password === correctPassword ? "Success" : "Wrong password"
+    };
+  } catch (error) {
+    console.error("Error in testAdminAuth:", error.message);
+    return {
+      success: false,
+      message: "Error: " + error.message
+    };
+  }
+});
+
+// Simple test function
+exports.superSimpleTest = functions.https.onCall((data, context) => {
+  console.log("superSimpleTest called");
+  return {
+    success: true,
+    message: "Function executed successfully",
+    receivedData: data
+  };
+});
+
+// Admin authentication function
+exports.adminAuthenticate = functions.https.onCall((data, context) => {
+  console.log("adminAuthenticate called with data:", data ? "exists" : "null");
+  
+  if (!data) {
+    return { success: false, message: "No data provided" };
+  }
+  
+  // Safely extract password
+  const password = data.password || "";
+  console.log("Password received, length:", password.length);
+  
+  if (!password) {
+    return { success: false, message: "Password is required" };
+  }
+  
+  // Hard-coded password for testing
+  const correctPassword = "eviltrivia";
+  const isMatch = password === correctPassword;
+  
+  console.log("Password match:", isMatch);
+  
+  return {
+    success: isMatch,
+    message: isMatch ? "Success" : "Incorrect password"
+  };
+});
+
+// Add a separate admin password verification function with no auth check
+exports.verifyAdminPassword = functions.https.onCall(async (data, context) => {
+  // Extract password safely
+  const password = data?.password || '';
+  
+  if (!password) {
+    throw new functions.https.HttpsError(
+      "invalid-argument", 
+      "Password is required"
+    );
+  }
+  
+  try {
+    // Get admin password from database
+    const snapshot = await rtdb.ref('adminSettings/adminPassword').once('value');
+    const correctPassword = snapshot.val();
+    
+    console.log("Password check: attempting to verify");
+    
+    return {
+      success: password === correctPassword,
+      message: password === correctPassword ? "Success" : "Wrong password"
+    };
+  } catch (error) {
+    console.error("Error verifying admin password:", error.message);
+    throw new functions.https.HttpsError("internal", error.message);
+  }
+});
+
+// Add a completely separate password verification function with explicit logging
+exports.adminPasswordCheck = functions.https.onCall(async (data, context) => {
+  try {
+    // Extract password safely
+    const password = data?.password || '';
+    
+    if (!password) {
+      return { 
+        success: false, 
+        message: "Password is required" 
+      };
+    }
+    
+    // For testing, try a hardcoded password first
+    const correctPassword = "eviltrivia"; // Hardcode the password for initial testing
+    
+    // Log values for debugging (remove in production)
+    console.log("Password check:");
+    console.log("- Password entered:", password);
+    console.log("- Correct password:", correctPassword);
+    console.log("- Match:", password === correctPassword);
+    
+    return {
+      success: password === correctPassword,
+      message: password === correctPassword ? "Success" : "Wrong password"
+    };
+  } catch (error) {
+    console.error("Error in simple password check:", error);
+    return {
+      success: false,
+      message: "Error: " + error.message
+    };
   }
 });
