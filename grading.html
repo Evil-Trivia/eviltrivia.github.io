@@ -770,33 +770,38 @@
 
         // Update createGradingSession function
         async function createGradingSession() {
-            const location = document.getElementById('locationSelect').value;
-            const date = document.getElementById('dateInput').value;
-            const triviaNumber = document.getElementById('triviaNumSelect').value;
-            
-            console.log("Form values:", { location, date, triviaNumber });
-            
-            if (!location || !date || !triviaNumber) {
-                alert("Please fill in all fields");
-                return;
-            }
-
             try {
-                // Format date for session ID (YYYYMMDD)
-                const dateFormatted = date.replace(/-/g, '');
+                const location = document.getElementById('locationSelect').value;
+                const date = document.getElementById('dateInput').value;
+                const triviaNumber = document.getElementById('triviaNumSelect').value;
                 
-                // Create safe location name for path
+                console.log("Creating session with:", { location, date, triviaNumber });
+                
+                if (!location || !date || !triviaNumber) {
+                    alert("Please fill in all fields");
+                    return;
+                }
+
+                // Format date for session ID (YYYYMMDD)
+                const dateFormatted = date.split('-').join('');
+                
+                // Create safe location name for path (remove special characters)
                 const safeLocation = location.replace(/[.#$[\]]/g, '_');
                 
                 // Generate session ID
                 const sessionId = `${dateFormatted}_${safeLocation}_${triviaNumber}`;
+                console.log("Generated session ID:", sessionId);
 
                 // Get trivia name
                 const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}`));
-                const triviaName = triviaSnap.exists() ? triviaSnap.val().triviaName : '';
+                if (!triviaSnap.exists()) {
+                    throw new Error(`Trivia #${triviaNumber} not found`);
+                }
+                const triviaName = triviaSnap.val().triviaName || '';
+                console.log("Found trivia name:", triviaName);
 
-                // Create session in database
-                await set(ref(db, `grading/${sessionId}`), {
+                // Create session data object
+                const sessionData = {
                     location: location,
                     date: date,
                     triviaNumber: parseInt(triviaNumber),
@@ -805,14 +810,65 @@
                     availability: {
                         "1": true  // Set round 1 as available by default
                     }
-                });
+                };
+                console.log("Session data:", sessionData);
 
+                // Create session in database
+                await set(ref(db, `grading/${sessionId}`), sessionData);
+                console.log("Session created successfully");
+
+                // Store session ID in localStorage
                 localStorage.setItem('currentGradingSession', sessionId);
+                
+                // Setup team screen and show it
                 await setupTeamScreen();
                 showScreen('screenTeamSetup');
+
             } catch (error) {
                 console.error("Error creating grading session:", error);
+                console.error("Error stack:", error.stack);
                 alert("Error creating grading session. Please try again.");
+            }
+        }
+
+        // Add setupTeamScreen function if it doesn't exist
+        async function setupTeamScreen() {
+            try {
+                const sessionId = localStorage.getItem('currentGradingSession');
+                if (!sessionId) {
+                    throw new Error("No session ID found");
+                }
+
+                // Clear existing team table
+                const teamTableBody = document.getElementById('teamTableBody');
+                teamTableBody.innerHTML = '';
+
+                // Load existing teams if any
+                const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
+                if (teamsSnap.exists()) {
+                    const teams = teamsSnap.val();
+                    Object.entries(teams).forEach(([teamId, team]) => {
+                        const row = document.createElement('tr');
+                        row.id = `team_${teamId}`;
+                        row.innerHTML = `
+                            <td class="team-name">${team.name}</td>
+                            <td class="team-size">${team.size}</td>
+                            <td>
+                                <button onclick="editTeam('${teamId}')">Edit</button>
+                                <button onclick="deleteTeam('${teamId}')">Delete</button>
+                            </td>
+                        `;
+                        teamTableBody.appendChild(row);
+                    });
+                }
+
+                // Clear input fields
+                document.getElementById('newTeamName').value = '';
+                document.getElementById('newTeamSize').value = '';
+
+            } catch (error) {
+                console.error("Error setting up team screen:", error);
+                alert("Error setting up team screen. Please try again.");
             }
         }
 
