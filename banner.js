@@ -92,11 +92,22 @@
                 try {
                     const snapshot = await db.ref(`users/${user.uid}`).once('value');
                     const userData = snapshot.val();
-                    const firstName = userData?.firstName || 'Guest';
-                    userGreeting.textContent = `Hi, ${firstName}`;
+                    if (userData?.firstName) {
+                        userGreeting.textContent = `Hi, ${userData.firstName}`;
+                    } else {
+                        // If no firstName, use email or 'Guest'
+                        const displayName = user.email ? user.email.split('@')[0] : 'Guest';
+                        userGreeting.textContent = `Hi, ${displayName}`;
+                        
+                        // Log for debugging
+                        console.log('User data:', userData);
+                        console.log('No firstName found for user:', user.uid);
+                    }
                 } catch (error) {
                     console.error('Error fetching user data:', error);
-                    userGreeting.textContent = `Hi, ${user.email}`;
+                    // Fallback to email if database fetch fails
+                    const displayName = user.email ? user.email.split('@')[0] : 'Guest';
+                    userGreeting.textContent = `Hi, ${displayName}`;
                 }
 
                 // Check Patreon status
