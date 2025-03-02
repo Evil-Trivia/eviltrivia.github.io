@@ -1,6 +1,14 @@
-// Wait for DOM to be ready
-document.addEventListener('DOMContentLoaded', () => {
-    // Simple banner HTML
+// Create and inject banner as soon as possible
+(function injectBanner() {
+    // Don't inject on 404 page
+    if (document.title === "Oops!") return;
+
+    // If body isn't ready, wait and try again
+    if (!document.body) {
+        return setTimeout(injectBanner, 10);
+    }
+
+    // Banner HTML
     const bannerHTML = `
     <div id="siteBanner" style="
         background: #000000;
@@ -28,33 +36,38 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
     `;
 
-    // Only inject banner if we're not on the 404 page
-    if (document.title !== "Oops!") {
-        document.body.insertAdjacentHTML('afterbegin', bannerHTML);
-        
-        // Handle auth state changes
-        if (typeof firebase !== 'undefined') {
-            const auth = firebase.auth();
-            const loginLink = document.getElementById('loginLink');
-            const logoutBtn = document.getElementById('logoutBtn');
+    // Inject banner at the start of body
+    document.body.insertAdjacentHTML('afterbegin', bannerHTML);
+    
+    // Handle auth state changes if Firebase is available
+    if (typeof firebase !== 'undefined') {
+        const auth = firebase.auth();
+        const loginLink = document.getElementById('loginLink');
+        const logoutBtn = document.getElementById('logoutBtn');
 
-            auth.onAuthStateChanged((user) => {
-                if (user) {
-                    loginLink.style.display = 'none';
-                    logoutBtn.style.display = 'block';
-                } else {
-                    loginLink.style.display = 'block';
-                    logoutBtn.style.display = 'none';
-                }
-            });
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                loginLink.style.display = 'none';
+                logoutBtn.style.display = 'block';
+            } else {
+                loginLink.style.display = 'block';
+                logoutBtn.style.display = 'none';
+            }
+        });
 
-            logoutBtn.addEventListener('click', () => {
-                auth.signOut().then(() => {
-                    window.location.href = 'login.html';
-                }).catch((error) => {
-                    console.error('Error signing out:', error);
-                });
+        logoutBtn.addEventListener('click', () => {
+            auth.signOut().then(() => {
+                window.location.href = 'login.html';
+            }).catch((error) => {
+                console.error('Error signing out:', error);
             });
-        }
+        });
+    }
+})();
+
+// Also try to inject when DOM is fully loaded (backup)
+document.addEventListener('DOMContentLoaded', function() {
+    if (!document.getElementById('siteBanner')) {
+        injectBanner();
     }
 }); 
