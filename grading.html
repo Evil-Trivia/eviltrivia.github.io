@@ -734,15 +734,16 @@
 
         // Event Listeners
         document.getElementById('btnNewSession').addEventListener('click', async () => {
+            console.log("New session button clicked");
             document.getElementById('newSessionForm').style.display = 'block';
             document.getElementById('existingSessionsList').style.display = 'none';
             
-            // Load the data when showing the form
             try {
                 await Promise.all([
                     loadLocations(),
                     loadTriviaOptions()
                 ]);
+                console.log("Locations and trivia options loaded");
             } catch (error) {
                 console.error("Error loading form data:", error);
                 alert("Error loading form data. Please try again.");
@@ -772,6 +773,8 @@
             const location = document.getElementById('locationSelect').value;
             const date = document.getElementById('dateInput').value;
             const triviaNumber = document.getElementById('triviaNumSelect').value;
+            
+            console.log("Form values:", { location, date, triviaNumber });
             
             if (!location || !date || !triviaNumber) {
                 alert("Please fill in all fields");
@@ -828,7 +831,26 @@
         };
 
         // Event Listeners
-        document.getElementById('btnCreateSession').addEventListener('click', createGradingSession);
+        document.getElementById('btnCreateSession').addEventListener('click', async () => {
+            console.log("Create session button clicked");
+            const location = document.getElementById('locationSelect').value;
+            const date = document.getElementById('dateInput').value;
+            const triviaNumber = document.getElementById('triviaNumSelect').value;
+            
+            console.log("Form values:", { location, date, triviaNumber });
+            
+            if (!location || !date || !triviaNumber) {
+                alert("Please fill in all fields");
+                return;
+            }
+
+            try {
+                await createGradingSession();
+            } catch (error) {
+                console.error("Error creating session:", error);
+                alert("Error creating session. Please try again.");
+            }
+        });
 
         // Add event listener for adding teams
         document.getElementById('btnAddTeam').addEventListener('click', async () => {
@@ -1363,7 +1385,6 @@
                                     <th>Answer</th>
                                     <th>Buttons</th>
                                     <th>Score</th>
-                                    <th>Total Possible</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1390,7 +1411,6 @@
                                                 </div>
                                             </td>
                                             <td class="score-cell">${((q.points * percentage) / 100).toFixed(2)}</td>
-                                            <td class="total-possible-cell">${q.totalPossible.toFixed(2)}</td>
                                         </tr>
                                     `;
                                 }).join('')}
@@ -1734,6 +1754,58 @@
             // Add scope change handler
             document.getElementById('breakdownScope').addEventListener('change', showTriviaBreakdown);
         });
+
+        // Add these functions at the start of your script
+        async function loadLocations() {
+            try {
+                const locationsSnap = await get(child(ref(db), 'locations'));
+                const locationSelect = document.getElementById('locationSelect');
+                locationSelect.innerHTML = '<option value="">Select a location...</option>';
+                
+                if (locationsSnap.exists()) {
+                    const locations = locationsSnap.val();
+                    Object.keys(locations).sort().forEach(loc => {
+                        const option = document.createElement('option');
+                        option.value = loc;
+                        option.textContent = loc;
+                        locationSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error("Error loading locations:", error);
+                alert("Error loading locations. Please try again.");
+            }
+        }
+
+        async function loadTriviaOptions() {
+            try {
+                const triviaSnap = await get(child(ref(db), 'trivia-archive/archive'));
+                const triviaSelect = document.getElementById('triviaNumSelect');
+                triviaSelect.innerHTML = '<option value="">Select trivia...</option>';
+                
+                if (triviaSnap.exists()) {
+                    const triviaArchive = triviaSnap.val();
+                    Object.keys(triviaArchive)
+                        .sort((a, b) => parseInt(b) - parseInt(a)) // Sort newest first
+                        .forEach(num => {
+                            const trivia = triviaArchive[num];
+                            const option = document.createElement('option');
+                            option.value = num;
+                            option.textContent = `#${num} - ${trivia.triviaName || 'Unnamed Trivia'}`;
+                            triviaSelect.appendChild(option);
+                        });
+                }
+            } catch (error) {
+                console.error("Error loading trivia options:", error);
+                alert("Error loading trivia options. Please try again.");
+            }
+        }
+
+        // Set default date to today when the form is shown
+        function setDefaultDate() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('dateInput').value = today;
+        }
     </script>
 </body>
 </html>
