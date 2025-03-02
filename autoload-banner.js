@@ -1,5 +1,5 @@
-// Function to inject banner
-function injectBanner() {
+// Self-executing function to inject banner script
+(function() {
     const bannerHTML = `
         <div id="siteBanner">
             <div class="banner-content">
@@ -15,9 +15,7 @@ function injectBanner() {
                 </div>
             </div>
         </div>
-    `;
 
-    const bannerStyles = `
         <style>
             #siteBanner {
                 background: #000000;
@@ -85,47 +83,48 @@ function injectBanner() {
         </style>
     `;
 
-    // Add styles to head
-    document.head.insertAdjacentHTML('beforeend', bannerStyles);
-
-    // Add banner to body
-    if (!document.getElementById('siteBanner')) {
-        document.body.insertAdjacentHTML('afterbegin', bannerHTML);
+    // Function to inject banner
+    function injectBanner() {
+        if (!document.getElementById('siteBanner')) {
+            document.body.insertAdjacentHTML('afterbegin', bannerHTML);
+        }
     }
 
-    // Setup auth handlers
-    if (typeof firebase !== 'undefined') {
-        const auth = firebase.auth();
-        const loginLink = document.getElementById('loginLink');
-        const logoutBtn = document.getElementById('logoutBtn');
+    // Handle auth state changes
+    function setupAuth() {
+        if (typeof firebase !== 'undefined') {
+            const auth = firebase.auth();
+            const loginLink = document.getElementById('loginLink');
+            const logoutBtn = document.getElementById('logoutBtn');
 
-        auth.onAuthStateChanged((user) => {
-            if (user) {
-                loginLink.style.display = 'none';
-                logoutBtn.style.display = 'block';
-            } else {
-                loginLink.style.display = 'block';
-                logoutBtn.style.display = 'none';
-            }
-        });
-
-        logoutBtn.addEventListener('click', () => {
-            auth.signOut().then(() => {
-                window.location.href = 'login.html';
-            }).catch((error) => {
-                console.error('Error signing out:', error);
+            auth.onAuthStateChanged((user) => {
+                if (user) {
+                    loginLink.style.display = 'none';
+                    logoutBtn.style.display = 'block';
+                } else {
+                    loginLink.style.display = 'block';
+                    logoutBtn.style.display = 'none';
+                }
             });
+
+            logoutBtn.addEventListener('click', () => {
+                auth.signOut().then(() => {
+                    window.location.href = 'login.html';
+                }).catch((error) => {
+                    console.error('Error signing out:', error);
+                });
+            });
+        }
+    }
+
+    // Try to inject as soon as possible
+    if (document.body) {
+        injectBanner();
+        setupAuth();
+    } else {
+        document.addEventListener('DOMContentLoaded', () => {
+            injectBanner();
+            setupAuth();
         });
     }
-}
-
-// Try to inject immediately if body exists
-if (document.body) {
-    injectBanner();
-}
-
-// Also try on DOMContentLoaded
-document.addEventListener('DOMContentLoaded', injectBanner);
-
-// Final fallback - try after a short delay
-setTimeout(injectBanner, 1000); 
+})(); 
