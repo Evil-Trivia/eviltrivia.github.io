@@ -720,7 +720,6 @@
             }).catch((error) => {
                 console.error('Error signing out:', error);
             });
-        };
         logoutButton.style.position = 'fixed';
         logoutButton.style.top = '10px';
         logoutButton.style.right = '10px';
@@ -1689,52 +1688,56 @@
                     throw new Error("No current session found");
                 }
 
-                // Get current session data
+                // Get current session data to know which trivia we're working with
                 const sessionSnap = await get(child(ref(db), `grading/${currentSessionId}`));
                 if (!sessionSnap.exists()) {
                     throw new Error("Session not found");
                 }
-                const session = sessionSnap.val();
-                const triviaNumber = session.triviaNumber;
+                const currentSession = sessionSnap.val();
+                const triviaNumber = currentSession.triviaNumber;
 
-                // Get trivia data
+                // Get trivia data for question text/answers only
                 const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia`));
                 if (!triviaSnap.exists()) {
                     throw new Error("Trivia not found");
                 }
-
-                const breakdownData = [];
                 const trivia = triviaSnap.val();
 
-                // Process each round and format
+                // Initialize data structure to hold question stats
+                const questionStats = {};
+
+                if (scope === 'session') {
+                    // Just process current session
+                    const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
+                    if (teamsSnap.exists()) {
+                        const teams = teamsSnap.val();
+                        processTeamScores(teams, questionStats);
+                    }
+                } else {
+                    // Find and process all sessions with this trivia number
+                    const allSessionsSnap = await get(child(ref(db), 'grading'));
+                    if (allSessionsSnap.exists()) {
+                        const allSessions = allSessionsSnap.val();
+                        for (const [sessionId, session] of Object.entries(allSessions)) {
+                            if (session.triviaNumber === triviaNumber) {
+                                if (session.teams) {
+                                    processTeamScores(session.teams, questionStats);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Build breakdown data combining trivia content with calculated stats
+                const breakdownData = [];
                 for (const [round, roundData] of Object.entries(trivia)) {
                     for (const [format, formatData] of Object.entries(roundData)) {
                         for (const [qNum, question] of Object.entries(formatData)) {
                             const questionNum = question.Question_Number || parseInt(qNum);
-                            let pointsGiven = 0;
-                            let totalPossible = 0;
-
-                            if (scope === 'session') {
-                                // Calculate points for current session only
-                                const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
-                                if (teamsSnap.exists()) {
-                                    const teams = teamsSnap.val();
-                                    Object.values(teams).forEach(team => {
-                                        if (team[`round${round}`]?.questions?.[`q${questionNum}`]) {
-                                            pointsGiven += parseFloat(team[`round${round}`].questions[`q${questionNum}`]);
-                                            totalPossible += parseFloat(question['Point Value'] || 0);
-                                        }
-                                    });
-                                }
-                            } else {
-                                // Use all-time statistics from the question data
-                                pointsGiven = parseFloat(question['Points Given'] || 0);
-                                totalPossible = parseFloat(question['Total Possible Points'] || 0);
-                            }
-
-                            // Calculate percentage with proper error handling
-                            const percentage = totalPossible > 0 ? 
-                                ((pointsGiven / totalPossible) * 100).toFixed(1) : 
+                            const stats = questionStats[`${round}_${questionNum}`] || { pointsGiven: 0, totalPossible: 0 };
+                            
+                            const percentage = stats.totalPossible > 0 ? 
+                                ((stats.pointsGiven / stats.totalPossible) * 100).toFixed(1) : 
                                 '0.0';
 
                             breakdownData.push({
@@ -1744,21 +1747,21 @@
                                 number: questionNum,
                                 question: question.Question || '',
                                 answer: question.Answer || '',
-                                pointsGiven: pointsGiven,
-                                totalPossible: totalPossible,
+                                pointsGiven: stats.pointsGiven,
+                                totalPossible: stats.totalPossible,
                                 percentage: percentage
                             });
                         }
                     }
                 }
-                
+
                 // Sort the data
                 breakdownData.sort((a, b) => {
                     if (a.round !== b.round) return a.round - b.round;
                     if (a.order !== b.order) return a.order - b.order;
                     return a.number - b.number;
                 });
-                
+
                 // Update the table
                 const tableBody = document.getElementById('breakdownTableBody');
                 tableBody.innerHTML = breakdownData.map(row => `
@@ -1781,6 +1784,33 @@
                 console.error("Error loading trivia breakdown:", error);
                 alert("Error loading trivia breakdown. Please try again.");
             }
+        }
+
+        // Helper function to process team scores
+        function processTeamScores(teams, questionStats) {
+            Object.values(teams).forEach(team => {
+                // Process each round
+                for (let round = 1; round <= 3; round++) {
+                    const roundKey = `round${round}`;
+                    if (team[roundKey]?.questions) {
+                        Object.entries(team[roundKey].questions).forEach(([qKey, score]) => {
+                            // Extract question number from the key (e.g., 'q1' -> '1')
+                            const qNum = qKey.replace('q', '');
+                            const statKey = `${round}_${qNum}`;
+                            
+                            if (!questionStats[statKey]) {
+                                questionStats[statKey] = { pointsGiven: 0, totalPossible: 0 };
+                            }
+                            
+                            questionStats[statKey].pointsGiven += parseFloat(score || 0);
+                            // Get the max points possible for this question from the team's score
+                            // This assumes the score represents a percentage of the max points
+                            const maxPoints = parseFloat(score || 0);
+                            questionStats[statKey].totalPossible += maxPoints > 0 ? maxPoints : 0;
+                        });
+                    }
+                }
+            });
         }
 
         // Add sorting functionality
