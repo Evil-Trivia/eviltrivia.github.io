@@ -1758,7 +1758,7 @@
         // Add these functions at the start of your script
         async function loadLocations() {
             try {
-                const locationsSnap = await get(child(ref(db), 'locations'));
+                const locationsSnap = await get(child(ref(db), 'adminSettings/locations'));
                 const locationSelect = document.getElementById('locationSelect');
                 locationSelect.innerHTML = '<option value="">Select a location...</option>';
                 
@@ -1814,6 +1814,40 @@
         function setDefaultDate() {
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('dateInput').value = today;
+        }
+
+        // Add function to load existing sessions
+        async function loadExistingSessions() {
+            try {
+                const sessionsSnap = await get(child(ref(db), 'grading'));
+                const sessionSelect = document.getElementById('existingSessionSelect');
+                sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+                
+                if (sessionsSnap.exists()) {
+                    const sessions = sessionsSnap.val();
+                    // Convert to array and sort by date (newest first)
+                    const sessionArray = Object.entries(sessions)
+                        .map(([id, data]) => ({
+                            id: id,
+                            location: data.location || 'Unknown Location',
+                            date: data.date || '',
+                            triviaNumber: data.triviaNumber || '',
+                            triviaName: data.triviaName || ''
+                        }))
+                        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                    // Add options to select
+                    sessionArray.forEach(session => {
+                        const option = document.createElement('option');
+                        option.value = session.id;
+                        option.textContent = `${session.date} - ${session.location} - #${session.triviaNumber} ${session.triviaName}`;
+                        sessionSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error("Error loading existing sessions:", error);
+                alert("Error loading existing sessions. Please try again.");
+            }
         }
     </script>
 </body>
