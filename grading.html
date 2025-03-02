@@ -1257,7 +1257,7 @@
             }
         }
 
-        // Update setupGradingScreen function to properly load saved scores
+        // Update setupGradingScreen function to properly handle question paths
         async function setupGradingScreen(roundNum) {
             const sessionId = localStorage.getItem('currentGradingSession');
             if (!sessionId) return;
@@ -1317,7 +1317,9 @@
                         const formatSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}`));
                         if (formatSnap.exists()) {
                             Object.entries(formatSnap.val()).forEach(([num, data]) => {
+                                // Use the Question_Number if it exists, otherwise use the key
                                 const questionNum = data.Question_Number || parseInt(num);
+                                // Store the full path including the key
                                 allQuestions.push({
                                     format,
                                     questionNumber: questionNum,
@@ -1326,7 +1328,10 @@
                                     points: parseFloat(data['Point Value'] || 0),
                                     imageLink: data['Image Link'] || '',
                                     answerImageLink: data['Answer Image Link'] || '',
-                                    // Store the path for later updates
+                                    totalPossible: parseFloat(data['Total Possible Points'] || 0),
+                                    pointsGiven: parseFloat(data['Points Given'] || 0),
+                                    // Store both the key and the path
+                                    key: num,
                                     path: `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}/${num}`
                                 });
                             });
@@ -1358,17 +1363,18 @@
                                     <th>Answer</th>
                                     <th>Buttons</th>
                                     <th>Score</th>
+                                    <th>Total Possible</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${allQuestions.map((q, idx) => {
-                                    // Get existing score for this question, default to 100% if not found
+                                    // Get existing score for this question using the question number
                                     const existingScore = existingScores[`q${q.questionNumber}`];
                                     const percentage = existingScore !== undefined ? 
                                         Math.round((existingScore / q.points) * 100) : 100;
 
                                     return `
-                                        <tr data-question-path="${q.path}">
+                                        <tr data-question-path="${q.path}" data-question-key="${q.key}" data-question-num="${q.questionNumber}">
                                             <td>${q.format} #${q.questionNumber}</td>
                                             <td>${formatQuestionContent(q)}</td>
                                             <td>${q.answer}</td>
@@ -1384,6 +1390,7 @@
                                                 </div>
                                             </td>
                                             <td class="score-cell">${((q.points * percentage) / 100).toFixed(2)}</td>
+                                            <td class="total-possible-cell">${q.totalPossible.toFixed(2)}</td>
                                         </tr>
                                     `;
                                 }).join('')}
@@ -1498,7 +1505,7 @@
             }
         });
 
-        // Update save grades handler
+        // Update save grades handler to properly handle all question types
         document.getElementById('btnSaveGrades').addEventListener('click', async () => {
             const sessionId = localStorage.getItem('currentGradingSession');
             const teamId = document.getElementById('teamSelect').value;
@@ -1520,17 +1527,15 @@
                     const scoreButtons = row.querySelector('.score-buttons');
                     const selectedBtn = row.querySelector('.score-btn.selected');
                     const questionPath = row.dataset.questionPath;
+                    const questionNum = parseInt(row.dataset.questionNum);
                     const maxPoints = parseFloat(scoreButtons.dataset.maxPoints);
-                    
-                    // Get question number from the format cell (e.g., "Written #1")
-                    const questionNum = parseInt(row.querySelector('td').textContent.match(/#(\d+)/)[1]);
                     
                     if (selectedBtn) {
                         const percentage = parseInt(selectedBtn.dataset.value) / 100;
                         const points = maxPoints * percentage;
                         const pointsRounded = parseFloat(points.toFixed(2));
                         
-                        // Store score for this team using question number as key
+                        // Store score using question number
                         questionScores[`q${questionNum}`] = pointsRounded;
                         totalPoints += points;
 
