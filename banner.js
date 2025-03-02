@@ -44,40 +44,29 @@
     // Inject banner at the start of body
     document.body.insertAdjacentHTML('afterbegin', bannerHTML);
 
-    // Load Firebase modules
-    const loadFirebase = async () => {
+    // Get DOM elements
+    const loginLink = document.getElementById('loginLink');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const userInfo = document.getElementById('userInfo');
+    const userGreeting = document.getElementById('userGreeting');
+
+    // Wait for Firebase to be initialized
+    const initBannerAuth = async () => {
         try {
-            const { initializeApp } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js");
-            const { getAuth, onAuthStateChanged, signOut } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js");
+            // Wait for modules to be available
+            const { getAuth, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js");
             const { getDatabase, ref, get } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js");
 
-            const firebaseConfig = {
-                apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-                authDomain: "eviltrivia-47664.firebaseapp.com",
-                databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-                projectId: "eviltrivia-47664",
-                storageBucket: "eviltrivia-47664.firebaseapp.com",
-                messagingSenderId: "401826818140",
-                appId: "1:401826818140:web:c1df0bf4c602cc48231e99"
-            };
-
-            // Initialize Firebase
-            const app = initializeApp(firebaseConfig);
-            const auth = getAuth(app);
-            const db = getDatabase(app);
-
-            // Get DOM elements
-            const loginLink = document.getElementById('loginLink');
-            const logoutBtn = document.getElementById('logoutBtn');
-            const userInfo = document.getElementById('userInfo');
-            const userGreeting = document.getElementById('userGreeting');
+            // Get the existing Firebase app instance
+            const auth = getAuth();
+            const db = getDatabase();
 
             // Handle auth state changes
             onAuthStateChanged(auth, async (user) => {
-                console.log("Auth state changed:", user ? "logged in" : "logged out");
+                console.log("Banner auth state changed:", user ? "logged in" : "logged out");
                 
                 if (user) {
-                    console.log("User is signed in with ID:", user.uid);
+                    console.log("Banner sees user:", user.uid);
                     
                     // Update UI elements
                     loginLink.style.display = 'none';
@@ -86,7 +75,7 @@
 
                     try {
                         const snapshot = await get(ref(db, `users/${user.uid}`));
-                        console.log("User data:", snapshot.val());
+                        console.log("Banner user data:", snapshot.val());
                         const userData = snapshot.val();
                         
                         if (userData?.firstName) {
@@ -96,12 +85,12 @@
                             userGreeting.textContent = `Hi, ${displayName}`;
                         }
                     } catch (error) {
-                        console.error("Error fetching user data:", error);
+                        console.error("Banner error fetching user data:", error);
                         const displayName = user.email ? user.email.split('@')[0] : 'Guest';
                         userGreeting.textContent = `Hi, ${displayName}`;
                     }
                 } else {
-                    console.log("User is signed out");
+                    console.log("Banner sees user is signed out");
                     loginLink.style.display = 'inline-block';
                     logoutBtn.style.display = 'none';
                     userInfo.style.display = 'none';
@@ -111,7 +100,7 @@
 
             // Handle logout
             logoutBtn.addEventListener('click', () => {
-                signOut(auth).then(() => {
+                auth.signOut().then(() => {
                     window.location.href = 'login.html';
                 }).catch((error) => {
                     console.error('Error signing out:', error);
@@ -119,12 +108,12 @@
             });
 
         } catch (error) {
-            console.error("Error loading Firebase:", error);
+            console.error("Banner error initializing Firebase:", error);
         }
     };
 
-    // Load Firebase and initialize auth
-    loadFirebase();
+    // Initialize banner auth after a short delay to ensure Firebase is ready
+    setTimeout(initBannerAuth, 100);
 })();
 
 // Also try to inject when DOM is fully loaded (backup)
