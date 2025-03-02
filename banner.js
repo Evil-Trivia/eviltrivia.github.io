@@ -55,95 +55,113 @@
 
     // Inject banner at the start of body
     document.body.insertAdjacentHTML('afterbegin', bannerHTML);
-    
-    // Handle auth state changes if Firebase is available
-    if (typeof firebase !== 'undefined') {
-        const auth = firebase.auth();
-        const db = firebase.database();
-        
-        const loginLink = document.getElementById('loginLink');
-        const logoutBtn = document.getElementById('logoutBtn');
-        const userInfo = document.getElementById('userInfo');
-        const userGreeting = document.getElementById('userGreeting');
-        const patreonInfo = document.getElementById('patreonInfo');
-        const patreonLoginBtn = document.getElementById('patreonLoginBtn');
 
-        // Check Patreon auth status
-        function checkPatreonAuth() {
-            const isPatreonAuth = localStorage.getItem('patreonAuthenticated') === 'true';
-            if (isPatreonAuth) {
-                patreonInfo.style.display = 'block';
-                patreonLoginBtn.style.display = 'none';
-            } else {
-                patreonInfo.style.display = 'none';
-                patreonLoginBtn.style.display = 'inline-block';
-            }
-        }
+    // Import Firebase modules
+    import("https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js").then((firebaseApp) => {
+        import("https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js").then((firebaseAuth) => {
+            import("https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js").then((firebaseDatabase) => {
+                const { initializeApp } = firebaseApp;
+                const { getAuth, onAuthStateChanged, signOut } = firebaseAuth;
+                const { getDatabase, ref, get } = firebaseDatabase;
 
-        // Handle regular Firebase auth
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                // User is signed in
-                loginLink.style.display = 'none';
-                logoutBtn.style.display = 'block';
-                userInfo.style.display = 'block';
+                // Initialize Firebase
+                const firebaseConfig = {
+                    apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+                    authDomain: "eviltrivia-47664.firebaseapp.com",
+                    databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+                    projectId: "eviltrivia-47664",
+                    storageBucket: "eviltrivia-47664.firebaseapp.com",
+                    messagingSenderId: "401826818140",
+                    appId: "1:401826818140:web:c1df0bf4c602cc48231e99"
+                };
 
-                // Get user's first name from the database
-                try {
-                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
-                    const userData = snapshot.val();
-                    if (userData?.firstName) {
-                        userGreeting.textContent = `Hi, ${userData.firstName}`;
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                const db = getDatabase(app);
+
+                const loginLink = document.getElementById('loginLink');
+                const logoutBtn = document.getElementById('logoutBtn');
+                const userInfo = document.getElementById('userInfo');
+                const userGreeting = document.getElementById('userGreeting');
+                const patreonInfo = document.getElementById('patreonInfo');
+                const patreonLoginBtn = document.getElementById('patreonLoginBtn');
+
+                // Check Patreon auth status
+                function checkPatreonAuth() {
+                    const isPatreonAuth = localStorage.getItem('patreonAuthenticated') === 'true';
+                    if (isPatreonAuth) {
+                        patreonInfo.style.display = 'block';
+                        patreonLoginBtn.style.display = 'none';
                     } else {
-                        // If no firstName, use email or 'Guest'
-                        const displayName = user.email ? user.email.split('@')[0] : 'Guest';
-                        userGreeting.textContent = `Hi, ${displayName}`;
-                        
-                        // Log for debugging
-                        console.log('User data:', userData);
-                        console.log('No firstName found for user:', user.uid);
+                        patreonInfo.style.display = 'none';
+                        patreonLoginBtn.style.display = 'inline-block';
                     }
-                } catch (error) {
-                    console.error('Error fetching user data:', error);
-                    // Fallback to email if database fetch fails
-                    const displayName = user.email ? user.email.split('@')[0] : 'Guest';
-                    userGreeting.textContent = `Hi, ${displayName}`;
                 }
 
-                // Check Patreon status
-                checkPatreonAuth();
-            } else {
-                // User is signed out
-                loginLink.style.display = 'block';
-                logoutBtn.style.display = 'none';
-                userInfo.style.display = 'none';
-                userGreeting.textContent = 'Hi, Guest';
-                
-                // Show Patreon login only when not signed in
-                patreonLoginBtn.style.display = 'inline-block';
-                patreonInfo.style.display = 'none';
-            }
-        });
+                // Handle regular Firebase auth
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        console.log("User is signed in with ID:", user.uid);
+                        // User is signed in
+                        loginLink.style.display = 'none';
+                        logoutBtn.style.display = 'block';
+                        userInfo.style.display = 'block';
 
-        // Handle logout
-        logoutBtn.addEventListener('click', () => {
-            auth.signOut().then(() => {
-                // Also clear Patreon auth if exists
-                localStorage.removeItem('patreonAuthenticated');
-                localStorage.removeItem('patreonUserId');
-                window.location.href = 'login.html';
-            }).catch((error) => {
-                console.error('Error signing out:', error);
+                        // Get user's first name from the database
+                        try {
+                            const snapshot = await get(ref(db, `users/${user.uid}`));
+                            console.log("Database snapshot:", snapshot.val());
+                            const userData = snapshot.val();
+                            if (userData?.firstName) {
+                                userGreeting.textContent = `Hi, ${userData.firstName}`;
+                            } else {
+                                // If no firstName, use email or 'Guest'
+                                const displayName = user.email ? user.email.split('@')[0] : 'Guest';
+                                userGreeting.textContent = `Hi, ${displayName}`;
+                                console.log('No firstName found, using:', displayName);
+                            }
+                        } catch (error) {
+                            console.error('Error fetching user data:', error);
+                            // Fallback to email if database fetch fails
+                            const displayName = user.email ? user.email.split('@')[0] : 'Guest';
+                            userGreeting.textContent = `Hi, ${displayName}`;
+                        }
+
+                        // Check Patreon status
+                        checkPatreonAuth();
+                    } else {
+                        // User is signed out
+                        loginLink.style.display = 'block';
+                        logoutBtn.style.display = 'none';
+                        userInfo.style.display = 'none';
+                        userGreeting.textContent = 'Hi, Guest';
+                        
+                        // Show Patreon login only when not signed in
+                        patreonLoginBtn.style.display = 'inline-block';
+                        patreonInfo.style.display = 'none';
+                    }
+                });
+
+                // Handle logout
+                logoutBtn.addEventListener('click', () => {
+                    signOut(auth).then(() => {
+                        // Also clear Patreon auth if exists
+                        localStorage.removeItem('patreonAuthenticated');
+                        localStorage.removeItem('patreonUserId');
+                        window.location.href = 'login.html';
+                    }).catch((error) => {
+                        console.error('Error signing out:', error);
+                    });
+                });
+
+                // Handle Patreon login
+                patreonLoginBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    window.location.href = 'https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon';
+                });
             });
         });
-
-        // Handle Patreon login
-        patreonLoginBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            // Use your Patreon auth endpoint
-            window.location.href = 'https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon';
-        });
-    }
+    });
 })();
 
 // Also try to inject when DOM is fully loaded (backup)
