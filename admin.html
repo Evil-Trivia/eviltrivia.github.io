@@ -64,6 +64,31 @@
             border-radius: 4px;
             width: 200px;
         }
+        .name-input {
+            padding: 4px 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 120px;
+        }
+        .name-input:focus {
+            outline: none;
+            border-color: #666;
+        }
+        .table-responsive {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f5f5f5;
+        }
     </style>
 </head>
 <body>
@@ -233,6 +258,8 @@
                         <thead>
                             <tr>
                                 <th>Email</th>
+                                <th>First Name</th>
+                                <th>Last Name</th>
                                 <th>Role</th>
                                 <th>Created At</th>
                                 <th>Actions</th>
@@ -813,6 +840,22 @@
                         row.innerHTML = `
                             <td>${userData.email || 'No email'}</td>
                             <td>
+                                <input type="text" 
+                                       class="name-input" 
+                                       data-uid="${uid}" 
+                                       data-field="firstName"
+                                       value="${userData.firstName || ''}" 
+                                       placeholder="First Name">
+                            </td>
+                            <td>
+                                <input type="text" 
+                                       class="name-input" 
+                                       data-uid="${uid}" 
+                                       data-field="lastName"
+                                       value="${userData.lastName || ''}" 
+                                       placeholder="Last Name">
+                            </td>
+                            <td>
                                 <select class="role-select" data-uid="${uid}">
                                     <option value="admin" ${userData.role === 'admin' ? 'selected' : ''}>Admin</option>
                                     <option value="grader" ${userData.role === 'grader' ? 'selected' : ''}>Grader</option>
@@ -826,7 +869,28 @@
                         `;
                         userTableBody.appendChild(row);
 
-                        // Add change listener to the role select
+                        // Add change listeners to the name inputs
+                        row.querySelectorAll('.name-input').forEach(input => {
+                            input.addEventListener('blur', async (e) => {
+                                try {
+                                    const field = e.target.dataset.field;
+                                    const value = e.target.value.trim();
+                                    await set(ref(db, `users/${uid}/${field}`), value);
+                                    // Show a subtle success indication
+                                    e.target.style.backgroundColor = '#e6ffe6';
+                                    setTimeout(() => {
+                                        e.target.style.backgroundColor = '';
+                                    }, 1000);
+                                } catch (error) {
+                                    console.error(`Error updating ${field}:`, error);
+                                    alert(`Error updating ${field}: ${error.message}`);
+                                    // Reset to previous value
+                                    e.target.value = userData[field] || '';
+                                }
+                            });
+                        });
+
+                        // Existing role select listener
                         const select = row.querySelector('.role-select');
                         select.addEventListener('change', async (e) => {
                             try {
@@ -835,7 +899,7 @@
                             } catch (error) {
                                 console.error("Error updating role:", error);
                                 alert('Error updating role: ' + error.message);
-                                e.target.value = userData.role || 'none'; // Reset to previous value
+                                e.target.value = userData.role || 'none';
                             }
                         });
                     });
