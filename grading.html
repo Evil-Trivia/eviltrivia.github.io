@@ -1305,9 +1305,11 @@
         }
 
         // Return to rubric button handler
-        document.getElementById('btnReturnToRubric').addEventListener('click', async () => {
-            await loadRubricScores();  // Reload the rubric scores
-            showScreen('screenRubric'); // Switch to rubric screen
+        document.getElementById('btnReturnToRubric').addEventListener('click', () => {
+            // Hide breakdown screen
+            document.getElementById('screenTriviaBreakdown').classList.remove('active');
+            // Show rubric screen
+            document.getElementById('screenRubric').classList.add('active');
         });
 
         // Grade round button handler
@@ -1548,14 +1550,9 @@
         }
 
         // Add event listener for trivia breakdown button
-        document.addEventListener('DOMContentLoaded', () => {
-            const breakdownButton = document.getElementById('btnTriviaBreakdown');
-            if (breakdownButton) {
-                breakdownButton.addEventListener('click', () => {
-                    // We'll implement this functionality next
-                    console.log('Trivia breakdown clicked');
-                });
-            }
+        document.getElementById('btnTriviaBreakdown').addEventListener('click', () => {
+            loadTriviaBreakdown('session');
+            showScreen('screenTriviaBreakdown');
         });
 
         // Switch session
@@ -1685,55 +1682,78 @@
         });
 
         // Add new function to handle trivia breakdown
-        async function showTriviaBreakdown() {
-            const sessionId = localStorage.getItem('currentGradingSession');
-            const scope = document.getElementById('breakdownScope').value;
-            
+        async function loadTriviaBreakdown(scope = 'session') {
             try {
-                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
+                const currentSessionId = localStorage.getItem('currentGradingSession');
+                if (!currentSessionId) {
+                    throw new Error("No current session found");
+                }
+
+                // Get current session data
+                const sessionSnap = await get(child(ref(db), `grading/${currentSessionId}`));
+                if (!sessionSnap.exists()) {
+                    throw new Error("Session not found");
+                }
                 const session = sessionSnap.val();
                 const triviaNumber = session.triviaNumber;
-                
-                const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
-                const questions = [];
-                
-                for (let round = 1; round <= 3; round++) {
-                    for (const format of roundFormats) {
-                        const formatSnap = await get(child(ref(db), 
-                            `trivia-archive/archive/${triviaNumber}/trivia/${round}/${format}`));
-                        
-                        if (formatSnap.exists()) {
-                            const formatData = formatSnap.val();
-                            Object.entries(formatData).forEach(([key, question]) => {
-                                // Fix the property access to use "Round Ordering" with space
-                                const questionNum = question.Question_Number || parseInt(key);
-                                const roundOrdering = parseInt(question['Round Ordering']) || parseInt(key); // Use correct field name
-                                
-                                console.log('Question data:', {
-                                    key,
-                                    questionNum,
-                                    roundOrdering,
-                                    rawOrdering: question['Round Ordering']
-                                });
-                                
-                                questions.push({
-                                    format,
-                                    round,
-                                    order: question.Order || 1,
-                                    number: questionNum,
-                                    question: question.Question || '',
-                                    answer: question.Answer || '',
-                                    pointsGiven: parseFloat(question['Points Given'] || 0),
-                                    totalPossible: parseFloat(question['Total Possible Points'] || 0),
-                                    percentage: question.TotalPossiblePoints > 0 ? ((question.PointsGiven / question.TotalPossiblePoints) * 100).toFixed(1) : '0.0'
-                                });
+
+                // Get trivia data
+                const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia`));
+                if (!triviaSnap.exists()) {
+                    throw new Error("Trivia not found");
+                }
+
+                const breakdownData = [];
+                const trivia = triviaSnap.val();
+
+                // Process each round and format
+                for (const [round, roundData] of Object.entries(trivia)) {
+                    for (const [format, formatData] of Object.entries(roundData)) {
+                        for (const [qNum, question] of Object.entries(formatData)) {
+                            const questionNum = question.Question_Number || parseInt(qNum);
+                            let pointsGiven = 0;
+                            let totalPossible = 0;
+
+                            if (scope === 'session') {
+                                // Calculate points for current session only
+                                const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
+                                if (teamsSnap.exists()) {
+                                    const teams = teamsSnap.val();
+                                    Object.values(teams).forEach(team => {
+                                        if (team[`round${round}`]?.questions?.[`q${questionNum}`]) {
+                                            pointsGiven += parseFloat(team[`round${round}`].questions[`q${questionNum}`]);
+                                            totalPossible += parseFloat(question['Point Value'] || 0);
+                                        }
+                                    });
+                                }
+                            } else {
+                                // Use all-time statistics from the question data
+                                pointsGiven = parseFloat(question['Points Given'] || 0);
+                                totalPossible = parseFloat(question['Total Possible Points'] || 0);
+                            }
+
+                            // Calculate percentage with proper error handling
+                            const percentage = totalPossible > 0 ? 
+                                ((pointsGiven / totalPossible) * 100).toFixed(1) : 
+                                '0.0';
+
+                            breakdownData.push({
+                                format: format,
+                                round: round,
+                                order: question.Order || 1,
+                                number: questionNum,
+                                question: question.Question || '',
+                                answer: question.Answer || '',
+                                pointsGiven: pointsGiven,
+                                totalPossible: totalPossible,
+                                percentage: percentage
                             });
                         }
                     }
                 }
                 
                 // Sort the data
-                questions.sort((a, b) => {
+                breakdownData.sort((a, b) => {
                     if (a.round !== b.round) return a.round - b.round;
                     if (a.order !== b.order) return a.order - b.order;
                     return a.number - b.number;
@@ -1741,24 +1761,24 @@
                 
                 // Update the table
                 const tableBody = document.getElementById('breakdownTableBody');
-                tableBody.innerHTML = questions.map(q => `
+                tableBody.innerHTML = breakdownData.map(row => `
                     <tr>
-                        <td>${q.format}</td>
-                        <td>${q.round}</td>
-                        <td>${q.order}</td>
-                        <td>${q.number}</td>
-                        <td class="question-cell">${q.question}</td>
-                        <td class="question-cell">${q.answer}</td>
-                        <td>${q.pointsGiven.toFixed(2)}</td>
-                        <td>${q.totalPossible.toFixed(2)}</td>
-                        <td>${q.percentage}%</td>
+                        <td>${row.format}</td>
+                        <td>${row.round}</td>
+                        <td>${row.order}</td>
+                        <td>${row.number}</td>
+                        <td class="question-cell">${row.question}</td>
+                        <td class="question-cell">${row.answer}</td>
+                        <td>${row.pointsGiven.toFixed(2)}</td>
+                        <td>${row.totalPossible.toFixed(2)}</td>
+                        <td>${row.percentage}%</td>
                     </tr>
                 `).join('');
                 
                 showScreen('screenTriviaBreakdown');
                 
             } catch (error) {
-                console.error("Error showing trivia breakdown:", error);
+                console.error("Error loading trivia breakdown:", error);
                 alert("Error loading trivia breakdown. Please try again.");
             }
         }
@@ -1814,9 +1834,6 @@
 
         // Add event listeners
         document.addEventListener('DOMContentLoaded', () => {
-            // Update trivia breakdown button handler
-            document.getElementById('btnTriviaBreakdown').addEventListener('click', showTriviaBreakdown);
-            
             // Add sort handlers
             document.querySelectorAll('#breakdownTable th.sortable').forEach(th => {
                 th.addEventListener('click', () => {
@@ -1825,7 +1842,9 @@
             });
             
             // Add scope change handler
-            document.getElementById('breakdownScope').addEventListener('change', showTriviaBreakdown);
+            document.getElementById('breakdownScope').addEventListener('change', function() {
+                loadTriviaBreakdown(this.value);
+            });
         });
 
         // Add these functions at the start of your script
