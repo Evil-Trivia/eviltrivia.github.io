@@ -910,38 +910,63 @@
 
         // Add event listener for adding teams
         document.getElementById('btnAddTeam').addEventListener('click', async () => {
-            const teamName = document.getElementById('newTeamName').value.trim();
-            const teamSize = document.getElementById('newTeamSize').value;
-            
-            if (!teamName || !teamSize) {
-                alert("Please enter both team name and size");
-                return;
-            }
-
-            const sessionId = localStorage.getItem('currentGradingSession');
-            if (!sessionId) {
-                alert("Session error. Please start over.");
-                showScreen('screenSessionSetup');
-                return;
-            }
-
             try {
-                const teamId = Date.now().toString();
-                await set(ref(db, `grading/${sessionId}/teams/${teamId}`), {
+                const teamName = document.getElementById('newTeamName').value.trim();
+                const teamSize = parseInt(document.getElementById('newTeamSize').value);
+                
+                console.log("Adding team:", { teamName, teamSize });
+                
+                if (!teamName || !teamSize) {
+                    alert("Please enter both team name and size");
+                    return;
+                }
+
+                const sessionId = localStorage.getItem('currentGradingSession');
+                if (!sessionId) {
+                    console.error("No session ID found");
+                    alert("Session error. Please start over.");
+                    showScreen('screenSessionSetup');
+                    return;
+                }
+
+                // Create team data object
+                const teamData = {
                     name: teamName,
-                    size: parseInt(teamSize),
-                    createdAt: new Date().toISOString()
-                });
+                    size: teamSize,
+                    createdAt: new Date().toISOString(),
+                    round1: { total: 0 },
+                    round2: { total: 0 },
+                    round3: { total: 0 },
+                    igChallenge: 0,
+                    teamNameBonus: 0,
+                    finalChallenge: 0
+                };
+
+                console.log("Team data:", teamData);
+                console.log("Session ID:", sessionId);
+
+                // Generate a unique team ID
+                const teamId = `team_${Date.now()}`;
+
+                // Create the full path
+                const teamPath = `grading/${sessionId}/teams/${teamId}`;
+                console.log("Team path:", teamPath);
+
+                // Set the team data
+                await set(ref(db, teamPath), teamData);
+                console.log("Team added successfully");
 
                 // Clear inputs
                 document.getElementById('newTeamName').value = '';
                 document.getElementById('newTeamSize').value = '';
-                document.getElementById('newTeamName').focus(); // Focus back to team name
+                document.getElementById('newTeamName').focus();
 
                 // Refresh team list
-                await loadTeams();
+                await setupTeamScreen();
+
             } catch (error) {
                 console.error("Error adding team:", error);
+                console.error("Error stack:", error.stack);
                 alert("Error adding team. Please try again.");
             }
         });
