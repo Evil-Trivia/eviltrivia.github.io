@@ -453,6 +453,50 @@
             }
         }
 
+        // Make deleteUser available globally since it's called from HTML
+        window.deleteUser = deleteUser;
+
+        // Add these functions to the global scope so they can be called from HTML
+        window.closeSession = async (sessionId) => {
+            if (!sessionId) {
+                alert("Please select a session to close");
+                return;
+            }
+
+            if (!confirm("Are you sure you want to close this session? This will prevent further grading.")) {
+                return;
+            }
+
+            try {
+                await set(ref(db, `grading/${sessionId}/closed`), true);
+                await loadSessions();
+                alert('Session closed successfully!');
+            } catch (error) {
+                console.error("Error closing session:", error);
+                alert("Error closing session. Please try again.");
+            }
+        };
+
+        window.reopenSession = async (sessionId) => {
+            if (!sessionId) {
+                alert("Please select a session to reopen");
+                return;
+            }
+
+            if (!confirm("Are you sure you want to reopen this session?")) {
+                return;
+            }
+
+            try {
+                await set(ref(db, `grading/${sessionId}/closed`), false);
+                await loadSessions();
+                alert('Session reopened successfully!');
+            } catch (error) {
+                console.error("Error reopening session:", error);
+                alert("Error reopening session. Please try again.");
+            }
+        };
+
         // Set up event listeners for the admin UI
         function setupEventListeners() {
             // Delete location buttons
@@ -645,46 +689,14 @@
             });
 
             // Session management buttons
-            document.getElementById('btnCloseSession').addEventListener('click', async () => {
+            document.getElementById('btnCloseSession').addEventListener('click', () => {
                 const sessionId = document.getElementById('activeSessionsSelect').value;
-                if (!sessionId) {
-                    alert("Please select a session to close");
-                    return;
-                }
-
-                if (!confirm("Are you sure you want to close this session? This will prevent further grading.")) {
-                    return;
-                }
-
-                try {
-                    await set(ref(db, `grading/${sessionId}/closed`), true);
-                    await loadSessions();
-                    alert('Session closed successfully!');
-                } catch (error) {
-                    console.error("Error closing session:", error);
-                    alert("Error closing session. Please try again.");
-                }
+                window.closeSession(sessionId);
             });
 
-            document.getElementById('btnReopenSession').addEventListener('click', async () => {
+            document.getElementById('btnReopenSession').addEventListener('click', () => {
                 const sessionId = document.getElementById('closedSessionsSelect').value;
-                if (!sessionId) {
-                    alert("Please select a session to reopen");
-                    return;
-                }
-
-                if (!confirm("Are you sure you want to reopen this session?")) {
-                    return;
-                }
-
-                try {
-                    await set(ref(db, `grading/${sessionId}/closed`), false);
-                    await loadSessions();
-                    alert('Session reopened successfully!');
-                } catch (error) {
-                    console.error("Error reopening session:", error);
-                    alert("Error reopening session. Please try again.");
-                }
+                window.reopenSession(sessionId);
             });
 
             // Patreon tier form
@@ -923,124 +935,11 @@
             }
         }
 
-        // Load everything when page loads
+        // Make sure setupEventListeners is called when the page loads
         document.addEventListener('DOMContentLoaded', () => {
-            console.log("Setting up grading session change listener");
-            const gradingSelect = document.getElementById('gradingSessionSelect');
-            if (gradingSelect) {
-                gradingSelect.addEventListener('change', async (e) => {
-                    console.log("Session selected:", e.target.value);
-                    const sessionId = e.target.value;
-                    if (!sessionId) {
-                        document.getElementById('roundsContainer').innerHTML = '';
-                        document.getElementById('finalChallengeSection').style.display = 'none';
-                        document.getElementById('saveAvailability').style.display = 'none';
-                        return;
-                    }
-
-                    try {
-                        console.log("Loading availability for session:", sessionId);
-                        // Get availability settings for this session
-                        const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
-                        console.log("Availability snapshot:", availabilitySnap.val());
-                        const availability = availabilitySnap.exists() ? availabilitySnap.val() : {};
-
-                        // Populate rounds container (always show rounds 1-3)
-                        const container = document.getElementById('roundsContainer');
-                        console.log("Found rounds container:", container);
-                        if (container) {
-                            container.innerHTML = [1, 2, 3].map(round => `
-                                <div style="margin: 10px 0;">
-                                    <input type="checkbox" id="round_${round}" 
-                                        ${availability[round] === true ? 'checked' : ''}>
-                                    <label for="round_${round}">Round ${round}</label>
-                                </div>
-                            `).join('');
-                        } else {
-                            console.error("Rounds container not found!");
-                        }
-
-                        // Show the Final Challenge section
-                        const finalSection = document.getElementById('finalChallengeSection');
-                        console.log("Found final section:", finalSection);
-                        if (finalSection) {
-                            finalSection.style.display = 'block';
-
-                            // Set Final Challenge radio based on saved value, default to 'disable'
-                            const finalChallenge = availability.finalChallenge || 'disable';
-                            const finalRadio = document.querySelector(`input[name="finalChallenge"][value="${finalChallenge}"]`);
-                            if (finalRadio) {
-                                finalRadio.checked = true;
-                            }
-                        } else {
-                            console.error("Final challenge section not found!");
-                        }
-
-                        // Show the save button
-                        const saveButton = document.getElementById('saveAvailability');
-                        if (saveButton) {
-                            saveButton.style.display = 'block';
-                        } else {
-                            console.error("Save button not found!");
-                        }
-
-                    } catch (error) {
-                        console.error("Error loading availability settings:", error);
-                        console.error(error.stack);
-                        alert("Error loading availability settings. Please try again.");
-                    }
-                });
-                console.log("Change listener attached successfully");
-            } else {
-                console.error("Could not find gradingSessionSelect element!");
-            }
+            setupEventListeners();
             loadRegistrationCodes();
             loadUsers();
-
-            console.log("Setting up save availability button handler");
-            const saveButton = document.getElementById('saveAvailability');
-            
-            if (saveButton) {
-                console.log("Found save button, attaching click handler");
-                saveButton.onclick = async () => {
-                    console.log("Save button clicked!");
-                    const sessionId = document.getElementById('gradingSessionSelect').value;
-                    if (!sessionId) {
-                        alert("Please select a grading session");
-                        return;
-                    }
-
-                    try {
-                        console.log("Saving availability for session:", sessionId);
-                        
-                        // Get the state of all checkboxes and radio buttons
-                        const availability = {
-                            1: document.getElementById('round_1').checked,
-                            2: document.getElementById('round_2').checked,
-                            3: document.getElementById('round_3').checked,
-                            finalChallenge: document.querySelector('input[name="finalChallenge"]:checked').value
-                        };
-
-                        console.log("Saving availability settings:", availability);
-
-                        // Save to Firebase
-                        await set(ref(db, `grading/${sessionId}/availability`), availability);
-                        
-                        alert('Availability settings saved successfully!');
-                        
-                        // Optionally reload the availability display to confirm changes
-                        const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
-                        console.log("Saved availability confirmed:", availabilitySnap.val());
-
-                    } catch (error) {
-                        console.error("Error saving availability:", error);
-                        alert("Error saving availability settings. Please try again.");
-                    }
-                };
-                console.log("Click handler attached successfully");
-            } else {
-                console.error("Save button not found! Make sure the button has id='saveAvailability'");
-            }
         });
 
         // Add this function to admin.html
