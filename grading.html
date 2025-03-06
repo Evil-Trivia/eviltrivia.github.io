@@ -1617,37 +1617,37 @@
                 const rows = document.querySelectorAll('.grading-table tbody tr');
                 let totalPoints = 0;
                 
-                // Get existing round data if any
-                const roundRef = ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`);
-                const roundSnap = await get(roundRef);
-                const existingRoundData = roundSnap.exists() ? roundSnap.val() : {};
-                
                 // Create new round structure with format hierarchy
                 const roundData = {
-                    ...existingRoundData,
                     roundNumber: roundNum,
                     total: 0  // Will calculate this at the end
                 };
-
+                
                 // Process each question and add to appropriate format
-                rows.forEach(row => {
+                for (const row of rows) {
                     const format = row.dataset.format;
                     const questionNum = parseInt(row.dataset.questionNum);
                     const scoreButtons = row.querySelector('.score-buttons');
                     const selectedBtn = row.querySelector('.score-btn.selected');
                     const maxPoints = parseFloat(scoreButtons.dataset.maxPoints);
                     
-                    if (selectedBtn && format && questionNum) {
-                        const percentage = parseInt(selectedBtn.dataset.value);
-                        const points = maxPoints * percentage / 100;
-                        const pointsRounded = parseFloat(points.toFixed(2));
-                        
+                    if (format && questionNum) {
                         // Initialize format if it doesn't exist
                         if (!roundData[format]) {
                             roundData[format] = {};
                         }
                         
-                        // Add this question to its format
+                        let percentage = 0;
+                        let pointsRounded = 0;
+                        
+                        // If a button is selected, use its value
+                        if (selectedBtn) {
+                            percentage = parseInt(selectedBtn.dataset.value);
+                            const points = maxPoints * percentage / 100;
+                            pointsRounded = parseFloat(points.toFixed(2));
+                        }
+                        
+                        // Always add the question data, even with 0 values
                         roundData[format][questionNum] = {
                             questionNumber: questionNum,
                             totalPossiblePoints: maxPoints,
@@ -1655,17 +1655,24 @@
                             percentage: percentage
                         };
                         
-                        totalPoints += points;
+                        totalPoints += pointsRounded;
+                        
+                        console.log(`Saving ${format} #${questionNum}: ${percentage}%, ${pointsRounded} points`);
                     }
-                });
+                }
                 
                 // Set the total score for the round
                 roundData.total = parseFloat(totalPoints.toFixed(2));
                 
                 // Save the complete round data with proper hierarchy
+                const roundRef = ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`);
                 await set(roundRef, roundData);
                 
                 console.log(`Saved complete round ${roundNum} data for team ${teamId}:`, roundData);
+                
+                // Force a reload of the data to verify it's been saved correctly
+                const verifySnap = await get(roundRef);
+                console.log("Verification of saved data:", verifySnap.val());
                 
                 alert("Grades saved successfully!");
                 
