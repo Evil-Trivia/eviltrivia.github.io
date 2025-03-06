@@ -546,6 +546,26 @@
         .no-data {
             opacity: 0.6;
         }
+
+        /* Add styles for the toast notification */
+        .toast-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #4CAF50;
+            color: white;
+            padding: 16px;
+            border-radius: 4px;
+            z-index: 9999;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            max-width: 300px;
+        }
+
+        .toast-notification.show {
+            opacity: 1;
+        }
     </style>
     <script src="https://eviltrivia.com/autoload-banner.js"></script>
 </head>
@@ -783,6 +803,7 @@
             }).catch((error) => {
                 console.error('Error signing out:', error);
             });
+        };
         logoutButton.style.position = 'fixed';
         logoutButton.style.top = '10px';
         logoutButton.style.right = '10px';
@@ -1418,68 +1439,10 @@
             }
         }
 
-        // Add a notification system to replace alerts
-        function showNotification(message, duration = 3000) {
-            // Remove any existing notification
-            const existingNotification = document.getElementById('notification');
-            if (existingNotification) {
-                existingNotification.remove();
-            }
-            
-            // Create notification element
-            const notification = document.createElement('div');
-            notification.id = 'notification';
-            notification.textContent = message;
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                left: 50%;
-                transform: translateX(-50%);
-                background-color: #333;
-                color: white;
-                padding: 12px 24px;
-                border-radius: 4px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-                z-index: 9999;
-                transition: opacity 0.3s, transform 0.3s;
-            `;
-            
-            document.body.appendChild(notification);
-            
-            // Animate in
-            setTimeout(() => {
-                notification.style.opacity = '1';
-                notification.style.transform = 'translateX(-50%) translateY(0)';
-            }, 10);
-            
-            // Automatically remove after duration
-            setTimeout(() => {
-                notification.style.opacity = '0';
-                notification.style.transform = 'translateX(-50%) translateY(-20px)';
-                setTimeout(() => notification.remove(), 300);
-            }, duration);
-        }
-
-        // Make sure the formatQuestionContent function is properly defined
-        function formatQuestionContent(question) {
-            if (question.imageLink) {
-                return `
-                    <div>${question.question || ''}</div>
-                    <div style="margin-top: 8px;">
-                        <img src="${question.imageLink}" style="max-width: 100%; max-height: 200px;" />
-                    </div>
-                `;
-            } else {
-                return question.question || '';
-            }
-        }
-
-        // Update the setupGradingScreen function to fix score display issues
+        // Update setupGradingScreen function to correctly save and restore percentages
         async function setupGradingScreen(roundNum) {
             const sessionId = localStorage.getItem('currentGradingSession');
             if (!sessionId) return;
-
-            console.log("Setting up grading screen for round:", roundNum);
 
             try {
                 // Get session data
@@ -1514,12 +1477,20 @@
                     </div>
                     <div id="questionTableContainer"></div>
                 `;
-
-                // Set the liveScoreBottom value to match
-                document.getElementById('liveScoreBottom').textContent = '0.0';
                 
-                // Define the team change function once
-                const handleTeamChange = async (e) => {
+                // Reset the live score bottom
+                document.getElementById('liveScoreBottom').textContent = '0.00';
+
+                // Remove existing event listeners to prevent duplicates
+                const oldTeamSelect = document.getElementById('teamSelect');
+                const newTeamSelect = oldTeamSelect.cloneNode(true);
+                oldTeamSelect.parentNode.replaceChild(newTeamSelect, oldTeamSelect);
+                
+                // Get reference to the new element
+                const teamSelect = document.getElementById('teamSelect');
+
+                // Add team selection handler
+                teamSelect.addEventListener('change', async (e) => {
                     const teamId = e.target.value;
                     if (!teamId) {
                         document.getElementById('questionTableContainer').innerHTML = '';
@@ -1528,157 +1499,153 @@
                         return;
                     }
 
-                    console.log(`Loading scores for team: ${teamId}, round: ${roundNum}`);
+                    // Get existing team scores if any
+                    const teamScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
+                    const existingScores = teamScoresSnap.exists() ? teamScoresSnap.val().questions || {} : {};
+                    
+                    // Store percentages separately if they exist
+                    const existingPercentages = teamScoresSnap.exists() && teamScoresSnap.val().percentages ? 
+                        teamScoresSnap.val().percentages : {};
+                    
+                    console.log("Loading scores for team:", teamId, "round:", roundNum);
+                    console.log("Existing scores:", existingScores);
+                    console.log("Existing percentages:", existingPercentages);
 
-                    try {
-                        // Get existing team scores if any
-                        const teamScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
-                        let existingScores = {};
-                        let existingPercentages = {};
-                        
-                        if (teamScoresSnap.exists()) {
-                            const roundData = teamScoresSnap.val();
-                            existingScores = roundData.questions || {};
-                            existingPercentages = roundData.percentages || {};
-                            console.log("Loaded existing scores:", existingScores);
-                            console.log("Loaded existing percentages:", existingPercentages);
-                        }
+                    // Get questions from trivia archive
+                    const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
+                    const allQuestions = [];
 
-                        // Get questions from trivia archive
-                        const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
-                        const allQuestions = [];
-
-                        for (const format of roundFormats) {
-                            const formatSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}`));
-                            if (formatSnap.exists()) {
-                                Object.entries(formatSnap.val()).forEach(([num, data]) => {
-                                    // Use the Question_Number if it exists, otherwise use the key
-                                    const questionNum = data.Question_Number || parseInt(num);
-                                    // Store the full path including the key
-                                    allQuestions.push({
-                                        format,
-                                        questionNumber: questionNum,
-                                        question: data.Question || '',
-                                        answer: data.Answer || '',
-                                        points: parseFloat(data['Point Value'] || 0),
-                                        imageLink: data['Image Link'] || '',
-                                        answerImageLink: data['Answer Image Link'] || '',
-                                        key: num,
-                                        path: `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}/${num}`
-                                    });
+                    for (const format of roundFormats) {
+                        const formatSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}`));
+                        if (formatSnap.exists()) {
+                            Object.entries(formatSnap.val()).forEach(([num, data]) => {
+                                // Use the Question_Number if it exists, otherwise use the key
+                                const questionNum = data.Question_Number || parseInt(num);
+                                // Store the full path including the key
+                                allQuestions.push({
+                                    format,
+                                    questionNumber: questionNum,
+                                    question: data.Question || '',
+                                    answer: data.Answer || '',
+                                    points: parseFloat(data['Point Value'] || 0),
+                                    imageLink: data['Image Link'] || '',
+                                    answerImageLink: data['Answer Image Link'] || '',
+                                    totalPossible: parseFloat(data['Total Possible Points'] || 0),
+                                    pointsGiven: parseFloat(data['Points Given'] || 0),
+                                    // Store both the key and the path
+                                    key: num,
+                                    path: `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}/${num}`
                                 });
-                            }
-                        }
-
-                        // Sort questions by format and number
-                        allQuestions.sort((a, b) => {
-                            const formatOrder = { 
-                                'Written': 1, 
-                                'Visual': 2, 
-                                'Music': 3, 
-                                'Fill-In': 4, 
-                                'Puzzle': 5 
-                            };
-                            if (a.format !== b.format) {
-                                return formatOrder[a.format] - formatOrder[b.format];
-                            }
-                            return a.questionNumber - b.questionNumber;
-                        });
-
-                        console.log(`Found ${allQuestions.length} questions for round ${roundNum}`);
-
-                        // Build question table with existing scores
-                        const tableHTML = `
-                            <table class="grading-table">
-                                <thead>
-                                    <tr>
-                                        <th>Format & No.</th>
-                                        <th>Question / Image</th>
-                                        <th>Answer</th>
-                                        <th>Buttons</th>
-                                        <th>Score</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${allQuestions.map((q, idx) => {
-                                        // Get existing score for this question
-                                        const qKey = `q${q.questionNumber}`;
-                                        const existingScore = existingScores[qKey];
-                                        
-                                        // Get saved percentage or calculate it
-                                        let percentage = 100; // Default to 100%
-                                        
-                                        if (existingPercentages && existingPercentages[qKey] !== undefined) {
-                                            // Use the saved percentage if it exists
-                                            percentage = Number(existingPercentages[qKey]);
-                                        } else if (existingScore !== undefined && q.points > 0) {
-                                            // Calculate percentage from score if points > 0
-                                            percentage = Math.round((existingScore / q.points) * 100);
-                                        }
-                                        
-                                        // Calculate score
-                                        const score = ((q.points * percentage) / 100).toFixed(2);
-
-                                        return `
-                                            <tr data-question-path="${q.path}" data-question-key="${q.key}" data-question-num="${q.questionNumber}">
-                                                <td>${q.format} #${q.questionNumber}</td>
-                                                <td>${formatQuestionContent(q)}</td>
-                                                <td>${q.answer || ''}</td>
-                                                <td>
-                                                    <div class="score-buttons" data-max-points="${q.points.toFixed(2)}">
-                                                        ${[100, 75, 66, 50, 33, 25, 0].map(value => `
-                                                            <button type="button"
-                                                                class="score-btn ${value === percentage ? 'selected' : ''}"
-                                                                data-value="${value}">
-                                                                ${value}%
-                                                            </button>
-                                                        `).join('')}
-                                                    </div>
-                                                </td>
-                                                <td class="score-cell">${score}</td>
-                                            </tr>
-                                        `;
-                                    }).join('')}
-                                </tbody>
-                            </table>
-                        `;
-
-                        document.getElementById('questionTableContainer').innerHTML = tableHTML;
-
-                        // Add click handlers for score buttons
-                        document.querySelectorAll('.score-btn').forEach(btn => {
-                            btn.addEventListener('click', (e) => {
-                                const buttonGroup = e.target.closest('.score-buttons');
-                                buttonGroup.querySelectorAll('.score-btn').forEach(b => b.classList.remove('selected'));
-                                e.target.classList.add('selected');
-                                
-                                const maxPoints = parseFloat(buttonGroup.dataset.maxPoints);
-                                const percentage = parseInt(e.target.dataset.value);
-                                const score = (maxPoints * percentage / 100).toFixed(2);
-                                const scoreCell = e.target.closest('tr').querySelector('.score-cell');
-                                scoreCell.textContent = score;
-                                
-                                updateLiveScore();
                             });
-                        });
-
-                        updateLiveScore();
-                    } catch (error) {
-                        console.error("Error loading team questions:", error);
-                        showNotification("Error loading team questions", 3000);
+                        }
                     }
-                };
 
-                // Remove existing handlers and add a fresh one
-                teamSelect.onchange = null;
-                teamSelect.removeEventListener('change', handleTeamChange);
-                teamSelect.addEventListener('change', handleTeamChange);
+                    // Sort questions by format and number
+                    allQuestions.sort((a, b) => {
+                        const formatOrder = { 
+                            'Written': 1, 
+                            'Visual': 2, 
+                            'Music': 3, 
+                            'Fill-In': 4, 
+                            'Puzzle': 5 
+                        };
+                        if (a.format !== b.format) {
+                            return formatOrder[a.format] - formatOrder[b.format];
+                        }
+                        return a.questionNumber - b.questionNumber;
+                    });
 
-                // Define the save function once
-                const saveGrades = async () => {
+                    // Build question table with existing scores
+                    const tableHTML = `
+                        <table class="grading-table">
+                            <thead>
+                                <tr>
+                                    <th>Format & No.</th>
+                                    <th>Question / Image</th>
+                                    <th>Answer</th>
+                                    <th>Buttons</th>
+                                    <th>Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${allQuestions.map((q, idx) => {
+                                    // Get existing score for this question
+                                    const qKey = `q${q.questionNumber}`;
+                                    const existingScore = existingScores[qKey];
+                                    
+                                    // Get saved percentage or calculate it
+                                    let percentage;
+                                    if (existingPercentages && existingPercentages[qKey] !== undefined) {
+                                        // Use the saved percentage if it exists
+                                        percentage = existingPercentages[qKey];
+                                    } else if (existingScore !== undefined) {
+                                        // Calculate percentage from score
+                                        percentage = q.points > 0 ? Math.round((existingScore / q.points) * 100) : 100;
+                                    } else {
+                                        // Default to 100% for new questions
+                                        percentage = 100;
+                                    }
+
+                                    return `
+                                        <tr data-question-path="${q.path}" data-question-key="${q.key}" data-question-num="${q.questionNumber}">
+                                            <td>${q.format} #${q.questionNumber}</td>
+                                            <td>${formatQuestionContent(q)}</td>
+                                            <td>${q.answer}</td>
+                                            <td>
+                                                <div class="score-buttons" data-max-points="${q.points.toFixed(2)}">
+                                                    ${[100, 75, 66, 50, 33, 25, 0].map(value => `
+                                                        <button type="button"
+                                                            class="score-btn ${value === percentage ? 'selected' : ''}"
+                                                            data-value="${value}">
+                                                            ${value}%
+                                                        </button>
+                                                    `).join('')}
+                                                </div>
+                                            </td>
+                                            <td class="score-cell">${((q.points * percentage) / 100).toFixed(2)}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    `;
+
+                    document.getElementById('questionTableContainer').innerHTML = tableHTML;
+
+                    // Add click handlers for score buttons
+                    document.querySelectorAll('.score-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            const buttonGroup = e.target.closest('.score-buttons');
+                            buttonGroup.querySelectorAll('.score-btn').forEach(b => b.classList.remove('selected'));
+                            e.target.classList.add('selected');
+                            
+                            const maxPoints = parseFloat(buttonGroup.dataset.maxPoints);
+                            const percentage = parseInt(e.target.dataset.value);
+                            const score = (maxPoints * percentage / 100).toFixed(2);
+                            const scoreCell = e.target.closest('tr').querySelector('.score-cell');
+                            scoreCell.textContent = score;
+                            
+                            updateLiveScore();
+                        });
+                    });
+
+                    updateLiveScore();
+                });
+
+                // Remove existing save buttons event listeners
+                const oldSaveBtn = document.getElementById('btnSaveGrades');
+                const newSaveBtn = oldSaveBtn.cloneNode(true);
+                oldSaveBtn.parentNode.replaceChild(newSaveBtn, oldSaveBtn);
+                
+                const oldSaveBtnBottom = document.getElementById('btnSaveGradesBottom');
+                const newSaveBtnBottom = oldSaveBtnBottom.cloneNode(true);
+                oldSaveBtnBottom.parentNode.replaceChild(newSaveBtnBottom, oldSaveBtnBottom);
+
+                // Update the save grades handler
+                document.getElementById('btnSaveGrades').addEventListener('click', async () => {
                     const teamId = document.getElementById('teamSelect').value;
                     if (!teamId) {
-                        showNotification('Please select a team first.', 3000);
+                        showToast('Please select a team first.');
                         return;
                     }
 
@@ -1692,7 +1659,7 @@
                             const selectedBtn = row.querySelector('.score-btn.selected');
                             const scoreCell = row.querySelector('.score-cell');
                             
-                            if (selectedBtn && scoreCell) {
+                            if (selectedBtn) {
                                 const percentage = parseInt(selectedBtn.dataset.value);
                                 const score = parseFloat(scoreCell.textContent);
                                 
@@ -1704,9 +1671,6 @@
                             }
                         });
 
-                        console.log("Saving scores:", questions);
-                        console.log("Saving percentages:", percentages);
-
                         // Save both scores and percentages
                         await update(ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`), {
                             questions,
@@ -1714,50 +1678,471 @@
                             totalScore: totalScore
                         });
 
-                        showNotification('Grades saved successfully!', 2000);
-                        
-                        // Update the displayed scores
-                        document.getElementById('liveScore').textContent = totalScore.toFixed(2);
-                        document.getElementById('liveScoreBottom').textContent = totalScore.toFixed(2);
+                        showToast('Grades saved successfully!');
                         
                         // Reload the rubric scores to reflect the changes
                         await loadRubricScores();
                     } catch (error) {
                         console.error('Error saving grades:', error);
-                        showNotification('Error saving grades. Please try again.', 5000);
+                        showToast('Error saving grades. Please try again.', 3000);
                     }
-                };
+                });
 
-                // Remove existing handlers and add fresh ones
-                const saveButton = document.getElementById('btnSaveGrades');
-                const bottomSaveButton = document.getElementById('btnSaveGradesBottom');
-                
-                saveButton.onclick = null;
-                bottomSaveButton.onclick = null;
-                
-                saveButton.removeEventListener('click', saveGrades);
-                bottomSaveButton.removeEventListener('click', saveGrades);
-                
-                saveButton.addEventListener('click', saveGrades);
-                bottomSaveButton.addEventListener('click', saveGrades);
-
-                // Update the return to rubric buttons
-                document.getElementById('btnReturnToRubricFromGrading').onclick = async () => {
-                    await loadRubricScores();
-                    showScreen('screenRubric');
-                };
-                
-                document.getElementById('btnReturnToRubricBottom').onclick = async () => {
-                    await loadRubricScores();
-                    showScreen('screenRubric');
-                };
+                // Make sure the bottom save button uses the same handler
+                document.getElementById('btnSaveGradesBottom').addEventListener('click', () => {
+                    document.getElementById('btnSaveGrades').click();
+                });
 
                 showScreen('screenGrading');
             } catch (error) {
                 console.error("Error setting up grading screen:", error);
                 console.error(error.stack);
-                showNotification('Error setting up grading screen', 5000);
+                showToast('Error setting up grading screen. Please try again.', 3000);
             }
+        }
+
+        // Helper function to format question content
+        function formatQuestionContent(question) {
+            if (!question.question.trim() && question.imageLink) {
+                const match = question.imageLink.match(/[?&]id=([^&]+)/);
+                const googleFileId = match ? match[1] : '';
+                if (googleFileId) {
+                    return `
+                        <iframe 
+                            src="https://drive.google.com/file/d/${googleFileId}/preview" 
+                            width="320" height="240" 
+                            allow="autoplay">
+                        </iframe>
+                    `;
+                }
+                return `(Image link error - Link format: ${question.imageLink})`;
+            }
+            return question.question;
+        }
+
+        // Add event listener for trivia breakdown button
+        document.getElementById('btnTriviaBreakdown').addEventListener('click', () => {
+            loadTriviaBreakdown('session');
+            showScreen('screenTriviaBreakdown');
+        });
+
+        // Switch session
+        document.getElementById('btnSwitchSession').addEventListener('click', () => {
+            localStorage.removeItem('currentGradingSession');
+            showScreen('screenSessionSetup');
+        });
+
+        // Update the sort teams button handler
+        document.getElementById('btnSortTeams').addEventListener('click', async () => {
+            try {
+                console.log("Sort button clicked");
+                const sessionId = localStorage.getItem('currentGradingSession');
+                if (!sessionId) return;
+
+                // Get the current ranks from the table
+                const tableRows = Array.from(document.querySelectorAll('#scoresTableBody tr'));
+                const updates = {};
+                
+                // Process all teams in rank order
+                tableRows.forEach(row => {
+                    const teamId = row.dataset.teamId;
+                    const rankText = row.querySelector('td:first-child').textContent.trim();
+                    const rank = parseInt(rankText);
+                    
+                    console.log("Processing team:", {
+                        teamId: teamId,
+                        rank: rank,
+                        rankText: rankText
+                    });
+
+                    if (teamId && !isNaN(rank)) {
+                        // Use the rank directly as the order (rank 1 -> order 1)
+                        updates[`grading/${sessionId}/teams/${teamId}/order`] = rank;
+                    }
+                });
+
+                console.log("Updates to be made:", updates);
+
+                if (Object.keys(updates).length > 0) {
+                    await update(ref(db), updates);
+                    await loadRubricScores(false);
+                }
+
+            } catch (error) {
+                console.error("Error sorting teams:", error);
+                alert("Error sorting teams. Please try again.");
+            }
+        });
+
+        // Update save grades handler to properly handle all question types
+        document.getElementById('btnSaveGrades').addEventListener('click', async () => {
+            const sessionId = localStorage.getItem('currentGradingSession');
+            const teamId = document.getElementById('teamSelect').value;
+            const roundNum = parseInt(document.getElementById('currentRoundNum').textContent);
+            
+            if (!sessionId || !teamId || !roundNum) {
+                alert("Please select a team before saving grades");
+                return;
+            }
+
+            try {
+                const rows = document.querySelectorAll('.grading-table tbody tr');
+                let totalPoints = 0;
+                const questionScores = {};
+                const triviaUpdates = {};
+
+                // Process each question
+                for (const row of rows) {
+                    const scoreButtons = row.querySelector('.score-buttons');
+                    const selectedBtn = row.querySelector('.score-btn.selected');
+                    const questionPath = row.dataset.questionPath;
+                    const questionNum = parseInt(row.dataset.questionNum);
+                    const maxPoints = parseFloat(scoreButtons.dataset.maxPoints);
+                    
+                    if (selectedBtn) {
+                        const percentage = parseInt(selectedBtn.dataset.value) / 100;
+                        const points = maxPoints * percentage;
+                        const pointsRounded = parseFloat(points.toFixed(2));
+                        
+                        // Store score using question number
+                        questionScores[`q${questionNum}`] = pointsRounded;
+                        totalPoints += points;
+
+                        // Get current stats for this question
+                        const questionSnap = await get(child(ref(db), questionPath));
+                        const currentStats = questionSnap.exists() ? questionSnap.val() : {};
+
+                        // Update question statistics
+                        const currentPointsGiven = parseFloat(currentStats['Points Given'] || 0);
+                        const currentTotalPossible = parseFloat(currentStats['Total Possible Points'] || 0);
+
+                        triviaUpdates[`${questionPath}/Points Given`] = parseFloat((currentPointsGiven + pointsRounded).toFixed(2));
+                        triviaUpdates[`${questionPath}/Total Possible Points`] = parseFloat((currentTotalPossible + maxPoints).toFixed(2));
+                    }
+                }
+
+                // Create all updates object
+                const updates = {
+                    [`grading/${sessionId}/teams/${teamId}/round${roundNum}`]: {
+                        total: parseFloat(totalPoints.toFixed(2)),
+                        questions: questionScores
+                    },
+                    ...triviaUpdates
+                };
+
+                // Perform all updates atomically
+                await update(ref(db), updates);
+                
+                alert("Grades saved successfully!");
+                
+                // Clear team selection and question table
+                document.getElementById('teamSelect').value = '';
+                document.getElementById('questionTableContainer').innerHTML = '';
+                
+                // Reload rubric scores to show updated totals
+                await loadRubricScores();
+                
+                // Update live score display
+                document.getElementById('liveScore').textContent = '0.00';
+                
+            } catch (error) {
+                console.error("Error saving grades:", error);
+                console.error(error.stack);
+                alert("Error saving grades. Please try again.");
+            }
+        });
+
+        // Add new function to handle trivia breakdown
+        async function loadTriviaBreakdown(scope = 'session') {
+            try {
+                const currentSessionId = localStorage.getItem('currentGradingSession');
+                if (!currentSessionId) {
+                    throw new Error("No current session found");
+                }
+
+                // Get current session data to know which trivia we're working with
+                const sessionSnap = await get(child(ref(db), `grading/${currentSessionId}`));
+                if (!sessionSnap.exists()) {
+                    throw new Error("Session not found");
+                }
+                const currentSession = sessionSnap.val();
+                const triviaNumber = currentSession.triviaNumber;
+
+                console.log("Loading breakdown for trivia number:", triviaNumber);
+
+                // Get question metadata from trivia-archive for all rounds
+                const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia`));
+                if (!triviaSnap.exists()) {
+                    throw new Error("Trivia not found");
+                }
+                const triviaData = triviaSnap.val();
+                console.log("Trivia data structure:", Object.keys(triviaData));
+
+                // Create maps to help with question identification
+                const questionMetadata = {};         // Stores all question metadata
+                const possibleFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
+                
+                // First pass: create metadata for all questions
+                for (const round of Object.keys(triviaData)) {
+                    console.log(`Processing Round ${round}, formats:`, Object.keys(triviaData[round]));
+                    
+                    // Process each format in this round
+                    for (const format of possibleFormats) {
+                        if (triviaData[round][format]) {
+                            console.log(`Found ${format} questions in Round ${round}`);
+                            
+                            for (const [qKey, question] of Object.entries(triviaData[round][format])) {
+                                // Use the question number if it exists, otherwise use the key
+                                const questionNum = question.Question_Number || parseInt(qKey);
+                                // Create a unique key for this question
+                                const questionId = `r${round}_f${format}_q${questionNum}`;
+                                
+                                // Store metadata
+                                questionMetadata[questionId] = {
+                                    id: questionId,
+                                    format,
+                                    round,
+                                    order: question.Order || 1,
+                                    number: questionNum,
+                                    question: question.Question || '',
+                                    answer: question.Answer || '',
+                                    pointValue: parseFloat(question['Point Value'] || 0),
+                                    right: 0,
+                                    wrong: 0,
+                                    totalTeams: 0
+                                };
+                            }
+                        }
+                    }
+                }
+
+                console.log(`Total questions found: ${Object.keys(questionMetadata).length}`);
+
+                // Get teams from current session
+                const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
+                if (!teamsSnap.exists()) {
+                    throw new Error("No teams found in session");
+                }
+                
+                const teams = teamsSnap.val();
+                console.log(`Processing scores for ${Object.keys(teams).length} teams`);
+                
+                // DEBUG: Log the first team's round data structure to see how it's organized
+                if (Object.values(teams).length > 0) {
+                    const sampleTeam = Object.values(teams)[0];
+                    console.log("Sample team data structure:", JSON.stringify({
+                        round1: sampleTeam.round1 ? Object.keys(sampleTeam.round1) : null,
+                        round2: sampleTeam.round2 ? Object.keys(sampleTeam.round2) : null,
+                        round3: sampleTeam.round3 ? Object.keys(sampleTeam.round3) : null
+                    }));
+                    if (sampleTeam.round1 && sampleTeam.round1.questions) {
+                        console.log("Sample question keys in round1:", Object.keys(sampleTeam.round1.questions));
+                    }
+                }
+                
+                // Create an exact mapping of question formats by round and number
+                const formatByRoundAndNumber = {};
+                for (const [id, metadata] of Object.entries(questionMetadata)) {
+                    const round = metadata.round;
+                    const number = metadata.number;
+                    
+                    if (!formatByRoundAndNumber[round]) {
+                        formatByRoundAndNumber[round] = {};
+                    }
+                    formatByRoundAndNumber[round][number] = metadata.format;
+                }
+                
+                console.log("Format mapping by round and number:", formatByRoundAndNumber);
+                
+                // Process all team scores
+                Object.values(teams).forEach(team => {
+                    // Process each round
+                    for (let roundNum = 1; roundNum <= 3; roundNum++) {
+                        const roundKey = `round${roundNum}`;
+                        if (team[roundKey] && team[roundKey].questions) {
+                            console.log(`Processing ${Object.keys(team[roundKey].questions).length} questions in ${roundKey} for team`);
+                            
+                            // Process each question in the round
+                            Object.entries(team[roundKey].questions).forEach(([qKey, score]) => {
+                                // Extract the question number from the key (format: "q1", "q2", etc.)
+                                const questionNum = parseInt(qKey.replace('q', ''));
+                                
+                                // Find the format for this question
+                                const round = roundNum.toString();
+                                const format = formatByRoundAndNumber[round]?.[questionNum];
+                                
+                                if (format) {
+                                    // Build the question ID
+                                    const questionId = `r${round}_f${format}_q${questionNum}`;
+                                    const metadata = questionMetadata[questionId];
+                                    
+                                    if (metadata) {
+                                        // Process the score
+                                        const maxPoints = metadata.pointValue;
+                                        if (maxPoints > 0) {
+                                            const scoreValue = parseFloat(score);
+                                            // Calculate percentage correctly - capped at 100%
+                                            const percentage = Math.min(scoreValue / maxPoints, 1);
+                                            
+                                            // Update right/wrong counts based on percentage
+                                            metadata.right += percentage;
+                                            metadata.wrong += (1 - percentage);
+                                            metadata.totalTeams += 1;
+                                        }
+                                    } else {
+                                        console.log(`Warning: Found format ${format} for q${questionNum} in round ${round} but no matching metadata`);
+                                    }
+                                } else {
+                                    console.log(`Warning: Could not determine format for q${questionNum} in round ${round}`);
+                                }
+                            });
+                        }
+                    }
+                });
+
+                // If we still have issues, let's try a more aggressive approach - directly match by question number only
+                const questionsWithNoData = Object.values(questionMetadata).filter(q => q.totalTeams === 0);
+                if (questionsWithNoData.length > 0) {
+                    console.log(`${questionsWithNoData.length} questions still have no data, trying fallback approach`);
+                    
+                    // Second pass: Process all team scores again, but match only by round and question number
+                    Object.values(teams).forEach(team => {
+                        for (let roundNum = 1; roundNum <= 3; roundNum++) {
+                            const roundKey = `round${roundNum}`;
+                            if (team[roundKey] && team[roundKey].questions) {
+                                Object.entries(team[roundKey].questions).forEach(([qKey, score]) => {
+                                    const questionNum = parseInt(qKey.replace('q', ''));
+                                    const round = roundNum.toString();
+                                    
+                                    // Find all questions in this round with this number
+                                    const matchingQuestions = Object.values(questionMetadata).filter(q => 
+                                        q.round === round && q.number === questionNum && q.totalTeams === 0);
+                                    
+                                    if (matchingQuestions.length > 0) {
+                                        // Use the first one (or the only one)
+                                        const metadata = matchingQuestions[0];
+                                        const maxPoints = metadata.pointValue;
+                                        
+                                        if (maxPoints > 0) {
+                                            const scoreValue = parseFloat(score);
+                                            const percentage = Math.min(scoreValue / maxPoints, 1);
+                                            
+                                            metadata.right += percentage;
+                                            metadata.wrong += (1 - percentage);
+                                            metadata.totalTeams += 1;
+                                            
+                                            console.log(`Fallback: Added score for ${metadata.format} q${questionNum} in round ${round}`);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+
+                // Convert the metadata object to an array for display
+                const breakdownData = Object.values(questionMetadata);
+                console.log(`Prepared ${breakdownData.length} rows for display`);
+
+                // Sort the data by round, then format, then question number
+                breakdownData.sort((a, b) => {
+                    if (a.round !== b.round) return parseInt(a.round) - parseInt(b.round);
+                    // Format order: Written, Visual, Music, Fill-In, Puzzle
+                    const formatOrder = { 
+                        'Written': 1, 
+                        'Visual': 2, 
+                        'Music': 3, 
+                        'Fill-In': 4, 
+                        'Puzzle': 5 
+                    };
+                    if (a.format !== b.format) return formatOrder[a.format] - formatOrder[b.format];
+                    return a.number - b.number;
+                });
+
+                // Update the table
+                const tableBody = document.getElementById('breakdownTableBody');
+                tableBody.innerHTML = breakdownData.map(row => {
+                    // Only show rows with at least one team
+                    const hasTeams = row.totalTeams > 0;
+                    const rightCount = Math.max(0, row.right).toFixed(1);
+                    const wrongCount = Math.max(0, row.wrong).toFixed(1);
+                    
+                    return `
+                        <tr class="${hasTeams ? '' : 'no-data'}">
+                            <td>${row.format}</td>
+                            <td>${row.round}</td>
+                            <td>${row.order}</td>
+                            <td>${row.number}</td>
+                            <td class="question-cell">${row.question}</td>
+                            <td class="question-cell">${row.answer}</td>
+                            <td>${hasTeams ? rightCount : '-'}</td>
+                            <td>${hasTeams ? wrongCount : '-'}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                // Add event listeners for sortable columns
+                document.querySelectorAll('#breakdownTable th.sortable').forEach(th => {
+                    th.addEventListener('click', () => {
+                        const column = th.dataset.sort;
+                        sortTable(column);
+                    });
+                });
+
+            } catch (error) {
+                console.error("Error loading trivia breakdown:", error);
+                console.error(error.stack);
+                alert("Error loading trivia breakdown. Please try again.");
+            }
+        }
+
+        // Update the sort function to handle the new columns
+        function sortTable(column) {
+            const table = document.getElementById('breakdownTable');
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const th = table.querySelector(`th[data-sort="${column}"]`);
+            const isAsc = th.classList.contains('asc');
+            
+            // Reset all headers
+            table.querySelectorAll('th').forEach(header => {
+                header.classList.remove('asc', 'desc');
+            });
+            
+            // Set new sort direction
+            th.classList.add(isAsc ? 'desc' : 'asc');
+            
+            // Sort rows
+            rows.sort((a, b) => {
+                let aVal = a.children[th.cellIndex].textContent;
+                let bVal = b.children[th.cellIndex].textContent;
+                
+                // Handle numeric columns
+                if (column === 'round' || column === 'order' || column === 'number' ||
+                    column === 'correct' || column === 'wrong') {
+                    aVal = parseFloat(aVal) || 0;
+                    bVal = parseFloat(bVal) || 0;
+                }
+                
+                if (aVal < bVal) return isAsc ? -1 : 1;
+                if (aVal > bVal) return isAsc ? 1 : -1;
+                
+                // If values are equal, maintain Round > Order > Number sorting
+                const aRound = parseInt(a.children[1].textContent);
+                const bRound = parseInt(b.children[1].textContent);
+                if (aRound !== bRound) return aRound - bRound;
+                
+                const aOrder = parseInt(a.children[2].textContent);
+                const bOrder = parseInt(b.children[2].textContent);
+                if (aOrder !== bOrder) return aOrder - bOrder;
+                
+                const aNumber = parseInt(a.children[3].textContent);
+                const bNumber = parseInt(b.children[3].textContent);
+                return aNumber - bNumber;
+            });
+            
+            // Reorder rows
+            tbody.append(...rows);
         }
 
         // Add event listeners
@@ -1780,7 +2165,7 @@
                 showScreen('screenRubric');
             });
             
-            document.getElementById('btnReturnToRubricBottom').onclick = async () => {
+            document.getElementById('btnReturnToRubricBottom').addEventListener('click', async () => {
                 await loadRubricScores();
                 showScreen('screenRubric');
             });
@@ -1905,7 +2290,34 @@
                 alert("Error loading existing sessions. Please try again.");
             }
         }
+
+        // Add a function to show a toast notification instead of alert
+        function showToast(message, duration = 2000) {
+            // Remove any existing toast
+            const existingToast = document.querySelector('.toast-notification');
+            if (existingToast) {
+                existingToast.remove();
+            }
+            
+            // Create a new toast
+            const toast = document.createElement('div');
+            toast.className = 'toast-notification';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            // Show the toast (delay slightly to ensure transition works)
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            // Hide and remove the toast after the duration
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300); // Wait for fade-out animation
+            }, duration);
+        }
     </script>
 </body>
 </html>
-
