@@ -184,6 +184,10 @@
   <div class="container">
     <h1>My Account</h1>
     
+    <div style="max-width: 900px; margin: 0 auto 20px; padding: 10px 15px; background-color: #f0f8ff; border-left: 4px solid #3498db; border-radius: 4px;">
+      <p style="margin: 0; color: #2980b9;"><strong>Note:</strong> You can now sign in or create an account directly on this page. No separate login page is needed.</p>
+    </div>
+    
     <section class="account-section">
       <div class="account-cards">
         <!-- Evil Trivia Account Card -->
@@ -201,9 +205,9 @@
             <div id="trivia-not-logged-in" class="hidden">
               <div class="not-logged-in-message">
                 <div id="login-section">
-                  <p>Sign in to access your Evil Trivia account.</p>
+                  <h3 style="margin-top: 0; text-align: center;">Sign In</h3>
                   <div style="margin-bottom: 15px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; text-align: left;">
-                    <p style="margin: 0 0 8px 0;"><strong>Welcome back!</strong> Use your email and password to sign in.</p>
+                    <p style="margin: 0 0 8px 0;"><strong>Welcome to Evil Trivia!</strong> Use your email and password to sign in.</p>
                   </div>
                   <div id="firebaseui-auth-container"></div>
                   <button id="trivia-login-btn" class="btn">Sign In with Email</button>
@@ -212,7 +216,7 @@
                 </div>
                 
                 <div id="registration-section" style="display: none;">
-                  <p>Create your Evil Trivia account.</p>
+                  <h3 style="margin-top: 0; text-align: center;">Create Your Account</h3>
                   <div class="registration-note" style="margin-bottom: 15px; padding: 10px; background-color: #f8f8f8; border-left: 3px solid #333; font-size: 14px; color: #666;">
                     <strong>Note:</strong> Evil Trivia is currently invite-only. You will need a valid registration code to create an account.
                   </div>
@@ -398,12 +402,7 @@
       signInOptions: [
         {
           provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
-          requireDisplayName: false,
-          // Disable sign-up in FirebaseUI completely - we will use our custom form instead
-          disableSignUp: {
-            status: true,
-            adminEmail: "admin@eviltrivia.com"
-          }
+          requireDisplayName: false
         }
       ],
       callbacks: {
@@ -704,6 +703,16 @@
     
     // Listen for auth state changes
     auth.onAuthStateChanged(async (user) => {
+      // First, check for "Not Authorized" message and replace it if found
+      if (document.body.innerText.includes('Not Authorized') && 
+          document.body.innerText.includes('is not authorized to view the requested page')) {
+        console.log('Detected "Not Authorized" message - replacing with login form');
+        
+        // Reload the page instead of trying to modify DOM - this is simpler and more reliable
+        window.location.href = window.location.pathname;
+        return;
+      }
+      
       if (user) {
         // User is signed in
         console.log('User is signed in:', user.uid);
@@ -757,164 +766,13 @@
           triviaLoading.classList.add('hidden');
           triviaLoggedIn.classList.add('hidden');
           triviaNotLoggedIn.classList.remove('hidden');
+          
+          // Reinitialize FirebaseUI
+          ui.start('#firebaseui-auth-container', uiConfig);
         }
       } else {
         // User is signed out, show sign-in options for both services
         console.log('User is signed out, showing sign-in options');
-        
-        // Check if there's a "Not Authorized" message in the DOM
-        // This is to handle the case shown in the screenshot
-        if (document.body.innerText.includes('Not Authorized') && 
-            document.body.innerText.includes('is not authorized to view the requested page')) {
-          console.log('Detected "Not Authorized" error page! Replacing with sign-in form');
-          
-          // Replace the entire page content with our login form
-          document.body.innerHTML = `
-            <div class="container" style="max-width: 600px; margin: 40px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-              <h1 style="text-align: center; color: #333; margin-bottom: 30px;">Evil Trivia Login</h1>
-              
-              <div style="text-align: center; margin-bottom: 20px;">
-                <img src="/images/evil_trivia_icon.png" alt="Evil Trivia Icon" style="width: 64px; height: 64px;">
-              </div>
-              
-              <div style="margin-bottom: 15px; padding: 10px; background-color: #f8f8f8; border-left: 3px solid #ff9900; font-size: 14px; color: #666;">
-                <p><strong>Note:</strong> We detected that you were being shown an authorization error. This could be because:</p>
-                <ul style="margin-top: 8px; margin-left: 20px;">
-                  <li>Your session has expired</li>
-                  <li>You need to complete the sign-in process</li>
-                  <li>You haven't created an account yet</li>
-                </ul>
-              </div>
-              
-              <div id="firebaseui-auth-container" style="margin: 20px 0;"></div>
-              
-              <button id="direct-login-btn" class="btn" style="width: 100%; margin-top: 10px;">Sign In with Email</button>
-              
-              <p style="margin-top: 20px; text-align: center;">
-                Don't have an account? <a href="#" id="direct-signup-link" style="color: #333; text-decoration: underline;">Sign up</a>
-              </p>
-              
-              <div id="direct-registration-section" style="display: none; margin-top: 30px;">
-                <h3 style="margin-bottom: 15px;">Create an Account</h3>
-                <div class="registration-note" style="margin-bottom: 15px; padding: 10px; background-color: #f8f8f8; border-left: 3px solid #333; font-size: 14px; color: #666;">
-                  <strong>Note:</strong> Evil Trivia is currently invite-only. You will need a valid registration code to create an account.
-                </div>
-                <div style="margin-bottom: 10px;">
-                  <label style="display: block; margin-bottom: 5px; font-weight: bold;">Email:</label>
-                  <input type="email" id="direct-reg-email" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
-                </div>
-                <div style="margin-bottom: 10px;">
-                  <label style="display: block; margin-bottom: 5px; font-weight: bold;">Password:</label>
-                  <input type="password" id="direct-reg-password" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
-                </div>
-                <div style="margin-bottom: 15px;">
-                  <label style="display: block; margin-bottom: 5px; font-weight: bold;">Registration Code:</label>
-                  <input type="text" id="direct-reg-code" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
-                  <small style="display: block; color: #666; margin-top: 5px;">Required for account creation</small>
-                </div>
-                <button id="direct-register-btn" class="btn" style="width: 100%;">Create Account</button>
-                <p id="direct-registration-error" style="color: red; margin-top: 10px; display: none; background-color: #ffeeee; padding: 8px; border-radius: 4px;"></p>
-                
-                <p style="margin-top: 20px; text-align: center;">
-                  <a href="#" id="back-to-login-link" style="color: #333; text-decoration: underline;">Back to login</a>
-                </p>
-              </div>
-            </div>
-          `;
-          
-          // Initialize Firebase UI
-          ui.start('#firebaseui-auth-container', uiConfig);
-          
-          // Setup event listeners for direct form
-          document.getElementById('direct-login-btn').addEventListener('click', () => {
-            ui.start('#firebaseui-auth-container', uiConfig);
-            document.getElementById('firebaseui-auth-container').scrollIntoView({ behavior: 'smooth' });
-          });
-          
-          document.getElementById('direct-signup-link').addEventListener('click', (e) => {
-            e.preventDefault();
-            document.getElementById('direct-registration-section').style.display = 'block';
-            document.getElementById('direct-login-btn').style.display = 'none';
-            document.getElementById('direct-signup-link').parentNode.style.display = 'none';
-            document.getElementById('firebaseui-auth-container').style.display = 'none';
-          });
-          
-          document.getElementById('back-to-login-link').addEventListener('click', (e) => {
-            e.preventDefault();
-            document.getElementById('direct-registration-section').style.display = 'none';
-            document.getElementById('direct-login-btn').style.display = 'block';
-            document.getElementById('direct-signup-link').parentNode.style.display = 'block';
-            document.getElementById('firebaseui-auth-container').style.display = 'block';
-          });
-          
-          // Handle direct registration
-          document.getElementById('direct-register-btn').addEventListener('click', async () => {
-            const emailInput = document.getElementById('direct-reg-email');
-            const passwordInput = document.getElementById('direct-reg-password');
-            const codeInput = document.getElementById('direct-reg-code');
-            const errorElement = document.getElementById('direct-registration-error');
-            
-            // Clear previous errors
-            errorElement.style.display = 'none';
-            
-            // Get form values
-            const email = emailInput.value.trim();
-            const password = passwordInput.value;
-            const registrationCode = codeInput.value.trim();
-            
-            // Validate inputs
-            if (!email || !password || !registrationCode) {
-              errorElement.textContent = 'Please fill in all fields';
-              errorElement.style.display = 'block';
-              return;
-            }
-            
-            if (password.length < 6) {
-              errorElement.textContent = 'Password must be at least 6 characters';
-              errorElement.style.display = 'block';
-              return;
-            }
-            
-            try {
-              // Check if the registration code is valid
-              let role = null;
-              
-              // Known registration codes
-              if (registrationCode === "leoisbritish") {
-                role = 'admin';
-              } else if (registrationCode === "lemon") {
-                role = 'grader';
-              } else {
-                errorElement.textContent = 'Invalid registration code';
-                errorElement.style.display = 'block';
-                return;
-              }
-              
-              // Create the user account
-              const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-              
-              // Store user data in database with the appropriate role
-              await db.ref(`users/${userCredential.user.uid}`).set({
-                email: email,
-                role: role,
-                firstName: email.split('@')[0],
-                createdAt: new Date().toISOString()
-              });
-              
-              console.log('Account created successfully with role:', role);
-              
-              // Refresh the page to go to the account UI
-              window.location.reload();
-              
-            } catch (error) {
-              console.error('Registration error:', error);
-              errorElement.textContent = error.message;
-              errorElement.style.display = 'block';
-            }
-          });
-          
-          return; // Skip the normal flow since we've replaced the page
-        }
         
         // Show Evil Trivia sign-in option
         triviaLoading.classList.add('hidden');
@@ -1037,6 +895,14 @@
     
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
+      // Initialize FirebaseUI auth widget
+      ui.start('#firebaseui-auth-container', uiConfig);
+      
+      // Show login state by default
+      triviaLoading.classList.add('hidden');
+      triviaLoggedIn.classList.add('hidden');
+      triviaNotLoggedIn.classList.remove('hidden');
+      
       // Check URL parameters for auth callbacks
       checkUrlParams();
       
@@ -1071,6 +937,9 @@
         e.preventDefault();
         document.getElementById('registration-section').style.display = 'none';
         document.getElementById('login-section').style.display = 'block';
+        
+        // Reinitialize FirebaseUI when switching back to login
+        ui.start('#firebaseui-auth-container', uiConfig);
       });
       
       // Handle registration form submission
