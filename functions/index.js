@@ -83,14 +83,35 @@ app.get('/test', (req, res) => {
   res.send('Patreon Auth Function is working!');
 });
 
+// Debug endpoint to check Patreon config values (remove in production)
+app.get('/debug-config', (req, res) => {
+  // Don't expose actual secret values, just info about what's configured
+  const config = {
+    hasClientId: !!process.env.PATREON_CLIENT_ID,
+    clientIdLength: process.env.PATREON_CLIENT_ID?.length || 0,
+    clientIdFallback: 'Using fallback value: ' + (process.env.PATREON_CLIENT_ID ? 'No' : 'Yes'),
+    hasClientSecret: !!process.env.PATREON_CLIENT_SECRET,
+    clientSecretLength: process.env.PATREON_CLIENT_SECRET?.length || 0,
+    clientSecretFallback: 'Using fallback value: ' + (process.env.PATREON_CLIENT_SECRET ? 'No' : 'Yes'),
+    redirectUri: process.env.PATREON_REDIRECT_URI || 'Using fallback URL',
+    hasWebhookSecret: !!process.env.PATREON_WEBHOOK_SECRET,
+    webhookSecretFallback: 'Using fallback value: ' + (process.env.PATREON_WEBHOOK_SECRET ? 'No' : 'Yes'),
+    serverTime: new Date().toISOString(),
+    env: process.env.NODE_ENV || 'not set'
+  };
+  
+  res.json(config);
+});
+
 // Route to initiate Patreon OAuth
 app.get('/auth/patreon', (req, res) => {
-  // Get configs, with fallbacks to avoid errors
-  const clientId = functions.config().patreon?.client_id || '';
-  const redirectUri = functions.config().patreon?.redirect_uri || 
+  // Use environment variables instead of functions.config()
+  const clientId = process.env.PATREON_CLIENT_ID || 'e4zVeNnRNrPaw19sO81-p7UN2h4aM3eJtBGWLPecq9VKxXeC11YWLzPiJJyBETLH';
+  const redirectUri = process.env.PATREON_REDIRECT_URI || 
     'https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon/callback';
   
   if (!clientId) {
+    console.error('Patreon client ID not configured in environment variables');
     return res.status(500).send('Patreon client ID not configured');
   }
   
@@ -137,11 +158,16 @@ app.get('/auth/patreon/callback', async (req, res) => {
     // State is valid, cleanup the state entry
     await admin.database().ref(`patreonAuthStates/${state}`).remove();
     
-    // Get configs
-    const clientId = functions.config().patreon?.client_id || '';
-    const clientSecret = functions.config().patreon?.client_secret || '';
-    const redirectUri = functions.config().patreon?.redirect_uri || 
+    // Get configs using environment variables
+    const clientId = process.env.PATREON_CLIENT_ID || 'e4zVeNnRNrPaw19sO81-p7UN2h4aM3eJtBGWLPecq9VKxXeC11YWLzPiJJyBETLH';
+    const clientSecret = process.env.PATREON_CLIENT_SECRET || 'eSTybekdDbHnEBtC6e4vSIpbcGtklzkltvGuy36w-JNCNqZwPX9bFCjYiQKN4FNL';
+    const redirectUri = process.env.PATREON_REDIRECT_URI || 
       'https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon/callback';
+    
+    if (!clientId || !clientSecret) {
+      console.error('Patreon client ID or secret not configured in environment variables');
+      return res.redirect('/patreon.html?auth_error=true&reason=missing_credentials');
+    }
     
     // Exchange code for tokens
     const tokenResponse = await axios.post('https://www.patreon.com/api/oauth2/token', 
@@ -286,8 +312,8 @@ app.get('/getCustomToken', async (req, res) => {
 // Webhook handler for Patreon events
 app.post('/webhooks/patreon', async (req, res) => {
   try {
-    // Get webhook secret from config
-    const webhookSecret = functions.config().patreon?.webhook_secret || '';
+    // Get webhook secret from environment variables
+    const webhookSecret = process.env.PATREON_WEBHOOK_SECRET || 'ZRL4ikUVRZ_OC7bNEtftRLVJ4mcjl73zjrkdxwQJAfzvAc672l0jG5FDAczzDCw4';
     
     // Verify webhook signature if secret is configured
     if (webhookSecret) {
@@ -382,7 +408,4 @@ async function handlePledgeEvent(data, included, isActive) {
 }
 
 // Export the Express app as a Firebase Cloud Function
-exports.patreonAuth = functions.https.onRequest({
-  invoker: 'public',
-  handler: app
-});
+exports.patreonAuth = functions.https.onRequest(app);
