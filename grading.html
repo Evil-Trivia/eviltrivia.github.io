@@ -546,26 +546,6 @@
         .no-data {
             opacity: 0.6;
         }
-
-        /* Add styles for the toast notification */
-        .toast-notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background-color: #4CAF50;
-            color: white;
-            padding: 16px;
-            border-radius: 4px;
-            z-index: 9999;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-            max-width: 300px;
-        }
-
-        .toast-notification.show {
-            opacity: 1;
-        }
     </style>
     <script src="https://eviltrivia.com/autoload-banner.js"></script>
 </head>
@@ -1439,7 +1419,7 @@
             }
         }
 
-        // Update setupGradingScreen function to correctly save and restore percentages
+        // Update setupGradingScreen function to correctly handle percentages
         async function setupGradingScreen(roundNum) {
             const sessionId = localStorage.getItem('currentGradingSession');
             if (!sessionId) return;
@@ -1477,20 +1457,15 @@
                     </div>
                     <div id="questionTableContainer"></div>
                 `;
-                
-                // Reset the live score bottom
-                document.getElementById('liveScoreBottom').textContent = '0.00';
 
-                // Remove existing event listeners to prevent duplicates
-                const oldTeamSelect = document.getElementById('teamSelect');
-                const newTeamSelect = oldTeamSelect.cloneNode(true);
-                oldTeamSelect.parentNode.replaceChild(newTeamSelect, oldTeamSelect);
-                
-                // Get reference to the new element
-                const teamSelect = document.getElementById('teamSelect');
+                // Store the current round and clear previous listeners
+                const oldTeamHandler = teamSelect._changeHandler;
+                if (oldTeamHandler) {
+                    teamSelect.removeEventListener('change', oldTeamHandler);
+                }
 
-                // Add team selection handler
-                teamSelect.addEventListener('change', async (e) => {
+                // Create a new change handler for team selection
+                const teamChangeHandler = async (e) => {
                     const teamId = e.target.value;
                     if (!teamId) {
                         document.getElementById('questionTableContainer').innerHTML = '';
@@ -1499,17 +1474,13 @@
                         return;
                     }
 
+                    console.log(`Loading scores for team ${teamId}, round ${roundNum}`);
+
                     // Get existing team scores if any
                     const teamScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
                     const existingScores = teamScoresSnap.exists() ? teamScoresSnap.val().questions || {} : {};
                     
-                    // Store percentages separately if they exist
-                    const existingPercentages = teamScoresSnap.exists() && teamScoresSnap.val().percentages ? 
-                        teamScoresSnap.val().percentages : {};
-                    
-                    console.log("Loading scores for team:", teamId, "round:", roundNum);
                     console.log("Existing scores:", existingScores);
-                    console.log("Existing percentages:", existingPercentages);
 
                     // Get questions from trivia archive
                     const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
@@ -1569,22 +1540,18 @@
                             </thead>
                             <tbody>
                                 ${allQuestions.map((q, idx) => {
-                                    // Get existing score for this question
-                                    const qKey = `q${q.questionNumber}`;
-                                    const existingScore = existingScores[qKey];
+                                    // Get existing score for this question using the question number
+                                    const existingScore = existingScores[`q${q.questionNumber}`];
+                                    let percentage = 100; // Default to 100%
                                     
-                                    // Get saved percentage or calculate it
-                                    let percentage;
-                                    if (existingPercentages && existingPercentages[qKey] !== undefined) {
-                                        // Use the saved percentage if it exists
-                                        percentage = existingPercentages[qKey];
-                                    } else if (existingScore !== undefined) {
-                                        // Calculate percentage from score
-                                        percentage = q.points > 0 ? Math.round((existingScore / q.points) * 100) : 100;
-                                    } else {
-                                        // Default to 100% for new questions
-                                        percentage = 100;
+                                    // If there's an existing score, calculate the percentage accurately
+                                    if (existingScore !== undefined && q.points > 0) {
+                                        percentage = Math.round((existingScore / q.points) * 100);
+                                        console.log(`Q${q.questionNumber}: Score=${existingScore}, MaxPoints=${q.points}, Calculated %=${percentage}`);
                                     }
+                                    
+                                    // Get the actual score value (either from existing or default)
+                                    const scoreValue = existingScore !== undefined ? existingScore : q.points;
 
                                     return `
                                         <tr data-question-path="${q.path}" data-question-key="${q.key}" data-question-num="${q.questionNumber}">
@@ -1602,7 +1569,7 @@
                                                     `).join('')}
                                                 </div>
                                             </td>
-                                            <td class="score-cell">${((q.points * percentage) / 100).toFixed(2)}</td>
+                                            <td class="score-cell">${scoreValue.toFixed(2)}</td>
                                         </tr>
                                     `;
                                 }).join('')}
@@ -1630,94 +1597,87 @@
                     });
 
                     updateLiveScore();
-                });
+                };
 
-                // Remove existing save buttons event listeners
-                const oldSaveBtn = document.getElementById('btnSaveGrades');
-                const newSaveBtn = oldSaveBtn.cloneNode(true);
-                oldSaveBtn.parentNode.replaceChild(newSaveBtn, oldSaveBtn);
-                
-                const oldSaveBtnBottom = document.getElementById('btnSaveGradesBottom');
-                const newSaveBtnBottom = oldSaveBtnBottom.cloneNode(true);
-                oldSaveBtnBottom.parentNode.replaceChild(newSaveBtnBottom, oldSaveBtnBottom);
+                // Add the new handler and store it for future cleanup
+                teamSelect.addEventListener('change', teamChangeHandler);
+                teamSelect._changeHandler = teamChangeHandler;
 
-                // Update the save grades handler
-                document.getElementById('btnSaveGrades').addEventListener('click', async () => {
-                    const teamId = document.getElementById('teamSelect').value;
-                    if (!teamId) {
-                        showToast('Please select a team first.');
-                        return;
-                    }
-
+                // Update saveGrades function to correctly handle saving scores
+                document.getElementById('btnSaveGrades').onclick = async () => {
                     try {
-                        const questions = {};
-                        const percentages = {}; // Store percentages separately
+                        const teamId = document.getElementById('teamSelect').value;
+                        if (!teamId) {
+                            alert("Please select a team first");
+                            return;
+                        }
+
+                        // Collect scores from the UI
+                        const scores = {};
                         let totalScore = 0;
 
                         document.querySelectorAll('.grading-table tbody tr').forEach(row => {
                             const questionNum = row.dataset.questionNum;
-                            const selectedBtn = row.querySelector('.score-btn.selected');
-                            const scoreCell = row.querySelector('.score-cell');
+                            const scoreElement = row.querySelector('.score-cell');
+                            const score = parseFloat(scoreElement.textContent);
                             
-                            if (selectedBtn) {
-                                const percentage = parseInt(selectedBtn.dataset.value);
-                                const score = parseFloat(scoreCell.textContent);
-                                
-                                // Store both the score and the percentage
-                                questions[`q${questionNum}`] = score;
-                                percentages[`q${questionNum}`] = percentage;
-                                
-                                totalScore += score;
-                            }
+                            scores[`q${questionNum}`] = score;
+                            totalScore += score;
                         });
 
-                        // Save both scores and percentages
-                        await update(ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`), {
-                            questions,
-                            percentages, // Save the percentages too
-                            totalScore: totalScore
-                        });
+                        console.log(`Saving scores for team ${teamId}, round ${roundNum}:`, scores);
+                        console.log(`Total score: ${totalScore}`);
 
-                        showToast('Grades saved successfully!');
+                        // Update the team's scores in the database
+                        const updates = {};
+                        updates[`grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`] = scores;
+                        updates[`grading/${sessionId}/teams/${teamId}/round${roundNum}/total`] = totalScore;
+
+                        await update(ref(db), updates);
                         
-                        // Reload the rubric scores to reflect the changes
-                        await loadRubricScores();
+                        alert(`Scores saved for round ${roundNum}`);
+                        
+                        // Also update the same team selection to refresh the view
+                        await teamChangeHandler({target: {value: teamId}});
+                        
                     } catch (error) {
-                        console.error('Error saving grades:', error);
-                        showToast('Error saving grades. Please try again.', 3000);
+                        console.error("Error saving grades:", error);
+                        alert("Error saving grades. Please try again.");
                     }
-                });
+                };
 
                 // Make sure the bottom save button uses the same handler
-                document.getElementById('btnSaveGradesBottom').addEventListener('click', () => {
-                    document.getElementById('btnSaveGrades').click();
-                });
+                document.getElementById('btnSaveGradesBottom').onclick = () => {
+                    document.getElementById('btnSaveGrades').onclick();
+                };
 
                 showScreen('screenGrading');
             } catch (error) {
                 console.error("Error setting up grading screen:", error);
                 console.error(error.stack);
-                showToast('Error setting up grading screen. Please try again.', 3000);
             }
         }
 
-        // Helper function to format question content
+        // Use this helper function to format the question content (for questions with images)
         function formatQuestionContent(question) {
-            if (!question.question.trim() && question.imageLink) {
-                const match = question.imageLink.match(/[?&]id=([^&]+)/);
-                const googleFileId = match ? match[1] : '';
-                if (googleFileId) {
-                    return `
-                        <iframe 
-                            src="https://drive.google.com/file/d/${googleFileId}/preview" 
-                            width="320" height="240" 
-                            allow="autoplay">
-                        </iframe>
-                    `;
-                }
-                return `(Image link error - Link format: ${question.imageLink})`;
+            let content = question.question || '';
+            
+            if (question.imageLink) {
+                content += `<br><img src="${question.imageLink}" style="max-width: 100%; max-height: 200px;">`;
             }
-            return question.question;
+            
+            return content;
+        }
+
+        // Update the update live score function to calculate based on the score-cell values
+        function updateLiveScore() {
+            let totalScore = 0;
+            document.querySelectorAll('.score-cell').forEach(cell => {
+                totalScore += parseFloat(cell.textContent || 0);
+            });
+            const scoreValue = totalScore.toFixed(2);
+            document.getElementById('liveScore').textContent = scoreValue;
+            document.getElementById('liveScoreBottom').textContent = scoreValue;
         }
 
         // Add event listener for trivia breakdown button
@@ -2289,34 +2249,6 @@
                 console.error("Error loading existing sessions:", error);
                 alert("Error loading existing sessions. Please try again.");
             }
-        }
-
-        // Add a function to show a toast notification instead of alert
-        function showToast(message, duration = 2000) {
-            // Remove any existing toast
-            const existingToast = document.querySelector('.toast-notification');
-            if (existingToast) {
-                existingToast.remove();
-            }
-            
-            // Create a new toast
-            const toast = document.createElement('div');
-            toast.className = 'toast-notification';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            
-            // Show the toast (delay slightly to ensure transition works)
-            setTimeout(() => {
-                toast.classList.add('show');
-            }, 10);
-            
-            // Hide and remove the toast after the duration
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => {
-                    toast.remove();
-                }, 300); // Wait for fade-out animation
-            }, duration);
         }
     </script>
 </body>
