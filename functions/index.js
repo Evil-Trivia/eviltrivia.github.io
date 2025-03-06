@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const querystring = require('querystring');
+const crypto = require('crypto');
 
 // Initialize Firebase admin 
 admin.initializeApp();
@@ -11,27 +12,83 @@ admin.initializeApp();
 // Create Express app for Patreon auth
 const app = express();
 
-// Use CORS middleware
-app.use(cors({ origin: true }));
+// Use CORS middleware - restrict to your domain
+app.use(cors({ 
+  origin: [
+    'https://eviltrivia.github.io',
+    'https://eviltrivia-47664.web.app',
+    'https://eviltrivia-47664.firebaseapp.com',
+    'https://patreonauth-vapvabofwq-uc.a.run.app'
+  ]
+}));
 app.use(express.json());
 
-// Simple test endpoint
+// Simple test endpoint (only for testing, consider removing in production)
 app.get('/test', (req, res) => {
   res.send('Patreon Auth Function is working!');
 });
+
+/**
+ * SECURITY MIDDLEWARE
+ * Only allow requests from your domain and Patreon
+ */
+const securityMiddleware = (req, res, next) => {
+  const origin = req.get('origin');
+  const referer = req.get('referer');
+  const allowedOrigins = [
+    'https://eviltrivia.github.io',
+    'https://eviltrivia-47664.web.app',
+    'https://eviltrivia-47664.firebaseapp.com',
+    'https://patreonauth-vapvabofwq-uc.a.run.app'
+  ];
+  
+  // Allow Patreon Callback and webhooks
+  if (req.path === '/auth/patreon/callback' || req.path === '/webhooks/patreon') {
+    return next();
+  }
+
+  // Check if origin is allowed
+  if (origin && allowedOrigins.includes(origin)) {
+    return next();
+  }
+  
+  // Check referer as fallback
+  if (referer) {
+    const isAllowedReferer = allowedOrigins.some(allowed => referer.startsWith(allowed));
+    if (isAllowedReferer) {
+      return next();
+    }
+  }
+  
+  // Reject unauthorized requests
+  return res.status(403).json({ error: 'Unauthorized' });
+};
+
+// Apply security middleware to all routes
+app.use(securityMiddleware);
 
 // Route to initiate Patreon OAuth
 app.get('/auth/patreon', (req, res) => {
   // Get configs, with fallbacks to avoid errors
   const clientId = functions.config().patreon?.client_id || '';
-  const redirectUri = functions.config().patreon?.redirect_uri || '';
+  const redirectUri = functions.config().patreon?.redirect_uri || 
+    'https://us-central1-eviltrivia-47664.cloudfunctions.net/patreonAuth/auth/patreon/callback';
   
   if (!clientId) {
     return res.status(500).send('Patreon client ID not configured');
   }
   
-  // Redirect to Patreon OAuth page
-  const authUrl = `https://www.patreon.com/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=identity%20identity[email]%20identity.memberships%20campaigns.members`;
+  // Set state parameter for CSRF protection
+  const state = crypto.randomBytes(20).toString('hex');
+  
+  // Store state in database with timestamp to verify later and expire old states
+  admin.database().ref(`patreonAuthStates/${state}`).set({
+    createdAt: admin.database.ServerValue.TIMESTAMP,
+    returnUrl: req.query.returnUrl || '/patreon.html'
+  });
+  
+  // Redirect to Patreon OAuth page with state
+  const authUrl = `https://www.patreon.com/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=identity%20identity[email]%20identity.memberships%20campaigns.members&state=${state}`;
   console.log('Redirecting to:', authUrl);
   res.redirect(authUrl);
 });
@@ -39,17 +96,36 @@ app.get('/auth/patreon', (req, res) => {
 // Route to handle Patreon OAuth callback
 app.get('/auth/patreon/callback', async (req, res) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
     
     if (!code) {
       console.error('No code parameter in callback');
       return res.redirect('/patreon.html?auth_error=true&reason=no_code');
     }
     
+    // Verify state to prevent CSRF
+    if (!state) {
+      console.error('No state parameter in callback');
+      return res.redirect('/patreon.html?auth_error=true&reason=invalid_state');
+    }
+    
+    // Check if state exists in database
+    const stateSnapshot = await admin.database().ref(`patreonAuthStates/${state}`).once('value');
+    const stateData = stateSnapshot.val();
+    
+    if (!stateData) {
+      console.error('Invalid state parameter');
+      return res.redirect('/patreon.html?auth_error=true&reason=invalid_state');
+    }
+    
+    // State is valid, cleanup the state entry
+    await admin.database().ref(`patreonAuthStates/${state}`).remove();
+    
     // Get configs
     const clientId = functions.config().patreon?.client_id || '';
     const clientSecret = functions.config().patreon?.client_secret || '';
-    const redirectUri = functions.config().patreon?.redirect_uri || '';
+    const redirectUri = functions.config().patreon?.redirect_uri || 
+      'https://us-central1-eviltrivia-47664.cloudfunctions.net/patreonAuth/auth/patreon/callback';
     
     // Exchange code for tokens
     const tokenResponse = await axios.post('https://www.patreon.com/api/oauth2/token', 
@@ -67,7 +143,7 @@ app.get('/auth/patreon/callback', async (req, res) => {
       }
     );
     
-    const { access_token } = tokenResponse.data;
+    const { access_token, refresh_token } = tokenResponse.data;
     
     // Get Patreon user info and membership data
     const userResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/identity', {
@@ -102,7 +178,13 @@ app.get('/auth/patreon/callback', async (req, res) => {
       imageUrl: userData.attributes.image_url,
       lastUpdated: admin.database.ServerValue.TIMESTAMP,
       isActiveMember: !!activeMembership,
-      membershipData: activeMembership
+      membershipData: activeMembership,
+      // Store tokens securely for future API calls
+      tokens: {
+        accessToken: access_token,
+        refreshToken: refresh_token,
+        createdAt: admin.database.ServerValue.TIMESTAMP
+      }
     };
     
     // Store data in Firebase
@@ -144,11 +226,16 @@ app.get('/auth/patreon/callback', async (req, res) => {
     // Create custom token for Firebase Auth
     const customToken = await admin.auth().createCustomToken(firebaseUid);
     
-    // Redirect back to patreon page with success
-    res.redirect(`/patreon.html?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}`);
+    // Redirect back to the returnUrl or default to patreon.html
+    const returnUrl = stateData.returnUrl || '/patreon.html';
+    res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}`);
     
   } catch (error) {
     console.error('Patreon auth error:', error.message);
+    console.error(error.stack);
+    if (error.response) {
+      console.error('Response data:', error.response.data);
+    }
     res.redirect('/patreon.html?auth_error=true&reason=token_exchange_failed');
   }
 });
@@ -180,10 +267,105 @@ app.get('/getCustomToken', async (req, res) => {
   }
 });
 
+// Webhook handler for Patreon events
+app.post('/webhooks/patreon', async (req, res) => {
+  try {
+    // Get webhook secret from config
+    const webhookSecret = functions.config().patreon?.webhook_secret || '';
+    
+    // Verify webhook signature if secret is configured
+    if (webhookSecret) {
+      const signature = req.get('X-Patreon-Signature');
+      const payload = JSON.stringify(req.body);
+      
+      const hmac = crypto.createHmac('md5', webhookSecret);
+      hmac.update(payload);
+      const expectedSignature = hmac.digest('hex');
+      
+      if (signature !== expectedSignature) {
+        console.error('Invalid webhook signature');
+        return res.status(403).json({ error: 'Invalid signature' });
+      }
+    }
+    
+    // Process the webhook data
+    const data = req.body.data;
+    const included = req.body.included || [];
+    const event = req.get('X-Patreon-Event');
+    
+    console.log('Received Patreon webhook event:', event);
+    
+    if (!data) {
+      return res.status(400).json({ error: 'Invalid webhook payload' });
+    }
+    
+    // Handle different event types
+    switch (event) {
+      case 'members:pledge:create':
+      case 'members:pledge:update':
+        // Handle new/updated pledge
+        await handlePledgeEvent(data, included, true);
+        break;
+        
+      case 'members:pledge:delete':
+        // Handle deleted pledge
+        await handlePledgeEvent(data, included, false);
+        break;
+        
+      default:
+        console.log('Unhandled webhook event type:', event);
+    }
+    
+    // Acknowledge receipt
+    res.status(200).json({ status: 'success' });
+    
+  } catch (error) {
+    console.error('Error processing webhook:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Helper function to handle pledge events
+async function handlePledgeEvent(data, included, isActive) {
+  try {
+    // Get user info from included data
+    const user = included.find(item => item.type === 'user');
+    
+    if (!data.relationships || !data.relationships.user || !data.relationships.user.data) {
+      console.error('Invalid webhook data structure');
+      return;
+    }
+    
+    const userId = data.relationships.user.data.id;
+    
+    // Update user's membership status
+    await admin.database().ref(`patreonUsers/${userId}`).update({
+      isActiveMember: isActive,
+      membershipData: data,
+      lastUpdated: admin.database.ServerValue.TIMESTAMP
+    });
+    
+    console.log(`Updated member ${userId} with active status: ${isActive}`);
+    
+    // Optionally, update any Firebase user records linked to this Patreon user
+    const snapshot = await admin.database().ref(`patreonUsers/${userId}/firebaseUid`).once('value');
+    const firebaseUid = snapshot.val();
+    
+    if (firebaseUid) {
+      await admin.database().ref(`users/${firebaseUid}`).update({
+        patronStatus: isActive ? 'active' : 'inactive',
+        lastPatronStatusUpdate: admin.database.ServerValue.TIMESTAMP
+      });
+      
+      console.log(`Updated Firebase user ${firebaseUid} with patron status: ${isActive ? 'active' : 'inactive'}`);
+    }
+  } catch (error) {
+    console.error('Error handling pledge event:', error);
+    throw error;
+  }
+}
+
 // Export the Express app as a Firebase Cloud Function
 exports.patreonAuth = functions.https.onRequest(app);
 
-// Simple test function to verify deployments
-exports.hello = functions.https.onRequest((req, res) => {
-  res.send('Hello from Firebase!');
-});
+const firebaseFunctionUrl = "https://patreonauth-vapvabofwq-uc.a.run.app";
