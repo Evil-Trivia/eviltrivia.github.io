@@ -23,6 +23,7 @@ const securityMiddleware = (req, res, next) => {
     'https://eviltrivia.com',
     'https://www.eviltrivia.com',
     'https://eviltrivia.github.io',
+    'https://evil-trivia.github.io',
     'https://eviltrivia-47664.web.app',
     'https://eviltrivia-47664.firebaseapp.com',
     'https://patreonauth-vapvabofwq-uc.a.run.app'
@@ -30,6 +31,16 @@ const securityMiddleware = (req, res, next) => {
   
   // Allow Patreon Callback and webhooks
   if (req.path === '/auth/patreon/callback' || req.path === '/webhooks/patreon') {
+    return next();
+  }
+  
+  // Always allow the Patreon auth initiation path
+  if (req.path === '/auth/patreon') {
+    return next();
+  }
+
+  // Always allow the getCustomToken endpoint 
+  if (req.path === '/getCustomToken') {
     return next();
   }
 
@@ -56,6 +67,7 @@ app.use(cors({
     'https://eviltrivia.com',
     'https://www.eviltrivia.com',
     'https://eviltrivia.github.io',
+    'https://evil-trivia.github.io',
     'https://eviltrivia-47664.web.app',
     'https://eviltrivia-47664.firebaseapp.com',
     'https://patreonauth-vapvabofwq-uc.a.run.app'
