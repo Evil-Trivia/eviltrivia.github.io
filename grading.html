@@ -1419,7 +1419,7 @@
             }
         }
 
-        // Update setupGradingScreen function to correctly handle percentages
+        // Update setupGradingScreen function to correctly save and restore percentages
         async function setupGradingScreen(roundNum) {
             const sessionId = localStorage.getItem('currentGradingSession');
             if (!sessionId) return;
@@ -1458,14 +1458,8 @@
                     <div id="questionTableContainer"></div>
                 `;
 
-                // Store the current round and clear previous listeners
-                const oldTeamHandler = teamSelect._changeHandler;
-                if (oldTeamHandler) {
-                    teamSelect.removeEventListener('change', oldTeamHandler);
-                }
-
-                // Create a new change handler for team selection
-                const teamChangeHandler = async (e) => {
+                // Add team selection handler
+                teamSelect.addEventListener('change', async (e) => {
                     const teamId = e.target.value;
                     if (!teamId) {
                         document.getElementById('questionTableContainer').innerHTML = '';
@@ -1474,13 +1468,17 @@
                         return;
                     }
 
-                    console.log(`Loading scores for team ${teamId}, round ${roundNum}`);
-
                     // Get existing team scores if any
                     const teamScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
                     const existingScores = teamScoresSnap.exists() ? teamScoresSnap.val().questions || {} : {};
                     
+                    // Store percentages separately if they exist
+                    const existingPercentages = teamScoresSnap.exists() && teamScoresSnap.val().percentages ? 
+                        teamScoresSnap.val().percentages : {};
+                    
+                    console.log("Loading scores for team:", teamId, "round:", roundNum);
                     console.log("Existing scores:", existingScores);
+                    console.log("Existing percentages:", existingPercentages);
 
                     // Get questions from trivia archive
                     const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
@@ -1540,18 +1538,22 @@
                             </thead>
                             <tbody>
                                 ${allQuestions.map((q, idx) => {
-                                    // Get existing score for this question using the question number
-                                    const existingScore = existingScores[`q${q.questionNumber}`];
-                                    let percentage = 100; // Default to 100%
+                                    // Get existing score for this question
+                                    const qKey = `q${q.questionNumber}`;
+                                    const existingScore = existingScores[qKey];
                                     
-                                    // If there's an existing score, calculate the percentage accurately
-                                    if (existingScore !== undefined && q.points > 0) {
-                                        percentage = Math.round((existingScore / q.points) * 100);
-                                        console.log(`Q${q.questionNumber}: Score=${existingScore}, MaxPoints=${q.points}, Calculated %=${percentage}`);
+                                    // Get saved percentage or calculate it
+                                    let percentage;
+                                    if (existingPercentages && existingPercentages[qKey] !== undefined) {
+                                        // Use the saved percentage if it exists
+                                        percentage = existingPercentages[qKey];
+                                    } else if (existingScore !== undefined) {
+                                        // Calculate percentage from score
+                                        percentage = q.points > 0 ? Math.round((existingScore / q.points) * 100) : 100;
+                                    } else {
+                                        // Default to 100% for new questions
+                                        percentage = 100;
                                     }
-                                    
-                                    // Get the actual score value (either from existing or default)
-                                    const scoreValue = existingScore !== undefined ? existingScore : q.points;
 
                                     return `
                                         <tr data-question-path="${q.path}" data-question-key="${q.key}" data-question-num="${q.questionNumber}">
@@ -1569,7 +1571,7 @@
                                                     `).join('')}
                                                 </div>
                                             </td>
-                                            <td class="score-cell">${scoreValue.toFixed(2)}</td>
+                                            <td class="score-cell">${((q.points * percentage) / 100).toFixed(2)}</td>
                                         </tr>
                                     `;
                                 }).join('')}
@@ -1597,59 +1599,59 @@
                     });
 
                     updateLiveScore();
-                };
+                });
 
-                // Add the new handler and store it for future cleanup
-                teamSelect.addEventListener('change', teamChangeHandler);
-                teamSelect._changeHandler = teamChangeHandler;
+                // Update the save grades handler
+                document.getElementById('btnSaveGrades').addEventListener('click', async () => {
+                    const teamId = document.getElementById('teamSelect').value;
+                    if (!teamId) {
+                        alert('Please select a team first.');
+                        return;
+                    }
 
-                // Update saveGrades function to correctly handle saving scores
-                document.getElementById('btnSaveGrades').onclick = async () => {
                     try {
-                        const teamId = document.getElementById('teamSelect').value;
-                        if (!teamId) {
-                            alert("Please select a team first");
-                            return;
-                        }
-
-                        // Collect scores from the UI
-                        const scores = {};
+                        const questions = {};
+                        const percentages = {}; // Store percentages separately
                         let totalScore = 0;
 
                         document.querySelectorAll('.grading-table tbody tr').forEach(row => {
                             const questionNum = row.dataset.questionNum;
-                            const scoreElement = row.querySelector('.score-cell');
-                            const score = parseFloat(scoreElement.textContent);
+                            const selectedBtn = row.querySelector('.score-btn.selected');
+                            const scoreCell = row.querySelector('.score-cell');
                             
-                            scores[`q${questionNum}`] = score;
-                            totalScore += score;
+                            if (selectedBtn) {
+                                const percentage = parseInt(selectedBtn.dataset.value);
+                                const score = parseFloat(scoreCell.textContent);
+                                
+                                // Store both the score and the percentage
+                                questions[`q${questionNum}`] = score;
+                                percentages[`q${questionNum}`] = percentage;
+                                
+                                totalScore += score;
+                            }
                         });
 
-                        console.log(`Saving scores for team ${teamId}, round ${roundNum}:`, scores);
-                        console.log(`Total score: ${totalScore}`);
+                        // Save both scores and percentages
+                        await update(ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`), {
+                            questions,
+                            percentages, // Save the percentages too
+                            totalScore: totalScore
+                        });
 
-                        // Update the team's scores in the database
-                        const updates = {};
-                        updates[`grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`] = scores;
-                        updates[`grading/${sessionId}/teams/${teamId}/round${roundNum}/total`] = totalScore;
-
-                        await update(ref(db), updates);
+                        alert('Grades saved successfully!');
                         
-                        alert(`Scores saved for round ${roundNum}`);
-                        
-                        // Also update the same team selection to refresh the view
-                        await teamChangeHandler({target: {value: teamId}});
-                        
+                        // Reload the rubric scores to reflect the changes
+                        await loadRubricScores();
                     } catch (error) {
-                        console.error("Error saving grades:", error);
-                        alert("Error saving grades. Please try again.");
+                        console.error('Error saving grades:', error);
+                        alert('Error saving grades. Please try again.');
                     }
-                };
+                });
 
                 // Make sure the bottom save button uses the same handler
-                document.getElementById('btnSaveGradesBottom').onclick = () => {
-                    document.getElementById('btnSaveGrades').onclick();
-                };
+                document.getElementById('btnSaveGradesBottom').addEventListener('click', () => {
+                    document.getElementById('btnSaveGrades').click();
+                });
 
                 showScreen('screenGrading');
             } catch (error) {
@@ -1658,26 +1660,23 @@
             }
         }
 
-        // Use this helper function to format the question content (for questions with images)
+        // Helper function to format question content
         function formatQuestionContent(question) {
-            let content = question.question || '';
-            
-            if (question.imageLink) {
-                content += `<br><img src="${question.imageLink}" style="max-width: 100%; max-height: 200px;">`;
+            if (!question.question.trim() && question.imageLink) {
+                const match = question.imageLink.match(/[?&]id=([^&]+)/);
+                const googleFileId = match ? match[1] : '';
+                if (googleFileId) {
+                    return `
+                        <iframe 
+                            src="https://drive.google.com/file/d/${googleFileId}/preview" 
+                            width="320" height="240" 
+                            allow="autoplay">
+                        </iframe>
+                    `;
+                }
+                return `(Image link error - Link format: ${question.imageLink})`;
             }
-            
-            return content;
-        }
-
-        // Update the update live score function to calculate based on the score-cell values
-        function updateLiveScore() {
-            let totalScore = 0;
-            document.querySelectorAll('.score-cell').forEach(cell => {
-                totalScore += parseFloat(cell.textContent || 0);
-            });
-            const scoreValue = totalScore.toFixed(2);
-            document.getElementById('liveScore').textContent = scoreValue;
-            document.getElementById('liveScoreBottom').textContent = scoreValue;
+            return question.question;
         }
 
         // Add event listener for trivia breakdown button
