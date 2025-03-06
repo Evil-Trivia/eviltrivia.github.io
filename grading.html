@@ -1511,11 +1511,10 @@
                     });
 
                     // Get existing team scores if any
-                    const teamScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
-                    const teamScores = teamScoresSnap.exists() ? teamScoresSnap.val() : { questions: {} };
-                    const existingScores = teamScores.questions || {};
-
-                    console.log("Existing scores:", existingScores);
+                    const teamRoundSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
+                    const teamRound = teamRoundSnap.exists() ? teamRoundSnap.val() : {};
+                    
+                    console.log("Team round data:", teamRound);
 
                     // Build question table with existing scores
                     const tableHTML = `
@@ -1531,24 +1530,27 @@
                             </thead>
                             <tbody>
                                 ${allQuestions.map((q, idx) => {
-                                    // Get existing score for this question using the question number
-                                    const existingQuestionData = existingScores[`q${q.questionNumber}`] || {};
-                                    const existingPoints = existingQuestionData.pointsEarned || 0;
+                                    // Check for existing score using proper hierarchy
+                                    // First check if format exists
+                                    const formatData = teamRound[q.format] || {};
+                                    // Then check if this question number exists
+                                    const existingData = formatData[q.questionNumber] || {};
+                                    
                                     const maxPoints = q.points;
                                     
-                                    // Calculate percentage based on existingPoints and maxPoints
-                                    let percentage = 100; // Default to 100%
-                                    if (existingPoints > 0 && maxPoints > 0) {
-                                        percentage = Math.round((existingPoints / maxPoints) * 100);
-                                    } else if (existingQuestionData.percentage) {
-                                        percentage = existingQuestionData.percentage;
+                                    // Get percentage from existing data or default to 100%
+                                    let percentage = 100;
+                                    if (existingData.percentage) {
+                                        percentage = existingData.percentage;
+                                    } else if (existingData.pointsEarned && maxPoints > 0) {
+                                        percentage = Math.round((existingData.pointsEarned / maxPoints) * 100);
                                     }
 
                                     // Calculate the actual score
                                     const actualScore = (maxPoints * percentage / 100).toFixed(2);
 
                                     return `
-                                        <tr data-question-path="${q.path}" data-question-key="${q.key}" data-question-num="${q.questionNumber}">
+                                        <tr data-question-path="${q.path}" data-question-num="${q.questionNumber}" data-format="${q.format}">
                                             <td>${q.format} #${q.questionNumber}</td>
                                             <td>${formatQuestionContent(q)}</td>
                                             <td>${q.answer}</td>
@@ -1615,33 +1617,42 @@
                 const rows = document.querySelectorAll('.grading-table tbody tr');
                 let totalPoints = 0;
                 
-                // Create a new structure for this round
+                // Get existing round data if any
+                const roundRef = ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`);
+                const roundSnap = await get(roundRef);
+                const existingRoundData = roundSnap.exists() ? roundSnap.val() : {};
+                
+                // Create new round structure with format hierarchy
                 const roundData = {
+                    ...existingRoundData,
                     roundNumber: roundNum,
-                    questions: {},
-                    total: 0
+                    total: 0  // Will calculate this at the end
                 };
 
-                // Process each question
+                // Process each question and add to appropriate format
                 rows.forEach(row => {
-                    const format = row.querySelector('td:first-child').textContent.split(' #')[0].trim();
+                    const format = row.dataset.format;
                     const questionNum = parseInt(row.dataset.questionNum);
                     const scoreButtons = row.querySelector('.score-buttons');
                     const selectedBtn = row.querySelector('.score-btn.selected');
                     const maxPoints = parseFloat(scoreButtons.dataset.maxPoints);
                     
-                    if (selectedBtn) {
-                        const percentage = parseInt(selectedBtn.dataset.value) / 100;
-                        const points = maxPoints * percentage;
+                    if (selectedBtn && format && questionNum) {
+                        const percentage = parseInt(selectedBtn.dataset.value);
+                        const points = maxPoints * percentage / 100;
                         const pointsRounded = parseFloat(points.toFixed(2));
                         
-                        // Add this question to the round data
-                        roundData.questions[`q${questionNum}`] = {
-                            format: format,
+                        // Initialize format if it doesn't exist
+                        if (!roundData[format]) {
+                            roundData[format] = {};
+                        }
+                        
+                        // Add this question to its format
+                        roundData[format][questionNum] = {
                             questionNumber: questionNum,
                             totalPossiblePoints: maxPoints,
                             pointsEarned: pointsRounded,
-                            percentage: parseInt(selectedBtn.dataset.value)
+                            percentage: percentage
                         };
                         
                         totalPoints += points;
@@ -1651,8 +1662,8 @@
                 // Set the total score for the round
                 roundData.total = parseFloat(totalPoints.toFixed(2));
                 
-                // Save the complete round data to the team
-                await set(ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`), roundData);
+                // Save the complete round data with proper hierarchy
+                await set(roundRef, roundData);
                 
                 console.log(`Saved complete round ${roundNum} data for team ${teamId}:`, roundData);
                 
