@@ -3,31 +3,20 @@ const admin = require('firebase-admin');
 const express = require('express');
 const cors = require('cors')({origin: true});
 const axios = require('axios');
-const crypto = require('crypto');
 const querystring = require('querystring');
-const cookieParser = require('cookie-parser');
 
-admin.initializeApp();
-
+// Initialize Express app
 const app = express();
 app.use(cors);
-app.use(cookieParser());
 
-// Patreon API credentials (store these in Firebase Functions config)
+// Get Patreon credentials from environment
 const CLIENT_ID = functions.config().patreon.client_id;
 const CLIENT_SECRET = functions.config().patreon.client_secret;
 const REDIRECT_URI = functions.config().patreon.redirect_uri;
 
 // Route to initiate Patreon OAuth
 app.get('/auth/patreon', (req, res) => {
-  const state = crypto.randomBytes(16).toString('hex');
-  
-  // Store state in a cookie for verification on callback
-  res.cookie('patreon_state', state, { 
-    maxAge: 3600000, // 1 hour
-    httpOnly: true,
-    secure: true
-  });
+  console.log('Starting Patreon auth with client ID:', CLIENT_ID);
   
   // Redirect to Patreon OAuth page
   const authUrl = 'https://www.patreon.com/oauth2/authorize?' +
@@ -35,25 +24,26 @@ app.get('/auth/patreon', (req, res) => {
       response_type: 'code',
       client_id: CLIENT_ID,
       redirect_uri: REDIRECT_URI,
-      state: state,
       scope: 'identity identity[email] identity.memberships campaigns.members'
     });
   
+  console.log('Redirecting to:', authUrl);
   res.redirect(authUrl);
 });
 
 // Route to handle Patreon OAuth callback
 app.get('/auth/patreon/callback', async (req, res) => {
   try {
-    const { code, state } = req.query;
-    const storedState = req.cookies.patreon_state;
+    const { code } = req.query;
+    console.log('Received callback with code');
     
-    // Verify state to prevent CSRF
-    if (!state || state !== storedState) {
-      return res.status(403).send('State verification failed');
+    if (!code) {
+      console.error('No code parameter in callback');
+      return res.redirect('/account?auth_error=true&reason=no_code');
     }
     
     // Exchange code for tokens
+    console.log('Exchanging code for token using client ID:', CLIENT_ID);
     const tokenResponse = await axios.post('https://www.patreon.com/api/oauth2/token', 
       querystring.stringify({
         code,
@@ -69,7 +59,8 @@ app.get('/auth/patreon/callback', async (req, res) => {
       }
     );
     
-    const { access_token, refresh_token } = tokenResponse.data;
+    console.log('Token exchange successful');
+    const { access_token } = tokenResponse.data;
     
     // Get Patreon user info and membership data
     const userResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/identity', {
@@ -102,57 +93,63 @@ app.get('/auth/patreon/callback', async (req, res) => {
       email: userData.attributes.email,
       fullName: userData.attributes.full_name,
       imageUrl: userData.attributes.image_url,
-      accessToken: access_token,
-      refreshToken: refresh_token,
       lastUpdated: admin.database.ServerValue.TIMESTAMP,
       isActiveMember: !!activeMembership,
       membershipData: activeMembership
     };
     
     // Store data in Firebase
+    console.log('Saving user data for Patreon ID:', patreonUserId);
     await admin.database().ref(`patreonUsers/${patreonUserId}`).update(userInfo);
     
-    // Create or find Firebase Auth user
-    let firebaseUid;
-    try {
-      // Try to find existing user by email
-      const userRecord = await admin.auth().getUserByEmail(userData.attributes.email);
-      firebaseUid = userRecord.uid;
-    } catch (error) {
-      // User doesn't exist, create a new one
-      const newUser = await admin.auth().createUser({
-        email: userData.attributes.email,
-        displayName: userData.attributes.full_name,
-        photoURL: userData.attributes.image_url
-      });
-      firebaseUid = newUser.uid;
+    // Check if this Patreon account is already linked to a Firebase user
+    const existingLinkSnapshot = await admin.database().ref(`patreonUsers/${patreonUserId}/firebaseUid`).once('value');
+    let firebaseUid = existingLinkSnapshot.val();
+    
+    if (!firebaseUid) {
+      // Check if user with this email exists
+      try {
+        const userRecord = await admin.auth().getUserByEmail(userData.attributes.email);
+        firebaseUid = userRecord.uid;
+        console.log('Found existing Firebase user by email:', firebaseUid);
+      } catch (error) {
+        // Create a new user 
+        console.log('Creating new Firebase user for email:', userData.attributes.email);
+        const newUser = await admin.auth().createUser({
+          email: userData.attributes.email,
+          displayName: userData.attributes.full_name,
+          photoURL: userData.attributes.image_url
+        });
+        firebaseUid = newUser.uid;
+        
+        // Create user profile
+        await admin.database().ref(`users/${firebaseUid}`).set({
+          email: userData.attributes.email,
+          displayName: userData.attributes.full_name,
+          photoURL: userData.attributes.image_url,
+          role: 'patron', 
+          createdAt: admin.database.ServerValue.TIMESTAMP
+        });
+      }
       
-      // Create user profile in database
-      await admin.database().ref(`users/${firebaseUid}`).set({
-        email: userData.attributes.email,
-        displayName: userData.attributes.full_name,
-        patreonId: patreonUserId,
-        role: 'patron',
-        createdAt: admin.database.ServerValue.TIMESTAMP
-      });
+      // Link accounts
+      await admin.database().ref(`patreonUsers/${patreonUserId}/firebaseUid`).set(firebaseUid);
+      await admin.database().ref(`users/${firebaseUid}/patreonId`).set(patreonUserId);
     }
     
-    // Link Patreon ID to Firebase user ID
-    await admin.database().ref(`patreonUsers/${patreonUserId}/firebaseUid`).set(firebaseUid);
-    await admin.database().ref(`users/${firebaseUid}/patreonId`).set(patreonUserId);
-    
-    // Create a custom token
+    // Create custom token for Firebase Auth
     const customToken = await admin.auth().createCustomToken(firebaseUid);
     
-    // Redirect back to the app with auth success and tokens
-    res.redirect(`/patreon?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}`);
+    // Redirect back to account page with success
+    res.redirect(`/account?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}`);
+    
   } catch (error) {
-    console.error('Patreon auth error:', error);
-    res.redirect('/patreon?auth_error=true');
+    console.error('Patreon auth error:', error.response?.data || error.message);
+    res.redirect('/account?auth_error=true&reason=token_exchange_failed');
   }
 });
 
-// Route to get a Firebase custom token for an existing Patreon user
+// Get custom token for existing Patreon link
 app.get('/getCustomToken', async (req, res) => {
   try {
     const { patreonId } = req.query;
@@ -161,15 +158,15 @@ app.get('/getCustomToken', async (req, res) => {
       return res.status(400).json({ error: 'Missing patreonId parameter' });
     }
     
-    // Get the Firebase UID linked to this Patreon user
-    const userSnapshot = await admin.database().ref(`patreonUsers/${patreonId}/firebaseUid`).once('value');
-    const firebaseUid = userSnapshot.val();
+    // Get Firebase UID linked to this Patreon user
+    const snapshot = await admin.database().ref(`patreonUsers/${patreonId}/firebaseUid`).once('value');
+    const firebaseUid = snapshot.val();
     
     if (!firebaseUid) {
       return res.status(404).json({ error: 'No Firebase user found for this Patreon ID' });
     }
     
-    // Create a custom token
+    // Create custom token
     const customToken = await admin.auth().createCustomToken(firebaseUid);
     
     res.json({ token: customToken });
@@ -179,4 +176,5 @@ app.get('/getCustomToken', async (req, res) => {
   }
 });
 
+// Export the Express app as a Firebase Cloud Function
 exports.patreonAuth = functions.https.onRequest(app);
