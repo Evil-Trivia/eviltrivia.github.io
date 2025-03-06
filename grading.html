@@ -1676,17 +1676,15 @@
                 const rows = document.querySelectorAll('.grading-table tbody tr');
                 let totalPoints = 0;
                 const questionScores = {};
-                const triviaUpdates = {};
 
                 // First, get existing question scores to preserve any that aren't being updated
                 const existingScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`));
                 const existingScores = existingScoresSnap.exists() ? existingScoresSnap.val() : {};
                 
                 // Process each question
-                for (const row of rows) {
+                rows.forEach(row => {
                     const scoreButtons = row.querySelector('.score-buttons');
                     const selectedBtn = row.querySelector('.score-btn.selected');
-                    const questionPath = row.dataset.questionPath;
                     const questionNum = parseInt(row.dataset.questionNum);
                     const maxPoints = parseFloat(scoreButtons.dataset.maxPoints);
                     
@@ -1698,32 +1696,22 @@
                         // Store score using question number
                         questionScores[`q${questionNum}`] = pointsRounded;
                         totalPoints += points;
-
-                        // Get current stats for this question
-                        const questionSnap = await get(child(ref(db), questionPath));
-                        const currentStats = questionSnap.exists() ? questionSnap.val() : {};
-
-                        // Update question statistics
-                        const currentPointsGiven = parseFloat(currentStats['Points Given'] || 0);
-                        const currentTotalPossible = parseFloat(currentStats['Total Possible Points'] || 0);
-
-                        triviaUpdates[`${questionPath}/Points Given`] = parseFloat((currentPointsGiven + pointsRounded).toFixed(2));
-                        triviaUpdates[`${questionPath}/Total Possible Points`] = parseFloat((currentTotalPossible + maxPoints).toFixed(2));
                     }
-                }
+                });
                 
                 // Merge existing scores with new ones
                 const mergedScores = {...existingScores, ...questionScores};
 
-                // Create all updates object
-                const updates = {
+                // Save team scores
+                await update(ref(db), {
                     [`grading/${sessionId}/teams/${teamId}/round${roundNum}/total`]: parseFloat(totalPoints.toFixed(2)),
-                    [`grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`]: mergedScores,
-                    ...triviaUpdates
-                };
-
-                // Perform all updates atomically
-                await update(ref(db), updates);
+                    [`grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`]: mergedScores
+                });
+                
+                console.log(`Saved round ${roundNum} scores for team ${teamId}:`, {
+                    total: parseFloat(totalPoints.toFixed(2)),
+                    questions: mergedScores
+                });
                 
                 alert("Grades saved successfully!");
                 
