@@ -31,21 +31,31 @@ const securityMiddleware = (req, res, next) => {
   
   // Allow Patreon Callback and webhooks
   if (req.path === '/auth/patreon/callback' || req.path === '/webhooks/patreon') {
+    console.log('[INFO] Allowing Patreon callback or webhook');
     return next();
   }
   
   // Always allow the Patreon auth initiation path
   if (req.path === '/auth/patreon') {
+    console.log('[INFO] Allowing Patreon auth initiation');
     return next();
   }
 
   // Always allow the getCustomToken endpoint 
   if (req.path === '/getCustomToken') {
+    console.log('[INFO] Allowing getCustomToken request');
     return next();
   }
-
+  
+  // Always allow the debug endpoint
+  if (req.path === '/debug-config') {
+    console.log('[INFO] Allowing debug-config request');
+    return next();
+  }
+  
   // Check if origin is allowed
   if (origin && allowedOrigins.includes(origin)) {
+    console.log('[INFO] Allowing request from origin:', origin);
     return next();
   }
   
@@ -53,11 +63,18 @@ const securityMiddleware = (req, res, next) => {
   if (referer) {
     const isAllowedReferer = allowedOrigins.some(allowed => referer.startsWith(allowed));
     if (isAllowedReferer) {
+      console.log('[INFO] Allowing request from referer:', referer);
       return next();
     }
   }
   
   // Reject unauthorized requests
+  console.error('[ERROR] Unauthorized request:', { 
+    path: req.path, 
+    method: req.method,
+    origin: origin || 'none',
+    referer: referer || 'none'
+  });
   return res.status(403).json({ error: 'Unauthorized' });
 };
 
@@ -133,16 +150,24 @@ app.get('/auth/patreon', (req, res) => {
 // Route to handle Patreon OAuth callback
 app.get('/auth/patreon/callback', async (req, res) => {
   try {
+    console.log('[INFO] Received Patreon callback', {
+      path: req.path,
+      url: req.url, 
+      query: req.query,
+      origin: req.get('origin'),
+      referer: req.get('referer')
+    });
+    
     const { code, state } = req.query;
     
     if (!code) {
-      console.error('No code parameter in callback');
+      console.error('[ERROR] No code parameter in callback');
       return res.redirect('/patreon.html?auth_error=true&reason=no_code');
     }
     
     // Verify state to prevent CSRF
     if (!state) {
-      console.error('No state parameter in callback');
+      console.error('[ERROR] No state parameter in callback');
       return res.redirect('/patreon.html?auth_error=true&reason=invalid_state');
     }
     
