@@ -12,22 +12,6 @@ admin.initializeApp();
 // Create Express app for Patreon auth
 const app = express();
 
-// Use CORS middleware - restrict to your domain
-app.use(cors({ 
-  origin: [
-    'https://eviltrivia.github.io',
-    'https://eviltrivia-47664.web.app',
-    'https://eviltrivia-47664.firebaseapp.com',
-    'https://patreonauth-vapvabofwq-uc.a.run.app'
-  ]
-}));
-app.use(express.json());
-
-// Simple test endpoint (only for testing, consider removing in production)
-app.get('/test', (req, res) => {
-  res.send('Patreon Auth Function is working!');
-});
-
 /**
  * SECURITY MIDDLEWARE
  * Only allow requests from your domain and Patreon
@@ -36,6 +20,8 @@ const securityMiddleware = (req, res, next) => {
   const origin = req.get('origin');
   const referer = req.get('referer');
   const allowedOrigins = [
+    'https://eviltrivia.com',
+    'https://www.eviltrivia.com',
     'https://eviltrivia.github.io',
     'https://eviltrivia-47664.web.app',
     'https://eviltrivia-47664.firebaseapp.com',
@@ -64,15 +50,33 @@ const securityMiddleware = (req, res, next) => {
   return res.status(403).json({ error: 'Unauthorized' });
 };
 
-// Apply security middleware to all routes
+// Use CORS middleware - restrict to your domain
+app.use(cors({ 
+  origin: [
+    'https://eviltrivia.com',
+    'https://www.eviltrivia.com',
+    'https://eviltrivia.github.io',
+    'https://eviltrivia-47664.web.app',
+    'https://eviltrivia-47664.firebaseapp.com',
+    'https://patreonauth-vapvabofwq-uc.a.run.app'
+  ]
+}));
+app.use(express.json());
+
+// Apply security middleware
 app.use(securityMiddleware);
+
+// Simple test endpoint (only for testing, consider removing in production)
+app.get('/test', (req, res) => {
+  res.send('Patreon Auth Function is working!');
+});
 
 // Route to initiate Patreon OAuth
 app.get('/auth/patreon', (req, res) => {
   // Get configs, with fallbacks to avoid errors
   const clientId = functions.config().patreon?.client_id || '';
   const redirectUri = functions.config().patreon?.redirect_uri || 
-    'https://us-central1-eviltrivia-47664.cloudfunctions.net/patreonAuth/auth/patreon/callback';
+    'https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon/callback';
   
   if (!clientId) {
     return res.status(500).send('Patreon client ID not configured');
@@ -125,7 +129,7 @@ app.get('/auth/patreon/callback', async (req, res) => {
     const clientId = functions.config().patreon?.client_id || '';
     const clientSecret = functions.config().patreon?.client_secret || '';
     const redirectUri = functions.config().patreon?.redirect_uri || 
-      'https://us-central1-eviltrivia-47664.cloudfunctions.net/patreonAuth/auth/patreon/callback';
+      'https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon/callback';
     
     // Exchange code for tokens
     const tokenResponse = await axios.post('https://www.patreon.com/api/oauth2/token', 
@@ -370,5 +374,3 @@ exports.patreonAuth = functions.https.onRequest({
   invoker: 'public',
   handler: app
 });
-
-const firebaseFunctionUrl = "https://patreonauth-vapvabofwq-uc.a.run.app";
