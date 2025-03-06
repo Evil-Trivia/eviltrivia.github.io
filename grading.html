@@ -1930,11 +1930,34 @@
 
                 // Update the table
                 const tableBody = document.getElementById('breakdownTableBody');
+                
+                // Check if the table header has the percentage column, add it if not
+                const tableHeader = document.querySelector('#breakdownTable thead tr');
+                if (tableHeader && !tableHeader.querySelector('th[data-sort="percentage"]')) {
+                    const percentageHeader = document.createElement('th');
+                    percentageHeader.classList.add('sortable');
+                    percentageHeader.setAttribute('data-sort', 'percentage');
+                    percentageHeader.textContent = '% Correct';
+                    tableHeader.appendChild(percentageHeader);
+                    
+                    // Add event listener for the new column
+                    percentageHeader.addEventListener('click', () => {
+                        sortTable('percentage');
+                    });
+                }
+                
                 tableBody.innerHTML = breakdownData.map(row => {
                     // Only show rows with at least one team
                     const hasTeams = row.totalTeams > 0;
                     const rightCount = Math.max(0, row.right).toFixed(1);
                     const wrongCount = Math.max(0, row.wrong).toFixed(1);
+                    
+                    // Calculate percentage correct
+                    let percentCorrect = 0;
+                    if (hasTeams && (row.right + row.wrong > 0)) {
+                        percentCorrect = (row.right / (row.right + row.wrong)) * 100;
+                    }
+                    const percentFormatted = percentCorrect.toFixed(1) + '%';
                     
                     return `
                         <tr class="${hasTeams ? '' : 'no-data'}">
@@ -1946,6 +1969,7 @@
                             <td class="question-cell">${row.answer}</td>
                             <td>${hasTeams ? rightCount : '-'}</td>
                             <td>${hasTeams ? wrongCount : '-'}</td>
+                            <td>${hasTeams ? percentFormatted : '-'}</td>
                         </tr>
                     `;
                 }).join('');
