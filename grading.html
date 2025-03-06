@@ -1750,38 +1750,53 @@
                 const currentSession = sessionSnap.val();
                 const triviaNumber = currentSession.triviaNumber;
 
+                console.log("Loading breakdown for trivia number:", triviaNumber);
+
                 // Get question metadata from trivia-archive for all rounds
                 const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia`));
                 if (!triviaSnap.exists()) {
                     throw new Error("Trivia not found");
                 }
                 const triviaData = triviaSnap.val();
+                console.log("Trivia data structure:", Object.keys(triviaData));
 
                 // Create a map of question numbers to their metadata, including round info
                 const questionMetadata = {};
+                const possibleFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
                 
                 // Loop through all rounds (1, 2, 3)
-                for (const [round, roundData] of Object.entries(triviaData)) {
-                    for (const [format, formatData] of Object.entries(roundData)) {
-                        for (const [qNum, question] of Object.entries(formatData)) {
-                            const questionNum = question.Question_Number || parseInt(qNum);
-                            const questionKey = `r${round}_q${questionNum}`;  // Use round + question as unique key
+                for (const round of Object.keys(triviaData)) {
+                    console.log(`Processing Round ${round}, formats:`, Object.keys(triviaData[round]));
+                    
+                    // Ensure we check all possible formats for this round
+                    for (const format of possibleFormats) {
+                        if (triviaData[round][format]) {
+                            console.log(`Found ${format} questions in Round ${round}`);
                             
-                            questionMetadata[questionKey] = {
-                                format,
-                                round,
-                                order: question.Order || 1,
-                                number: questionNum,
-                                question: question.Question || '',
-                                answer: question.Answer || '',
-                                pointValue: parseFloat(question['Point Value'] || 0),
-                                right: 0,
-                                wrong: 0,
-                                totalTeams: 0
-                            };
+                            for (const [qNum, question] of Object.entries(triviaData[round][format])) {
+                                // Use the question number if it exists, otherwise use the key
+                                const questionNum = question.Question_Number || parseInt(qNum);
+                                // Create a unique key for this question using round and question number
+                                const questionKey = `r${round}_f${format}_q${questionNum}`;
+                                
+                                questionMetadata[questionKey] = {
+                                    format,
+                                    round,
+                                    order: question.Order || 1,
+                                    number: questionNum,
+                                    question: question.Question || '',
+                                    answer: question.Answer || '',
+                                    pointValue: parseFloat(question['Point Value'] || 0),
+                                    right: 0,
+                                    wrong: 0,
+                                    totalTeams: 0
+                                };
+                            }
                         }
                     }
                 }
+
+                console.log(`Total questions found: ${Object.keys(questionMetadata).length}`);
 
                 // Get teams from current session
                 const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
@@ -1790,6 +1805,7 @@
                 }
                 
                 const teams = teamsSnap.val();
+                console.log(`Processing scores for ${Object.keys(teams).length} teams`);
                 
                 // Process all team scores
                 Object.values(teams).forEach(team => {
@@ -1802,22 +1818,36 @@
                                 // Extract the question number from the key (format: "q1", "q2", etc.)
                                 const questionNum = parseInt(qKey.replace('q', ''));
                                 
-                                // Create the unique question key using round and question number
-                                const fullQuestionKey = `r${roundNum}_q${questionNum}`;
+                                // Try to find the question in our metadata
+                                // We need to check each format since we don't know which format this question belongs to
+                                let found = false;
                                 
-                                if (questionMetadata[fullQuestionKey]) {
-                                    const metadata = questionMetadata[fullQuestionKey];
-                                    const maxPoints = metadata.pointValue;
+                                for (const format of possibleFormats) {
+                                    const possibleKey = `r${roundNum}_f${format}_q${questionNum}`;
                                     
-                                    if (maxPoints > 0) {
-                                        const scoreValue = parseFloat(score);
-                                        const percentage = scoreValue / maxPoints;
+                                    if (questionMetadata[possibleKey]) {
+                                        found = true;
+                                        const metadata = questionMetadata[possibleKey];
+                                        const maxPoints = metadata.pointValue;
                                         
-                                        // Update right/wrong counts based on percentage
-                                        metadata.right += percentage;
-                                        metadata.wrong += (1 - percentage);
-                                        metadata.totalTeams += 1;
+                                        if (maxPoints > 0) {
+                                            const scoreValue = parseFloat(score);
+                                            // Calculate percentage correctly - capped at 100%
+                                            const percentage = Math.min(scoreValue / maxPoints, 1);
+                                            
+                                            // Update right/wrong counts based on percentage
+                                            metadata.right += percentage;
+                                            metadata.wrong += (1 - percentage);
+                                            metadata.totalTeams += 1;
+                                        }
+                                        
+                                        // We found the matching question, no need to check other formats
+                                        break;
                                     }
+                                }
+                                
+                                if (!found) {
+                                    console.log(`Warning: Could not find metadata for question ${qKey} in round ${roundNum}`);
                                 }
                             });
                         }
@@ -1826,11 +1856,20 @@
 
                 // Convert the metadata object to an array for display
                 const breakdownData = Object.values(questionMetadata);
+                console.log(`Prepared ${breakdownData.length} rows for display`);
 
                 // Sort the data by round, then order, then question number
                 breakdownData.sort((a, b) => {
                     if (a.round !== b.round) return parseInt(a.round) - parseInt(b.round);
-                    if (a.order !== b.order) return a.order - b.order;
+                    // Format order: Written, Visual, Music, Fill-In, Puzzle
+                    const formatOrder = { 
+                        'Written': 1, 
+                        'Visual': 2, 
+                        'Music': 3, 
+                        'Fill-In': 4, 
+                        'Puzzle': 5 
+                    };
+                    if (a.format !== b.format) return formatOrder[a.format] - formatOrder[b.format];
                     return a.number - b.number;
                 });
 
@@ -1844,10 +1883,18 @@
                         <td>${row.number}</td>
                         <td class="question-cell">${row.question}</td>
                         <td class="question-cell">${row.answer}</td>
-                        <td>${row.right.toFixed(1)}</td>
-                        <td>${row.wrong.toFixed(1)}</td>
+                        <td>${Math.max(0, row.right).toFixed(1)}</td>
+                        <td>${Math.max(0, row.wrong).toFixed(1)}</td>
                     </tr>
                 `).join('');
+
+                // Add event listeners for sortable columns
+                document.querySelectorAll('#breakdownTable th.sortable').forEach(th => {
+                    th.addEventListener('click', () => {
+                        const column = th.dataset.sort;
+                        sortTable(column);
+                    });
+                });
 
             } catch (error) {
                 console.error("Error loading trivia breakdown:", error);
@@ -1948,6 +1995,12 @@
                 // Use the same handler as the top button
                 document.getElementById('btnSaveGrades').click();
             });
+            
+            // Make sure the return from breakdown button works
+            document.getElementById('btnReturnFromBreakdown').addEventListener('click', async () => {
+                await loadRubricScores();
+                showScreen('screenRubric');
+            });
         });
 
         // Add these functions at the start of your script
@@ -2044,12 +2097,6 @@
                 alert("Error loading existing sessions. Please try again.");
             }
         }
-
-        // Update the return from breakdown button handler
-        document.getElementById('btnReturnFromBreakdown').addEventListener('click', async () => {
-            await loadRubricScores();
-            showScreen('screenRubric');
-        });
     </script>
 </body>
 </html>
