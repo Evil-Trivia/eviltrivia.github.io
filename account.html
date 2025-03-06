@@ -435,16 +435,40 @@
     // Load Patreon user data
     async function loadPatreonData(patreonId) {
       try {
+        console.log('Loading Patreon data for ID:', patreonId);
+        
         // Get Patreon user info from the database
         const snapshot = await db.ref(`patreonUsers/${patreonId}`).once('value');
         const patreonUserData = snapshot.val();
         
         if (!patreonUserData) {
-          // No Patreon data found
-          patreonLoading.classList.add('hidden');
-          patreonNotConnected.classList.remove('hidden');
-          return;
+          console.log('No Patreon data found in Firebase, checking localStorage');
+          // No Patreon data found in Firebase
+          if (localStorage.getItem('patreonAuthenticated') === 'true') {
+            console.log('Patreon authenticated via localStorage');
+            // We have authentication from localStorage, show minimal connected state
+            patreonName.textContent = 'Patreon User';
+            patreonEmail.textContent = 'Authentication via localStorage';
+            patreonTier.textContent = 'Unknown';
+            patreonTierBadge.textContent = 'Connected';
+            patreonPledge.textContent = '0.00';
+            patreonStatus.textContent = 'Status Unknown';
+            
+            // Show the connected state with limited info
+            patreonLoading.classList.add('hidden');
+            patreonNotConnected.classList.add('hidden');
+            patreonConnected.classList.remove('hidden');
+            return;
+          } else {
+            // No patreon data anywhere, show not connected
+            patreonLoading.classList.add('hidden');
+            patreonNotConnected.classList.remove('hidden');
+            patreonConnected.classList.add('hidden');
+            return;
+          }
         }
+        
+        console.log('Found Patreon user data:', patreonUserData);
         
         // Update Patreon UI elements
         patreonName.textContent = patreonUserData.fullName || 'Patron';
@@ -476,8 +500,26 @@
         
       } catch (error) {
         console.error('Error loading Patreon data:', error);
-        patreonLoading.classList.add('hidden');
-        patreonNotConnected.classList.remove('hidden');
+        
+        // Check if we have a localStorage backup
+        if (localStorage.getItem('patreonAuthenticated') === 'true') {
+          console.log('Falling back to localStorage Patreon authentication');
+          // Show minimal connected state
+          patreonName.textContent = 'Patreon User';
+          patreonEmail.textContent = 'Error loading full details';
+          patreonTier.textContent = 'Unknown';
+          patreonTierBadge.textContent = 'Connected';
+          patreonPledge.textContent = '0.00';
+          patreonStatus.textContent = 'Status Unknown';
+          
+          patreonLoading.classList.add('hidden');
+          patreonNotConnected.classList.add('hidden');
+          patreonConnected.classList.remove('hidden');
+        } else {
+          patreonLoading.classList.add('hidden');
+          patreonNotConnected.classList.remove('hidden');
+          patreonConnected.classList.add('hidden');
+        }
       }
     }
     
@@ -550,6 +592,24 @@
         
         // Display Evil Trivia user info
         await displayTriviaUserInfo(user);
+        
+        // Also check for Patreon ID in localStorage as a fallback
+        const patreonId = localStorage.getItem('patreonUserId');
+        if (patreonId) {
+          console.log('Found Patreon ID in localStorage:', patreonId);
+          // First check if user already has patreonId in their data
+          const userSnapshot = await db.ref(`users/${user.uid}`).once('value');
+          const userData = userSnapshot.val() || {};
+          
+          if (!userData.patreonId) {
+            // Update user data with Patreon ID
+            console.log('Updating user with Patreon ID from localStorage');
+            await db.ref(`users/${user.uid}/patreonId`).set(patreonId);
+          }
+          
+          // Ensure we load Patreon data
+          loadPatreonData(patreonId);
+        }
       } else {
         // User is signed out, show sign-in options for both services
         console.log('User is signed out, showing sign-in options');
@@ -578,14 +638,20 @@
       const tokenError = urlParams.get('token_error');
       
       if (authSuccess === 'true' && patreonId) {
+        console.log('Patreon auth successful with ID:', patreonId);
         // Store Patreon ID
         localStorage.setItem('patreonUserId', patreonId);
+        localStorage.setItem('patreonAuthenticated', 'true');
         
         // If we have a Firebase token, sign in with it
         if (firebaseToken) {
           auth.signInWithCustomToken(firebaseToken)
             .then(() => {
               console.log('Signed in with custom token');
+              // Immediately check for user data
+              if (auth.currentUser) {
+                displayTriviaUserInfo(auth.currentUser);
+              }
             })
             .catch(error => {
               console.error('Error signing in with custom token:', error);
