@@ -1678,6 +1678,10 @@
                 const questionScores = {};
                 const triviaUpdates = {};
 
+                // First, get existing question scores to preserve any that aren't being updated
+                const existingScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`));
+                const existingScores = existingScoresSnap.exists() ? existingScoresSnap.val() : {};
+                
                 // Process each question
                 for (const row of rows) {
                     const scoreButtons = row.querySelector('.score-buttons');
@@ -1707,13 +1711,14 @@
                         triviaUpdates[`${questionPath}/Total Possible Points`] = parseFloat((currentTotalPossible + maxPoints).toFixed(2));
                     }
                 }
+                
+                // Merge existing scores with new ones
+                const mergedScores = {...existingScores, ...questionScores};
 
                 // Create all updates object
                 const updates = {
-                    [`grading/${sessionId}/teams/${teamId}/round${roundNum}`]: {
-                        total: parseFloat(totalPoints.toFixed(2)),
-                        questions: questionScores
-                    },
+                    [`grading/${sessionId}/teams/${teamId}/round${roundNum}/total`]: parseFloat(totalPoints.toFixed(2)),
+                    [`grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`]: mergedScores,
                     ...triviaUpdates
                 };
 
@@ -1731,6 +1736,7 @@
                 
                 // Update live score display
                 document.getElementById('liveScore').textContent = '0.00';
+                document.getElementById('liveScoreBottom').textContent = '0.00';
                 
             } catch (error) {
                 console.error("Error saving grades:", error);
