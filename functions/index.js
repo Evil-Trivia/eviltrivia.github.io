@@ -245,6 +245,16 @@ app.get('/auth/patreon/callback', async (req, res) => {
       }
     }
     
+    // Get pledge amount from membership data if available
+    const pledgeAmountCents = activeMembership && 
+      activeMembership.attributes && 
+      activeMembership.attributes.currently_entitled_amount_cents
+        ? activeMembership.attributes.currently_entitled_amount_cents
+        : 0;
+    
+    // Convert to dollars for readability
+    const pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
+    
     // Prepare data for database
     const patreonUserId = userData.id;
     const userInfo = {
@@ -254,6 +264,8 @@ app.get('/auth/patreon/callback', async (req, res) => {
       imageUrl: userData.attributes.image_url,
       lastUpdated: admin.database.ServerValue.TIMESTAMP,
       isActiveMember: !!activeMembership,
+      pledgeAmountCents: pledgeAmountCents,
+      pledgeAmountDollars: pledgeAmountDollars,
       membershipData: activeMembership,
       // Store tokens securely for future API calls
       tokens: {
@@ -296,7 +308,11 @@ app.get('/auth/patreon/callback', async (req, res) => {
       
       // Link accounts
       await admin.database().ref(`patreonUsers/${patreonUserId}/firebaseUid`).set(firebaseUid);
-      await admin.database().ref(`users/${firebaseUid}/patreonId`).set(patreonUserId);
+      await admin.database().ref(`users/${firebaseUid}`).update({
+        patreonId: patreonUserId,
+        patronStatus: !!activeMembership ? 'active' : 'inactive',
+        patreonPledgeAmount: pledgeAmountDollars
+      });
     }
     
     try {
@@ -308,10 +324,11 @@ app.get('/auth/patreon/callback', async (req, res) => {
       const encodedEmail = encodeURIComponent(userData.attributes.email || '');
       const encodedImage = encodeURIComponent(userData.attributes.image_url || '');
       const encodedTier = encodeURIComponent(activeMembership?.attributes?.patron_status || 'Connected');
+      const encodedPledgeAmount = encodeURIComponent(pledgeAmountDollars);
       
       // Redirect back to the returnUrl or default to patreon.html
       const returnUrl = stateData.returnUrl || '/patreon.html';
-      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}&patreon_name=${encodedName}&patreon_email=${encodedEmail}&patreon_image=${encodedImage}&patreon_tier=${encodedTier}`);
+      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}&patreon_name=${encodedName}&patreon_email=${encodedEmail}&patreon_image=${encodedImage}&patreon_tier=${encodedTier}&patreon_pledge=${encodedPledgeAmount}`);
     } catch (tokenError) {
       console.error('Error creating custom token:', tokenError);
       // If we can't create a custom token, we can still redirect with Patreon success
@@ -323,8 +340,9 @@ app.get('/auth/patreon/callback', async (req, res) => {
       const encodedEmail = encodeURIComponent(userData.attributes.email || '');
       const encodedImage = encodeURIComponent(userData.attributes.image_url || '');
       const encodedTier = encodeURIComponent(activeMembership?.attributes?.patron_status || 'Connected');
+      const encodedPledgeAmount = encodeURIComponent(pledgeAmountDollars);
       
-      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&token_error=true&patreon_name=${encodedName}&patreon_email=${encodedEmail}&patreon_image=${encodedImage}&patreon_tier=${encodedTier}`);
+      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&token_error=true&patreon_name=${encodedName}&patreon_email=${encodedEmail}&patreon_image=${encodedImage}&patreon_tier=${encodedTier}&patreon_pledge=${encodedPledgeAmount}`);
     }
     
   } catch (error) {
@@ -446,14 +464,24 @@ async function handlePledgeEvent(data, included, isActive) {
     
     const userId = data.relationships.user.data.id;
     
+    // Get pledge amount from attributes if available
+    const pledgeAmountCents = isActive && data.attributes && data.attributes.currently_entitled_amount_cents
+        ? data.attributes.currently_entitled_amount_cents
+        : 0;
+    
+    // Convert cents to dollars for readability
+    const pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
+    
     // Update user's membership status
     await admin.database().ref(`patreonUsers/${userId}`).update({
       isActiveMember: isActive,
       membershipData: data,
+      pledgeAmountCents: pledgeAmountCents,
+      pledgeAmountDollars: pledgeAmountDollars,
       lastUpdated: admin.database.ServerValue.TIMESTAMP
     });
     
-    console.log(`Updated member ${userId} with active status: ${isActive}`);
+    console.log(`Updated member ${userId} with active status: ${isActive} and pledge amount: $${pledgeAmountDollars}`);
     
     // Optionally, update any Firebase user records linked to this Patreon user
     const snapshot = await admin.database().ref(`patreonUsers/${userId}/firebaseUid`).once('value');
@@ -462,10 +490,11 @@ async function handlePledgeEvent(data, included, isActive) {
     if (firebaseUid) {
       await admin.database().ref(`users/${firebaseUid}`).update({
         patronStatus: isActive ? 'active' : 'inactive',
+        patreonPledgeAmount: pledgeAmountDollars,
         lastPatronStatusUpdate: admin.database.ServerValue.TIMESTAMP
       });
       
-      console.log(`Updated Firebase user ${firebaseUid} with patron status: ${isActive ? 'active' : 'inactive'}`);
+      console.log(`Updated Firebase user ${firebaseUid} with patron status: ${isActive ? 'active' : 'inactive'} and pledge amount: $${pledgeAmountDollars}`);
     }
   } catch (error) {
     console.error('Error handling pledge event:', error);
