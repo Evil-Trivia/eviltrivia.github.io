@@ -165,6 +165,7 @@
 
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script>
     /************************************************
@@ -183,6 +184,7 @@
     
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
+    const auth = firebase.auth();
 
     // Your Cloud Function URL 
     const firebaseFunctionUrl = "https://patreonauth-vapvabofwq-uc.a.run.app";
@@ -334,30 +336,100 @@
     }
 
     /************************************************
-     * 6) CHECK AUTHENTICATION ON PAGE LOAD
+     * 6) FIREBASE AUTH STATE CHANGE LISTENER
+     ************************************************/
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        console.log('[INFO] User is signed in with Firebase', user.uid);
+        // User is signed in, check if they have Patreon data
+        const patreonUserId = localStorage.getItem('patreonUserId');
+        
+        if (patreonUserId) {
+          // Check membership status
+          const membershipStatus = await verifyMembership(patreonUserId);
+          updateUI(membershipStatus);
+        } else {
+          // No Patreon ID, show login
+          await loadAdminSettings();
+          updateUI({ isAuthenticated: false });
+        }
+      } else {
+        console.log('[INFO] No user is signed in with Firebase');
+        // No user is signed in, show login page
+        await loadAdminSettings();
+        updateUI({ isAuthenticated: false });
+      }
+    });
+
+    /************************************************
+     * 7) CHECK AUTHENTICATION ON PAGE LOAD
      ************************************************/
     async function checkAuth() {
       // Show loading first
       loadingSection.classList.remove('hidden');
       
-      // Check local storage for auth data
-      const isAuthenticated = localStorage.getItem('patreonAuthenticated') === 'true';
-      const patreonUserId = localStorage.getItem('patreonUserId');
-      
-      // If not authenticated, show login
-      if (!isAuthenticated || !patreonUserId) {
-        await loadAdminSettings(); // Load settings to display requirements
-        updateUI({ isAuthenticated: false });
+      // Check if user is already signed in with Firebase
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        console.log('[INFO] User already signed in:', currentUser.uid);
+        // User is already authenticated with Firebase, check Patreon status
+        const patreonUserId = localStorage.getItem('patreonUserId');
+        if (patreonUserId) {
+          const membershipStatus = await verifyMembership(patreonUserId);
+          updateUI(membershipStatus);
+        } else {
+          updateUI({ isAuthenticated: false });
+        }
         return;
       }
       
-      // Check membership status
-      const membershipStatus = await verifyMembership(patreonUserId);
-      updateUI(membershipStatus);
+      // Check URL params for custom token from redirect
+      const urlParams = new URLSearchParams(window.location.search);
+      const customToken = urlParams.get('firebase_token');
+      
+      if (customToken) {
+        try {
+          // Sign in with the custom token
+          await auth.signInWithCustomToken(customToken);
+          console.log('[INFO] Signed in with custom token');
+          
+          // Remove token from URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (error) {
+          console.error('[ERROR] Error signing in with custom token:', error);
+          updateUI({ isAuthenticated: false });
+        }
+      } else {
+        // No token, check if we have a Patreon ID but no Firebase auth
+        const patreonUserId = localStorage.getItem('patreonUserId');
+        if (patreonUserId) {
+          try {
+            // Try to get a custom token from the server for this Patreon user
+            const response = await fetch(`${firebaseFunctionUrl}/getCustomToken?patreonId=${patreonUserId}`);
+            const data = await response.json();
+            
+            if (data.token) {
+              // Sign in with the token
+              await auth.signInWithCustomToken(data.token);
+              console.log('[INFO] Signed in with custom token for existing Patreon user');
+            } else {
+              // No token received, show login
+              updateUI({ isAuthenticated: false });
+            }
+          } catch (error) {
+            console.error('[ERROR] Failed to get custom token:', error);
+            updateUI({ isAuthenticated: false });
+          }
+        } else {
+          // No auth data, show login
+          await loadAdminSettings();
+          updateUI({ isAuthenticated: false });
+        }
+      }
     }
 
     /************************************************
-     * 7) HANDLE PATREON LOGIN
+     * 8) HANDLE PATREON LOGIN
      ************************************************/
     loginBtn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -366,19 +438,26 @@
     });
 
     /************************************************
-     * 8) HANDLE LOGOUT
+     * 9) HANDLE LOGOUT
      ************************************************/
     function logout() {
       localStorage.removeItem('patreonAuthenticated');
       localStorage.removeItem('patreonUserId');
-      checkAuth();
+      
+      // Sign out from Firebase
+      auth.signOut().then(() => {
+        console.log('[INFO] User signed out');
+        checkAuth();
+      }).catch(error => {
+        console.error('[ERROR] Sign out error:', error);
+      });
     }
     
     logoutBtn.addEventListener('click', logout);
     logoutBtn2.addEventListener('click', logout);
 
     /************************************************
-     * 9) HANDLE URL PARAMETERS FROM CALLBACK
+     * 10) HANDLE URL PARAMETERS FROM CALLBACK
      ************************************************/
     function checkUrlParams() {
       const urlParams = new URLSearchParams(window.location.search);
@@ -390,13 +469,16 @@
         localStorage.setItem('patreonAuthenticated', 'true');
         localStorage.setItem('patreonUserId', patreonId);
         
-        // Remove URL parameters
-        window.history.replaceState({}, document.title, window.location.pathname);
+        // Remove these URL parameters but keep any firebase_token
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('auth_success');
+        newUrl.searchParams.delete('patreon_id');
+        window.history.replaceState({}, document.title, newUrl.toString());
       }
     }
 
     /************************************************
-     * 10) INITIALIZE
+     * 11) INITIALIZE
      ************************************************/
     document.addEventListener('DOMContentLoaded', async () => {
       checkUrlParams();
