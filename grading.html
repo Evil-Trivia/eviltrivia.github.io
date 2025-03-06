@@ -1840,126 +1840,73 @@
 
                 console.log(`Total questions found: ${Object.keys(questionMetadata).length}`);
 
-                // Get teams from current session
-                const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
-                if (!teamsSnap.exists()) {
-                    throw new Error("No teams found in session");
-                }
-                
-                const teams = teamsSnap.val();
-                console.log(`Processing scores for ${Object.keys(teams).length} teams`);
-                
-                // DEBUG: Log the first team's round data structure to see how it's organized
-                if (Object.values(teams).length > 0) {
-                    const sampleTeam = Object.values(teams)[0];
-                    console.log("Sample team data structure:", JSON.stringify({
-                        round1: sampleTeam.round1 ? Object.keys(sampleTeam.round1) : null,
-                        round2: sampleTeam.round2 ? Object.keys(sampleTeam.round2) : null,
-                        round3: sampleTeam.round3 ? Object.keys(sampleTeam.round3) : null
-                    }));
-                    if (sampleTeam.round1 && sampleTeam.round1.questions) {
-                        console.log("Sample question keys in round1:", Object.keys(sampleTeam.round1.questions));
+                // Get sessions to analyze based on scope
+                let sessionsToAnalyze = [];
+                if (scope === 'session') {
+                    sessionsToAnalyze = [currentSessionId];
+                } else if (scope === 'all') {
+                    // Get all sessions with the same trivia number
+                    const allSessionsSnap = await get(child(ref(db), 'grading'));
+                    if (allSessionsSnap.exists()) {
+                        const allSessions = allSessionsSnap.val();
+                        sessionsToAnalyze = Object.keys(allSessions).filter(sid => 
+                            allSessions[sid].triviaNumber === triviaNumber);
                     }
                 }
                 
-                // Create an exact mapping of question formats by round and number
-                const formatByRoundAndNumber = {};
-                for (const [id, metadata] of Object.entries(questionMetadata)) {
-                    const round = metadata.round;
-                    const number = metadata.number;
+                console.log(`Analyzing ${sessionsToAnalyze.length} sessions:`, sessionsToAnalyze);
+
+                // Process all sessions
+                for (const sessionId of sessionsToAnalyze) {
+                    // Get teams from this session
+                    const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
+                    if (!teamsSnap.exists()) continue;
                     
-                    if (!formatByRoundAndNumber[round]) {
-                        formatByRoundAndNumber[round] = {};
-                    }
-                    formatByRoundAndNumber[round][number] = metadata.format;
-                }
-                
-                console.log("Format mapping by round and number:", formatByRoundAndNumber);
-                
-                // Process all team scores
-                Object.values(teams).forEach(team => {
-                    // Process each round
-                    for (let roundNum = 1; roundNum <= 3; roundNum++) {
-                        const roundKey = `round${roundNum}`;
-                        if (team[roundKey] && team[roundKey].questions) {
-                            console.log(`Processing ${Object.keys(team[roundKey].questions).length} questions in ${roundKey} for team`);
+                    const teams = teamsSnap.val();
+                    console.log(`Processing scores for ${Object.keys(teams).length} teams in session ${sessionId}`);
+                    
+                    // Process all team scores
+                    for (const [teamId, team] of Object.entries(teams)) {
+                        // Process each round
+                        for (let roundNum = 1; roundNum <= 3; roundNum++) {
+                            const roundKey = `round${roundNum}`;
+                            if (!team[roundKey]) continue;
                             
-                            // Process each question in the round
-                            Object.entries(team[roundKey].questions).forEach(([qKey, score]) => {
-                                // Extract the question number from the key (format: "q1", "q2", etc.)
-                                const questionNum = parseInt(qKey.replace('q', ''));
+                            const roundData = team[roundKey];
+                            console.log(`Processing round ${roundNum} for team ${teamId}`);
+                            
+                            // Process each format in this round
+                            for (const format of possibleFormats) {
+                                if (!roundData[format]) continue;
                                 
-                                // Find the format for this question
-                                const round = roundNum.toString();
-                                const format = formatByRoundAndNumber[round]?.[questionNum];
-                                
-                                if (format) {
+                                // Process each question in this format
+                                for (const [questionNumStr, questionData] of Object.entries(roundData[format])) {
+                                    // Skip non-numeric keys
+                                    if (isNaN(parseInt(questionNumStr))) continue;
+                                    
+                                    const questionNum = parseInt(questionNumStr);
+                                    
                                     // Build the question ID
-                                    const questionId = `r${round}_f${format}_q${questionNum}`;
+                                    const questionId = `r${roundNum}_f${format}_q${questionNum}`;
                                     const metadata = questionMetadata[questionId];
                                     
                                     if (metadata) {
                                         // Process the score
-                                        const maxPoints = metadata.pointValue;
-                                        if (maxPoints > 0) {
-                                            const scoreValue = parseFloat(score);
-                                            // Calculate percentage correctly - capped at 100%
-                                            const percentage = Math.min(scoreValue / maxPoints, 1);
-                                            
-                                            // Update right/wrong counts based on percentage
-                                            metadata.right += percentage;
-                                            metadata.wrong += (1 - percentage);
-                                            metadata.totalTeams += 1;
-                                        }
-                                    } else {
-                                        console.log(`Warning: Found format ${format} for q${questionNum} in round ${round} but no matching metadata`);
-                                    }
-                                } else {
-                                    console.log(`Warning: Could not determine format for q${questionNum} in round ${round}`);
-                                }
-                            });
-                        }
-                    }
-                });
-
-                // If we still have issues, let's try a more aggressive approach - directly match by question number only
-                const questionsWithNoData = Object.values(questionMetadata).filter(q => q.totalTeams === 0);
-                if (questionsWithNoData.length > 0) {
-                    console.log(`${questionsWithNoData.length} questions still have no data, trying fallback approach`);
-                    
-                    // Second pass: Process all team scores again, but match only by round and question number
-                    Object.values(teams).forEach(team => {
-                        for (let roundNum = 1; roundNum <= 3; roundNum++) {
-                            const roundKey = `round${roundNum}`;
-                            if (team[roundKey] && team[roundKey].questions) {
-                                Object.entries(team[roundKey].questions).forEach(([qKey, score]) => {
-                                    const questionNum = parseInt(qKey.replace('q', ''));
-                                    const round = roundNum.toString();
-                                    
-                                    // Find all questions in this round with this number
-                                    const matchingQuestions = Object.values(questionMetadata).filter(q => 
-                                        q.round === round && q.number === questionNum && q.totalTeams === 0);
-                                    
-                                    if (matchingQuestions.length > 0) {
-                                        // Use the first one (or the only one)
-                                        const metadata = matchingQuestions[0];
-                                        const maxPoints = metadata.pointValue;
+                                        const percentage = questionData.percentage / 100;
                                         
-                                        if (maxPoints > 0) {
-                                            const scoreValue = parseFloat(score);
-                                            const percentage = Math.min(scoreValue / maxPoints, 1);
-                                            
-                                            metadata.right += percentage;
-                                            metadata.wrong += (1 - percentage);
-                                            metadata.totalTeams += 1;
-                                            
-                                            console.log(`Fallback: Added score for ${metadata.format} q${questionNum} in round ${round}`);
-                                        }
+                                        // Update right/wrong counts based on percentage
+                                        metadata.right += percentage;
+                                        metadata.wrong += (1 - percentage);
+                                        metadata.totalTeams += 1;
+                                        
+                                        console.log(`Added score for ${format} q${questionNum} in round ${roundNum}: ${percentage * 100}%`);
+                                    } else {
+                                        console.log(`Warning: No metadata found for ${questionId}`);
                                     }
-                                });
+                                }
                             }
                         }
-                    });
+                    }
                 }
 
                 // Convert the metadata object to an array for display
