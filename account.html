@@ -200,9 +200,36 @@
             <!-- Not Logged In State -->
             <div id="trivia-not-logged-in" class="hidden">
               <div class="not-logged-in-message">
-                <p>Sign in to access your Evil Trivia account.</p>
-                <div id="firebaseui-auth-container"></div>
-                <button id="trivia-login-btn" class="btn">Sign In</button>
+                <div id="login-section">
+                  <p>Sign in to access your Evil Trivia account.</p>
+                  <div id="firebaseui-auth-container"></div>
+                  <button id="trivia-login-btn" class="btn">Sign In</button>
+                  
+                  <p style="margin-top: 20px;">Don't have an account? <a href="#" id="show-registration-link" style="color: #333; text-decoration: underline;">Sign up</a></p>
+                </div>
+                
+                <div id="registration-section" style="display: none;">
+                  <p>Create your Evil Trivia account.</p>
+                  <div id="registration-form" style="text-align: left; margin-top: 15px;">
+                    <div style="margin-bottom: 10px;">
+                      <label for="reg-email" style="display: block; margin-bottom: 5px;">Email:</label>
+                      <input type="email" id="reg-email" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                      <label for="reg-password" style="display: block; margin-bottom: 5px;">Password:</label>
+                      <input type="password" id="reg-password" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                      <label for="reg-code" style="display: block; margin-bottom: 5px;">Registration Code:</label>
+                      <input type="text" id="reg-code" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
+                      <small style="display: block; color: #666; margin-top: 3px;">Required for account creation</small>
+                    </div>
+                    <button id="register-btn" class="btn" style="width: 100%;">Create Account</button>
+                    <p id="registration-error" style="color: red; margin-top: 10px; display: none;"></p>
+                    
+                    <p style="margin-top: 20px;">Already have an account? <a href="#" id="show-login-link" style="color: #333; text-decoration: underline;">Sign in</a></p>
+                  </div>
+                </div>
               </div>
             </div>
             
@@ -363,15 +390,26 @@
     // Firebase Auth UI configuration
     const uiConfig = {
       signInOptions: [
-        firebase.auth.EmailAuthProvider.PROVIDER_ID,
-        firebase.auth.GoogleAuthProvider.PROVIDER_ID
+        {
+          provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
+          requireDisplayName: false,
+          // Force account selection every time to avoid the credential helper
+          // and ensure we can properly enforce registration codes
+          disableSignUp: {
+            status: true,
+            adminEmail: "admin@eviltrivia.com"
+          }
+        }
       ],
       callbacks: {
         signInSuccessWithAuthResult: function(authResult, redirectUrl) {
           // Don't redirect after sign-in
           return false;
         }
-      }
+      },
+      // Show sign-in flows rather than sign-up as the default
+      signInFlow: 'popup',
+      credentialHelper: firebaseui.auth.CredentialHelper.NONE
     };
     
     // Format date in a readable format
@@ -454,15 +492,27 @@
           // No Patreon data found in Firebase
           if (localStorage.getItem('patreonAuthenticated') === 'true') {
             console.log('Patreon authenticated via localStorage');
-            // We have authentication from localStorage, show minimal connected state
-            patreonName.textContent = 'Patreon User';
-            patreonEmail.textContent = 'Authenticated via Patreon';
-            patreonTier.textContent = 'Unknown';
-            patreonTierBadge.textContent = 'Connected';
-            patreonPledge.textContent = '0.00';
-            patreonStatus.textContent = 'Status Unknown';
             
-            // Show the connected state with limited info
+            // Check if we have any saved Patreon user info
+            const savedName = localStorage.getItem('patreonFullName');
+            const savedEmail = localStorage.getItem('patreonEmail');
+            const savedTier = localStorage.getItem('patreonTier');
+            const savedImageUrl = localStorage.getItem('patreonImageUrl');
+            
+            // We have authentication from localStorage, show connected state with available info
+            patreonName.textContent = savedName || 'Patreon User';
+            patreonEmail.textContent = savedEmail || 'Authenticated via Patreon';
+            patreonTier.textContent = savedTier || 'Connected';
+            patreonTierBadge.textContent = savedTier || 'Connected';
+            patreonPledge.textContent = '0.00';
+            patreonStatus.textContent = 'Active'; // If we have localStorage auth, user is likely active
+            
+            // Set profile picture if available
+            if (savedImageUrl) {
+              patreonProfilePic.src = savedImageUrl;
+            }
+            
+            // Show the connected state
             patreonLoading.classList.add('hidden');
             patreonNotConnected.classList.add('hidden');
             patreonConnected.classList.remove('hidden');
@@ -478,6 +528,16 @@
         
         console.log('Found Patreon user data:', patreonUserData);
         
+        // Save essential Patreon info to localStorage for fallback
+        localStorage.setItem('patreonFullName', patreonUserData.fullName || '');
+        localStorage.setItem('patreonEmail', patreonUserData.email || '');
+        localStorage.setItem('patreonImageUrl', patreonUserData.imageUrl || '');
+        
+        if (patreonUserData.membershipData && patreonUserData.membershipData.attributes) {
+          const attrs = patreonUserData.membershipData.attributes;
+          localStorage.setItem('patreonTier', attrs.patron_status || 'Connected');
+        }
+        
         // Update Patreon UI elements
         patreonName.textContent = patreonUserData.fullName || 'Patron';
         patreonEmail.textContent = patreonUserData.email || 'No email provided';
@@ -490,7 +550,7 @@
         const attributes = membership.attributes || {};
         
         // Set tier info
-        const patronStatus = attributes.patron_status || 'Not Active';
+        const patronStatus = attributes.patron_status || 'Connected';
         patreonTier.textContent = patronStatus;
         patreonTierBadge.textContent = patronStatus;
         
@@ -512,13 +572,25 @@
         // Check if we have a localStorage backup
         if (localStorage.getItem('patreonAuthenticated') === 'true') {
           console.log('Falling back to localStorage Patreon authentication');
-          // Show minimal connected state
-          patreonName.textContent = 'Patreon User';
-          patreonEmail.textContent = 'Error loading full details';
-          patreonTier.textContent = 'Unknown';
-          patreonTierBadge.textContent = 'Connected';
+          
+          // Check for saved Patreon info
+          const savedName = localStorage.getItem('patreonFullName');
+          const savedEmail = localStorage.getItem('patreonEmail');
+          const savedTier = localStorage.getItem('patreonTier');
+          const savedImageUrl = localStorage.getItem('patreonImageUrl');
+          
+          // Show available information
+          patreonName.textContent = savedName || 'Patreon User';
+          patreonEmail.textContent = savedEmail || 'Error loading full details';
+          patreonTier.textContent = savedTier || 'Connected';
+          patreonTierBadge.textContent = savedTier || 'Connected';
+          
+          if (savedImageUrl) {
+            patreonProfilePic.src = savedImageUrl;
+          }
+          
           patreonPledge.textContent = '0.00';
-          patreonStatus.textContent = 'Status Unknown';
+          patreonStatus.textContent = 'Active'; // Default to active if authenticated
           
           patreonLoading.classList.add('hidden');
           patreonNotConnected.classList.add('hidden');
@@ -666,11 +738,23 @@
       const firebaseToken = urlParams.get('firebase_token');
       const tokenError = urlParams.get('token_error');
       
+      // Additional Patreon user information that might be included
+      const patreonName = urlParams.get('patreon_name');
+      const patreonEmail = urlParams.get('patreon_email');
+      const patreonImage = urlParams.get('patreon_image');
+      const patreonTier = urlParams.get('patreon_tier');
+      
       if (authSuccess === 'true' && patreonId) {
         console.log('Patreon auth successful with ID:', patreonId);
         // Store Patreon ID
         localStorage.setItem('patreonUserId', patreonId);
         localStorage.setItem('patreonAuthenticated', 'true');
+        
+        // Store additional Patreon user info if available
+        if (patreonName) localStorage.setItem('patreonFullName', patreonName);
+        if (patreonEmail) localStorage.setItem('patreonEmail', patreonEmail);
+        if (patreonImage) localStorage.setItem('patreonImageUrl', patreonImage);
+        if (patreonTier) localStorage.setItem('patreonTier', patreonTier);
         
         // Check if user was logged in before Patreon redirect
         const wasLoggedIn = localStorage.getItem('wasLoggedInBeforePatreon') === 'true';
@@ -764,6 +848,91 @@
             console.error('Error connecting Patreon ID:', error);
           });
       }
+      
+      // Set up registration form toggle
+      document.getElementById('show-registration-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('login-section').style.display = 'none';
+        document.getElementById('registration-section').style.display = 'block';
+      });
+      
+      document.getElementById('show-login-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('registration-section').style.display = 'none';
+        document.getElementById('login-section').style.display = 'block';
+      });
+      
+      // Handle registration form submission
+      document.getElementById('register-btn').addEventListener('click', async () => {
+        const emailInput = document.getElementById('reg-email');
+        const passwordInput = document.getElementById('reg-password');
+        const codeInput = document.getElementById('reg-code');
+        const errorElement = document.getElementById('registration-error');
+        
+        // Clear previous errors
+        errorElement.style.display = 'none';
+        
+        // Get form values
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+        const registrationCode = codeInput.value.trim();
+        
+        // Validate inputs
+        if (!email || !password || !registrationCode) {
+          errorElement.textContent = 'Please fill in all fields';
+          errorElement.style.display = 'block';
+          return;
+        }
+        
+        if (password.length < 6) {
+          errorElement.textContent = 'Password must be at least 6 characters';
+          errorElement.style.display = 'block';
+          return;
+        }
+        
+        try {
+          // First, check if the registration code is valid
+          const codesSnapshot = await db.ref('adminSettings/registrationCodes').once('value');
+          if (!codesSnapshot.exists()) {
+            errorElement.textContent = 'Registration is currently disabled';
+            errorElement.style.display = 'block';
+            return;
+          }
+          
+          const codes = codesSnapshot.val();
+          let role = null;
+          
+          if (registrationCode === codes.admin) {
+            role = 'admin';
+          } else if (registrationCode === codes.grader) {
+            role = 'grader';
+          } else {
+            errorElement.textContent = 'Invalid registration code';
+            errorElement.style.display = 'block';
+            return;
+          }
+          
+          // Create the user account
+          const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+          
+          // Store user data in database
+          await db.ref(`users/${userCredential.user.uid}`).set({
+            email: email,
+            role: role,
+            firstName: email.split('@')[0],
+            createdAt: new Date().toISOString()
+          });
+          
+          console.log('Account created successfully with role:', role);
+          
+          // The auth state change listener will handle UI updates
+          
+        } catch (error) {
+          console.error('Registration error:', error);
+          errorElement.textContent = error.message;
+          errorElement.style.display = 'block';
+        }
+      });
     });
   </script>
 </body>
