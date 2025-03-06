@@ -33,8 +33,12 @@
             <div id="userInfo" style="display: none;">
                 <span id="userGreeting" style="margin-right: 10px;">Hi, Guest</span>
             </div>
+            <div id="patreonInfo" style="display: none;">
+                <span id="patreonBadge" style="background-color: #FF424D; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-right: 10px;">Patron</span>
+            </div>
             <div id="authButtons">
                 <a href="login.html" id="loginLink" style="color: white; text-decoration: none;">Log In</a>
+                <a href="account.html" id="accountLink" style="color: white; text-decoration: none; margin-left: 10px;">My Account</a>
                 <button id="logoutBtn" style="display: none; background: transparent; color: white; border: 1px solid white; padding: 5px 15px; cursor: pointer;">Log Out</button>
             </div>
         </div>
@@ -46,9 +50,12 @@
 
     // Get DOM elements
     const loginLink = document.getElementById('loginLink');
+    const accountLink = document.getElementById('accountLink');
     const logoutBtn = document.getElementById('logoutBtn');
     const userInfo = document.getElementById('userInfo');
     const userGreeting = document.getElementById('userGreeting');
+    const patreonInfo = document.getElementById('patreonInfo');
+    const patreonBadge = document.getElementById('patreonBadge');
 
     // Wait for Firebase to be initialized
     const initBannerAuth = async () => {
@@ -70,6 +77,7 @@
                     
                     // Update UI elements
                     loginLink.style.display = 'none';
+                    accountLink.style.display = 'inline-block';
                     logoutBtn.style.display = 'inline-block';
                     userInfo.style.display = 'inline-block';
 
@@ -84,6 +92,30 @@
                             const displayName = user.email ? user.email.split('@')[0] : 'Guest';
                             userGreeting.textContent = `Hi, ${displayName}`;
                         }
+                        
+                        // Check for Patreon connection
+                        if (userData?.patreonId) {
+                            const patreonSnapshot = await get(ref(db, `patreonUsers/${userData.patreonId}`));
+                            const patreonData = patreonSnapshot.val();
+                            
+                            if (patreonData && patreonData.isActiveMember) {
+                                patreonInfo.style.display = 'inline-block';
+                                
+                                // Set badge text based on membership data
+                                if (patreonData.membershipData?.attributes?.patron_status) {
+                                    patreonBadge.textContent = patreonData.membershipData.attributes.patron_status;
+                                } else {
+                                    patreonBadge.textContent = 'Patron';
+                                }
+                            }
+                        } else {
+                            // Check localStorage as fallback
+                            const patreonId = localStorage.getItem('patreonUserId');
+                            if (patreonId) {
+                                patreonInfo.style.display = 'inline-block';
+                                patreonBadge.textContent = 'Patron';
+                            }
+                        }
                     } catch (error) {
                         console.error("Banner error fetching user data:", error);
                         const displayName = user.email ? user.email.split('@')[0] : 'Guest';
@@ -92,9 +124,18 @@
                 } else {
                     console.log("Banner sees user is signed out");
                     loginLink.style.display = 'inline-block';
+                    accountLink.style.display = 'inline-block';
                     logoutBtn.style.display = 'none';
                     userInfo.style.display = 'none';
+                    patreonInfo.style.display = 'none';
                     userGreeting.textContent = 'Hi, Guest';
+                    
+                    // Check for Patreon ID in localStorage even when not signed in
+                    const patreonId = localStorage.getItem('patreonUserId');
+                    if (patreonId) {
+                        patreonInfo.style.display = 'inline-block';
+                        patreonBadge.textContent = 'Patron';
+                    }
                 }
             });
 

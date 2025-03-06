@@ -285,7 +285,10 @@
                 </div>
               </div>
               
-              <a href="https://www.patreon.com/EvilTrivia/membership" target="_blank" class="btn btn-patreon">Manage Membership</a>
+              <div class="center">
+                <a href="https://www.patreon.com/EvilTrivia/membership" target="_blank" class="btn btn-patreon">Manage Membership</a>
+                <button id="disconnect-patreon-btn" class="btn" style="margin-top: 10px; background-color: #ff424d33; color: #FF424D; border: 1px solid #FF424D;">Disconnect Patreon</button>
+              </div>
             </div>
           </div>
         </div>
@@ -350,6 +353,9 @@
     const patreonTier = document.getElementById('patreon-tier');
     const patreonPledge = document.getElementById('patreon-pledge');
     const patreonStatus = document.getElementById('patreon-status');
+    
+    // Add disconnect Patreon button
+    const disconnectPatreonBtn = document.getElementById('disconnect-patreon-btn');
     
     // Initialize FirebaseUI for Auth
     const ui = new firebaseui.auth.AuthUI(auth);
@@ -498,6 +504,41 @@
       });
     });
     
+    // Handle Patreon disconnect
+    disconnectPatreonBtn.addEventListener('click', async () => {
+      try {
+        // Check if user is signed in
+        if (!auth.currentUser) {
+          console.error('Cannot disconnect Patreon: User not signed in');
+          return;
+        }
+        
+        // Get patreon ID
+        const snapshot = await db.ref(`users/${auth.currentUser.uid}/patreonId`).once('value');
+        const patreonId = snapshot.val();
+        
+        if (!patreonId) {
+          console.error('No Patreon account connected');
+          return;
+        }
+        
+        // Remove the connection in Firebase
+        await db.ref(`users/${auth.currentUser.uid}/patreonId`).remove();
+        await db.ref(`patreonUsers/${patreonId}/firebaseUid`).remove();
+        
+        // Remove from local storage
+        localStorage.removeItem('patreonUserId');
+        localStorage.removeItem('patreonAuthenticated');
+        
+        console.log('Patreon account disconnected');
+        
+        // Refresh the page to update UI
+        window.location.reload();
+      } catch (error) {
+        console.error('Error disconnecting Patreon account:', error);
+      }
+    });
+    
     // Listen for auth state changes
     auth.onAuthStateChanged(async (user) => {
       if (user) {
@@ -507,9 +548,21 @@
         // Display Evil Trivia user info
         await displayTriviaUserInfo(user);
       } else {
-        // User is signed out
-        console.log('User is signed out');
-        window.location.href = '/login.html';
+        // User is signed out, show sign-in options for both services
+        console.log('User is signed out, showing sign-in options');
+        
+        // Show Evil Trivia sign-in option
+        triviaLoading.classList.add('hidden');
+        triviaLoggedIn.classList.add('hidden');
+        triviaNotLoggedIn.classList.remove('hidden');
+        
+        // Initialize FirebaseUI auth
+        ui.start('#firebaseui-auth-container', uiConfig);
+        
+        // Show Patreon sign-in option
+        patreonLoading.classList.add('hidden');
+        patreonConnected.classList.add('hidden');
+        patreonNotConnected.classList.remove('hidden');
       }
     });
     
@@ -519,6 +572,7 @@
       const authSuccess = urlParams.get('auth_success');
       const patreonId = urlParams.get('patreon_id');
       const firebaseToken = urlParams.get('firebase_token');
+      const tokenError = urlParams.get('token_error');
       
       if (authSuccess === 'true' && patreonId) {
         // Store Patreon ID
@@ -532,13 +586,36 @@
             })
             .catch(error => {
               console.error('Error signing in with custom token:', error);
+              handleTokenError(patreonId);
             });
+        } else if (tokenError === 'true') {
+          // Handle the case where the server couldn't generate a token
+          console.log('Server could not generate a custom token, using fallback authentication');
+          handleTokenError(patreonId);
         }
         
         // Clean URL parameters
         const newUrl = new URL(window.location.href);
         newUrl.search = '';
         window.history.replaceState({}, document.title, newUrl.toString());
+      }
+    }
+    
+    // Handle the case where we can't get a custom token but still have Patreon auth
+    async function handleTokenError(patreonId) {
+      // Check if user is already signed in
+      if (auth.currentUser) {
+        // Add patreonId to user data
+        try {
+          await db.ref(`users/${auth.currentUser.uid}/patreonId`).set(patreonId);
+          console.log('Added Patreon ID to existing user');
+          displayTriviaUserInfo(auth.currentUser);
+        } catch (error) {
+          console.error('Error updating user data:', error);
+        }
+      } else {
+        // Redirect to login page
+        window.location.href = '/login.html?patreon_connect=true&patreon_id=' + patreonId;
       }
     }
     
