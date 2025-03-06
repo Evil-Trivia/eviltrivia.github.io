@@ -366,6 +366,9 @@ async function handlePledgeEvent(data, included, isActive) {
 }
 
 // Export the Express app as a Firebase Cloud Function
-exports.patreonAuth = functions.https.onRequest(app);
+exports.patreonAuth = functions.https.onRequest({
+  invoker: 'public',
+  handler: app
+});
 
 const firebaseFunctionUrl = "https://patreonauth-vapvabofwq-uc.a.run.app";
