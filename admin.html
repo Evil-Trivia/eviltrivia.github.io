@@ -247,6 +247,10 @@
                     <label for="graderCode">Grader Registration Code</label>
                     <input type="text" id="graderCode" placeholder="Set grader registration code">
                 </div>
+                <div class="form-group">
+                    <label for="patronCode">Patron Registration Code</label>
+                    <input type="text" id="patronCode" placeholder="Set patron registration code">
+                </div>
                 <button id="saveRegCodes">Save Registration Codes</button>
             </div>
 
@@ -260,7 +264,7 @@
                                 <th>Email</th>
                                 <th>First Name</th>
                                 <th>Last Name</th>
-                                <th>Role</th>
+                                <th>Roles</th>
                                 <th>Created At</th>
                                 <th>Actions</th>
                             </tr>
@@ -811,9 +815,17 @@
                     const codes = snapshot.val();
                     document.getElementById('adminCode').value = codes.admin || '';
                     document.getElementById('graderCode').value = codes.grader || '';
+                    document.getElementById('patronCode').value = codes.patron || 'gram';
+                } else {
+                    // Set default values if no codes exist yet
+                    document.getElementById('adminCode').value = 'leoisbritish';
+                    document.getElementById('graderCode').value = 'lemon';
+                    document.getElementById('patronCode').value = 'gram';
                 }
             } catch (error) {
                 console.error("Error loading registration codes:", error);
+                // Set default values on error
+                document.getElementById('patronCode').value = 'gram';
             }
         }
 
@@ -822,10 +834,12 @@
             try {
                 const adminCode = document.getElementById('adminCode').value.trim();
                 const graderCode = document.getElementById('graderCode').value.trim();
+                const patronCode = document.getElementById('patronCode').value.trim();
                 
                 await set(ref(db, 'adminSettings/registrationCodes'), {
                     admin: adminCode,
-                    grader: graderCode
+                    grader: graderCode,
+                    patron: patronCode
                 });
                 
                 alert('Registration codes saved successfully!');
@@ -849,6 +863,14 @@
                         const row = document.createElement('tr');
                         const createdAt = userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : 'N/A';
                         
+                        // Convert single role string to array if needed
+                        let userRoles = [];
+                        if (userData.roles && Array.isArray(userData.roles)) {
+                            userRoles = userData.roles;
+                        } else if (userData.role && typeof userData.role === 'string') {
+                            userRoles = [userData.role];
+                        }
+                        
                         row.innerHTML = `
                             <td>${userData.email || 'No email'}</td>
                             <td>
@@ -868,11 +890,23 @@
                                        placeholder="Last Name">
                             </td>
                             <td>
-                                <select class="role-select" data-uid="${uid}">
-                                    <option value="admin" ${userData.role === 'admin' ? 'selected' : ''}>Admin</option>
-                                    <option value="grader" ${userData.role === 'grader' ? 'selected' : ''}>Grader</option>
-                                    <option value="none" ${!userData.role ? 'selected' : ''}>No Role</option>
-                                </select>
+                                <div class="role-checkboxes" data-uid="${uid}">
+                                    <div>
+                                        <input type="checkbox" id="role-admin-${uid}" class="role-checkbox" value="admin" 
+                                            ${userRoles.includes('admin') ? 'checked' : ''}>
+                                        <label for="role-admin-${uid}">Admin</label>
+                                    </div>
+                                    <div>
+                                        <input type="checkbox" id="role-grader-${uid}" class="role-checkbox" value="grader" 
+                                            ${userRoles.includes('grader') ? 'checked' : ''}>
+                                        <label for="role-grader-${uid}">Grader</label>
+                                    </div>
+                                    <div>
+                                        <input type="checkbox" id="role-patron-${uid}" class="role-checkbox" value="patron" 
+                                            ${userRoles.includes('patron') ? 'checked' : ''}>
+                                        <label for="role-patron-${uid}">Patron</label>
+                                    </div>
+                                </div>
                             </td>
                             <td>${createdAt}</td>
                             <td>
@@ -902,17 +936,44 @@
                             });
                         });
 
-                        // Existing role select listener
-                        const select = row.querySelector('.role-select');
-                        select.addEventListener('change', async (e) => {
-                            try {
-                                await set(ref(db, `users/${uid}/role`), e.target.value === 'none' ? null : e.target.value);
-                                alert('User role updated successfully!');
-                            } catch (error) {
-                                console.error("Error updating role:", error);
-                                alert('Error updating role: ' + error.message);
-                                e.target.value = userData.role || 'none';
-                            }
+                        // Add event listeners for the role checkboxes
+                        const roleCheckboxes = row.querySelectorAll('.role-checkbox');
+                        roleCheckboxes.forEach(checkbox => {
+                            checkbox.addEventListener('change', async () => {
+                                try {
+                                    // Collect all selected roles
+                                    const selectedRoles = Array.from(row.querySelectorAll('.role-checkbox:checked'))
+                                        .map(cb => cb.value);
+                                    
+                                    // Save the roles array to Firebase
+                                    await set(ref(db, `users/${uid}/roles`), selectedRoles);
+                                    
+                                    // Set or remove the legacy 'role' field
+                                    if (selectedRoles.length > 0) {
+                                        // Use the first role as the primary role
+                                        await set(ref(db, `users/${uid}/role`), selectedRoles[0]);
+                                    } else {
+                                        // No roles selected, remove the role field
+                                        await set(ref(db, `users/${uid}/role`), null);
+                                    }
+                                    
+                                    // Show success indication
+                                    const rolesDiv = row.querySelector('.role-checkboxes');
+                                    rolesDiv.style.backgroundColor = '#e6ffe6';
+                                    setTimeout(() => {
+                                        rolesDiv.style.backgroundColor = '';
+                                    }, 1000);
+                                    
+                                    console.log(`Updated roles for user ${uid}:`, selectedRoles);
+                                } catch (error) {
+                                    console.error('Error updating roles:', error);
+                                    alert('Error updating roles: ' + error.message);
+                                    // Reset checkboxes to match current userData
+                                    roleCheckboxes.forEach(cb => {
+                                        cb.checked = userRoles.includes(cb.value);
+                                    });
+                                }
+                            });
                         });
                     });
                 }

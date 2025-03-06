@@ -184,10 +184,6 @@
   <div class="container">
     <h1>My Account</h1>
     
-    <div style="max-width: 900px; margin: 0 auto 20px; padding: 10px 15px; background-color: #f0f8ff; border-left: 4px solid #3498db; border-radius: 4px;">
-      <p style="margin: 0; color: #2980b9;"><strong>Note:</strong> You can now sign in or create an account directly on this page. No separate login page is needed.</p>
-    </div>
-    
     <section class="account-section">
       <div class="account-cards">
         <!-- Evil Trivia Account Card -->
@@ -306,7 +302,7 @@
         </div>
         
         <!-- Patreon Account Card -->
-        <div class="card">
+        <div id="patreon-card" class="card" style="display: none;">
           <h2 class="card-title">
             <img src="/images/patreon_icon.png" alt="Patreon Icon">
             Patreon Membership
@@ -458,17 +454,27 @@
         // Set profile picture
         triviaProfilePic.src = userData.photoURL || user.photoURL || '/images/default_profile.png';
         
-        // Set role badge with proper styling based on role
-        const role = userData.role || 'member';
-        triviaRoleBadge.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+        // Get user roles - handle both new array format and legacy string format
+        let userRoles = [];
+        if (userData.roles && Array.isArray(userData.roles)) {
+            userRoles = userData.roles;
+        } else if (userData.role && typeof userData.role === 'string') {
+            userRoles = [userData.role];
+        }
         
-        // Apply special styling for admin and grader roles
-        if (role === 'admin') {
-          triviaRoleBadge.style.backgroundColor = '#FF0000';
-        } else if (role === 'grader') {
-          triviaRoleBadge.style.backgroundColor = '#0066CC';
+        // Set role badge with proper styling based on primary role (first in array)
+        const primaryRole = userRoles.length > 0 ? userRoles[0] : 'member';
+        triviaRoleBadge.textContent = primaryRole.charAt(0).toUpperCase() + primaryRole.slice(1);
+        
+        // Apply special styling for different roles
+        if (userRoles.includes('admin')) {
+            triviaRoleBadge.style.backgroundColor = '#FF0000';
+        } else if (userRoles.includes('grader')) {
+            triviaRoleBadge.style.backgroundColor = '#0066CC';
+        } else if (userRoles.includes('patron')) {
+            triviaRoleBadge.style.backgroundColor = '#FF424D'; // Patreon color
         } else {
-          triviaRoleBadge.style.backgroundColor = '#000000';
+            triviaRoleBadge.style.backgroundColor = '#000000';
         }
         
         // Set join date
@@ -483,8 +489,8 @@
         triviaNotLoggedIn.classList.add('hidden');
         triviaLoggedIn.classList.remove('hidden');
         
-        // Check for Patreon connection
-        if (userData.patreonId) {
+        // Check for Patreon connection or patron role
+        if (userData.patreonId || userRoles.includes('patron')) {
           loadPatreonData(userData.patreonId);
         } else {
           // No Patreon connection
@@ -528,13 +534,14 @@
             const savedEmail = localStorage.getItem('patreonEmail');
             const savedTier = localStorage.getItem('patreonTier');
             const savedImageUrl = localStorage.getItem('patreonImageUrl');
+            const savedPledgeAmount = localStorage.getItem('patreonPledgeAmount');
             
             // We have authentication from localStorage, show connected state with available info
             patreonName.textContent = savedName || 'Patreon User';
             patreonEmail.textContent = savedEmail || 'Authenticated via Patreon';
             patreonTier.textContent = savedTier || 'Connected';
             patreonTierBadge.textContent = savedTier || 'Connected';
-            patreonPledge.textContent = '0.00';
+            patreonPledge.textContent = savedPledgeAmount || '0.00';
             patreonStatus.textContent = 'Active'; // If we have localStorage auth, user is likely active
             
             // Set profile picture if available
@@ -563,9 +570,17 @@
         localStorage.setItem('patreonEmail', patreonUserData.email || '');
         localStorage.setItem('patreonImageUrl', patreonUserData.imageUrl || '');
         
-        if (patreonUserData.membershipData && patreonUserData.membershipData.attributes) {
+        if (patreonUserData.pledgeAmountDollars) {
+          localStorage.setItem('patreonPledgeAmount', patreonUserData.pledgeAmountDollars);
+        } else if (patreonUserData.membershipData && patreonUserData.membershipData.attributes) {
           const attrs = patreonUserData.membershipData.attributes;
           localStorage.setItem('patreonTier', attrs.patron_status || 'Connected');
+          
+          // If we have the pledge amount in cents, convert and store
+          if (attrs.currently_entitled_amount_cents) {
+            const amountDollars = (attrs.currently_entitled_amount_cents / 100).toFixed(2);
+            localStorage.setItem('patreonPledgeAmount', amountDollars);
+          }
         }
         
         // Update Patreon UI elements
@@ -585,8 +600,10 @@
         patreonTierBadge.textContent = patronStatus;
         
         // Set pledge amount
-        const pledgeAmountCents = attributes.currently_entitled_amount_cents || 0;
-        patreonPledge.textContent = (pledgeAmountCents / 100).toFixed(2);
+        const pledgeAmountCents = patreonUserData.pledgeAmountCents || 
+                                attributes.currently_entitled_amount_cents || 0;
+        patreonPledge.textContent = patreonUserData.pledgeAmountDollars || 
+                                  (pledgeAmountCents / 100).toFixed(2);
         
         // Set status
         patreonStatus.textContent = patreonUserData.isActiveMember ? 'Active' : 'Inactive';
@@ -608,6 +625,7 @@
           const savedEmail = localStorage.getItem('patreonEmail');
           const savedTier = localStorage.getItem('patreonTier');
           const savedImageUrl = localStorage.getItem('patreonImageUrl');
+          const savedPledgeAmount = localStorage.getItem('patreonPledgeAmount');
           
           // Show available information
           patreonName.textContent = savedName || 'Patreon User';
@@ -619,7 +637,7 @@
             patreonProfilePic.src = savedImageUrl;
           }
           
-          patreonPledge.textContent = '0.00';
+          patreonPledge.textContent = savedPledgeAmount || '0.00';
           patreonStatus.textContent = 'Active'; // Default to active if authenticated
           
           patreonLoading.classList.add('hidden');
@@ -727,6 +745,9 @@
         // User is signed in
         console.log('User is signed in:', user.uid);
         
+        // Show Patreon card when user is logged in
+        document.getElementById('patreon-card').style.display = 'block';
+        
         try {
           // Check if user exists in our database (is authorized)
           const userSnapshot = await db.ref(`users/${user.uid}`).once('value');
@@ -781,6 +802,9 @@
         // User is signed out, show sign-in options for both services
         console.log('User is signed out, showing sign-in options');
         
+        // Hide Patreon card when user is not logged in
+        document.getElementById('patreon-card').style.display = 'none';
+        
         // Show Evil Trivia sign-in option
         triviaLoading.classList.add('hidden');
         triviaLoggedIn.classList.add('hidden');
@@ -790,21 +814,6 @@
         document.getElementById('initial-auth-choice').style.display = 'block';
         document.getElementById('login-form-section').style.display = 'none';
         document.getElementById('signup-form-section').style.display = 'none';
-        
-        // Check if there's a Patreon connection in localStorage
-        const patreonId = localStorage.getItem('patreonUserId');
-        const patreonAuthenticated = localStorage.getItem('patreonAuthenticated');
-        
-        if (patreonId && patreonAuthenticated === 'true') {
-          console.log('Found Patreon connection in localStorage while not logged in');
-          // Load Patreon data for the non-logged-in user
-          loadPatreonData(patreonId);
-        } else {
-          // No Patreon connection, show not connected state
-          patreonLoading.classList.add('hidden');
-          patreonConnected.classList.add('hidden');
-          patreonNotConnected.classList.remove('hidden');
-        }
       }
     });
     
@@ -821,6 +830,7 @@
       const patreonEmail = urlParams.get('patreon_email');
       const patreonImage = urlParams.get('patreon_image');
       const patreonTier = urlParams.get('patreon_tier');
+      const patreonPledge = urlParams.get('patreon_pledge');
       
       if (authSuccess === 'true' && patreonId) {
         console.log('Patreon auth successful with ID:', patreonId);
@@ -833,6 +843,7 @@
         if (patreonEmail) localStorage.setItem('patreonEmail', patreonEmail);
         if (patreonImage) localStorage.setItem('patreonImageUrl', patreonImage);
         if (patreonTier) localStorage.setItem('patreonTier', patreonTier);
+        if (patreonPledge) localStorage.setItem('patreonPledgeAmount', patreonPledge);
         
         // Check if user was logged in before Patreon redirect
         const wasLoggedIn = localStorage.getItem('wasLoggedInBeforePatreon') === 'true';
@@ -877,8 +888,31 @@
       if (auth.currentUser) {
         // Add patreonId to user data
         try {
-          await db.ref(`users/${auth.currentUser.uid}/patreonId`).set(patreonId);
-          console.log('Added Patreon ID to existing user');
+          // Get current user data to update roles
+          const userSnapshot = await db.ref(`users/${auth.currentUser.uid}`).once('value');
+          const userData = userSnapshot.val() || {};
+          
+          // Prepare user roles update
+          let userRoles = [];
+          if (userData.roles && Array.isArray(userData.roles)) {
+            userRoles = userData.roles;
+          } else if (userData.role && typeof userData.role === 'string') {
+            userRoles = [userData.role];
+          }
+          
+          // Add 'patron' role if not already present
+          if (!userRoles.includes('patron')) {
+            userRoles.push('patron');
+          }
+          
+          // Update user data with Patreon ID and roles
+          await db.ref(`users/${auth.currentUser.uid}`).update({
+            patreonId: patreonId,
+            roles: userRoles,
+            role: userRoles[0] // Keep the first role as primary for backward compatibility
+          });
+          
+          console.log('Added Patreon ID to existing user and updated roles');
           displayTriviaUserInfo(auth.currentUser);
         } catch (error) {
           console.error('Error updating user data:', error);
@@ -923,9 +957,32 @@
       
       if (pendingPatreonConnect === 'true' && pendingPatreonId && auth.currentUser) {
         // Connect Patreon ID to current user
-        db.ref(`users/${auth.currentUser.uid}/patreonId`).set(pendingPatreonId)
+        db.ref(`users/${auth.currentUser.uid}`).once('value')
+          .then(userSnapshot => {
+            const userData = userSnapshot.val() || {};
+            
+            // Prepare user roles update
+            let userRoles = [];
+            if (userData.roles && Array.isArray(userData.roles)) {
+              userRoles = userData.roles;
+            } else if (userData.role && typeof userData.role === 'string') {
+              userRoles = [userData.role];
+            }
+            
+            // Add 'patron' role if not already present
+            if (!userRoles.includes('patron')) {
+              userRoles.push('patron');
+            }
+            
+            // Update user data with Patreon ID and roles
+            return db.ref(`users/${auth.currentUser.uid}`).update({
+              patreonId: pendingPatreonId,
+              roles: userRoles,
+              role: userRoles[0] // Keep the first role as primary for backward compatibility
+            });
+          })
           .then(() => {
-            console.log('Connected pending Patreon ID to user');
+            console.log('Connected pending Patreon ID to user and updated roles');
             // Clear pending flags
             localStorage.removeItem('pendingPatreonConnect');
             localStorage.removeItem('pendingPatreonId');
@@ -1038,13 +1095,26 @@
         try {
           // Check if the registration code is valid
           let role = null;
+          let roles = [];
           
-          // Known registration codes - these would normally be stored securely,
-          // but for this example we're using fixed values
-          if (registrationCode === "leoisbritish") {
+          // Get the known registration codes from the database
+          const codesSnapshot = await db.ref('adminSettings/registrationCodes').once('value');
+          const registrationCodes = codesSnapshot.exists() ? codesSnapshot.val() : {
+            admin: 'leoisbritish',
+            grader: 'lemon',
+            patron: 'gram'
+          };
+          
+          // Check if the entered code matches any of the known codes
+          if (registrationCode === registrationCodes.admin) {
             role = 'admin';
-          } else if (registrationCode === "lemon") {
+            roles = ['admin'];
+          } else if (registrationCode === registrationCodes.grader) {
             role = 'grader';
+            roles = ['grader'];
+          } else if (registrationCode === registrationCodes.patron) {
+            role = 'patron';
+            roles = ['patron'];
           } else {
             errorElement.textContent = 'Invalid registration code';
             errorElement.style.display = 'block';
@@ -1057,7 +1127,8 @@
           // Store user data in database with the appropriate role
           await db.ref(`users/${userCredential.user.uid}`).set({
             email: email,
-            role: role,
+            role: role, // For backward compatibility
+            roles: roles, // New roles array for multiple roles
             firstName: email.split('@')[0],
             createdAt: new Date().toISOString()
           });

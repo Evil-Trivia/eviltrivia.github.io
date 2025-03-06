@@ -26,8 +26,10 @@
         <a href="index.html" style="color: #FFCC00; text-decoration: none; font-weight: bold;">Evil Trivia</a>
         <nav style="display: flex; gap: 20px;">
             <a href="index.html" style="color: white; text-decoration: none;">Home</a>
-            <a href="grading.html" style="color: white; text-decoration: none;">Grading</a>
-            <a href="admin.html" style="color: white; text-decoration: none;">Admin</a>
+            <a href="/games" style="color: white; text-decoration: none;">Games</a>
+            <a href="/live" style="color: white; text-decoration: none;">Live Trivia</a>
+            <a href="grading.html" id="gradingLink" style="color: white; text-decoration: none; display: none;">Grading</a>
+            <a href="admin.html" id="adminLink" style="color: white; text-decoration: none; display: none;">Admin</a>
         </nav>
         <div style="display: flex; align-items: center; gap: 15px;">
             <div id="accountStatus" style="font-size: 14px; display: flex; align-items: center;">
@@ -46,6 +48,8 @@
     // Get DOM elements
     const evilTriviaStatus = document.getElementById('evilTriviaStatus');
     const patreonStatus = document.getElementById('patreonStatus');
+    const gradingLink = document.getElementById('gradingLink');
+    const adminLink = document.getElementById('adminLink');
 
     // Wait for Firebase to be initialized
     const initBannerAuth = async () => {
@@ -98,15 +102,46 @@
                         } else {
                             evilTriviaStatus.textContent = user.email ? user.email.split('@')[0] : 'Logged In';
                         }
+
+                        // Get user roles - handle both new array format and legacy string format
+                        let userRoles = [];
+                        if (userData?.roles && Array.isArray(userData.roles)) {
+                            userRoles = userData.roles;
+                        } else if (userData?.role && typeof userData.role === 'string') {
+                            userRoles = [userData.role];
+                        }
                         
-                        // Check for Patreon connection
-                        if (userData?.patreonId) {
-                            patreonStatus.textContent = 'Connected';
+                        // Show/hide admin and grading links based on roles
+                        if (userRoles.includes('admin')) {
+                            adminLink.style.display = 'inline';
+                            gradingLink.style.display = 'inline';
+                        } else if (userRoles.includes('grader')) {
+                            gradingLink.style.display = 'inline';
+                            adminLink.style.display = 'none';
+                        } else {
+                            gradingLink.style.display = 'none';
+                            adminLink.style.display = 'none';
+                        }
+
+                        // Check if user has 'patron' role - if so, that's also a connection to Patreon
+                        if (userData?.patreonId || userRoles.includes('patron')) {
+                            // If we have pledge amount info, display it in the status
+                            if (userData?.patreonPledgeAmount) {
+                                patreonStatus.textContent = `$${userData.patreonPledgeAmount}`;
+                            } else {
+                                patreonStatus.textContent = 'Connected';
+                            }
                         } else {
                             // Check localStorage as fallback
                             const patreonId = localStorage.getItem('patreonUserId');
                             if (patreonId) {
-                                patreonStatus.textContent = 'Connected';
+                                // Try to get pledge amount from localStorage if available
+                                const pledgeAmount = localStorage.getItem('patreonPledgeAmount');
+                                if (pledgeAmount) {
+                                    patreonStatus.textContent = `$${pledgeAmount}`;
+                                } else {
+                                    patreonStatus.textContent = 'Connected';
+                                }
                             } else {
                                 patreonStatus.textContent = 'Not Connected';
                             }
@@ -119,6 +154,10 @@
                 } else {
                     console.log("Banner sees user is signed out");
                     evilTriviaStatus.textContent = 'Not Logged In';
+                    
+                    // Hide admin and grading links when signed out
+                    gradingLink.style.display = 'none';
+                    adminLink.style.display = 'none';
                     
                     // Check for Patreon ID in localStorage even when not signed in
                     const patreonId = localStorage.getItem('patreonUserId');
