@@ -54,9 +54,30 @@
             const { getAuth, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js");
             const { getDatabase, ref, get } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js");
 
-            // Get the existing Firebase app instance
-            const auth = getAuth();
-            const db = getDatabase();
+            // Get the existing Firebase app instance or initialize a new one if needed
+            let auth, db;
+            try {
+                // Try to get existing app
+                const { getApp } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js");
+                const app = getApp();
+                auth = getAuth(app);
+                db = getDatabase(app);
+            } catch (e) {
+                // No app exists, initialize a new one
+                const { initializeApp } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js");
+                const firebaseConfig = {
+                    apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+                    authDomain: "eviltrivia-47664.firebaseapp.com",
+                    databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+                    projectId: "eviltrivia-47664",
+                    storageBucket: "eviltrivia-47664.firebasestorage.app",
+                    messagingSenderId: "401826818140",
+                    appId: "1:401826818140:web:c1df0bf4c602cc48231e99"
+                };
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getDatabase(app);
+            }
 
             // Handle auth state changes
             onAuthStateChanged(auth, async (user) => {

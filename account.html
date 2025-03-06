@@ -484,7 +484,9 @@
     // Handle Evil Trivia login button
     triviaLoginBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      window.location.href = '/login.html';
+      // Instead of redirecting to login page, show the FirebaseUI
+      triviaNotLoggedIn.classList.remove('hidden');
+      ui.start('#firebaseui-auth-container', uiConfig);
     });
     
     // Handle Patreon login button
@@ -498,7 +500,8 @@
     logoutBtn.addEventListener('click', () => {
       auth.signOut().then(() => {
         console.log('User signed out');
-        window.location.href = '/login.html';
+        // Don't redirect, just refresh the page
+        window.location.reload();
       }).catch(error => {
         console.error('Sign out error:', error);
       });
@@ -614,8 +617,10 @@
           console.error('Error updating user data:', error);
         }
       } else {
-        // Redirect to login page
-        window.location.href = '/login.html?patreon_connect=true&patreon_id=' + patreonId;
+        // Store the Patreon ID in localStorage and refresh the page
+        localStorage.setItem('pendingPatreonConnect', 'true');
+        localStorage.setItem('pendingPatreonId', patreonId);
+        window.location.reload();
       }
     }
     
@@ -623,6 +628,26 @@
     document.addEventListener('DOMContentLoaded', () => {
       // Check URL parameters for auth callbacks
       checkUrlParams();
+      
+      // Check for pending Patreon connection
+      const pendingPatreonConnect = localStorage.getItem('pendingPatreonConnect');
+      const pendingPatreonId = localStorage.getItem('pendingPatreonId');
+      
+      if (pendingPatreonConnect === 'true' && pendingPatreonId && auth.currentUser) {
+        // Connect Patreon ID to current user
+        db.ref(`users/${auth.currentUser.uid}/patreonId`).set(pendingPatreonId)
+          .then(() => {
+            console.log('Connected pending Patreon ID to user');
+            // Clear pending flags
+            localStorage.removeItem('pendingPatreonConnect');
+            localStorage.removeItem('pendingPatreonId');
+            // Refresh user info
+            displayTriviaUserInfo(auth.currentUser);
+          })
+          .catch(error => {
+            console.error('Error connecting Patreon ID:', error);
+          });
+      }
     });
   </script>
 </body>
