@@ -6,8 +6,10 @@ const axios = require('axios');
 const querystring = require('querystring');
 const crypto = require('crypto');
 
-// Initialize Firebase admin without specifying credentials to use default service account
-admin.initializeApp();
+// Initialize Firebase admin with database URL specified
+admin.initializeApp({
+  databaseURL: 'https://eviltrivia-47664-default-rtdb.firebaseio.com'
+});
 
 // Create Express app for Patreon auth
 const app = express();
