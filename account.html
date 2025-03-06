@@ -438,8 +438,16 @@
         console.log('Loading Patreon data for ID:', patreonId);
         
         // Get Patreon user info from the database
-        const snapshot = await db.ref(`patreonUsers/${patreonId}`).once('value');
-        const patreonUserData = snapshot.val();
+        let patreonUserData = null;
+        try {
+          const snapshot = await db.ref(`patreonUsers/${patreonId}`).once('value');
+          patreonUserData = snapshot.val();
+          console.log('Patreon data from database:', patreonUserData);
+        } catch (dbError) {
+          console.warn('Could not access patreonUsers database:', dbError.message);
+          // This might happen if the user doesn't have permission to access patreonUsers node
+          // We'll fall back to localStorage-only data
+        }
         
         if (!patreonUserData) {
           console.log('No Patreon data found in Firebase, checking localStorage');
@@ -448,7 +456,7 @@
             console.log('Patreon authenticated via localStorage');
             // We have authentication from localStorage, show minimal connected state
             patreonName.textContent = 'Patreon User';
-            patreonEmail.textContent = 'Authentication via localStorage';
+            patreonEmail.textContent = 'Authenticated via Patreon';
             patreonTier.textContent = 'Unknown';
             patreonTierBadge.textContent = 'Connected';
             patreonPledge.textContent = '0.00';
@@ -534,6 +542,15 @@
     // Handle Patreon login button
     patreonLoginBtn.addEventListener('click', (e) => {
       e.preventDefault();
+      
+      // Store the current auth state in localStorage
+      const isLoggedIn = !!auth.currentUser;
+      localStorage.setItem('wasLoggedInBeforePatreon', isLoggedIn ? 'true' : 'false');
+      
+      // Show loading state
+      patreonLoading.classList.remove('hidden');
+      patreonNotConnected.classList.add('hidden');
+      
       // Redirect to Patreon OAuth
       window.location.href = `https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon?returnUrl=${encodeURIComponent(window.location.href)}`;
     });
@@ -553,25 +570,27 @@
     disconnectPatreonBtn.addEventListener('click', async () => {
       try {
         // Check if user is signed in
-        if (!auth.currentUser) {
-          console.error('Cannot disconnect Patreon: User not signed in');
-          return;
+        if (auth.currentUser) {
+          // Get patreon ID
+          const snapshot = await db.ref(`users/${auth.currentUser.uid}/patreonId`).once('value');
+          const patreonId = snapshot.val();
+          
+          if (patreonId) {
+            // Remove the connection in Firebase
+            await db.ref(`users/${auth.currentUser.uid}/patreonId`).remove();
+            try {
+              await db.ref(`patreonUsers/${patreonId}/firebaseUid`).remove();
+            } catch (error) {
+              console.warn('Could not remove firebaseUid from patreonUsers, may lack permission:', error.message);
+            }
+          } else {
+            console.warn('No Patreon ID found in user data, but disconnect was attempted');
+          }
+        } else {
+          console.log('No user is signed in, but disconnect was attempted');
         }
         
-        // Get patreon ID
-        const snapshot = await db.ref(`users/${auth.currentUser.uid}/patreonId`).once('value');
-        const patreonId = snapshot.val();
-        
-        if (!patreonId) {
-          console.error('No Patreon account connected');
-          return;
-        }
-        
-        // Remove the connection in Firebase
-        await db.ref(`users/${auth.currentUser.uid}/patreonId`).remove();
-        await db.ref(`patreonUsers/${patreonId}/firebaseUid`).remove();
-        
-        // Remove from local storage
+        // Always remove from local storage regardless of signed in state
         localStorage.removeItem('patreonUserId');
         localStorage.removeItem('patreonAuthenticated');
         
@@ -622,10 +641,20 @@
         // Initialize FirebaseUI auth
         ui.start('#firebaseui-auth-container', uiConfig);
         
-        // Show Patreon sign-in option
-        patreonLoading.classList.add('hidden');
-        patreonConnected.classList.add('hidden');
-        patreonNotConnected.classList.remove('hidden');
+        // Check if there's a Patreon connection in localStorage
+        const patreonId = localStorage.getItem('patreonUserId');
+        const patreonAuthenticated = localStorage.getItem('patreonAuthenticated');
+        
+        if (patreonId && patreonAuthenticated === 'true') {
+          console.log('Found Patreon connection in localStorage while not logged in');
+          // Load Patreon data for the non-logged-in user
+          loadPatreonData(patreonId);
+        } else {
+          // No Patreon connection, show not connected state
+          patreonLoading.classList.add('hidden');
+          patreonConnected.classList.add('hidden');
+          patreonNotConnected.classList.remove('hidden');
+        }
       }
     });
     
@@ -642,6 +671,10 @@
         // Store Patreon ID
         localStorage.setItem('patreonUserId', patreonId);
         localStorage.setItem('patreonAuthenticated', 'true');
+        
+        // Check if user was logged in before Patreon redirect
+        const wasLoggedIn = localStorage.getItem('wasLoggedInBeforePatreon') === 'true';
+        localStorage.removeItem('wasLoggedInBeforePatreon'); // Clean up
         
         // If we have a Firebase token, sign in with it
         if (firebaseToken) {
@@ -661,6 +694,12 @@
           // Handle the case where the server couldn't generate a token
           console.log('Server could not generate a custom token, using fallback authentication');
           handleTokenError(patreonId);
+        } else if (!wasLoggedIn) {
+          // User wasn't logged in before and we don't have a token
+          // Just load Patreon data without Evil Trivia login
+          console.log('Loading Patreon data for non-logged-in user');
+          patreonLoading.classList.remove('hidden');
+          loadPatreonData(patreonId);
         }
         
         // Clean URL parameters
@@ -683,10 +722,21 @@
           console.error('Error updating user data:', error);
         }
       } else {
-        // Store the Patreon ID in localStorage and refresh the page
-        localStorage.setItem('pendingPatreonConnect', 'true');
-        localStorage.setItem('pendingPatreonId', patreonId);
-        window.location.reload();
+        // No user is signed in
+        const wasLoggedIn = localStorage.getItem('wasLoggedInBeforePatreon') === 'true';
+        localStorage.removeItem('wasLoggedInBeforePatreon'); // Clean up
+        
+        if (wasLoggedIn) {
+          // User was logged in before, but now they're not
+          // Store the Patreon ID in localStorage and refresh the page
+          localStorage.setItem('pendingPatreonConnect', 'true');
+          localStorage.setItem('pendingPatreonId', patreonId);
+          window.location.reload();
+        } else {
+          // User was not logged in before, just show Patreon data
+          console.log('User was not logged in before, showing Patreon data without login');
+          loadPatreonData(patreonId);
+        }
       }
     }
     
