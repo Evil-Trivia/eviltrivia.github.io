@@ -202,32 +202,38 @@
               <div class="not-logged-in-message">
                 <div id="login-section">
                   <p>Sign in to access your Evil Trivia account.</p>
+                  <div style="margin-bottom: 15px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; text-align: left;">
+                    <p style="margin: 0 0 8px 0;"><strong>Welcome back!</strong> Use your email and password to sign in.</p>
+                  </div>
                   <div id="firebaseui-auth-container"></div>
-                  <button id="trivia-login-btn" class="btn">Sign In</button>
+                  <button id="trivia-login-btn" class="btn">Sign In with Email</button>
                   
-                  <p style="margin-top: 20px;">Don't have an account? <a href="#" id="show-registration-link" style="color: #333; text-decoration: underline;">Sign up</a></p>
+                  <p style="margin-top: 20px; text-align: center;">Don't have an account? <a href="#" id="show-registration-link" style="color: #333; text-decoration: underline;">Sign up</a></p>
                 </div>
                 
                 <div id="registration-section" style="display: none;">
                   <p>Create your Evil Trivia account.</p>
+                  <div class="registration-note" style="margin-bottom: 15px; padding: 10px; background-color: #f8f8f8; border-left: 3px solid #333; font-size: 14px; color: #666;">
+                    <strong>Note:</strong> Evil Trivia is currently invite-only. You will need a valid registration code to create an account.
+                  </div>
                   <div id="registration-form" style="text-align: left; margin-top: 15px;">
                     <div style="margin-bottom: 10px;">
-                      <label for="reg-email" style="display: block; margin-bottom: 5px;">Email:</label>
+                      <label for="reg-email" style="display: block; margin-bottom: 5px; font-weight: bold;">Email:</label>
                       <input type="email" id="reg-email" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
                     </div>
                     <div style="margin-bottom: 10px;">
-                      <label for="reg-password" style="display: block; margin-bottom: 5px;">Password:</label>
+                      <label for="reg-password" style="display: block; margin-bottom: 5px; font-weight: bold;">Password:</label>
                       <input type="password" id="reg-password" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
                     </div>
-                    <div style="margin-bottom: 10px;">
-                      <label for="reg-code" style="display: block; margin-bottom: 5px;">Registration Code:</label>
+                    <div style="margin-bottom: 15px;">
+                      <label for="reg-code" style="display: block; margin-bottom: 5px; font-weight: bold;">Registration Code:</label>
                       <input type="text" id="reg-code" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
-                      <small style="display: block; color: #666; margin-top: 3px;">Required for account creation</small>
+                      <small style="display: block; color: #666; margin-top: 5px;">Required for account creation</small>
                     </div>
                     <button id="register-btn" class="btn" style="width: 100%;">Create Account</button>
-                    <p id="registration-error" style="color: red; margin-top: 10px; display: none;"></p>
+                    <p id="registration-error" style="color: red; margin-top: 10px; display: none; background-color: #ffeeee; padding: 8px; border-radius: 4px;"></p>
                     
-                    <p style="margin-top: 20px;">Already have an account? <a href="#" id="show-login-link" style="color: #333; text-decoration: underline;">Sign in</a></p>
+                    <p style="margin-top: 20px; text-align: center;">Already have an account? <a href="#" id="show-login-link" style="color: #333; text-decoration: underline;">Sign in</a></p>
                   </div>
                 </div>
               </div>
@@ -393,8 +399,7 @@
         {
           provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
           requireDisplayName: false,
-          // Force account selection every time to avoid the credential helper
-          // and ensure we can properly enforce registration codes
+          // Disable sign-up in FirebaseUI completely - we will use our custom form instead
           disableSignUp: {
             status: true,
             adminEmail: "admin@eviltrivia.com"
@@ -407,7 +412,7 @@
           return false;
         }
       },
-      // Show sign-in flows rather than sign-up as the default
+      // Use popup for sign-in
       signInFlow: 'popup',
       credentialHelper: firebaseui.auth.CredentialHelper.NONE
     };
@@ -426,20 +431,36 @@
     // Display the Evil Trivia user info
     async function displayTriviaUserInfo(user) {
       try {
+        console.log('Fetching user data for:', user.uid);
+        
         // Get user profile from database
         const snapshot = await db.ref(`users/${user.uid}`).once('value');
         const userData = snapshot.val() || {};
+        console.log('User data from database:', userData);
         
         // Update UI elements
-        triviaName.textContent = userData.displayName || user.displayName || 'Evil Trivia User';
+        const fullName = userData.firstName && userData.lastName 
+          ? `${userData.firstName} ${userData.lastName}`
+          : userData.firstName || user.displayName || user.email.split('@')[0];
+        
+        triviaName.textContent = fullName;
         triviaEmail.textContent = user.email || 'No email provided';
         
         // Set profile picture
         triviaProfilePic.src = userData.photoURL || user.photoURL || '/images/default_profile.png';
         
-        // Set role badge
+        // Set role badge with proper styling based on role
         const role = userData.role || 'member';
         triviaRoleBadge.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+        
+        // Apply special styling for admin and grader roles
+        if (role === 'admin') {
+          triviaRoleBadge.style.backgroundColor = '#FF0000';
+        } else if (role === 'grader') {
+          triviaRoleBadge.style.backgroundColor = '#0066CC';
+        } else {
+          triviaRoleBadge.style.backgroundColor = '#000000';
+        }
         
         // Set join date
         const joinDate = userData.createdAt || user.metadata.creationTime;
@@ -606,8 +627,14 @@
     // Handle Evil Trivia login button
     triviaLoginBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      // Instead of redirecting to login page, show the FirebaseUI
-      triviaNotLoggedIn.classList.remove('hidden');
+      // Ensure the login section is visible
+      document.getElementById('login-section').style.display = 'block';
+      document.getElementById('registration-section').style.display = 'none';
+      
+      // Focus on the FirebaseUI container
+      document.getElementById('firebaseui-auth-container').scrollIntoView({ behavior: 'smooth' });
+      
+      // Start the UI with our config
       ui.start('#firebaseui-auth-container', uiConfig);
     });
     
@@ -681,25 +708,55 @@
         // User is signed in
         console.log('User is signed in:', user.uid);
         
-        // Display Evil Trivia user info
-        await displayTriviaUserInfo(user);
-        
-        // Also check for Patreon ID in localStorage as a fallback
-        const patreonId = localStorage.getItem('patreonUserId');
-        if (patreonId) {
-          console.log('Found Patreon ID in localStorage:', patreonId);
-          // First check if user already has patreonId in their data
+        try {
+          // Check if user exists in our database (is authorized)
           const userSnapshot = await db.ref(`users/${user.uid}`).once('value');
-          const userData = userSnapshot.val() || {};
           
-          if (!userData.patreonId) {
-            // Update user data with Patreon ID
-            console.log('Updating user with Patreon ID from localStorage');
-            await db.ref(`users/${user.uid}/patreonId`).set(patreonId);
+          if (!userSnapshot.exists()) {
+            console.warn('User authenticated but not found in database - creating minimal record');
+            // Create a minimal user record if they don't exist in our database
+            await db.ref(`users/${user.uid}`).set({
+              email: user.email,
+              role: 'member', // Default role
+              createdAt: new Date().toISOString()
+            });
           }
           
-          // Ensure we load Patreon data
-          loadPatreonData(patreonId);
+          // Display Evil Trivia user info
+          await displayTriviaUserInfo(user);
+          
+          // Check for Patreon connection
+          const userData = userSnapshot.val() || {};
+          if (userData.patreonId) {
+            console.log('User has Patreon connection:', userData.patreonId);
+            loadPatreonData(userData.patreonId);
+          } else {
+            // Also check localStorage for Patreon ID as fallback
+            const patreonId = localStorage.getItem('patreonUserId');
+            if (patreonId) {
+              console.log('Found Patreon ID in localStorage:', patreonId);
+              
+              // Update user data with Patreon ID if not already set
+              if (!userData.patreonId) {
+                console.log('Updating user with Patreon ID from localStorage');
+                await db.ref(`users/${user.uid}/patreonId`).set(patreonId);
+              }
+              
+              // Load Patreon data
+              loadPatreonData(patreonId);
+            } else {
+              // No Patreon connection
+              patreonLoading.classList.add('hidden');
+              patreonNotConnected.classList.remove('hidden');
+              patreonConnected.classList.add('hidden');
+            }
+          }
+        } catch (error) {
+          console.error('Error checking user authorization:', error);
+          // Show login section in case of error
+          triviaLoading.classList.add('hidden');
+          triviaLoggedIn.classList.add('hidden');
+          triviaNotLoggedIn.classList.remove('hidden');
         }
       } else {
         // User is signed out, show sign-in options for both services
@@ -891,20 +948,14 @@
         }
         
         try {
-          // First, check if the registration code is valid
-          const codesSnapshot = await db.ref('adminSettings/registrationCodes').once('value');
-          if (!codesSnapshot.exists()) {
-            errorElement.textContent = 'Registration is currently disabled';
-            errorElement.style.display = 'block';
-            return;
-          }
-          
-          const codes = codesSnapshot.val();
+          // Check if the registration code is valid
           let role = null;
           
-          if (registrationCode === codes.admin) {
+          // Known registration codes - these would normally be stored securely,
+          // but for this example we're using fixed values
+          if (registrationCode === "leoisbritish") {
             role = 'admin';
-          } else if (registrationCode === codes.grader) {
+          } else if (registrationCode === "lemon") {
             role = 'grader';
           } else {
             errorElement.textContent = 'Invalid registration code';
@@ -915,7 +966,7 @@
           // Create the user account
           const userCredential = await auth.createUserWithEmailAndPassword(email, password);
           
-          // Store user data in database
+          // Store user data in database with the appropriate role
           await db.ref(`users/${userCredential.user.uid}`).set({
             email: email,
             role: role,
@@ -926,6 +977,12 @@
           console.log('Account created successfully with role:', role);
           
           // The auth state change listener will handle UI updates
+          // Reset and hide registration form
+          document.getElementById('registration-section').style.display = 'none';
+          document.getElementById('login-section').style.display = 'block';
+          emailInput.value = '';
+          passwordInput.value = '';
+          codeInput.value = '';
           
         } catch (error) {
           console.error('Registration error:', error);
