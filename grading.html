@@ -541,6 +541,11 @@
             justify-content: space-between;
             align-items: center;
         }
+
+        /* Add CSS for no-data rows */
+        .no-data {
+            opacity: 0.6;
+        }
     </style>
     <script src="https://eviltrivia.com/autoload-banner.js"></script>
 </head>
@@ -1760,25 +1765,30 @@
                 const triviaData = triviaSnap.val();
                 console.log("Trivia data structure:", Object.keys(triviaData));
 
-                // Create a map of question numbers to their metadata, including round info
-                const questionMetadata = {};
+                // Create maps to help with question identification
+                const questionMetadata = {};         // Stores all question metadata
+                const questionsByRoundAndNumber = {}; // Maps round+number to all matching questions
                 const possibleFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
                 
-                // Loop through all rounds (1, 2, 3)
+                // First pass: create metadata for all questions and build mapping
                 for (const round of Object.keys(triviaData)) {
                     console.log(`Processing Round ${round}, formats:`, Object.keys(triviaData[round]));
                     
-                    // Ensure we check all possible formats for this round
+                    // Initialize round mapping
+                    questionsByRoundAndNumber[round] = {};
+                    
+                    // Process each format in this round
                     for (const format of possibleFormats) {
                         if (triviaData[round][format]) {
                             console.log(`Found ${format} questions in Round ${round}`);
                             
-                            for (const [qNum, question] of Object.entries(triviaData[round][format])) {
+                            for (const [qKey, question] of Object.entries(triviaData[round][format])) {
                                 // Use the question number if it exists, otherwise use the key
-                                const questionNum = question.Question_Number || parseInt(qNum);
-                                // Create a unique key for this question using round and question number
+                                const questionNum = question.Question_Number || parseInt(qKey);
+                                // Create a unique key for this question using round, format and question number
                                 const questionKey = `r${round}_f${format}_q${questionNum}`;
                                 
+                                // Store metadata
                                 questionMetadata[questionKey] = {
                                     format,
                                     round,
@@ -1791,12 +1801,19 @@
                                     wrong: 0,
                                     totalTeams: 0
                                 };
+                                
+                                // Add to round+number mapping for easier lookup
+                                if (!questionsByRoundAndNumber[round][questionNum]) {
+                                    questionsByRoundAndNumber[round][questionNum] = [];
+                                }
+                                questionsByRoundAndNumber[round][questionNum].push(questionKey);
                             }
                         }
                     }
                 }
 
                 console.log(`Total questions found: ${Object.keys(questionMetadata).length}`);
+                console.log("Question mapping:", questionsByRoundAndNumber);
 
                 // Get teams from current session
                 const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
@@ -1813,40 +1830,40 @@
                     for (let roundNum = 1; roundNum <= 3; roundNum++) {
                         const roundKey = `round${roundNum}`;
                         if (team[roundKey] && team[roundKey].questions) {
+                            console.log(`Processing ${Object.keys(team[roundKey].questions).length} questions in ${roundKey} for team`);
+                            
                             // Process each question in the round
                             Object.entries(team[roundKey].questions).forEach(([qKey, score]) => {
                                 // Extract the question number from the key (format: "q1", "q2", etc.)
                                 const questionNum = parseInt(qKey.replace('q', ''));
                                 
-                                // Try to find the question in our metadata
-                                // We need to check each format since we don't know which format this question belongs to
-                                let found = false;
+                                // Look up the question in our mapping
+                                const round = roundNum.toString();
+                                const questionsForThisNumber = questionsByRoundAndNumber[round]?.[questionNum] || [];
                                 
-                                for (const format of possibleFormats) {
-                                    const possibleKey = `r${roundNum}_f${format}_q${questionNum}`;
+                                if (questionsForThisNumber.length > 0) {
+                                    // Get the first matching question (or the only one)
+                                    const metadataKey = questionsForThisNumber[0];
+                                    const metadata = questionMetadata[metadataKey];
                                     
-                                    if (questionMetadata[possibleKey]) {
-                                        found = true;
-                                        const metadata = questionMetadata[possibleKey];
-                                        const maxPoints = metadata.pointValue;
+                                    // Process the score
+                                    const maxPoints = metadata.pointValue;
+                                    if (maxPoints > 0) {
+                                        const scoreValue = parseFloat(score);
+                                        // Calculate percentage correctly - capped at 100%
+                                        const percentage = Math.min(scoreValue / maxPoints, 1);
                                         
-                                        if (maxPoints > 0) {
-                                            const scoreValue = parseFloat(score);
-                                            // Calculate percentage correctly - capped at 100%
-                                            const percentage = Math.min(scoreValue / maxPoints, 1);
-                                            
-                                            // Update right/wrong counts based on percentage
-                                            metadata.right += percentage;
-                                            metadata.wrong += (1 - percentage);
-                                            metadata.totalTeams += 1;
-                                        }
-                                        
-                                        // We found the matching question, no need to check other formats
-                                        break;
+                                        // Update right/wrong counts based on percentage
+                                        metadata.right += percentage;
+                                        metadata.wrong += (1 - percentage);
+                                        metadata.totalTeams += 1;
                                     }
-                                }
-                                
-                                if (!found) {
+                                    
+                                    // If there are multiple questions with this number in this round (rare but possible)
+                                    if (questionsForThisNumber.length > 1) {
+                                        console.log(`Note: Multiple questions with number ${questionNum} in round ${round}`);
+                                    }
+                                } else {
                                     console.log(`Warning: Could not find metadata for question ${qKey} in round ${roundNum}`);
                                 }
                             });
@@ -1858,7 +1875,7 @@
                 const breakdownData = Object.values(questionMetadata);
                 console.log(`Prepared ${breakdownData.length} rows for display`);
 
-                // Sort the data by round, then order, then question number
+                // Sort the data by round, then format, then question number
                 breakdownData.sort((a, b) => {
                     if (a.round !== b.round) return parseInt(a.round) - parseInt(b.round);
                     // Format order: Written, Visual, Music, Fill-In, Puzzle
@@ -1875,18 +1892,25 @@
 
                 // Update the table
                 const tableBody = document.getElementById('breakdownTableBody');
-                tableBody.innerHTML = breakdownData.map(row => `
-                    <tr>
-                        <td>${row.format}</td>
-                        <td>${row.round}</td>
-                        <td>${row.order}</td>
-                        <td>${row.number}</td>
-                        <td class="question-cell">${row.question}</td>
-                        <td class="question-cell">${row.answer}</td>
-                        <td>${Math.max(0, row.right).toFixed(1)}</td>
-                        <td>${Math.max(0, row.wrong).toFixed(1)}</td>
-                    </tr>
-                `).join('');
+                tableBody.innerHTML = breakdownData.map(row => {
+                    // Only show rows with at least one team
+                    const hasTeams = row.totalTeams > 0;
+                    const rightCount = Math.max(0, row.right).toFixed(1);
+                    const wrongCount = Math.max(0, row.wrong).toFixed(1);
+                    
+                    return `
+                        <tr class="${hasTeams ? '' : 'no-data'}">
+                            <td>${row.format}</td>
+                            <td>${row.round}</td>
+                            <td>${row.order}</td>
+                            <td>${row.number}</td>
+                            <td class="question-cell">${row.question}</td>
+                            <td class="question-cell">${row.answer}</td>
+                            <td>${hasTeams ? rightCount : '-'}</td>
+                            <td>${hasTeams ? wrongCount : '-'}</td>
+                        </tr>
+                    `;
+                }).join('');
 
                 // Add event listeners for sortable columns
                 document.querySelectorAll('#breakdownTable th.sortable').forEach(th => {
