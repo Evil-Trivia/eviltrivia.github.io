@@ -694,9 +694,8 @@
                         <th class="sortable" data-sort="number">Q#</th>
                         <th class="question-col">Question</th>
                         <th class="question-col">Answer</th>
-                        <th class="sortable" data-sort="correct">Correct</th>
-                        <th class="sortable" data-sort="total">Total</th>
-                        <th class="sortable" data-sort="percentage">%</th>
+                        <th class="sortable" data-sort="correct">Right</th>
+                        <th class="sortable" data-sort="wrong">Wrong</th>
                     </tr>
                 </thead>
                 <tbody id="breakdownTableBody">
@@ -1751,123 +1750,84 @@
                 const currentSession = sessionSnap.val();
                 const triviaNumber = currentSession.triviaNumber;
 
-                // Get question metadata from trivia-archive
+                // Get question metadata from trivia-archive for all rounds
                 const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia`));
                 if (!triviaSnap.exists()) {
                     throw new Error("Trivia not found");
                 }
                 const triviaData = triviaSnap.val();
 
-                // Create a map of question numbers to their metadata
+                // Create a map of question numbers to their metadata, including round info
                 const questionMetadata = {};
+                
+                // Loop through all rounds (1, 2, 3)
                 for (const [round, roundData] of Object.entries(triviaData)) {
                     for (const [format, formatData] of Object.entries(roundData)) {
                         for (const [qNum, question] of Object.entries(formatData)) {
                             const questionNum = question.Question_Number || parseInt(qNum);
-                            questionMetadata[`q${questionNum}`] = {
+                            const questionKey = `r${round}_q${questionNum}`;  // Use round + question as unique key
+                            
+                            questionMetadata[questionKey] = {
                                 format,
                                 round,
                                 order: question.Order || 1,
                                 number: questionNum,
                                 question: question.Question || '',
                                 answer: question.Answer || '',
-                                pointValue: parseFloat(question['Point Value'] || 0)
+                                pointValue: parseFloat(question['Point Value'] || 0),
+                                right: 0,
+                                wrong: 0,
+                                totalTeams: 0
                             };
                         }
                     }
                 }
 
-                const breakdownData = [];
-
-                if (scope === 'session') {
-                    // Get teams from current session only
-                    const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
-                    if (teamsSnap.exists()) {
-                        const teams = teamsSnap.val();
-                        const questionScores = {};
-
-                        // Aggregate scores for each question
-                        Object.values(teams).forEach(team => {
-                            for (const round in team) {
-                                if (round.startsWith('round') && team[round].questions) {
-                                    Object.entries(team[round].questions).forEach(([qKey, score]) => {
-                                        if (!questionScores[qKey]) {
-                                            questionScores[qKey] = {
-                                                pointsGiven: 0,
-                                                totalPossible: 0,
-                                                count: 0
-                                            };
-                                        }
-                                        questionScores[qKey].pointsGiven += parseFloat(score || 0);
-                                        questionScores[qKey].totalPossible += questionMetadata[qKey]?.pointValue || 0;
-                                        questionScores[qKey].count++;
-                                    });
-                                }
-                            }
-                        });
-
-                        // Create breakdown entries
-                        for (const [qKey, scores] of Object.entries(questionScores)) {
-                            const metadata = questionMetadata[qKey];
-                            if (metadata) {
-                                breakdownData.push({
-                                    ...metadata,
-                                    pointsGiven: scores.pointsGiven,
-                                    totalPossible: scores.totalPossible,
-                                    percentage: scores.totalPossible > 0 ? 
-                                        ((scores.pointsGiven / scores.totalPossible) * 100).toFixed(1) : '0.0'
-                                });
-                            }
-                        }
-                    }
-                } else {
-                    // Get all sessions with this trivia number
-                    const gradingSnap = await get(child(ref(db), 'grading'));
-                    if (gradingSnap.exists()) {
-                        const allSessions = gradingSnap.val();
-                        const questionScores = {};
-
-                        // Aggregate scores across all matching sessions
-                        Object.values(allSessions).forEach(session => {
-                            if (session.triviaNumber === triviaNumber && session.teams) {
-                                Object.values(session.teams).forEach(team => {
-                                    for (const round in team) {
-                                        if (round.startsWith('round') && team[round].questions) {
-                                            Object.entries(team[round].questions).forEach(([qKey, score]) => {
-                                                if (!questionScores[qKey]) {
-                                                    questionScores[qKey] = {
-                                                        pointsGiven: 0,
-                                                        totalPossible: 0,
-                                                        count: 0
-                                                    };
-                                                }
-                                                questionScores[qKey].pointsGiven += parseFloat(score || 0);
-                                                questionScores[qKey].totalPossible += questionMetadata[qKey]?.pointValue || 0;
-                                                questionScores[qKey].count++;
-                                            });
-                                        }
-                                    }
-                                });
-                            }
-                        });
-
-                        // Create breakdown entries
-                        for (const [qKey, scores] of Object.entries(questionScores)) {
-                            const metadata = questionMetadata[qKey];
-                            if (metadata) {
-                                breakdownData.push({
-                                    ...metadata,
-                                    pointsGiven: scores.pointsGiven,
-                                    totalPossible: scores.totalPossible,
-                                    percentage: scores.totalPossible > 0 ? 
-                                        ((scores.pointsGiven / scores.totalPossible) * 100).toFixed(1) : '0.0'
-                                });
-                            }
-                        }
-                    }
+                // Get teams from current session
+                const teamsSnap = await get(child(ref(db), `grading/${currentSessionId}/teams`));
+                if (!teamsSnap.exists()) {
+                    throw new Error("No teams found in session");
                 }
+                
+                const teams = teamsSnap.val();
+                
+                // Process all team scores
+                Object.values(teams).forEach(team => {
+                    // Process each round
+                    for (let roundNum = 1; roundNum <= 3; roundNum++) {
+                        const roundKey = `round${roundNum}`;
+                        if (team[roundKey] && team[roundKey].questions) {
+                            // Process each question in the round
+                            Object.entries(team[roundKey].questions).forEach(([qKey, score]) => {
+                                // Extract the question number from the key (format: "q1", "q2", etc.)
+                                const questionNum = parseInt(qKey.replace('q', ''));
+                                
+                                // Create the unique question key using round and question number
+                                const fullQuestionKey = `r${roundNum}_q${questionNum}`;
+                                
+                                if (questionMetadata[fullQuestionKey]) {
+                                    const metadata = questionMetadata[fullQuestionKey];
+                                    const maxPoints = metadata.pointValue;
+                                    
+                                    if (maxPoints > 0) {
+                                        const scoreValue = parseFloat(score);
+                                        const percentage = scoreValue / maxPoints;
+                                        
+                                        // Update right/wrong counts based on percentage
+                                        metadata.right += percentage;
+                                        metadata.wrong += (1 - percentage);
+                                        metadata.totalTeams += 1;
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
 
-                // Sort the data
+                // Convert the metadata object to an array for display
+                const breakdownData = Object.values(questionMetadata);
+
+                // Sort the data by round, then order, then question number
                 breakdownData.sort((a, b) => {
                     if (a.round !== b.round) return parseInt(a.round) - parseInt(b.round);
                     if (a.order !== b.order) return a.order - b.order;
@@ -1884,19 +1844,19 @@
                         <td>${row.number}</td>
                         <td class="question-cell">${row.question}</td>
                         <td class="question-cell">${row.answer}</td>
-                        <td>${row.pointsGiven.toFixed(2)}</td>
-                        <td>${row.totalPossible.toFixed(2)}</td>
-                        <td>${row.percentage}%</td>
+                        <td>${row.right.toFixed(1)}</td>
+                        <td>${row.wrong.toFixed(1)}</td>
                     </tr>
                 `).join('');
 
             } catch (error) {
                 console.error("Error loading trivia breakdown:", error);
+                console.error(error.stack);
                 alert("Error loading trivia breakdown. Please try again.");
             }
         }
 
-        // Add sorting functionality
+        // Update the sort function to handle the new columns
         function sortTable(column) {
             const table = document.getElementById('breakdownTable');
             const tbody = table.querySelector('tbody');
@@ -1919,7 +1879,7 @@
                 
                 // Handle numeric columns
                 if (column === 'round' || column === 'order' || column === 'number' ||
-                    column === 'correct' || column === 'total' || column === 'percentage') {
+                    column === 'correct' || column === 'wrong') {
                     aVal = parseFloat(aVal) || 0;
                     bVal = parseFloat(bVal) || 0;
                 }
