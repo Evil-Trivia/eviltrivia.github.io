@@ -6,7 +6,7 @@ const axios = require('axios');
 const querystring = require('querystring');
 const crypto = require('crypto');
 
-// Initialize Firebase admin 
+// Initialize Firebase admin without specifying credentials to use default service account
 admin.initializeApp();
 
 // Create Express app for Patreon auth
@@ -114,7 +114,14 @@ app.get('/debug-config', (req, res) => {
     hasWebhookSecret: !!process.env.PATREON_WEBHOOK_SECRET,
     webhookSecretFallback: 'Using fallback value: ' + (process.env.PATREON_WEBHOOK_SECRET ? 'No' : 'Yes'),
     serverTime: new Date().toISOString(),
-    env: process.env.NODE_ENV || 'not set'
+    env: process.env.NODE_ENV || 'not set',
+    firebaseAdmin: {
+      isInitialized: !!admin.apps.length,
+      appCount: admin.apps.length,
+      projectId: admin.app().options.projectId || 'Not available',
+      databaseURL: admin.app().options.databaseURL || 'Not available',
+      serviceAccount: admin.app().options.credential ? 'Using provided credentials' : 'Using default credentials'
+    }
   };
   
   res.json(config);
@@ -123,13 +130,13 @@ app.get('/debug-config', (req, res) => {
 // Route to initiate Patreon OAuth
 app.get('/auth/patreon', (req, res) => {
   // Use environment variables instead of functions.config()
-  const clientId = process.env.PATREON_CLIENT_ID || 'e4zVeNnRNrPaw19sO81-p7UN2h4aM3eJtBGWLPecq9VKxXeC11YWLzPiJJyBETLH';
+  const clientId = process.env.PATREON_CLIENT_ID;
   const redirectUri = process.env.PATREON_REDIRECT_URI || 
     'https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon/callback';
   
   if (!clientId) {
-    console.error('Patreon client ID not configured in environment variables');
-    return res.status(500).send('Patreon client ID not configured');
+    console.error('[ERROR] Patreon client ID not configured in environment variables');
+    return res.status(500).send('Patreon client ID not configured. Please contact the administrator.');
   }
   
   // Set state parameter for CSRF protection
@@ -184,13 +191,13 @@ app.get('/auth/patreon/callback', async (req, res) => {
     await admin.database().ref(`patreonAuthStates/${state}`).remove();
     
     // Get configs using environment variables
-    const clientId = process.env.PATREON_CLIENT_ID || 'e4zVeNnRNrPaw19sO81-p7UN2h4aM3eJtBGWLPecq9VKxXeC11YWLzPiJJyBETLH';
-    const clientSecret = process.env.PATREON_CLIENT_SECRET || 'eSTybekdDbHnEBtC6e4vSIpbcGtklzkltvGuy36w-JNCNqZwPX9bFCjYiQKN4FNL';
+    const clientId = process.env.PATREON_CLIENT_ID;
+    const clientSecret = process.env.PATREON_CLIENT_SECRET;
     const redirectUri = process.env.PATREON_REDIRECT_URI || 
       'https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon/callback';
     
     if (!clientId || !clientSecret) {
-      console.error('Patreon client ID or secret not configured in environment variables');
+      console.error('[ERROR] Patreon client ID or secret not configured in environment variables');
       return res.redirect('/patreon.html?auth_error=true&reason=missing_credentials');
     }
     
@@ -290,12 +297,20 @@ app.get('/auth/patreon/callback', async (req, res) => {
       await admin.database().ref(`users/${firebaseUid}/patreonId`).set(patreonUserId);
     }
     
-    // Create custom token for Firebase Auth
-    const customToken = await admin.auth().createCustomToken(firebaseUid);
-    
-    // Redirect back to the returnUrl or default to patreon.html
-    const returnUrl = stateData.returnUrl || '/patreon.html';
-    res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}`);
+    try {
+      // Create custom token for Firebase Auth
+      const customToken = await admin.auth().createCustomToken(firebaseUid);
+      
+      // Redirect back to the returnUrl or default to patreon.html
+      const returnUrl = stateData.returnUrl || '/patreon.html';
+      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}`);
+    } catch (tokenError) {
+      console.error('Error creating custom token:', tokenError);
+      // If we can't create a custom token, we can still redirect with Patreon success
+      // The client can handle this by using anonymous auth or another method
+      const returnUrl = stateData.returnUrl || '/patreon.html';
+      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&token_error=true`);
+    }
     
   } catch (error) {
     console.error('Patreon auth error:', error.message);
@@ -324,12 +339,23 @@ app.get('/getCustomToken', async (req, res) => {
       return res.status(404).json({ error: 'No Firebase user found for this Patreon ID' });
     }
     
-    // Create custom token
-    const customToken = await admin.auth().createCustomToken(firebaseUid);
-    
-    res.json({ token: customToken });
+    try {
+      // Create custom token
+      const customToken = await admin.auth().createCustomToken(firebaseUid);
+      res.json({ token: customToken });
+    } catch (tokenError) {
+      console.error('Error creating custom token:', tokenError);
+      // Return a specific error for token creation issues
+      res.status(500).json({ 
+        error: 'Token creation failed', 
+        message: 'Could not create Firebase custom token due to permissions issues',
+        patreonId: patreonId,
+        firebaseUid: firebaseUid,
+        manualAuth: true // Flag indicating client should try alternative auth
+      });
+    }
   } catch (error) {
-    console.error('Error generating custom token:', error);
+    console.error('Error handling getCustomToken request:', error);
     res.status(500).json({ error: 'Failed to generate token' });
   }
 });
@@ -338,7 +364,7 @@ app.get('/getCustomToken', async (req, res) => {
 app.post('/webhooks/patreon', async (req, res) => {
   try {
     // Get webhook secret from environment variables
-    const webhookSecret = process.env.PATREON_WEBHOOK_SECRET || 'ZRL4ikUVRZ_OC7bNEtftRLVJ4mcjl73zjrkdxwQJAfzvAc672l0jG5FDAczzDCw4';
+    const webhookSecret = process.env.PATREON_WEBHOOK_SECRET;
     
     // Verify webhook signature if secret is configured
     if (webhookSecret) {

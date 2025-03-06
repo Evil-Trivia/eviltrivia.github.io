@@ -463,17 +463,57 @@
       const urlParams = new URLSearchParams(window.location.search);
       const authSuccess = urlParams.get('auth_success');
       const patreonId = urlParams.get('patreon_id');
+      const firebaseToken = urlParams.get('firebase_token');
+      const tokenError = urlParams.get('token_error');
       
       if (authSuccess === 'true' && patreonId) {
         // Store auth data
         localStorage.setItem('patreonAuthenticated', 'true');
         localStorage.setItem('patreonUserId', patreonId);
         
-        // Remove these URL parameters but keep any firebase_token
+        // If we have a Firebase token, sign in with it
+        if (firebaseToken) {
+          auth.signInWithCustomToken(firebaseToken)
+            .then(() => {
+              console.log('[INFO] Signed in with custom token');
+            })
+            .catch(error => {
+              console.error('[ERROR] Error signing in with custom token:', error);
+              // Fall back to anonymous auth if token doesn't work
+              handleTokenError();
+            });
+        } else if (tokenError === 'true') {
+          // Handle the case where the server couldn't generate a token
+          console.log('[INFO] Server could not generate a custom token, using fallback authentication');
+          handleTokenError();
+        }
+        
+        // Remove these URL parameters but keep any others
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.delete('auth_success');
         newUrl.searchParams.delete('patreon_id');
+        newUrl.searchParams.delete('firebase_token');
+        newUrl.searchParams.delete('token_error');
         window.history.replaceState({}, document.title, newUrl.toString());
+      }
+    }
+    
+    // Handle the case where we can't get a custom token but still have Patreon auth
+    async function handleTokenError() {
+      // Check if user is already signed in
+      if (auth.currentUser) {
+        // User is already signed in, link the Patreon ID to this account
+        await checkAuth();
+      } else {
+        // Sign in anonymously and then check Patreon status
+        try {
+          await auth.signInAnonymously();
+          console.log('[INFO] Signed in anonymously as fallback');
+          await checkAuth();
+        } catch (error) {
+          console.error('[ERROR] Error signing in anonymously:', error);
+          updateUI({ isAuthenticated: false });
+        }
       }
     }
 
