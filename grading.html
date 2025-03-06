@@ -783,7 +783,6 @@
             }).catch((error) => {
                 console.error('Error signing out:', error);
             });
-        };
         logoutButton.style.position = 'fixed';
         logoutButton.style.top = '10px';
         logoutButton.style.right = '10px';
@@ -1461,10 +1460,26 @@
             }, duration);
         }
 
-        // Update the setupGradingScreen function to correctly handle scores and avoid duplicate handlers
+        // Make sure the formatQuestionContent function is properly defined
+        function formatQuestionContent(question) {
+            if (question.imageLink) {
+                return `
+                    <div>${question.question || ''}</div>
+                    <div style="margin-top: 8px;">
+                        <img src="${question.imageLink}" style="max-width: 100%; max-height: 200px;" />
+                    </div>
+                `;
+            } else {
+                return question.question || '';
+            }
+        }
+
+        // Update the setupGradingScreen function to fix score display issues
         async function setupGradingScreen(roundNum) {
             const sessionId = localStorage.getItem('currentGradingSession');
             if (!sessionId) return;
+
+            console.log("Setting up grading screen for round:", roundNum);
 
             try {
                 // Get session data
@@ -1500,13 +1515,11 @@
                     <div id="questionTableContainer"></div>
                 `;
 
-                // Remove any existing team change handler to prevent duplicates
-                const oldTeamSelect = document.getElementById('teamSelect');
-                const newTeamSelect = oldTeamSelect.cloneNode(true);
-                oldTeamSelect.parentNode.replaceChild(newTeamSelect, oldTeamSelect);
+                // Set the liveScoreBottom value to match
+                document.getElementById('liveScoreBottom').textContent = '0.0';
                 
-                // Add team selection handler to the new element
-                newTeamSelect.addEventListener('change', async (e) => {
+                // Define the team change function once
+                const handleTeamChange = async (e) => {
                     const teamId = e.target.value;
                     if (!teamId) {
                         document.getElementById('questionTableContainer').innerHTML = '';
@@ -1515,213 +1528,235 @@
                         return;
                     }
 
-                    // Get existing team scores if any
-                    const teamScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
-                    const existingScores = teamScoresSnap.exists() ? teamScoresSnap.val().questions || {} : {};
-                    
-                    // Store percentages separately if they exist
-                    const existingPercentages = teamScoresSnap.exists() && teamScoresSnap.val().percentages ? 
-                        teamScoresSnap.val().percentages : {};
-                    
-                    console.log("Loading scores for team:", teamId, "round:", roundNum);
-                    console.log("Existing scores:", existingScores);
-                    console.log("Existing percentages:", existingPercentages);
+                    console.log(`Loading scores for team: ${teamId}, round: ${roundNum}`);
 
-                    // Get questions from trivia archive
-                    const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
-                    const allQuestions = [];
-
-                    for (const format of roundFormats) {
-                        const formatSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}`));
-                        if (formatSnap.exists()) {
-                            Object.entries(formatSnap.val()).forEach(([num, data]) => {
-                                // Use the Question_Number if it exists, otherwise use the key
-                                const questionNum = data.Question_Number || parseInt(num);
-                                // Store the full path including the key
-                                allQuestions.push({
-                                    format,
-                                    questionNumber: questionNum,
-                                    question: data.Question || '',
-                                    answer: data.Answer || '',
-                                    points: parseFloat(data['Point Value'] || 0),
-                                    imageLink: data['Image Link'] || '',
-                                    answerImageLink: data['Answer Image Link'] || '',
-                                    totalPossible: parseFloat(data['Total Possible Points'] || 0),
-                                    pointsGiven: parseFloat(data['Points Given'] || 0),
-                                    // Store both the key and the path
-                                    key: num,
-                                    path: `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}/${num}`
-                                });
-                            });
+                    try {
+                        // Get existing team scores if any
+                        const teamScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
+                        let existingScores = {};
+                        let existingPercentages = {};
+                        
+                        if (teamScoresSnap.exists()) {
+                            const roundData = teamScoresSnap.val();
+                            existingScores = roundData.questions || {};
+                            existingPercentages = roundData.percentages || {};
+                            console.log("Loaded existing scores:", existingScores);
+                            console.log("Loaded existing percentages:", existingPercentages);
                         }
+
+                        // Get questions from trivia archive
+                        const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
+                        const allQuestions = [];
+
+                        for (const format of roundFormats) {
+                            const formatSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}`));
+                            if (formatSnap.exists()) {
+                                Object.entries(formatSnap.val()).forEach(([num, data]) => {
+                                    // Use the Question_Number if it exists, otherwise use the key
+                                    const questionNum = data.Question_Number || parseInt(num);
+                                    // Store the full path including the key
+                                    allQuestions.push({
+                                        format,
+                                        questionNumber: questionNum,
+                                        question: data.Question || '',
+                                        answer: data.Answer || '',
+                                        points: parseFloat(data['Point Value'] || 0),
+                                        imageLink: data['Image Link'] || '',
+                                        answerImageLink: data['Answer Image Link'] || '',
+                                        key: num,
+                                        path: `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}/${num}`
+                                    });
+                                });
+                            }
+                        }
+
+                        // Sort questions by format and number
+                        allQuestions.sort((a, b) => {
+                            const formatOrder = { 
+                                'Written': 1, 
+                                'Visual': 2, 
+                                'Music': 3, 
+                                'Fill-In': 4, 
+                                'Puzzle': 5 
+                            };
+                            if (a.format !== b.format) {
+                                return formatOrder[a.format] - formatOrder[b.format];
+                            }
+                            return a.questionNumber - b.questionNumber;
+                        });
+
+                        console.log(`Found ${allQuestions.length} questions for round ${roundNum}`);
+
+                        // Build question table with existing scores
+                        const tableHTML = `
+                            <table class="grading-table">
+                                <thead>
+                                    <tr>
+                                        <th>Format & No.</th>
+                                        <th>Question / Image</th>
+                                        <th>Answer</th>
+                                        <th>Buttons</th>
+                                        <th>Score</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${allQuestions.map((q, idx) => {
+                                        // Get existing score for this question
+                                        const qKey = `q${q.questionNumber}`;
+                                        const existingScore = existingScores[qKey];
+                                        
+                                        // Get saved percentage or calculate it
+                                        let percentage = 100; // Default to 100%
+                                        
+                                        if (existingPercentages && existingPercentages[qKey] !== undefined) {
+                                            // Use the saved percentage if it exists
+                                            percentage = Number(existingPercentages[qKey]);
+                                        } else if (existingScore !== undefined && q.points > 0) {
+                                            // Calculate percentage from score if points > 0
+                                            percentage = Math.round((existingScore / q.points) * 100);
+                                        }
+                                        
+                                        // Calculate score
+                                        const score = ((q.points * percentage) / 100).toFixed(2);
+
+                                        return `
+                                            <tr data-question-path="${q.path}" data-question-key="${q.key}" data-question-num="${q.questionNumber}">
+                                                <td>${q.format} #${q.questionNumber}</td>
+                                                <td>${formatQuestionContent(q)}</td>
+                                                <td>${q.answer || ''}</td>
+                                                <td>
+                                                    <div class="score-buttons" data-max-points="${q.points.toFixed(2)}">
+                                                        ${[100, 75, 66, 50, 33, 25, 0].map(value => `
+                                                            <button type="button"
+                                                                class="score-btn ${value === percentage ? 'selected' : ''}"
+                                                                data-value="${value}">
+                                                                ${value}%
+                                                            </button>
+                                                        `).join('')}
+                                                    </div>
+                                                </td>
+                                                <td class="score-cell">${score}</td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        `;
+
+                        document.getElementById('questionTableContainer').innerHTML = tableHTML;
+
+                        // Add click handlers for score buttons
+                        document.querySelectorAll('.score-btn').forEach(btn => {
+                            btn.addEventListener('click', (e) => {
+                                const buttonGroup = e.target.closest('.score-buttons');
+                                buttonGroup.querySelectorAll('.score-btn').forEach(b => b.classList.remove('selected'));
+                                e.target.classList.add('selected');
+                                
+                                const maxPoints = parseFloat(buttonGroup.dataset.maxPoints);
+                                const percentage = parseInt(e.target.dataset.value);
+                                const score = (maxPoints * percentage / 100).toFixed(2);
+                                const scoreCell = e.target.closest('tr').querySelector('.score-cell');
+                                scoreCell.textContent = score;
+                                
+                                updateLiveScore();
+                            });
+                        });
+
+                        updateLiveScore();
+                    } catch (error) {
+                        console.error("Error loading team questions:", error);
+                        showNotification("Error loading team questions", 3000);
+                    }
+                };
+
+                // Remove existing handlers and add a fresh one
+                teamSelect.onchange = null;
+                teamSelect.removeEventListener('change', handleTeamChange);
+                teamSelect.addEventListener('change', handleTeamChange);
+
+                // Define the save function once
+                const saveGrades = async () => {
+                    const teamId = document.getElementById('teamSelect').value;
+                    if (!teamId) {
+                        showNotification('Please select a team first.', 3000);
+                        return;
                     }
 
-                    // Sort questions by format and number
-                    allQuestions.sort((a, b) => {
-                        const formatOrder = { 
-                            'Written': 1, 
-                            'Visual': 2, 
-                            'Music': 3, 
-                            'Fill-In': 4, 
-                            'Puzzle': 5 
-                        };
-                        if (a.format !== b.format) {
-                            return formatOrder[a.format] - formatOrder[b.format];
-                        }
-                        return a.questionNumber - b.questionNumber;
-                    });
+                    try {
+                        const questions = {};
+                        const percentages = {}; // Store percentages separately
+                        let totalScore = 0;
 
-                    // Build question table with existing scores
-                    const tableHTML = `
-                        <table class="grading-table">
-                            <thead>
-                                <tr>
-                                    <th>Format & No.</th>
-                                    <th>Question / Image</th>
-                                    <th>Answer</th>
-                                    <th>Buttons</th>
-                                    <th>Score</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${allQuestions.map((q, idx) => {
-                                    // Get existing score for this question
-                                    const qKey = `q${q.questionNumber}`;
-                                    const existingScore = existingScores[qKey];
-                                    
-                                    // Get saved percentage or calculate it
-                                    let percentage;
-                                    if (existingPercentages && existingPercentages[qKey] !== undefined) {
-                                        // Use the saved percentage if it exists
-                                        percentage = existingPercentages[qKey];
-                                    } else if (existingScore !== undefined && q.points > 0) {
-                                        // Calculate percentage from score if points > 0
-                                        percentage = Math.round((existingScore / q.points) * 100);
-                                    } else {
-                                        // Default to 100% for new questions
-                                        percentage = 100;
-                                    }
-
-                                    return `
-                                        <tr data-question-path="${q.path}" data-question-key="${q.key}" data-question-num="${q.questionNumber}">
-                                            <td>${q.format} #${q.questionNumber}</td>
-                                            <td>${formatQuestionContent(q)}</td>
-                                            <td>${q.answer}</td>
-                                            <td>
-                                                <div class="score-buttons" data-max-points="${q.points.toFixed(2)}">
-                                                    ${[100, 75, 66, 50, 33, 25, 0].map(value => `
-                                                        <button type="button"
-                                                            class="score-btn ${value === percentage ? 'selected' : ''}"
-                                                            data-value="${value}">
-                                                            ${value}%
-                                                        </button>
-                                                    `).join('')}
-                                                </div>
-                                            </td>
-                                            <td class="score-cell">${((q.points * percentage) / 100).toFixed(2)}</td>
-                                        </tr>
-                                    `;
-                                }).join('')}
-                            </tbody>
-                        </table>
-                    `;
-
-                    document.getElementById('questionTableContainer').innerHTML = tableHTML;
-
-                    // Add click handlers for score buttons
-                    document.querySelectorAll('.score-btn').forEach(btn => {
-                        btn.addEventListener('click', (e) => {
-                            const buttonGroup = e.target.closest('.score-buttons');
-                            buttonGroup.querySelectorAll('.score-btn').forEach(b => b.classList.remove('selected'));
-                            e.target.classList.add('selected');
+                        document.querySelectorAll('.grading-table tbody tr').forEach(row => {
+                            const questionNum = row.dataset.questionNum;
+                            const selectedBtn = row.querySelector('.score-btn.selected');
+                            const scoreCell = row.querySelector('.score-cell');
                             
-                            const maxPoints = parseFloat(buttonGroup.dataset.maxPoints);
-                            const percentage = parseInt(e.target.dataset.value);
-                            const score = (maxPoints * percentage / 100).toFixed(2);
-                            const scoreCell = e.target.closest('tr').querySelector('.score-cell');
-                            scoreCell.textContent = score;
-                            
-                            updateLiveScore();
+                            if (selectedBtn && scoreCell) {
+                                const percentage = parseInt(selectedBtn.dataset.value);
+                                const score = parseFloat(scoreCell.textContent);
+                                
+                                // Store both the score and the percentage
+                                questions[`q${questionNum}`] = score;
+                                percentages[`q${questionNum}`] = percentage;
+                                
+                                totalScore += score;
+                            }
                         });
-                    });
 
-                    updateLiveScore();
-                });
+                        console.log("Saving scores:", questions);
+                        console.log("Saving percentages:", percentages);
 
-                // Remove existing save handlers to prevent duplicates
-                const oldSaveButton = document.getElementById('btnSaveGrades');
-                const newSaveButton = oldSaveButton.cloneNode(true);
-                oldSaveButton.parentNode.replaceChild(newSaveButton, oldSaveButton);
+                        // Save both scores and percentages
+                        await update(ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`), {
+                            questions,
+                            percentages, // Save the percentages too
+                            totalScore: totalScore
+                        });
+
+                        showNotification('Grades saved successfully!', 2000);
+                        
+                        // Update the displayed scores
+                        document.getElementById('liveScore').textContent = totalScore.toFixed(2);
+                        document.getElementById('liveScoreBottom').textContent = totalScore.toFixed(2);
+                        
+                        // Reload the rubric scores to reflect the changes
+                        await loadRubricScores();
+                    } catch (error) {
+                        console.error('Error saving grades:', error);
+                        showNotification('Error saving grades. Please try again.', 5000);
+                    }
+                };
+
+                // Remove existing handlers and add fresh ones
+                const saveButton = document.getElementById('btnSaveGrades');
+                const bottomSaveButton = document.getElementById('btnSaveGradesBottom');
                 
-                const oldBottomSaveButton = document.getElementById('btnSaveGradesBottom');
-                const newBottomSaveButton = oldBottomSaveButton.cloneNode(true);
-                oldBottomSaveButton.parentNode.replaceChild(newBottomSaveButton, oldBottomSaveButton);
+                saveButton.onclick = null;
+                bottomSaveButton.onclick = null;
+                
+                saveButton.removeEventListener('click', saveGrades);
+                bottomSaveButton.removeEventListener('click', saveGrades);
+                
+                saveButton.addEventListener('click', saveGrades);
+                bottomSaveButton.addEventListener('click', saveGrades);
 
-                // Add save grades handler to the new button
-                newSaveButton.addEventListener('click', saveCaggrades);
-                newBottomSaveButton.addEventListener('click', saveCaggrades);
+                // Update the return to rubric buttons
+                document.getElementById('btnReturnToRubricFromGrading').onclick = async () => {
+                    await loadRubricScores();
+                    showScreen('screenRubric');
+                };
+                
+                document.getElementById('btnReturnToRubricBottom').onclick = async () => {
+                    await loadRubricScores();
+                    showScreen('screenRubric');
+                };
 
                 showScreen('screenGrading');
             } catch (error) {
                 console.error("Error setting up grading screen:", error);
                 console.error(error.stack);
                 showNotification('Error setting up grading screen', 5000);
-            }
-        }
-
-        // Create a reusable save grades function
-        async function saveCaggrades() {
-            const teamId = document.getElementById('teamSelect').value;
-            if (!teamId) {
-                showNotification('Please select a team first.', 3000);
-                return;
-            }
-
-            const sessionId = localStorage.getItem('currentGradingSession');
-            if (!sessionId) {
-                showNotification('No session found. Please restart.', 3000);
-                return;
-            }
-
-            // Get the current round number
-            const roundNum = document.getElementById('currentRoundNum').textContent;
-
-            try {
-                const questions = {};
-                const percentages = {}; // Store percentages separately
-                let totalScore = 0;
-
-                document.querySelectorAll('.grading-table tbody tr').forEach(row => {
-                    const questionNum = row.dataset.questionNum;
-                    const selectedBtn = row.querySelector('.score-btn.selected');
-                    const scoreCell = row.querySelector('.score-cell');
-                    
-                    if (selectedBtn) {
-                        const percentage = parseInt(selectedBtn.dataset.value);
-                        const score = parseFloat(scoreCell.textContent);
-                        
-                        // Store both the score and the percentage
-                        questions[`q${questionNum}`] = score;
-                        percentages[`q${questionNum}`] = percentage;
-                        
-                        totalScore += score;
-                    }
-                });
-
-                // Save both scores and percentages
-                await update(ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`), {
-                    questions,
-                    percentages, // Save the percentages too
-                    totalScore: totalScore
-                });
-
-                showNotification('Grades saved successfully!', 2000);
-                
-                // Reload the rubric scores to reflect the changes
-                await loadRubricScores();
-            } catch (error) {
-                console.error('Error saving grades:', error);
-                showNotification('Error saving grades. Please try again.', 5000);
             }
         }
 
@@ -1745,7 +1780,7 @@
                 showScreen('screenRubric');
             });
             
-            document.getElementById('btnReturnToRubricBottom').addEventListener('click', async () => {
+            document.getElementById('btnReturnToRubricBottom').onclick = async () => {
                 await loadRubricScores();
                 showScreen('screenRubric');
             });
