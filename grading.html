@@ -546,6 +546,26 @@
         .no-data {
             opacity: 0.6;
         }
+
+        /* Add styles for the toast notification */
+        .toast-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #4CAF50;
+            color: white;
+            padding: 16px;
+            border-radius: 4px;
+            z-index: 9999;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            max-width: 300px;
+        }
+
+        .toast-notification.show {
+            opacity: 1;
+        }
     </style>
     <script src="https://eviltrivia.com/autoload-banner.js"></script>
 </head>
@@ -1457,6 +1477,17 @@
                     </div>
                     <div id="questionTableContainer"></div>
                 `;
+                
+                // Reset the live score bottom
+                document.getElementById('liveScoreBottom').textContent = '0.00';
+
+                // Remove existing event listeners to prevent duplicates
+                const oldTeamSelect = document.getElementById('teamSelect');
+                const newTeamSelect = oldTeamSelect.cloneNode(true);
+                oldTeamSelect.parentNode.replaceChild(newTeamSelect, oldTeamSelect);
+                
+                // Get reference to the new element
+                const teamSelect = document.getElementById('teamSelect');
 
                 // Add team selection handler
                 teamSelect.addEventListener('change', async (e) => {
@@ -1601,11 +1632,20 @@
                     updateLiveScore();
                 });
 
+                // Remove existing save buttons event listeners
+                const oldSaveBtn = document.getElementById('btnSaveGrades');
+                const newSaveBtn = oldSaveBtn.cloneNode(true);
+                oldSaveBtn.parentNode.replaceChild(newSaveBtn, oldSaveBtn);
+                
+                const oldSaveBtnBottom = document.getElementById('btnSaveGradesBottom');
+                const newSaveBtnBottom = oldSaveBtnBottom.cloneNode(true);
+                oldSaveBtnBottom.parentNode.replaceChild(newSaveBtnBottom, oldSaveBtnBottom);
+
                 // Update the save grades handler
                 document.getElementById('btnSaveGrades').addEventListener('click', async () => {
                     const teamId = document.getElementById('teamSelect').value;
                     if (!teamId) {
-                        alert('Please select a team first.');
+                        showToast('Please select a team first.');
                         return;
                     }
 
@@ -1638,13 +1678,13 @@
                             totalScore: totalScore
                         });
 
-                        alert('Grades saved successfully!');
+                        showToast('Grades saved successfully!');
                         
                         // Reload the rubric scores to reflect the changes
                         await loadRubricScores();
                     } catch (error) {
                         console.error('Error saving grades:', error);
-                        alert('Error saving grades. Please try again.');
+                        showToast('Error saving grades. Please try again.', 3000);
                     }
                 });
 
@@ -1657,6 +1697,7 @@
             } catch (error) {
                 console.error("Error setting up grading screen:", error);
                 console.error(error.stack);
+                showToast('Error setting up grading screen. Please try again.', 3000);
             }
         }
 
@@ -2248,6 +2289,34 @@
                 console.error("Error loading existing sessions:", error);
                 alert("Error loading existing sessions. Please try again.");
             }
+        }
+
+        // Add a function to show a toast notification instead of alert
+        function showToast(message, duration = 2000) {
+            // Remove any existing toast
+            const existingToast = document.querySelector('.toast-notification');
+            if (existingToast) {
+                existingToast.remove();
+            }
+            
+            // Create a new toast
+            const toast = document.createElement('div');
+            toast.className = 'toast-notification';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            // Show the toast (delay slightly to ensure transition works)
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            // Hide and remove the toast after the duration
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300); // Wait for fade-out animation
+            }, duration);
         }
     </script>
 </body>
