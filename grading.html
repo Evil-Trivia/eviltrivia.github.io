@@ -1822,7 +1822,7 @@
                 const currentSession = sessionSnap.val();
                 const triviaNumber = currentSession.triviaNumber;
 
-                console.log("Loading breakdown for trivia number:", triviaNumber);
+                console.log(`Loading breakdown for trivia #${triviaNumber}, scope: ${scope}`);
 
                 // Get question metadata from trivia-archive for all rounds
                 const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia`));
@@ -1872,27 +1872,39 @@
 
                 console.log(`Total questions found: ${Object.keys(questionMetadata).length}`);
 
-                // Get sessions to analyze based on scope
+                // IMPORTANT: Determine which sessions to analyze based on scope
                 let sessionsToAnalyze = [];
                 if (scope === 'session') {
+                    // Only analyze the current session
                     sessionsToAnalyze = [currentSessionId];
-                } else if (scope === 'all') {
+                    console.log("Analyzing only current session:", currentSessionId);
+                } else if (scope === 'allTime') {
                     // Get all sessions with the same trivia number
                     const allSessionsSnap = await get(child(ref(db), 'grading'));
                     if (allSessionsSnap.exists()) {
                         const allSessions = allSessionsSnap.val();
                         sessionsToAnalyze = Object.keys(allSessions).filter(sid => 
                             allSessions[sid].triviaNumber === triviaNumber);
+                        console.log(`Found ${sessionsToAnalyze.length} sessions with trivia #${triviaNumber}:`, 
+                            sessionsToAnalyze);
                     }
                 }
                 
-                console.log(`Analyzing ${sessionsToAnalyze.length} sessions:`, sessionsToAnalyze);
+                if (sessionsToAnalyze.length === 0) {
+                    console.warn("No sessions to analyze!");
+                    return;
+                }
 
-                // Process all sessions
+                // Process each session
                 for (const sessionId of sessionsToAnalyze) {
+                    console.log(`Processing session: ${sessionId}`);
+                    
                     // Get teams from this session
                     const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
-                    if (!teamsSnap.exists()) continue;
+                    if (!teamsSnap.exists()) {
+                        console.log(`No teams found in session ${sessionId}`);
+                        continue;
+                    }
                     
                     const teams = teamsSnap.val();
                     console.log(`Processing scores for ${Object.keys(teams).length} teams in session ${sessionId}`);
@@ -1905,7 +1917,6 @@
                             if (!team[roundKey]) continue;
                             
                             const roundData = team[roundKey];
-                            console.log(`Processing round ${roundNum} for team ${teamId}`);
                             
                             // Process each format in this round
                             for (const format of possibleFormats) {
@@ -1930,10 +1941,6 @@
                                         metadata.right += percentage;
                                         metadata.wrong += (1 - percentage);
                                         metadata.totalTeams += 1;
-                                        
-                                        console.log(`Added score for ${format} q${questionNum} in round ${roundNum}: ${percentage * 100}%`);
-                                    } else {
-                                        console.log(`Warning: No metadata found for ${questionId}`);
                                     }
                                 }
                             }
@@ -2006,14 +2013,6 @@
                     `;
                 }).join('');
 
-                // Add event listeners for sortable columns
-                document.querySelectorAll('#breakdownTable th.sortable').forEach(th => {
-                    th.addEventListener('click', () => {
-                        const column = th.dataset.sort;
-                        sortTable(column);
-                    });
-                });
-
             } catch (error) {
                 console.error("Error loading trivia breakdown:", error);
                 console.error(error.stack);
@@ -2021,61 +2020,21 @@
             }
         }
 
-        // Update the sort function to handle the new columns
-        function sortTable(column) {
-            const table = document.getElementById('breakdownTable');
-            const tbody = table.querySelector('tbody');
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            const th = table.querySelector(`th[data-sort="${column}"]`);
-            const isAsc = th.classList.contains('asc');
+        // Make sure the dropdown event listener is correctly attached
+        document.addEventListener('DOMContentLoaded', () => {
+            // ... existing code ...
             
-            // Reset all headers
-            table.querySelectorAll('th').forEach(header => {
-                header.classList.remove('asc', 'desc');
-            });
+            // Add scope change handler with more detailed logging
+            const scopeDropdown = document.getElementById('breakdownScope');
+            if (scopeDropdown) {
+                scopeDropdown.addEventListener('change', function() {
+                    console.log("Breakdown scope changed to:", this.value);
+                    loadTriviaBreakdown(this.value);
+                });
+            }
             
-            // Set new sort direction
-            th.classList.add(isAsc ? 'desc' : 'asc');
-            
-            // Sort rows
-            rows.sort((a, b) => {
-                let aVal = a.children[th.cellIndex].textContent;
-                let bVal = b.children[th.cellIndex].textContent;
-                
-                // Handle numeric columns
-                if (column === 'round' || column === 'order' || column === 'number' ||
-                    column === 'correct' || column === 'wrong' || column === 'percentage') {
-                    
-                    // Handle percentage column specifically
-                    if (column === 'percentage') {
-                        aVal = parseFloat(aVal.replace('%', '')) || 0;
-                        bVal = parseFloat(bVal.replace('%', '')) || 0;
-                    } else {
-                        aVal = parseFloat(aVal) || 0;
-                        bVal = parseFloat(bVal) || 0;
-                    }
-                }
-                
-                if (aVal < bVal) return isAsc ? -1 : 1;
-                if (aVal > bVal) return isAsc ? 1 : -1;
-                
-                // If values are equal, maintain Round > Order > Number sorting
-                const aRound = parseInt(a.children[1].textContent);
-                const bRound = parseInt(b.children[1].textContent);
-                if (aRound !== bRound) return aRound - bRound;
-                
-                const aOrder = parseInt(a.children[2].textContent);
-                const bOrder = parseInt(b.children[2].textContent);
-                if (aOrder !== bOrder) return aOrder - bOrder;
-                
-                const aNumber = parseInt(a.children[3].textContent);
-                const bNumber = parseInt(b.children[3].textContent);
-                return aNumber - bNumber;
-            });
-            
-            // Reorder rows
-            tbody.append(...rows);
-        }
+            // ... rest of the existing code ...
+        });
 
         // Add event listeners
         document.addEventListener('DOMContentLoaded', () => {
