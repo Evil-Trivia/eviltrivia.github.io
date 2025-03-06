@@ -303,15 +303,28 @@ app.get('/auth/patreon/callback', async (req, res) => {
       // Create custom token for Firebase Auth
       const customToken = await admin.auth().createCustomToken(firebaseUid);
       
+      // Include basic Patreon user info in the redirect
+      const encodedName = encodeURIComponent(userData.attributes.full_name || '');
+      const encodedEmail = encodeURIComponent(userData.attributes.email || '');
+      const encodedImage = encodeURIComponent(userData.attributes.image_url || '');
+      const encodedTier = encodeURIComponent(activeMembership?.attributes?.patron_status || 'Connected');
+      
       // Redirect back to the returnUrl or default to patreon.html
       const returnUrl = stateData.returnUrl || '/patreon.html';
-      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}`);
+      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&firebase_token=${customToken}&patreon_name=${encodedName}&patreon_email=${encodedEmail}&patreon_image=${encodedImage}&patreon_tier=${encodedTier}`);
     } catch (tokenError) {
       console.error('Error creating custom token:', tokenError);
       // If we can't create a custom token, we can still redirect with Patreon success
       // The client can handle this by using anonymous auth or another method
       const returnUrl = stateData.returnUrl || '/patreon.html';
-      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&token_error=true`);
+      
+      // Include basic Patreon user info in the redirect
+      const encodedName = encodeURIComponent(userData.attributes.full_name || '');
+      const encodedEmail = encodeURIComponent(userData.attributes.email || '');
+      const encodedImage = encodeURIComponent(userData.attributes.image_url || '');
+      const encodedTier = encodeURIComponent(activeMembership?.attributes?.patron_status || 'Connected');
+      
+      res.redirect(`${returnUrl}?auth_success=true&patreon_id=${patreonUserId}&token_error=true&patreon_name=${encodedName}&patreon_email=${encodedEmail}&patreon_image=${encodedImage}&patreon_tier=${encodedTier}`);
     }
     
   } catch (error) {
