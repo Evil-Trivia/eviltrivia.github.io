@@ -493,6 +493,54 @@
             width: 80px;
             text-align: right;
         }
+
+        /* Add styles for compact mode */
+        .compact-mode .grading-table td:nth-child(2) {
+            display: none; /* Hide question column */
+        }
+
+        .compact-mode .grading-table th:nth-child(2) {
+            display: none; /* Hide question header */
+        }
+
+        .compact-mode .grading-table td,
+        .compact-mode .grading-table th {
+            padding: 3px;
+            font-size: 12px;
+        }
+
+        .compact-mode .score-buttons {
+            flex-direction: row;
+            flex-wrap: wrap;
+        }
+
+        .compact-mode .score-btn {
+            padding: 3px;
+            width: 40px;
+            font-size: 11px;
+            margin: 1px;
+        }
+
+        .compact-mode .score-btn[data-value="100"],
+        .compact-mode .score-btn[data-value="50"],
+        .compact-mode .score-btn[data-value="0"] {
+            width: 40px;
+            font-size: 11px;
+            padding: 3px;
+        }
+
+        .bottom-controls {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+            position: sticky;
+            bottom: 0;
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
     </style>
     <script src="https://eviltrivia.com/autoload-banner.js"></script>
 </head>
@@ -607,11 +655,22 @@
                     <option value="">Select a team...</option>
                 </select>
                 <button id="btnSaveGrades">Save Grades</button>
-                <button id="btnReturnToRubric">Return to Rubric</button>
+                <button id="btnReturnToRubricFromGrading">Return to Rubric</button>
+                <button id="btnToggleCompactMode">Compact Mode</button>
             </div>
 
             <div id="gradingForm">
                 <!-- Questions will be populated here -->
+            </div>
+            
+            <div class="bottom-controls">
+                <div>
+                    <button id="btnSaveGradesBottom">Save Grades</button>
+                    <button id="btnReturnToRubricBottom">Return to Rubric</button>
+                </div>
+                <div>
+                    <h3>Current Score: <span id="liveScoreBottom">0.0</span></h3>
+                </div>
             </div>
         </div>
     </div>
@@ -1149,7 +1208,9 @@
                     totalScore += maxPoints * percentage;
                 }
             });
-            document.getElementById('liveScore').textContent = totalScore.toFixed(2);
+            const scoreValue = totalScore.toFixed(2);
+            document.getElementById('liveScore').textContent = scoreValue;
+            document.getElementById('liveScoreBottom').textContent = scoreValue;
         }
 
         // Add helper function to calculate size penalty
@@ -1399,6 +1460,7 @@
                     if (!teamId) {
                         document.getElementById('questionTableContainer').innerHTML = '';
                         document.getElementById('liveScore').textContent = '0.00';
+                        document.getElementById('liveScoreBottom').textContent = '0.00';
                         return;
                     }
 
@@ -1895,6 +1957,36 @@
             // Add scope change handler
             document.getElementById('breakdownScope').addEventListener('change', function() {
                 loadTriviaBreakdown(this.value);
+            });
+            
+            // Fix the return to rubric buttons
+            document.getElementById('btnReturnToRubricFromGrading').addEventListener('click', async () => {
+                await loadRubricScores();
+                showScreen('screenRubric');
+            });
+            
+            document.getElementById('btnReturnToRubricBottom').addEventListener('click', async () => {
+                await loadRubricScores();
+                showScreen('screenRubric');
+            });
+            
+            // Add toggle compact mode functionality
+            document.getElementById('btnToggleCompactMode').addEventListener('click', () => {
+                const grading = document.getElementById('screenGrading');
+                grading.classList.toggle('compact-mode');
+                
+                const btn = document.getElementById('btnToggleCompactMode');
+                if (grading.classList.contains('compact-mode')) {
+                    btn.textContent = 'Normal Mode';
+                } else {
+                    btn.textContent = 'Compact Mode';
+                }
+            });
+            
+            // Add bottom save grades functionality
+            document.getElementById('btnSaveGradesBottom').addEventListener('click', async () => {
+                // Use the same handler as the top button
+                document.getElementById('btnSaveGrades').click();
             });
         });
 
