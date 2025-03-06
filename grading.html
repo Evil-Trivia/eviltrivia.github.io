@@ -1675,17 +1675,20 @@
             try {
                 const rows = document.querySelectorAll('.grading-table tbody tr');
                 let totalPoints = 0;
-                const questionScores = {};
-
-                // First, get existing question scores to preserve any that aren't being updated
-                const existingScoresSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`));
-                const existingScores = existingScoresSnap.exists() ? existingScoresSnap.val() : {};
                 
+                // Create a new structure for this round
+                const roundData = {
+                    roundNumber: roundNum,
+                    questions: {},
+                    total: 0
+                };
+
                 // Process each question
                 rows.forEach(row => {
+                    const format = row.querySelector('td:first-child').textContent.split(' #')[0].trim();
+                    const questionNum = parseInt(row.dataset.questionNum);
                     const scoreButtons = row.querySelector('.score-buttons');
                     const selectedBtn = row.querySelector('.score-btn.selected');
-                    const questionNum = parseInt(row.dataset.questionNum);
                     const maxPoints = parseFloat(scoreButtons.dataset.maxPoints);
                     
                     if (selectedBtn) {
@@ -1693,25 +1696,26 @@
                         const points = maxPoints * percentage;
                         const pointsRounded = parseFloat(points.toFixed(2));
                         
-                        // Store score using question number
-                        questionScores[`q${questionNum}`] = pointsRounded;
+                        // Add this question to the round data
+                        roundData.questions[`q${questionNum}`] = {
+                            format: format,
+                            questionNumber: questionNum,
+                            totalPossiblePoints: maxPoints,
+                            pointsEarned: pointsRounded,
+                            percentage: percentage * 100
+                        };
+                        
                         totalPoints += points;
                     }
                 });
                 
-                // Merge existing scores with new ones
-                const mergedScores = {...existingScores, ...questionScores};
-
-                // Save team scores
-                await update(ref(db), {
-                    [`grading/${sessionId}/teams/${teamId}/round${roundNum}/total`]: parseFloat(totalPoints.toFixed(2)),
-                    [`grading/${sessionId}/teams/${teamId}/round${roundNum}/questions`]: mergedScores
-                });
+                // Set the total score for the round
+                roundData.total = parseFloat(totalPoints.toFixed(2));
                 
-                console.log(`Saved round ${roundNum} scores for team ${teamId}:`, {
-                    total: parseFloat(totalPoints.toFixed(2)),
-                    questions: mergedScores
-                });
+                // Save the complete round data to the team
+                await set(ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`), roundData);
+                
+                console.log(`Saved complete round ${roundNum} data for team ${teamId}:`, roundData);
                 
                 alert("Grades saved successfully!");
                 
