@@ -3,7 +3,7 @@ if (document.title !== "Oops!") {
     // Create script element
     const script = document.createElement('script');
     
-    // Use relative path instead of absolute URL
+    // Always use absolute path
     script.src = '/banner.js';
     
     // Add it to the head

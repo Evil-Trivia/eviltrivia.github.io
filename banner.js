@@ -20,24 +20,32 @@
         right: 0;
         z-index: 1000;
         display: flex;
-        justify-content: space-between;
+        justify-content: center;
         align-items: center;
     ">
-        <a href="index.html" style="color: #FFCC00; text-decoration: none; font-weight: bold;">Evil Trivia</a>
-        <nav style="display: flex; gap: 20px;">
-            <a href="index.html" style="color: white; text-decoration: none;">Home</a>
-            <a href="/games" style="color: white; text-decoration: none;">Games</a>
-            <a href="/live" style="color: white; text-decoration: none;">Live Trivia</a>
-            <a href="grading.html" id="gradingLink" style="color: white; text-decoration: none; display: none;">Grading</a>
-            <a href="admin.html" id="adminLink" style="color: white; text-decoration: none; display: none;">Admin</a>
-        </nav>
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <div id="accountStatus" style="font-size: 14px; display: flex; align-items: center;">
-                <span>Evil Trivia: <span id="evilTriviaStatus">Not Logged In</span></span>
-                <span style="margin: 0 10px;">|</span>
-                <span>Patreon: <span id="patreonStatus">Not Connected</span></span>
+        <div style="
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        ">
+            <a href="/" style="color: #FFCC00; text-decoration: none; font-weight: bold;">Evil Trivia</a>
+            <nav style="display: flex; gap: 20px;">
+                <a href="/" style="color: white; text-decoration: none;">Home</a>
+                <a href="/games" style="color: white; text-decoration: none;">Games</a>
+                <a href="/live" style="color: white; text-decoration: none;">Live Trivia</a>
+                <a href="/grading.html" id="gradingLink" style="color: white; text-decoration: none; display: none;">Grading</a>
+                <a href="/admin.html" id="adminLink" style="color: white; text-decoration: none; display: none;">Admin</a>
+            </nav>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <div id="accountStatus" style="font-size: 14px; display: flex; align-items: center;">
+                    <span>Evil Trivia: <span id="evilTriviaStatus">Not Logged In</span></span>
+                    <span style="margin: 0 10px;">|</span>
+                    <span>Patreon: <span id="patreonStatus">Not Connected</span></span>
+                </div>
+                <a href="/account.html" style="color: white; text-decoration: none; background: #333; padding: 6px 12px; border-radius: 4px; margin-left: 10px;">My Account</a>
             </div>
-            <a href="account.html" style="color: white; text-decoration: none; background: #333; padding: 6px 12px; border-radius: 4px; margin-left: 10px;">My Account</a>
         </div>
     </div>
     `;
