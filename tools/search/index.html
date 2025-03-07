@@ -1197,8 +1197,19 @@
                     // Skip non-object values
                     if (typeof roundData !== 'object' || roundData === null) continue;
                     
-                    // Get round metadata
+                    // Get round metadata - try to find the round name in multiple ways
                     const roundName = getRoundName(triviaNode, roundKey);
+                    
+                    // Also check for round name directly in the round data
+                    let directRoundName = null;
+                    if (roundData['Round Name']) {
+                        directRoundName = roundData['Round Name'];
+                    } else if (roundData['name']) {
+                        directRoundName = roundData['name'];
+                    }
+                    
+                    // Choose the most specific round name we can find
+                    const finalRoundName = directRoundName || roundName;
                     
                     // Apply format filter early
                     let formatsToProcess = Object.keys(roundData);
@@ -1219,6 +1230,17 @@
                         // Skip non-object values
                         if (typeof formatData !== 'object' || formatData === null) continue;
                         
+                        // Check for round name in the format data as well
+                        let formatRoundName = null;
+                        if (formatData['Round Name']) {
+                            formatRoundName = formatData['Round Name'];
+                        } else if (formatData['name']) {
+                            formatRoundName = formatData['name'];
+                        }
+                        
+                        // Use the most specific round name we can find
+                        const mostSpecificRoundName = formatRoundName || finalRoundName;
+                        
                         // Precompute regex pattern if using wildcards
                         let regexPattern = null;
                         if (currentSearch.query && (currentSearch.query.includes('*') || currentSearch.query.includes('?'))) {
@@ -1232,6 +1254,15 @@
                                 (isNaN(questionKey) && !/^\d+$/.test(questionKey))) {
                                 continue;
                             }
+                            
+                            // Check for round name in the question data as a last resort
+                            let questionRoundName = null;
+                            if (questionData['Round Name']) {
+                                questionRoundName = questionData['Round Name'];
+                            }
+                            
+                            // Use the most specific round name available, prioritizing the closest to the question
+                            const bestRoundName = questionRoundName || formatRoundName || finalRoundName;
                             
                             // Quick search function for fields
                             const fieldMatches = (fieldName, fieldValue) => {
@@ -1294,7 +1325,7 @@
                                     triviaName: triviaName,
                                     triviaDate: triviaDate,
                                     round: roundKey,
-                                    roundName: roundName,
+                                    roundName: bestRoundName || `Round ${roundKey}`, // Use the best round name we found
                                     // Use Round Format field for format if available, otherwise use format key
                                     format: roundFormat || formatKey,
                                     roundType: roundType,
@@ -1318,37 +1349,84 @@
         // Helper function to get a round name from trivia data
         function getRoundName(triviaNode, roundKey) {
             try {
-                // Try to find round name in different possible locations
+                // Add debug logging to help troubleshoot
+                console.log(`Getting round name for round ${roundKey}`);
+                
+                // First priority: check if a 'Round Name' field exists directly on the round node
                 if (triviaNode[roundKey] && triviaNode[roundKey]['Round Name']) {
+                    console.log(`Found round name at triviaNode[${roundKey}]['Round Name']:`, triviaNode[roundKey]['Round Name']);
                     return triviaNode[roundKey]['Round Name'];
                 }
                 
+                let foundName = null;
+                
                 if (triviaNode[roundKey] && typeof triviaNode[roundKey] === 'object') {
-                    // Look through formats for round name
+                    // Second priority: look through formats for round name
                     for (const formatKey of Object.keys(triviaNode[roundKey])) {
                         const format = triviaNode[roundKey][formatKey];
+                        
+                        // Check if the format has a Round Name directly
                         if (format && format['Round Name']) {
+                            console.log(`Found round name at format level: ${format['Round Name']}`);
                             return format['Round Name'];
                         }
                         
-                        // Look through questions for round name
+                        // Look for "name" field which might also contain round name
+                        if (format && format['name']) {
+                            console.log(`Found potential round name in 'name' field: ${format['name']}`);
+                            foundName = format['name'];
+                            // Don't return immediately, continue looking for an actual "Round Name" field
+                        }
+                        
+                        // Third priority: look through questions for round name
                         if (format && typeof format === 'object') {
-                            for (const qKey of Object.keys(format)) {
+                            // Check numeric keys first (questions)
+                            const questionKeys = Object.keys(format).filter(key => !isNaN(parseInt(key)));
+                            
+                            for (const qKey of questionKeys) {
                                 const q = format[qKey];
                                 if (q && q['Round Name']) {
+                                    console.log(`Found round name in question ${qKey}: ${q['Round Name']}`);
                                     return q['Round Name'];
+                                }
+                            }
+                            
+                            // Also check any other keys as a fallback
+                            for (const qKey of Object.keys(format)) {
+                                if (questionKeys.includes(qKey)) continue; // Skip question keys we already checked
+                                
+                                const value = format[qKey];
+                                if (value && typeof value === 'object' && value['Round Name']) {
+                                    console.log(`Found round name in other key ${qKey}: ${value['Round Name']}`);
+                                    return value['Round Name'];
                                 }
                             }
                         }
                     }
                 }
                 
-                // If round is 'final', return "Final Round"
+                // Use the foundName if we discovered one in the 'name' field
+                if (foundName) {
+                    return foundName;
+                }
+                
+                // Fourth priority: Check if this is a final round
                 if (roundKey.toLowerCase().includes('final')) {
                     return "Final Round";
                 }
                 
+                // Look for specific roundKey patterns and provide better names
+                if (roundKey === '1') return "Round 1";
+                if (roundKey === '2') return "Round 2";
+                if (roundKey === '3') return "Round 3";
+                if (roundKey === '4') return "Round 4";
+                if (roundKey === '5') return "Round 5";
+                if (roundKey === '6') return "Round 6";
+                if (roundKey === '7') return "Round 7";
+                if (roundKey === '8') return "Round 8";
+                
                 // Default to formatted round number
+                console.log(`No specific round name found for round ${roundKey}, using default`);
                 return `Round ${roundKey}`;
             } catch (e) {
                 console.error('Error getting round name:', e);
