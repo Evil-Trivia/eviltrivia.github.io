@@ -1040,13 +1040,19 @@
             if (currentSearch.sort === 'newest') {
                 // For newest first, we start at the end and move backward
                 if (loadMore && currentSearch.lastKey) {
-                    triviaQuery = triviaQuery.endAt(currentSearch.lastKey);
+                    // When loading more in newest-first mode, we need to get records OLDER than the last one
+                    // So we use endBefore to get records with keys up to (but not including) the last key
+                    triviaQuery = triviaQuery.endBefore(currentSearch.lastKey);
+                    console.log(`Loading more trivia before key ${currentSearch.lastKey}`);
                 }
                 triviaQuery = triviaQuery.limitToLast(batchSize);
             } else {
                 // For oldest first, we start at the beginning and move forward
                 if (loadMore && currentSearch.lastKey) {
-                    triviaQuery = triviaQuery.startAt(currentSearch.lastKey);
+                    // When loading more in oldest-first mode, we need to get records NEWER than the last one
+                    // So we use startAfter to get records with keys after the last key
+                    triviaQuery = triviaQuery.startAfter(currentSearch.lastKey);
+                    console.log(`Loading more trivia after key ${currentSearch.lastKey}`);
                 }
                 triviaQuery = triviaQuery.limitToFirst(batchSize);
             }
@@ -1087,23 +1093,13 @@
             // This significantly speeds up the search process
             const processPromises = [];
             
-            // Skip the first item if loading more (it was the last key from previous batch)
-            if (loadMore && currentSearch.lastKey) {
-                const firstItem = triviaItems.find(item => item.triviaNumber === currentSearch.lastKey);
-                if (firstItem) {
-                    const index = triviaItems.indexOf(firstItem);
-                    if (index >= 0) {
-                        triviaItems.splice(index, 1);
-                    }
-                }
-            }
-            
             // Remember the last key for pagination
             if (triviaItems.length > 0) {
                 const lastItem = currentSearch.sort === 'newest' 
                     ? triviaItems[triviaItems.length - 1] 
-                    : triviaItems[0];
+                    : triviaItems[triviaItems.length - 1];  // Changed from [0] to always use the last item in the array
                 currentSearch.lastKey = lastItem.triviaNumber;
+                console.log(`Setting last key to ${currentSearch.lastKey} for next pagination`);
             }
             
             // Process each trivia item
@@ -1114,11 +1110,11 @@
             // Wait for all processing to complete
             const resultsArrays = await Promise.all(processPromises);
             
-            // Flatten results array and limit to 50 results per batch
+            // Flatten results array
             let results = resultsArrays.flat();
             
             // Update paging info
-            currentSearch.hasMore = results.length > 0 && triviaItems.length >= batchSize - 1;
+            currentSearch.hasMore = results.length > 0 && triviaItems.length >= (batchSize - 5);  // Allow for some margin
             
             // If we didn't find enough results, check if we've reached the end
             if (results.length === 0) {
@@ -1126,42 +1122,6 @@
             }
             
             return results;
-        }
-        
-        // Convert wildcards to regex pattern
-        function wildcardToRegExp(s) {
-            if (!s || typeof s !== 'string') {
-                return null;
-            }
-            
-            // Escape special regex chars except * and ?
-            let pattern = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-            
-            // Check if the pattern starts and ends with wildcards
-            const startsWithWildcard = s.startsWith('*');
-            const endsWithWildcard = s.endsWith('*');
-            
-            // Replace * with .* (any number of characters) and ? with . (exactly one character)
-            pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
-            
-            // Only add anchors if the pattern doesn't have wildcards at beginning/end
-            if (!startsWithWildcard) {
-                pattern = '^' + pattern;
-            }
-            if (!endsWithWildcard) {
-                pattern = pattern + '$';
-            }
-            
-            // If pattern is surrounded by wildcards (*something*), we want a substring match
-            if (startsWithWildcard && endsWithWildcard) {
-                // Remove beginning/end anchors that might have been added
-                pattern = pattern.replace(/^\^\.\*/, '').replace(/\.\*\$$/, '');
-            }
-            
-            console.log(`Converting "${s}" to regex: ${pattern}`);
-            
-            // Return RegExp object with case-insensitive flag
-            return new RegExp(pattern, 'i');
         }
         
         // Define fieldMatches function once at this level
@@ -1180,7 +1140,24 @@
             
             // For patterns like *text* we want to do a simple substring search first
             if (searchQuery.startsWith('*') && searchQuery.endsWith('*')) {
+                // Extract the inner part of the wildcard search
                 const innerText = searchQuery.substring(1, searchQuery.length - 1).toLowerCase();
+                
+                // When the inner text contains spaces, we should be more flexible
+                if (innerText.includes(' ')) {
+                    // Split the inner text into words and check if each word appears in the target text
+                    const words = innerText.split(/\s+/).filter(word => word.length > 0);
+                    
+                    // Simple check: do all the words appear somewhere in the text?
+                    const allWordsAppear = words.every(word => textValue.includes(word));
+                    
+                    if (allWordsAppear) {
+                        console.log(`SUCCESS! All words in "${innerText}" found in "${textValue}" (field: ${fieldName})`);
+                        return true;
+                    }
+                }
+                
+                // Try direct substring match
                 if (innerText && textValue.includes(innerText)) {
                     console.log(`SUCCESS! Substring match: "${innerText}" found in "${textValue}" (field: ${fieldName})`);
                     return true;
@@ -1217,6 +1194,64 @@
             
             return false;
         };
+        
+        // Convert wildcards to regex pattern
+        function wildcardToRegExp(s) {
+            if (!s || typeof s !== 'string') {
+                return null;
+            }
+            
+            // For wildcard searches with spaces, create a more flexible pattern
+            if ((s.startsWith('*') || s.endsWith('*')) && s.includes(' ')) {
+                // Extract the text between wildcards (if any)
+                let innerText = s;
+                if (s.startsWith('*')) innerText = innerText.substring(1);
+                if (s.endsWith('*')) innerText = innerText.substring(0, innerText.length - 1);
+                
+                // Split into words and create a pattern that looks for all words in any order
+                const words = innerText.split(/\s+/).filter(word => word.length > 0);
+                if (words.length > 0) {
+                    const wordPatterns = words.map(word => `(?=.*${escapeRegExp(word)})`);
+                    const pattern = new RegExp(wordPatterns.join('') + '.*', 'i');
+                    console.log(`Converting "${s}" to flexible word-based regex: ${pattern}`);
+                    return pattern;
+                }
+            }
+            
+            // Escape special regex chars except * and ?
+            let pattern = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            
+            // Check if the pattern starts and ends with wildcards
+            const startsWithWildcard = s.startsWith('*');
+            const endsWithWildcard = s.endsWith('*');
+            
+            // Replace * with .* (any number of characters) and ? with . (exactly one character)
+            pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
+            
+            // Only add anchors if the pattern doesn't have wildcards at beginning/end
+            if (!startsWithWildcard) {
+                pattern = '^' + pattern;
+            }
+            if (!endsWithWildcard) {
+                pattern = pattern + '$';
+            }
+            
+            // If pattern is surrounded by wildcards (*something*), we want a substring match
+            if (startsWithWildcard && endsWithWildcard) {
+                // Remove beginning/end anchors that might have been added
+                pattern = pattern.replace(/^\^\.\*/, '').replace(/\.\*\$$/, '');
+            }
+            
+            console.log(`Converting "${s}" to regex: ${pattern}`);
+            
+            // Return RegExp object with case-insensitive flag
+            return new RegExp(pattern, 'i');
+        }
+        
+        // Escape special regex characters
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
         
         // Process a single trivia set
         async function processTrivia(item) {
