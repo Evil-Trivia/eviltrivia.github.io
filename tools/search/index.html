@@ -128,7 +128,7 @@
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid #eee;
-            vertical-align: top;
+            vertical-align: middle;
         }
         
         .results-table th {
@@ -153,15 +153,15 @@
         .question-text {
             max-width: 375px;
             min-height: 40px;
-            max-height: 80px;
+            max-height: 120px;
             overflow-y: auto;
             white-space: normal;
             line-height: 1.4;
         }
         
         .iframe-container {
-            width: 180px;
-            height: 120px;
+            width: 250px;
+            height: 180px;
             overflow: hidden;
             border-radius: 4px;
             margin-bottom: 4px;
@@ -175,8 +175,8 @@
         }
         
         .image-preview {
-            width: 180px;
-            height: 120px;
+            width: 250px;
+            height: 180px;
             object-fit: contain;
             border-radius: 4px;
             margin-bottom: 4px;
@@ -946,13 +946,13 @@
                     sort: currentSearch.sort
                 });
                 
-                // Track if we need to load more batches to reach 50 results
+                // Track if we need to load more batches to reach results
                 let continueLoading = true;
                 let batchesLoaded = 0;
-                const maxBatches = 10; // Prevent infinite loading
+                const maxBatches = 25; // Increase maximum batches to search more trivia sets
                 let allResults = [];
                 
-                // Keep loading batches until we have 50 results or exhaust data
+                // Keep loading batches until we exhaust data or hit max batches
                 while (continueLoading && batchesLoaded < maxBatches) {
                     batchesLoaded++;
                     const batchResults = await loadQuestionBatch(loadMore || batchesLoaded > 1);
@@ -965,8 +965,9 @@
                     } else {
                         allResults = [...allResults, ...batchResults];
                         
-                        // Check if we have enough results or hit the last batch
-                        if (currentSearch.results.length + allResults.length >= 50 || !currentSearch.hasMore) {
+                        // If it's a specific search query, keep looking for more results
+                        // Otherwise, once we have 50 results or no more data, we can stop
+                        if (!currentSearch.query && (currentSearch.results.length + allResults.length >= 50 || !currentSearch.hasMore)) {
                             console.log('Reached sufficient results or end of data');
                             continueLoading = false;
                         }
@@ -1005,13 +1006,13 @@
                 if (loadMore && currentSearch.lastKey) {
                     triviaQuery = triviaQuery.endAt(currentSearch.lastKey);
                 }
-                triviaQuery = triviaQuery.limitToLast(10); // Get more trivia sets at a time
+                triviaQuery = triviaQuery.limitToLast(20); // Increase to load more trivia sets at a time
             } else {
                 // For oldest first, we start at the beginning and move forward
                 if (loadMore && currentSearch.lastKey) {
                     triviaQuery = triviaQuery.startAt(currentSearch.lastKey);
                 }
-                triviaQuery = triviaQuery.limitToFirst(10); // Get more trivia sets at a time
+                triviaQuery = triviaQuery.limitToFirst(20); // Increase to load more trivia sets at a time
             }
             
             // Get trivia numbers
@@ -1047,7 +1048,6 @@
             // Process each trivia set
             const results = [];
             let processedCount = 0;
-            let reachedLimit = false;
             
             for (const item of triviaItems) {
                 // Skip the first item if loading more (it was the last key from previous batch)
@@ -1091,8 +1091,6 @@
                     // Apply round filter
                     if (currentSearch.rounds.length > 0 && !currentSearch.rounds.includes(roundKey)) continue;
                     
-                    console.log('Processing round:', roundKey, 'with formats:', Object.keys(roundData));
-                    
                     // Get round metadata
                     const roundName = getRoundName(triviaNode, roundKey);
                     
@@ -1103,8 +1101,6 @@
                         
                         // Apply format filter
                         if (currentSearch.formats.length > 0 && !currentSearch.formats.includes(formatKey)) continue;
-                        
-                        console.log('Processing format:', formatKey, 'with questions:', Object.keys(formatData).length);
                         
                         // Process each question in the format
                         for (const [questionKey, questionData] of Object.entries(formatData)) {
@@ -1120,10 +1116,13 @@
                             if (currentSearch.query) {
                                 // If searching for a specific field
                                 if (currentSearch.fields.length > 0) {
-                                    // Check if the question has the field we're looking for
-                                    const fieldValue = questionData[currentSearch.fields[0]];
-                                    if (fieldValue && matchesQuery(fieldValue, currentSearch.query)) {
-                                        matches = true;
+                                    // For field search, check each selected field
+                                    for (const field of currentSearch.fields) {
+                                        const fieldValue = questionData[field];
+                                        if (fieldValue && matchesQuery(fieldValue, currentSearch.query)) {
+                                            matches = true;
+                                            break;
+                                        }
                                     }
                                 } else {
                                     // Search in all fields
@@ -1703,9 +1702,31 @@
             updateFilterSelection('fields');
         }
         
+        // Test if a string matches a query (either contains or matches wildcard)
+        function matchesQuery(text, query) {
+            if (!text || !query) return false;
+            
+            // Ensure we're working with strings
+            const textStr = String(text).toLowerCase();
+            const queryStr = String(query).toLowerCase();
+            
+            // Handle wildcards
+            if (queryStr.includes('*') || queryStr.includes('?')) {
+                const regexPattern = wildcardToRegExp(queryStr);
+                if (regexPattern) {
+                    // Test the whole text and individual words
+                    return regexPattern.test(textStr) || 
+                           textStr.split(/\s+/).some(word => regexPattern.test(word));
+                }
+            }
+            
+            // For simple queries, just check if the text contains the query
+            return textStr.includes(queryStr);
+        }
+        
         // Convert wildcards to regex pattern
         function wildcardToRegExp(s) {
-            if (!s || !s.includes('*') && !s.includes('?')) {
+            if (!s || (!s.includes('*') && !s.includes('?'))) {
                 return null; // Return null if there are no wildcards
             }
             
@@ -1716,27 +1737,7 @@
             pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
             
             // Return RegExp object with case-insensitive flag
-            return new RegExp('^' + pattern + '$', 'i');
-        }
-        
-        // Test if a string matches a query (either contains or matches wildcard)
-        function matchesQuery(text, query) {
-            if (!text || !query) return false;
-            
-            // Ensure we're working with strings
-            const textStr = String(text);
-            const queryStr = String(query);
-            
-            // Check if query has wildcards
-            const regexPattern = wildcardToRegExp(queryStr);
-            
-            if (regexPattern) {
-                // Split into words and test each word
-                return textStr.toLowerCase().split(/\s+/).some(word => regexPattern.test(word));
-            } else {
-                // Normal contains check (case insensitive)
-                return textStr.toLowerCase().includes(queryStr.toLowerCase());
-            }
+            return new RegExp(pattern, 'i');
         }
         
         // Check if user is admin
