@@ -1128,6 +1128,28 @@
             return results;
         }
         
+        // Test if a string matches a query (either contains or matches wildcard)
+        function matchesQuery(text, query) {
+            if (!text || !query) return false;
+            
+            // Ensure we're working with strings
+            const textStr = String(text).toLowerCase();
+            const queryStr = String(query).toLowerCase();
+            
+            // Handle wildcards
+            if (queryStr.includes('*') || queryStr.includes('?')) {
+                const regexPattern = wildcardToRegExp(queryStr);
+                if (regexPattern) {
+                    // Test the whole text and individual words
+                    return regexPattern.test(textStr) || 
+                           textStr.split(/\s+/).some(word => regexPattern.test(word));
+                }
+            }
+            
+            // For simple queries, just check if the text contains the query
+            return textStr.includes(queryStr);
+        }
+        
         // Process a single trivia set
         async function processTrivia(item) {
             try {
@@ -1143,6 +1165,37 @@
                 const triviaName = item.data.name || '';
                 const triviaDate = item.data.date || '';
                 const triviaNode = item.data.trivia;
+                
+                // Precompute regex pattern if using wildcards
+                let regexPattern = null;
+                if (currentSearch.query && (currentSearch.query.includes('*') || currentSearch.query.includes('?'))) {
+                    regexPattern = wildcardToRegExp(currentSearch.query);
+                }
+                
+                // Define fieldMatches function once at this level
+                const fieldMatches = (fieldName, fieldValue) => {
+                    if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) {
+                        return false;
+                    }
+                    
+                    const textValue = String(fieldValue).toLowerCase();
+                    const searchQuery = currentSearch.query.toLowerCase();
+                    
+                    // If using regex pattern with wildcards
+                    if (regexPattern) {
+                        return regexPattern.test(textValue);
+                    }
+                    
+                    // If exact matching is requested (no wildcards used)
+                    if (currentSearch.useExactMatch) {
+                        // Split by spaces and check if any word matches exactly
+                        const words = textValue.split(/\s+/);
+                        return words.some(word => word === searchQuery) || textValue === searchQuery;
+                    }
+                    
+                    // Default: Simple substring match
+                    return textValue.includes(searchQuery);
+                };
                 
                 // Go through each round in the trivia set
                 for (const roundKey of Object.keys(triviaNode)) {
@@ -1192,36 +1245,22 @@
                             formatRoundName = formatData['name'];
                         }
                         
-                        // Precompute regex pattern if using wildcards
-                        let regexPattern = null;
-                        if (currentSearch.query && (currentSearch.query.includes('*') || currentSearch.query.includes('?'))) {
-                            regexPattern = wildcardToRegExp(currentSearch.query);
-                        }
+                        // Get round level metadata (including Round Type)
+                        const roundType = formatData['Round Type'] || '';
                         
-                        // Define fieldMatches function with proper regexPattern access
-                        const fieldMatches = (fieldName, fieldValue) => {
-                            if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) {
-                                return false;
+                        // Get the correct format from the round format field if available
+                        let roundFormat = formatData['Round Format'] || '';
+                        
+                        // Check for visual rounds in multiple places since format appears inconsistent
+                        if (!roundFormat) {
+                            if (roundType === 'Visual') {
+                                roundFormat = 'Visual';
+                            } else if (formatKey === 'Visual') {
+                                roundFormat = 'Visual';
+                            } else if (formatData['Round Type'] === 'Visual') {
+                                roundFormat = 'Visual';
                             }
-                            
-                            const textValue = String(fieldValue).toLowerCase();
-                            const searchQuery = currentSearch.query.toLowerCase();
-                            
-                            // If using regex pattern with wildcards
-                            if (regexPattern) {
-                                return regexPattern.test(textValue);
-                            }
-                            
-                            // If exact matching is requested (no wildcards used)
-                            if (currentSearch.useExactMatch) {
-                                // Split by spaces and check if any word matches exactly
-                                const words = textValue.split(/\s+/);
-                                return words.some(word => word === searchQuery) || textValue === searchQuery;
-                            }
-                            
-                            // Default: Simple substring match
-                            return textValue.includes(searchQuery);
-                        };
+                        }
                         
                         // Process each question in the format
                         for (const [questionKey, questionData] of Object.entries(formatData)) {
@@ -1236,6 +1275,9 @@
                             if (questionData['Round Name']) {
                                 questionRoundName = questionData['Round Name'];
                             }
+                            
+                            // Get question-specific round type if available
+                            const questionRoundType = questionData['Round Type'] || roundType;
                             
                             // Check if this question matches our search criteria
                             let matches = false;
@@ -1257,24 +1299,6 @@
                             }
                             
                             if (matches) {
-                                // Get round level metadata (including Round Type)
-                                const roundType = formatData['Round Type'] || questionData['Round Type'] || '';
-                                
-                                // Get the correct format from the round format field if available
-                                // This should use Round Format field if available, or fall back to the format key
-                                let roundFormat = formatData['Round Format'] || '';
-                                
-                                // Check for visual rounds in multiple places since format appears inconsistent
-                                if (!roundFormat) {
-                                    if (roundType === 'Visual') {
-                                        roundFormat = 'Visual';
-                                    } else if (formatKey === 'Visual') {
-                                        roundFormat = 'Visual';
-                                    } else if (formatData['Round Type'] === 'Visual') {
-                                        roundFormat = 'Visual';
-                                    }
-                                }
-                                
                                 const resultItem = {
                                     triviaNumber: triviaNumber,
                                     triviaName: triviaName,
@@ -1283,7 +1307,7 @@
                                     roundName: questionRoundName,
                                     // Use Round Format field for format if available, otherwise use format key
                                     format: roundFormat || formatKey,
-                                    roundType: roundType,
+                                    roundType: questionRoundType,
                                     questionNum: questionKey,
                                     questionData: questionData
                                 };
@@ -1896,28 +1920,6 @@
                 cb.checked = false;
             });
             updateFilterSelection('fields');
-        }
-        
-        // Test if a string matches a query (either contains or matches wildcard)
-        function matchesQuery(text, query) {
-            if (!text || !query) return false;
-            
-            // Ensure we're working with strings
-            const textStr = String(text).toLowerCase();
-            const queryStr = String(query).toLowerCase();
-            
-            // Handle wildcards
-            if (queryStr.includes('*') || queryStr.includes('?')) {
-                const regexPattern = wildcardToRegExp(queryStr);
-                if (regexPattern) {
-                    // Test the whole text and individual words
-                    return regexPattern.test(textStr) || 
-                           textStr.split(/\s+/).some(word => regexPattern.test(word));
-                }
-            }
-            
-            // For simple queries, just check if the text contains the query
-            return textStr.includes(queryStr);
         }
         
         // Convert wildcards to regex pattern
