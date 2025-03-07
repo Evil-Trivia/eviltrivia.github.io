@@ -576,10 +576,10 @@
                                 <th>Date</th>
                                 <th>Round</th>
                                 <th>Round Name</th>
+                                <th>Round Instruction</th>
                                 <th>Format</th>
                                 <th>Question</th>
                                 <th>Answer</th>
-                                <th>Round Instruction</th>
                                 <th>Question Image</th>
                                 <th>Answer Image</th>
                             </tr>
@@ -1261,6 +1261,9 @@
                             }
                             
                             if (matches) {
+                                // Get round level metadata (including Round Type)
+                                const roundType = formatData['Round Type'] || questionData['Round Type'] || '';
+                                
                                 const resultItem = {
                                     triviaNumber: triviaNumber,
                                     triviaName: triviaName,
@@ -1268,6 +1271,7 @@
                                     round: roundKey,
                                     roundName: roundName,
                                     format: formatKey,
+                                    roundType: roundType,
                                     questionNum: questionKey,
                                     questionData: questionData
                                 };
@@ -1366,28 +1370,30 @@
                 if (result.questionData['Round Instruction']) {
                     roundInstruction = result.questionData['Round Instruction'];
                 }
-                // Could also be in round metadata or other places - would need more complex logic to find it
+                
+                // Use the format from the result, which should be the proper round format
+                const displayFormat = result.format || '';
                 
                 row.innerHTML = `
                     <td>${result.triviaNumber}</td>
                     <td>${escapeHTML(dateStr)}</td>
                     <td>${result.round}</td>
                     <td>${escapeHTML(result.roundName || '')}</td>
-                    <td>${result.format}</td>
+                    <td class="question-text">${escapeHTML(roundInstruction)}</td>
+                    <td>${displayFormat}</td>
                     <td class="question-text">${escapeHTML(question)}</td>
                     <td class="question-text">${escapeHTML(answer)}</td>
-                    <td class="question-text">${escapeHTML(roundInstruction)}</td>
                     <td>${createImagePreview(imageLink, 'Question Image')}</td>
                     <td>${createImagePreview(answerImageLink, 'Answer Image')}</td>
                 `;
                 
-                // Add click event to show full details
+                // Add click event to show round details
                 row.addEventListener('click', (e) => {
-                    // Don't trigger detail view when clicking on links or iframes
+                    // Don't trigger round view when clicking on links or iframes
                     if (e.target.tagName === 'A' || e.target.tagName === 'IFRAME' || e.target.tagName === 'IMG') {
                         return;
                     }
-                    showQuestionDetails(result);
+                    showRoundDetails(result.triviaNumber, result.round, result.format, result.roundName);
                 });
                 
                 resultsBody.appendChild(row);
@@ -1395,6 +1401,242 @@
             
             // Update count
             resultsCount.textContent = currentSearch.results.length;
+        }
+        
+        // Show all questions in a round
+        async function showRoundDetails(triviaNumber, roundNumber, format, roundName) {
+            try {
+                // Create modal element
+                const modal = document.createElement('div');
+                modal.style.position = 'fixed';
+                modal.style.top = '0';
+                modal.style.left = '0';
+                modal.style.width = '100%';
+                modal.style.height = '100%';
+                modal.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                modal.style.display = 'flex';
+                modal.style.justifyContent = 'center';
+                modal.style.alignItems = 'center';
+                modal.style.zIndex = '1000';
+                
+                // Create loading indicator
+                const loading = document.createElement('div');
+                loading.textContent = 'Loading round questions...';
+                loading.style.color = 'white';
+                loading.style.fontSize = '20px';
+                modal.appendChild(loading);
+                
+                // Add to document immediately to show loading state
+                document.body.appendChild(modal);
+                
+                // Fetch round data from Firebase
+                const roundRef = db.ref(`trivia-archive/archive/${triviaNumber}/trivia/${roundNumber}/${format}`);
+                const snapshot = await roundRef.once('value');
+                const roundData = snapshot.val();
+                
+                // Remove loading indicator
+                modal.removeChild(loading);
+                
+                // Create modal content
+                const content = document.createElement('div');
+                content.style.backgroundColor = 'white';
+                content.style.padding = '30px';
+                content.style.borderRadius = '8px';
+                content.style.maxWidth = '900px';
+                content.style.width = '90%';
+                content.style.maxHeight = '85vh';
+                content.style.overflowY = 'auto';
+                
+                // Create header with close button
+                const header = document.createElement('div');
+                header.style.display = 'flex';
+                header.style.justifyContent = 'space-between';
+                header.style.alignItems = 'center';
+                header.style.marginBottom = '20px';
+                header.style.borderBottom = '1px solid #eee';
+                header.style.paddingBottom = '15px';
+                
+                // Get round type if available
+                let roundType = '';
+                if (roundData && roundData['Round Type']) {
+                    roundType = roundData['Round Type'];
+                }
+                
+                const formatLabel = roundType && roundType !== format ? `${format} (${roundType})` : format;
+                
+                const title = document.createElement('h2');
+                title.style.margin = '0';
+                title.innerHTML = `Trivia #${triviaNumber} - ${roundName || `Round ${roundNumber}`} <span style="font-size: 16px; font-weight: normal; color: #666;">Format: ${formatLabel}</span>`;
+                
+                const closeBtn = document.createElement('button');
+                closeBtn.style.background = 'none';
+                closeBtn.style.border = 'none';
+                closeBtn.style.fontSize = '24px';
+                closeBtn.style.cursor = 'pointer';
+                closeBtn.innerHTML = '&times;';
+                closeBtn.style.padding = '0 10px';
+                closeBtn.addEventListener('click', () => {
+                    document.body.removeChild(modal);
+                });
+                
+                header.appendChild(title);
+                header.appendChild(closeBtn);
+                content.appendChild(header);
+                
+                // If no data found
+                if (!roundData) {
+                    const noData = document.createElement('p');
+                    noData.textContent = 'No questions found for this round.';
+                    noData.style.textAlign = 'center';
+                    noData.style.color = '#666';
+                    noData.style.fontStyle = 'italic';
+                    content.appendChild(noData);
+                    modal.appendChild(content);
+                    return;
+                }
+                
+                // Add round metadata section
+                const metadataDiv = document.createElement('div');
+                metadataDiv.style.marginBottom = '20px';
+                metadataDiv.style.padding = '10px';
+                metadataDiv.style.backgroundColor = '#f5f5f5';
+                metadataDiv.style.borderRadius = '4px';
+                
+                // Collect metadata from roundData
+                const metadata = [];
+                if (roundName) {
+                    metadata.push(`<strong>Round Name:</strong> ${escapeHTML(roundName)}`);
+                }
+                if (roundType) {
+                    metadata.push(`<strong>Round Type:</strong> ${escapeHTML(roundType)}`);
+                }
+                if (roundData['Round Format']) {
+                    metadata.push(`<strong>Round Format:</strong> ${escapeHTML(roundData['Round Format'])}`);
+                }
+                
+                if (metadata.length > 0) {
+                    metadataDiv.innerHTML = metadata.join(' | ');
+                    content.appendChild(metadataDiv);
+                }
+                
+                // Check if we have round instructions
+                let roundInstruction = null;
+                if (roundData['Round Instruction']) {
+                    roundInstruction = roundData['Round Instruction'];
+                }
+                
+                // If we have round instructions, display them
+                if (roundInstruction) {
+                    const instructionDiv = document.createElement('div');
+                    instructionDiv.style.padding = '15px';
+                    instructionDiv.style.backgroundColor = '#f9f9f9';
+                    instructionDiv.style.borderRadius = '6px';
+                    instructionDiv.style.marginBottom = '20px';
+                    
+                    const instructionTitle = document.createElement('h3');
+                    instructionTitle.textContent = 'Round Instructions';
+                    instructionTitle.style.margin = '0 0 10px 0';
+                    instructionTitle.style.color = '#333';
+                    
+                    const instructionText = document.createElement('p');
+                    instructionText.textContent = roundInstruction;
+                    instructionText.style.margin = '0';
+                    
+                    instructionDiv.appendChild(instructionTitle);
+                    instructionDiv.appendChild(instructionText);
+                    content.appendChild(instructionDiv);
+                }
+                
+                // Sort questions numerically
+                const questions = Object.entries(roundData)
+                    .filter(([key, value]) => !isNaN(parseInt(key)) && typeof value === 'object')
+                    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+                
+                // Create table for questions
+                const table = document.createElement('table');
+                table.style.width = '100%';
+                table.style.borderCollapse = 'collapse';
+                
+                // Add table header
+                const thead = document.createElement('thead');
+                thead.innerHTML = `
+                    <tr>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd; background-color: #f5f5f5;">#</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd; background-color: #f5f5f5;">Question</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd; background-color: #f5f5f5;">Answer</th>
+                        <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd; background-color: #f5f5f5;">Images</th>
+                    </tr>
+                `;
+                table.appendChild(thead);
+                
+                // Add questions to table
+                const tbody = document.createElement('tbody');
+                questions.forEach(([questionNum, questionData]) => {
+                    const row = document.createElement('tr');
+                    row.style.borderBottom = '1px solid #eee';
+                    
+                    // Get question and answer
+                    const question = questionData.Question || questionData.question || '';
+                    const answer = questionData.Answer || questionData.answer || '';
+                    
+                    // Get image links
+                    const imageLink = questionData['Image Link'] || questionData['image_link'] || '';
+                    const answerImageLink = questionData['Answer Image Link'] || questionData['answer_image_link'] || '';
+                    
+                    // Create image previews
+                    let imagePreviewsHtml = '';
+                    if (imageLink || answerImageLink) {
+                        if (imageLink) {
+                            imagePreviewsHtml += `<div style="margin-bottom: 10px;">
+                                <strong>Question Image:</strong><br>
+                                ${createImagePreview(imageLink, 'Question Image')}
+                            </div>`;
+                        }
+                        if (answerImageLink) {
+                            imagePreviewsHtml += `<div>
+                                <strong>Answer Image:</strong><br>
+                                ${createImagePreview(answerImageLink, 'Answer Image')}
+                            </div>`;
+                        }
+                    }
+                    
+                    row.innerHTML = `
+                        <td style="padding: 12px; vertical-align: top; font-weight: bold;">${questionNum}</td>
+                        <td style="padding: 12px; vertical-align: top; max-width: 300px;">${escapeHTML(question)}</td>
+                        <td style="padding: 12px; vertical-align: top; max-width: 250px;">${escapeHTML(answer)}</td>
+                        <td style="padding: 12px; vertical-align: top;">${imagePreviewsHtml}</td>
+                    `;
+                    
+                    tbody.appendChild(row);
+                });
+                
+                table.appendChild(tbody);
+                content.appendChild(table);
+                
+                // Replace loading indicator with content
+                modal.appendChild(content);
+                
+                // Add close event for clicking outside the modal
+                modal.addEventListener('click', e => {
+                    if (e.target === modal) {
+                        document.body.removeChild(modal);
+                    }
+                });
+                
+            } catch (error) {
+                console.error('Error loading round details:', error);
+                // If modal exists, update with error
+                const modal = document.querySelector('div[style*="position: fixed"]');
+                if (modal) {
+                    modal.innerHTML = `
+                        <div style="background-color: white; padding: 30px; border-radius: 8px;">
+                            <h3>Error Loading Round</h3>
+                            <p>There was an error loading the round details. Please try again.</p>
+                            <button onclick="document.body.removeChild(this.parentNode.parentNode)">Close</button>
+                        </div>
+                    `;
+                }
+            }
         }
         
         // Format date string
@@ -1504,157 +1746,9 @@
             `;
         }
         
-        // Show question details in a modal
+        // Show question details in a modal (keeping this function for reference but not using it anymore)
         function showQuestionDetails(result) {
-            // Create modal element
-            const modal = document.createElement('div');
-            modal.style.position = 'fixed';
-            modal.style.top = '0';
-            modal.style.left = '0';
-            modal.style.width = '100%';
-            modal.style.height = '100%';
-            modal.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-            modal.style.display = 'flex';
-            modal.style.justifyContent = 'center';
-            modal.style.alignItems = 'center';
-            modal.style.zIndex = '1000';
-            
-            // Create modal content
-            const content = document.createElement('div');
-            content.style.backgroundColor = 'white';
-            content.style.padding = '30px';
-            content.style.borderRadius = '8px';
-            content.style.maxWidth = '800px';
-            content.style.width = '90%';
-            content.style.maxHeight = '80vh';
-            content.style.overflowY = 'auto';
-            
-            // Create header with close button
-            const header = document.createElement('div');
-            header.style.display = 'flex';
-            header.style.justifyContent = 'space-between';
-            header.style.marginBottom = '20px';
-            
-            const title = document.createElement('h2');
-            title.style.margin = '0';
-            title.textContent = `Question Details`;
-            
-            const closeBtn = document.createElement('button');
-            closeBtn.id = 'closeModal';
-            closeBtn.style.background = 'none';
-            closeBtn.style.border = 'none';
-            closeBtn.style.fontSize = '24px';
-            closeBtn.style.cursor = 'pointer';
-            closeBtn.innerHTML = '&times;';
-            closeBtn.addEventListener('click', () => {
-                document.body.removeChild(modal);
-            });
-            
-            header.appendChild(title);
-            header.appendChild(closeBtn);
-            content.appendChild(header);
-            
-            // Add basic info fields
-            const basicInfoFields = [
-                {label: 'Trivia #', value: result.triviaNumber},
-                {label: 'Trivia Name', value: result.triviaName},
-                {label: 'Round', value: result.round},
-                {label: 'Format', value: result.format},
-                {label: 'Question #', value: result.questionNum}
-            ];
-            
-            basicInfoFields.forEach(field => {
-                if (field.value) {
-                    addFieldToModal(content, field.label, field.value);
-                }
-            });
-            
-            // Add all question data fields
-            for (const [fieldName, fieldValue] of Object.entries(result.questionData)) {
-                // Skip empty values or complex objects
-                if (!fieldValue || typeof fieldValue === 'object') continue;
-                
-                // Skip fields we already displayed
-                if (basicInfoFields.some(f => f.label === fieldName)) continue;
-                
-                addFieldToModal(content, fieldName, fieldValue);
-            }
-            
-            // Add content to modal
-            modal.appendChild(content);
-            
-            // Add close event for clicking outside the modal
-            modal.addEventListener('click', e => {
-                if (e.target === modal) {
-                    document.body.removeChild(modal);
-                }
-            });
-            
-            // Add to document
-            document.body.appendChild(modal);
-        }
-        
-        // Helper function to add a field to the modal
-        function addFieldToModal(container, label, value) {
-            const wrapper = document.createElement('div');
-            wrapper.style.marginBottom = '15px';
-            
-            const labelElem = document.createElement('strong');
-            labelElem.textContent = label + ':';
-            wrapper.appendChild(labelElem);
-            
-            const valueContainer = document.createElement('div');
-            valueContainer.style.padding = '10px';
-            valueContainer.style.backgroundColor = '#f9f9f9';
-            valueContainer.style.borderRadius = '4px';
-            valueContainer.style.marginTop = '5px';
-            
-            // Check if it's an image link or a music link
-            if ((label.includes('Image') || label.includes('image')) && typeof value === 'string' && isUrl(value)) {
-                const img = document.createElement('img');
-                img.src = value;
-                img.style.maxWidth = '100%';
-                img.style.maxHeight = '300px';
-                valueContainer.appendChild(img);
-                
-                // Also add the raw link
-                const linkText = document.createElement('div');
-                linkText.style.marginTop = '5px';
-                linkText.style.fontSize = '0.8em';
-                linkText.style.wordBreak = 'break-all';
-                linkText.textContent = value;
-                valueContainer.appendChild(linkText);
-            } 
-            else if ((label.includes('Music') || label.includes('Audio') || label.includes('audio')) && 
-                     typeof value === 'string' && isUrl(value)) {
-                const audio = document.createElement('audio');
-                audio.controls = true;
-                audio.src = value;
-                valueContainer.appendChild(audio);
-                
-                // Also add the raw link
-                const linkText = document.createElement('div');
-                linkText.style.marginTop = '5px';
-                linkText.style.fontSize = '0.8em';
-                linkText.style.wordBreak = 'break-all';
-                linkText.textContent = value;
-                valueContainer.appendChild(linkText);
-            }
-            else if (typeof value === 'string' && isUrl(value)) {
-                // For other URLs, make them clickable
-                const link = document.createElement('a');
-                link.href = value;
-                link.target = '_blank';
-                link.textContent = value;
-                link.style.wordBreak = 'break-all';
-                valueContainer.appendChild(link);
-            }
-            else {
-                valueContainer.textContent = value;
-            }
-            
-            wrapper.appendChild(valueContainer);
-            container.appendChild(wrapper);
+            // This function is no longer used - we now show the entire round instead
         }
         
         // Helper function to check if a string is a URL
