@@ -457,8 +457,18 @@
             width: 60px;  /* Round */
         }
         
+        .results-table th:nth-child(4),
+        .results-table td:nth-child(4) {
+            width: 130px;  /* Round Name - make narrower */
+        }
+        
         .results-table th:nth-child(5),
         .results-table td:nth-child(5) {
+            width: 180px;  /* Round Instruction - make wider */
+        }
+        
+        .results-table th:nth-child(6),
+        .results-table td:nth-child(6) {
             width: 80px;  /* Format */
         }
     </style>
@@ -1264,13 +1274,29 @@
                                 // Get round level metadata (including Round Type)
                                 const roundType = formatData['Round Type'] || questionData['Round Type'] || '';
                                 
+                                // Get the correct format from the round format field if available
+                                // This should use Round Format field if available, or fall back to the format key
+                                let roundFormat = formatData['Round Format'] || '';
+                                
+                                // Check for visual rounds in multiple places since format appears inconsistent
+                                if (!roundFormat) {
+                                    if (roundType === 'Visual') {
+                                        roundFormat = 'Visual';
+                                    } else if (formatKey === 'Visual') {
+                                        roundFormat = 'Visual';
+                                    } else if (formatData['Round Type'] === 'Visual') {
+                                        roundFormat = 'Visual';
+                                    }
+                                }
+                                
                                 const resultItem = {
                                     triviaNumber: triviaNumber,
                                     triviaName: triviaName,
                                     triviaDate: triviaDate,
                                     round: roundKey,
                                     roundName: roundName,
-                                    format: formatKey,
+                                    // Use Round Format field for format if available, otherwise use format key
+                                    format: roundFormat || formatKey,
                                     roundType: roundType,
                                     questionNum: questionKey,
                                     questionData: questionData
@@ -1371,8 +1397,21 @@
                     roundInstruction = result.questionData['Round Instruction'];
                 }
                 
-                // Use the format from the result, which should be the proper round format
-                const displayFormat = result.format || '';
+                // Use the actual round format from the data - NOT free drink question text
+                // We want to display the format field, which should be the format like "Visual" etc.
+                let displayFormat = result.format || '';
+                
+                // Get actual round type from the result data if available
+                const roundType = result.roundType || result.questionData['Round Type'] || '';
+                
+                // Handle the specific case where we're seeing "Free Drink Question" instead of "Visual"
+                // If we have a round type, prioritize it for display
+                if (roundType === 'Visual' || displayFormat === 'Visual') {
+                    displayFormat = 'Visual';
+                } else if (displayFormat === 'Free Drink Question' && roundType) {
+                    // Replace "Free Drink Question" with the actual round type if available
+                    displayFormat = roundType;
+                }
                 
                 row.innerHTML = `
                     <td>${result.triviaNumber}</td>
@@ -1380,7 +1419,7 @@
                     <td>${result.round}</td>
                     <td>${escapeHTML(result.roundName || '')}</td>
                     <td class="question-text">${escapeHTML(roundInstruction)}</td>
-                    <td>${displayFormat}</td>
+                    <td>${escapeHTML(displayFormat)}</td>
                     <td class="question-text">${escapeHTML(question)}</td>
                     <td class="question-text">${escapeHTML(answer)}</td>
                     <td>${createImagePreview(imageLink, 'Question Image')}</td>
