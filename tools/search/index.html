@@ -1128,27 +1128,61 @@
             return results;
         }
         
-        // Test if a string matches a query (either contains or matches wildcard)
-        function matchesQuery(text, query) {
-            if (!text || !query) return false;
-            
-            // Ensure we're working with strings
-            const textStr = String(text).toLowerCase();
-            const queryStr = String(query).toLowerCase();
-            
-            // Handle wildcards
-            if (queryStr.includes('*') || queryStr.includes('?')) {
-                const regexPattern = wildcardToRegExp(queryStr);
-                if (regexPattern) {
-                    // Test the whole text and individual words
-                    return regexPattern.test(textStr) || 
-                           textStr.split(/\s+/).some(word => regexPattern.test(word));
-                }
+        // Convert wildcards to regex pattern
+        function wildcardToRegExp(s) {
+            if (!s || typeof s !== 'string') {
+                return null;
             }
             
-            // For simple queries, just check if the text contains the query
-            return textStr.includes(queryStr);
+            const hasWildcards = s.includes('*') || s.includes('?');
+            
+            // Escape special regex chars except * and ?
+            let pattern = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            
+            if (hasWildcards) {
+                // Convert * and ? to their regex equivalents
+                pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
+                
+                // Add start/end anchors only if pattern doesn't start/end with wildcards
+                if (!s.startsWith('*')) {
+                    pattern = '^' + pattern;
+                }
+                if (!s.endsWith('*')) {
+                    pattern = pattern + '$';
+                }
+            } else {
+                // For exact matches without wildcards, match the whole word or the entire string
+                pattern = '(^' + pattern + '$|\\b' + pattern + '\\b)';
+            }
+            
+            console.log(`Converting "${s}" to regex: ${pattern}`);
+            
+            // Return RegExp object with case-insensitive flag
+            return new RegExp(pattern, 'i');
         }
+        
+        // Define fieldMatches function once at this level
+        const fieldMatches = (fieldName, fieldValue, regexPattern, searchQuery, useExactMatch) => {
+            if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) {
+                return false;
+            }
+            
+            const textValue = String(fieldValue).toLowerCase();
+            
+            // If using regex pattern with wildcards
+            if (regexPattern) {
+                return regexPattern.test(textValue);
+            }
+            
+            // If exact matching is requested (no wildcards used)
+            if (useExactMatch) {
+                // Check for exact match of the entire string
+                return textValue === searchQuery.toLowerCase();
+            }
+            
+            // Default: Simple substring match for searches without wildcards that don't need to be exact
+            return textValue.includes(searchQuery.toLowerCase());
+        };
         
         // Process a single trivia set
         async function processTrivia(item) {
@@ -1168,34 +1202,11 @@
                 
                 // Precompute regex pattern if using wildcards
                 let regexPattern = null;
+                const searchQuery = currentSearch.query.toLowerCase();
+                
                 if (currentSearch.query && (currentSearch.query.includes('*') || currentSearch.query.includes('?'))) {
                     regexPattern = wildcardToRegExp(currentSearch.query);
                 }
-                
-                // Define fieldMatches function once at this level
-                const fieldMatches = (fieldName, fieldValue) => {
-                    if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) {
-                        return false;
-                    }
-                    
-                    const textValue = String(fieldValue).toLowerCase();
-                    const searchQuery = currentSearch.query.toLowerCase();
-                    
-                    // If using regex pattern with wildcards
-                    if (regexPattern) {
-                        return regexPattern.test(textValue);
-                    }
-                    
-                    // If exact matching is requested (no wildcards used)
-                    if (currentSearch.useExactMatch) {
-                        // Split by spaces and check if any word matches exactly
-                        const words = textValue.split(/\s+/);
-                        return words.some(word => word === searchQuery) || textValue === searchQuery;
-                    }
-                    
-                    // Default: Simple substring match
-                    return textValue.includes(searchQuery);
-                };
                 
                 // Go through each round in the trivia set
                 for (const roundKey of Object.keys(triviaNode)) {
@@ -1287,11 +1298,11 @@
                                 if (currentSearch.fields.length > 0) {
                                     // For field search, check each selected field
                                     matches = currentSearch.fields.some(field => 
-                                        fieldMatches(field, questionData[field]));
+                                        fieldMatches(field, questionData[field], regexPattern, searchQuery, currentSearch.useExactMatch));
                                 } else {
                                     // Search in all fields
                                     matches = Object.entries(questionData).some(([fieldName, fieldValue]) => 
-                                        fieldMatches(fieldName, fieldValue));
+                                        fieldMatches(fieldName, fieldValue, regexPattern, searchQuery, currentSearch.useExactMatch));
                                 }
                             } else {
                                 // No query, so it matches if it passes the format filters
@@ -1920,22 +1931,6 @@
                 cb.checked = false;
             });
             updateFilterSelection('fields');
-        }
-        
-        // Convert wildcards to regex pattern
-        function wildcardToRegExp(s) {
-            if (!s || (!s.includes('*') && !s.includes('?'))) {
-                return null; // Return null if there are no wildcards
-            }
-            
-            // Escape special regex chars except * and ?
-            let pattern = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-            
-            // Convert * and ? to their regex equivalents
-            pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
-            
-            // Return RegExp object with case-insensitive flag
-            return new RegExp(pattern, 'i');
         }
         
         // Check if user is admin
