@@ -465,6 +465,15 @@
         .results-table th:nth-child(5),
         .results-table td:nth-child(5) {
             width: 180px;  /* Round Instruction - make wider */
+            max-width: 250px; /* Add max-width to allow for responsive behavior */
+            min-width: 150px; /* Set a minimum width */
+        }
+        
+        /* Make the Round Instruction content behave like the Question field */
+        .results-table td:nth-child(5) {
+            overflow-y: auto;
+            white-space: normal;
+            line-height: 1.4;
         }
         
         .results-table th:nth-child(6),
@@ -510,27 +519,6 @@
                                 <input type="text" class="filter-search" placeholder="Search formats...">
                                 <div class="filter-options" id="format-options">
                                     <!-- Format options will be populated dynamically -->
-                                </div>
-                                <div class="filter-actions">
-                                    <button class="select-all-btn">Select All</button>
-                                    <button class="clear-btn">Clear All</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="filter-group">
-                        <label>Round</label>
-                        <div class="filter-dropdown" id="round-dropdown">
-                            <div class="filter-dropdown-header">
-                                <span>All Rounds</span>
-                                <span class="filter-count">0</span>
-                                <span>▼</span>
-                            </div>
-                            <div class="filter-dropdown-content">
-                                <input type="text" class="filter-search" placeholder="Search rounds...">
-                                <div class="filter-options" id="round-options">
-                                    <!-- Round options will be populated dynamically -->
                                 </div>
                                 <div class="filter-actions">
                                     <button class="select-all-btn">Select All</button>
@@ -645,10 +633,8 @@
         const searchBtn = document.getElementById('search-btn');
         const clearBtn = document.getElementById('clear-btn');
         const formatDropdown = document.getElementById('format-dropdown');
-        const roundDropdown = document.getElementById('round-dropdown');
         const fieldDropdown = document.getElementById('field-dropdown');
         const formatOptions = document.getElementById('format-options');
-        const roundOptions = document.getElementById('round-options');
         const fieldOptions = document.getElementById('field-options');
         const sortFilter = document.getElementById('sort-filter');
         const resultsBody = document.getElementById('results-body');
@@ -662,13 +648,14 @@
         let currentSearch = {
             query: '',
             formats: [],
-            rounds: [],
+            rounds: [], // Kept for backward compatibility
             fields: [],
             sort: 'newest',
             lastKey: null,
             results: [],
             hasMore: false,
-            endReached: false
+            endReached: false,
+            useExactMatch: false // Add new flag for exact matching
         };
 
         // Store metadata about the database
@@ -740,22 +727,6 @@
 
         // Populate dropdowns with database values
         function populateFilterDropdowns() {
-            // Populate round filter
-            const roundOptionsArray = Array.from(dbMetadata.rounds)
-                .sort((a, b) => {
-                    // Sort numerically if possible
-                    const numA = parseInt(a);
-                    const numB = parseInt(b);
-                    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-                    return a.localeCompare(b);
-                });
-            
-            roundOptions.innerHTML = '';
-            for (const round of roundOptionsArray) {
-                const displayName = round.startsWith('final') ? 'Final' : `Round ${round}`;
-                addFilterOption(roundOptions, round, displayName, 'rounds');
-            }
-            
             // Populate format filter
             const formatOptionsArray = Array.from(dbMetadata.formats).sort();
             formatOptions.innerHTML = '';
@@ -861,7 +832,6 @@
                         // Get the filter type
                         let filterType;
                         if (dropdown.id === 'format-dropdown') filterType = 'formats';
-                        else if (dropdown.id === 'round-dropdown') filterType = 'rounds';
                         else if (dropdown.id === 'field-dropdown') filterType = 'fields';
                         
                         updateFilterSelection(filterType);
@@ -879,7 +849,6 @@
                         // Get the filter type
                         let filterType;
                         if (dropdown.id === 'format-dropdown') filterType = 'formats';
-                        else if (dropdown.id === 'round-dropdown') filterType = 'rounds';
                         else if (dropdown.id === 'field-dropdown') filterType = 'fields';
                         
                         updateFilterSelection(filterType);
@@ -904,10 +873,6 @@
                 container = formatOptions;
                 headerText = formatDropdown.querySelector('.filter-dropdown-header span:first-child');
                 countElement = formatDropdown.querySelector('.filter-count');
-            } else if (filterType === 'rounds') {
-                container = roundOptions;
-                headerText = roundDropdown.querySelector('.filter-dropdown-header span:first-child');
-                countElement = roundDropdown.querySelector('.filter-count');
             } else if (filterType === 'fields') {
                 container = fieldOptions;
                 headerText = fieldDropdown.querySelector('.filter-dropdown-header span:first-child');
@@ -924,8 +889,7 @@
             // Update header text
             const selectionCount = values.length;
             if (selectionCount === 0) {
-                headerText.textContent = filterType === 'formats' ? 'All Formats' : 
-                                         filterType === 'rounds' ? 'All Rounds' : 'All Fields';
+                headerText.textContent = filterType === 'formats' ? 'All Formats' : 'All Fields';
                 countElement.textContent = '';
                 countElement.style.display = 'none';
             } else {
@@ -944,8 +908,6 @@
             // Get corresponding container
             if (filterType === 'formats') {
                 container = formatOptions;
-            } else if (filterType === 'rounds') {
-                container = roundOptions;
             } else if (filterType === 'fields') {
                 container = fieldOptions;
             }
@@ -960,6 +922,31 @@
             updateFilterSelection(filterType);
         }
 
+        // Quick search function for fields - update to handle exact matching
+        const fieldMatches = (fieldName, fieldValue) => {
+            if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) {
+                return false;
+            }
+            
+            const textValue = String(fieldValue).toLowerCase();
+            const searchQuery = currentSearch.query.toLowerCase();
+            
+            // If using regex pattern with wildcards
+            if (regexPattern) {
+                return regexPattern.test(textValue);
+            }
+            
+            // If exact matching is requested (no wildcards used)
+            if (currentSearch.useExactMatch) {
+                // Split by spaces and check if any word matches exactly
+                const words = textValue.split(/\s+/);
+                return words.some(word => word === searchQuery) || textValue === searchQuery;
+            }
+            
+            // Default: Simple substring match
+            return textValue.includes(searchQuery);
+        };
+
         // Search function
         async function searchQuestions() {
             // Update search state for query and sort
@@ -967,6 +954,11 @@
             currentSearch.sort = sortFilter.value;
             currentSearch.lastKey = null;
             currentSearch.results = [];
+            
+            // Determine if we should use exact matching (no wildcards)
+            currentSearch.useExactMatch = !currentSearch.query.includes('*') && !currentSearch.query.includes('?');
+            
+            console.log('Search mode:', currentSearch.useExactMatch ? 'Exact match' : 'Wildcard match');
             
             // Clear previous results
             resultsBody.innerHTML = '';
@@ -997,7 +989,6 @@
                 // Log for debugging
                 console.log('Starting search with query:', currentSearch.query);
                 console.log('Search filters:', {
-                    rounds: currentSearch.rounds,
                     formats: currentSearch.formats,
                     fields: currentSearch.fields,
                     sort: currentSearch.sort
@@ -1178,40 +1169,28 @@
                 const triviaDate = item.data.date || '';
                 const triviaNode = item.data.trivia;
                 
-                // Apply round filter early to reduce processing
-                let roundsToProcess = Object.keys(triviaNode);
-                if (currentSearch.rounds.length > 0) {
-                    roundsToProcess = roundsToProcess.filter(roundKey => 
-                        currentSearch.rounds.includes(roundKey));
-                    
-                    // If no rounds match, return early
-                    if (roundsToProcess.length === 0) {
-                        return results;
-                    }
-                }
-                
-                // Process each round in the trivia set
-                for (const roundKey of roundsToProcess) {
+                // Go through each round in the trivia set
+                for (const roundKey of Object.keys(triviaNode)) {
                     const roundData = triviaNode[roundKey];
                     
                     // Skip non-object values
                     if (typeof roundData !== 'object' || roundData === null) continue;
                     
-                    // Get round metadata - try to find the round name in multiple ways
-                    const roundName = getRoundName(triviaNode, roundKey);
-                    
-                    // Also check for round name directly in the round data
-                    let directRoundName = null;
+                    // Try to find a round name
+                    let roundName = '';
+                    // Check in round data directly
                     if (roundData['Round Name']) {
-                        directRoundName = roundData['Round Name'];
+                        roundName = roundData['Round Name'];
                     } else if (roundData['name']) {
-                        directRoundName = roundData['name'];
+                        roundName = roundData['name'];
+                    } else if (roundKey.toLowerCase().includes('final')) {
+                        roundName = "Final Round";
+                    } else {
+                        // Default to a formatted round number
+                        roundName = `Round ${roundKey}`;
                     }
                     
-                    // Choose the most specific round name we can find
-                    const finalRoundName = directRoundName || roundName;
-                    
-                    // Apply format filter early
+                    // Apply format filter early to reduce processing
                     let formatsToProcess = Object.keys(roundData);
                     if (currentSearch.formats.length > 0) {
                         formatsToProcess = formatsToProcess.filter(formatKey => 
@@ -1231,15 +1210,12 @@
                         if (typeof formatData !== 'object' || formatData === null) continue;
                         
                         // Check for round name in the format data as well
-                        let formatRoundName = null;
+                        let formatRoundName = roundName;
                         if (formatData['Round Name']) {
                             formatRoundName = formatData['Round Name'];
                         } else if (formatData['name']) {
                             formatRoundName = formatData['name'];
                         }
-                        
-                        // Use the most specific round name we can find
-                        const mostSpecificRoundName = formatRoundName || finalRoundName;
                         
                         // Precompute regex pattern if using wildcards
                         let regexPattern = null;
@@ -1256,31 +1232,10 @@
                             }
                             
                             // Check for round name in the question data as a last resort
-                            let questionRoundName = null;
+                            let questionRoundName = formatRoundName;
                             if (questionData['Round Name']) {
                                 questionRoundName = questionData['Round Name'];
                             }
-                            
-                            // Use the most specific round name available, prioritizing the closest to the question
-                            const bestRoundName = questionRoundName || formatRoundName || finalRoundName;
-                            
-                            // Quick search function for fields
-                            const fieldMatches = (fieldName, fieldValue) => {
-                                if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) {
-                                    return false;
-                                }
-                                
-                                const textValue = String(fieldValue).toLowerCase();
-                                const searchQuery = currentSearch.query.toLowerCase();
-                                
-                                // If using regex pattern
-                                if (regexPattern) {
-                                    return regexPattern.test(textValue);
-                                }
-                                
-                                // Simple substring match
-                                return textValue.includes(searchQuery);
-                            };
                             
                             // Check if this question matches our search criteria
                             let matches = false;
@@ -1297,7 +1252,7 @@
                                         fieldMatches(fieldName, fieldValue));
                                 }
                             } else {
-                                // No query, so it matches if it passes the round/format filters
+                                // No query, so it matches if it passes the format filters
                                 matches = true;
                             }
                             
@@ -1325,7 +1280,7 @@
                                     triviaName: triviaName,
                                     triviaDate: triviaDate,
                                     round: roundKey,
-                                    roundName: bestRoundName || `Round ${roundKey}`, // Use the best round name we found
+                                    roundName: questionRoundName,
                                     // Use Round Format field for format if available, otherwise use format key
                                     format: roundFormat || formatKey,
                                     roundType: roundType,
@@ -1343,94 +1298,6 @@
             } catch (error) {
                 console.error(`Error processing trivia ${item.triviaNumber}:`, error);
                 return [];
-            }
-        }
-        
-        // Helper function to get a round name from trivia data
-        function getRoundName(triviaNode, roundKey) {
-            try {
-                // Add debug logging to help troubleshoot
-                console.log(`Getting round name for round ${roundKey}`);
-                
-                // First priority: check if a 'Round Name' field exists directly on the round node
-                if (triviaNode[roundKey] && triviaNode[roundKey]['Round Name']) {
-                    console.log(`Found round name at triviaNode[${roundKey}]['Round Name']:`, triviaNode[roundKey]['Round Name']);
-                    return triviaNode[roundKey]['Round Name'];
-                }
-                
-                let foundName = null;
-                
-                if (triviaNode[roundKey] && typeof triviaNode[roundKey] === 'object') {
-                    // Second priority: look through formats for round name
-                    for (const formatKey of Object.keys(triviaNode[roundKey])) {
-                        const format = triviaNode[roundKey][formatKey];
-                        
-                        // Check if the format has a Round Name directly
-                        if (format && format['Round Name']) {
-                            console.log(`Found round name at format level: ${format['Round Name']}`);
-                            return format['Round Name'];
-                        }
-                        
-                        // Look for "name" field which might also contain round name
-                        if (format && format['name']) {
-                            console.log(`Found potential round name in 'name' field: ${format['name']}`);
-                            foundName = format['name'];
-                            // Don't return immediately, continue looking for an actual "Round Name" field
-                        }
-                        
-                        // Third priority: look through questions for round name
-                        if (format && typeof format === 'object') {
-                            // Check numeric keys first (questions)
-                            const questionKeys = Object.keys(format).filter(key => !isNaN(parseInt(key)));
-                            
-                            for (const qKey of questionKeys) {
-                                const q = format[qKey];
-                                if (q && q['Round Name']) {
-                                    console.log(`Found round name in question ${qKey}: ${q['Round Name']}`);
-                                    return q['Round Name'];
-                                }
-                            }
-                            
-                            // Also check any other keys as a fallback
-                            for (const qKey of Object.keys(format)) {
-                                if (questionKeys.includes(qKey)) continue; // Skip question keys we already checked
-                                
-                                const value = format[qKey];
-                                if (value && typeof value === 'object' && value['Round Name']) {
-                                    console.log(`Found round name in other key ${qKey}: ${value['Round Name']}`);
-                                    return value['Round Name'];
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Use the foundName if we discovered one in the 'name' field
-                if (foundName) {
-                    return foundName;
-                }
-                
-                // Fourth priority: Check if this is a final round
-                if (roundKey.toLowerCase().includes('final')) {
-                    return "Final Round";
-                }
-                
-                // Look for specific roundKey patterns and provide better names
-                if (roundKey === '1') return "Round 1";
-                if (roundKey === '2') return "Round 2";
-                if (roundKey === '3') return "Round 3";
-                if (roundKey === '4') return "Round 4";
-                if (roundKey === '5') return "Round 5";
-                if (roundKey === '6') return "Round 6";
-                if (roundKey === '7') return "Round 7";
-                if (roundKey === '8') return "Round 8";
-                
-                // Default to formatted round number
-                console.log(`No specific round name found for round ${roundKey}, using default`);
-                return `Round ${roundKey}`;
-            } catch (e) {
-                console.error('Error getting round name:', e);
-                return `Round ${roundKey}`;
             }
         }
         
@@ -1915,13 +1782,14 @@
             currentSearch = {
                 query: '',
                 formats: [],
-                rounds: [],
+                rounds: [], // Kept for backward compatibility
                 fields: [],
                 sort: 'newest',
                 lastKey: null,
                 results: [],
                 hasMore: false,
-                endReached: false
+                endReached: false,
+                useExactMatch: false
             };
         });
         
@@ -2021,13 +1889,6 @@
                 cb.checked = false;
             });
             updateFilterSelection('formats');
-            
-            // Reset round filters
-            const roundCheckboxes = roundOptions.querySelectorAll('input[type="checkbox"]');
-            roundCheckboxes.forEach(cb => {
-                cb.checked = false;
-            });
-            updateFilterSelection('rounds');
             
             // Reset field filters
             const fieldCheckboxes = fieldOptions.querySelectorAll('input[type="checkbox"]');
