@@ -1134,25 +1134,28 @@
                 return null;
             }
             
-            const hasWildcards = s.includes('*') || s.includes('?');
-            
             // Escape special regex chars except * and ?
             let pattern = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
             
-            if (hasWildcards) {
-                // Convert * and ? to their regex equivalents
-                pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
-                
-                // Add start/end anchors only if pattern doesn't start/end with wildcards
-                if (!s.startsWith('*')) {
-                    pattern = '^' + pattern;
-                }
-                if (!s.endsWith('*')) {
-                    pattern = pattern + '$';
-                }
-            } else {
-                // For exact matches without wildcards, match the whole word or the entire string
-                pattern = '(^' + pattern + '$|\\b' + pattern + '\\b)';
+            // Check if the pattern starts and ends with wildcards
+            const startsWithWildcard = s.startsWith('*');
+            const endsWithWildcard = s.endsWith('*');
+            
+            // Replace * with .* (any number of characters) and ? with . (exactly one character)
+            pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
+            
+            // Only add anchors if the pattern doesn't have wildcards at beginning/end
+            if (!startsWithWildcard) {
+                pattern = '^' + pattern;
+            }
+            if (!endsWithWildcard) {
+                pattern = pattern + '$';
+            }
+            
+            // If pattern is surrounded by wildcards (*something*), we want a substring match
+            if (startsWithWildcard && endsWithWildcard) {
+                // Remove beginning/end anchors that might have been added
+                pattern = pattern.replace(/^\^\.\*/, '').replace(/\.\*\$$/, '');
             }
             
             console.log(`Converting "${s}" to regex: ${pattern}`);
@@ -1171,16 +1174,37 @@
             
             // If using regex pattern with wildcards
             if (regexPattern) {
-                return regexPattern.test(textValue);
+                // For patterns like *text* we want to do a substring search
+                if (searchQuery.startsWith('*') && searchQuery.endsWith('*')) {
+                    const innerText = searchQuery.substring(1, searchQuery.length - 1).toLowerCase();
+                    if (innerText && textValue.includes(innerText)) {
+                        console.log(`Substring match: ${innerText} found in "${textValue}"`);
+                        return true;
+                    }
+                }
+                
+                // Test with the regex pattern
+                const matches = regexPattern.test(textValue);
+                if (matches) {
+                    console.log(`RegEx match: "${searchQuery}" matches "${textValue}"`);
+                }
+                return matches;
             }
             
             // If exact matching is requested (no wildcards used)
             if (useExactMatch) {
-                // Check for exact match of the entire string
-                return textValue === searchQuery.toLowerCase();
+                // Check for exact match of the entire string or for word boundaries
+                const exactMatch = textValue === searchQuery.toLowerCase();
+                const wordMatch = new RegExp(`\\b${searchQuery.toLowerCase()}\\b`).test(textValue);
+                
+                if (exactMatch || wordMatch) {
+                    console.log(`Exact match: "${searchQuery}" found in "${textValue}"`);
+                    return true;
+                }
+                return false;
             }
             
-            // Default: Simple substring match for searches without wildcards that don't need to be exact
+            // Default: Simple substring match for searches without wildcards
             return textValue.includes(searchQuery.toLowerCase());
         };
         
