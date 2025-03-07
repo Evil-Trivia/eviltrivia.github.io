@@ -415,6 +415,52 @@
             font-size: 12px;
             margin-left: 5px;
         }
+        
+        #search-loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 30px;
+            font-size: 16px;
+            color: #666;
+        }
+        
+        #search-loading::after {
+            content: "";
+            width: 20px;
+            height: 20px;
+            margin-left: 10px;
+            border-radius: 50%;
+            border: 3px solid #ddd;
+            border-top-color: #000;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        
+        .results-table th:nth-child(1),
+        .results-table td:nth-child(1) {
+            width: 70px;  /* Trivia # */
+        }
+        
+        .results-table th:nth-child(2),
+        .results-table td:nth-child(2) {
+            width: 80px;  /* Date */
+        }
+        
+        .results-table th:nth-child(3),
+        .results-table td:nth-child(3) {
+            width: 60px;  /* Round */
+        }
+        
+        .results-table th:nth-child(5),
+        .results-table td:nth-child(5) {
+            width: 80px;  /* Format */
+        }
     </style>
 </head>
 <body>
@@ -533,6 +579,7 @@
                                 <th>Format</th>
                                 <th>Question</th>
                                 <th>Answer</th>
+                                <th>Round Instruction</th>
                                 <th>Question Image</th>
                                 <th>Answer Image</th>
                             </tr>
@@ -946,38 +993,38 @@
                     sort: currentSearch.sort
                 });
                 
-                // Track if we need to load more batches to reach results
-                let continueLoading = true;
-                let batchesLoaded = 0;
-                const maxBatches = 25; // Increase maximum batches to search more trivia sets
-                let allResults = [];
+                // Show loading indicator
+                const loadingIndicator = document.createElement('div');
+                loadingIndicator.id = 'search-loading';
+                loadingIndicator.textContent = 'Searching...';
+                loadingIndicator.style.textAlign = 'center';
+                loadingIndicator.style.padding = '20px';
+                loadingIndicator.style.color = '#666';
                 
-                // Keep loading batches until we exhaust data or hit max batches
-                while (continueLoading && batchesLoaded < maxBatches) {
-                    batchesLoaded++;
-                    const batchResults = await loadQuestionBatch(loadMore || batchesLoaded > 1);
-                    
-                    if (batchResults.length === 0) {
-                        // No more results found
-                        console.log('No more results found after batch', batchesLoaded);
-                        currentSearch.endReached = true;
-                        continueLoading = false;
-                    } else {
-                        allResults = [...allResults, ...batchResults];
-                        
-                        // If it's a specific search query, keep looking for more results
-                        // Otherwise, once we have 50 results or no more data, we can stop
-                        if (!currentSearch.query && (currentSearch.results.length + allResults.length >= 50 || !currentSearch.hasMore)) {
-                            console.log('Reached sufficient results or end of data');
-                            continueLoading = false;
-                        }
-                    }
+                if (!loadMore) {
+                    resultsBody.innerHTML = '';
+                    resultsBody.appendChild(loadingIndicator);
+                } else {
+                    loadMoreBtn.disabled = true;
+                    loadMoreBtn.textContent = 'Loading...';
                 }
                 
-                console.log('Search complete, found total results:', allResults.length);
+                // Use a smarter approach for loading data
+                // Instead of loading trivia sets one by one, load a larger chunk at once
+                const results = await loadSmartQuestionBatch(loadMore);
+                
+                // Remove loading indicator
+                const existingLoadingIndicator = document.getElementById('search-loading');
+                if (existingLoadingIndicator) {
+                    existingLoadingIndicator.remove();
+                }
+                if (loadMore) {
+                    loadMoreBtn.disabled = false;
+                    loadMoreBtn.textContent = 'Load More Results';
+                }
                 
                 // Update display
-                displayResults(allResults, loadMore);
+                displayResults(results, loadMore);
                 
                 // Show end of results message if appropriate
                 if (currentSearch.endReached) {
@@ -990,13 +1037,26 @@
                 
             } catch (error) {
                 console.error('Error searching questions:', error);
+                // Remove loading indicator on error
+                const existingLoadingIndicator = document.getElementById('search-loading');
+                if (existingLoadingIndicator) {
+                    existingLoadingIndicator.remove();
+                }
+                if (loadMore) {
+                    loadMoreBtn.disabled = false;
+                    loadMoreBtn.textContent = 'Load More Results';
+                }
             }
         }
         
-        // Load a batch of questions from Firebase
-        async function loadQuestionBatch(loadMore = false) {
+        // Smarter batch loading function
+        async function loadSmartQuestionBatch(loadMore = false) {
             // Get reference to trivia-archive
             const archiveRef = db.ref('trivia-archive/archive');
+            
+            // For the initial load, we will get a large batch of trivia sets at once
+            // This is much more efficient than loading one set at a time
+            const batchSize = 30; // Load 30 trivia sets at once
             
             // Start by querying trivia numbers (sort by key in reverse for newest first)
             let triviaQuery = archiveRef.orderByKey();
@@ -1006,16 +1066,17 @@
                 if (loadMore && currentSearch.lastKey) {
                     triviaQuery = triviaQuery.endAt(currentSearch.lastKey);
                 }
-                triviaQuery = triviaQuery.limitToLast(20); // Increase to load more trivia sets at a time
+                triviaQuery = triviaQuery.limitToLast(batchSize);
             } else {
                 // For oldest first, we start at the beginning and move forward
                 if (loadMore && currentSearch.lastKey) {
                     triviaQuery = triviaQuery.startAt(currentSearch.lastKey);
                 }
-                triviaQuery = triviaQuery.limitToFirst(20); // Increase to load more trivia sets at a time
+                triviaQuery = triviaQuery.limitToFirst(batchSize);
             }
             
             // Get trivia numbers
+            console.log(`Loading batch of up to ${batchSize} trivia sets...`);
             const triviaSnap = await triviaQuery.once('value');
             const triviaData = triviaSnap.val();
             
@@ -1027,6 +1088,7 @@
                     resultsCount.textContent = '0';
                 }
                 loadMoreSection.classList.add('hidden');
+                currentSearch.endReached = true;
                 return [];
             }
             
@@ -1043,72 +1105,141 @@
                 triviaItems.sort((a, b) => a.triviaNumber.localeCompare(b.triviaNumber));
             }
             
-            console.log('Processing trivia items:', triviaItems.length);
+            console.log(`Processing ${triviaItems.length} trivia items...`);
             
-            // Process each trivia set
-            const results = [];
-            let processedCount = 0;
+            // Create an array of promises to process each trivia set in parallel
+            // This significantly speeds up the search process
+            const processPromises = [];
             
+            // Skip the first item if loading more (it was the last key from previous batch)
+            if (loadMore && currentSearch.lastKey) {
+                const firstItem = triviaItems.find(item => item.triviaNumber === currentSearch.lastKey);
+                if (firstItem) {
+                    const index = triviaItems.indexOf(firstItem);
+                    if (index >= 0) {
+                        triviaItems.splice(index, 1);
+                    }
+                }
+            }
+            
+            // Remember the last key for pagination
+            if (triviaItems.length > 0) {
+                const lastItem = currentSearch.sort === 'newest' 
+                    ? triviaItems[triviaItems.length - 1] 
+                    : triviaItems[0];
+                currentSearch.lastKey = lastItem.triviaNumber;
+            }
+            
+            // Process each trivia item
             for (const item of triviaItems) {
-                // Skip the first item if loading more (it was the last key from previous batch)
-                if (loadMore && processedCount === 0 && currentSearch.lastKey === item.triviaNumber) {
-                    processedCount++;
-                    continue;
-                }
+                processPromises.push(processTrivia(item));
+            }
+            
+            // Wait for all processing to complete
+            const resultsArrays = await Promise.all(processPromises);
+            
+            // Flatten results array and limit to 50 results per batch
+            let results = resultsArrays.flat();
+            
+            // Update paging info
+            currentSearch.hasMore = results.length > 0 && triviaItems.length >= batchSize - 1;
+            
+            // If we didn't find enough results, check if we've reached the end
+            if (results.length === 0) {
+                currentSearch.endReached = true;
+            }
+            
+            return results;
+        }
+        
+        // Process a single trivia set
+        async function processTrivia(item) {
+            try {
+                const results = [];
                 
-                processedCount++;
-                console.log('Processing trivia #:', item.triviaNumber);
-                
-                // First, check if this trivia set has a "trivia" node
-                const triviaRef = db.ref(`trivia-archive/archive/${item.triviaNumber}`);
-                const triviaSnap = await triviaRef.once('value');
-                const triviaData = triviaSnap.val();
-                
-                if (!triviaData) {
-                    console.log('No data for trivia #:', item.triviaNumber);
-                    continue;
+                // First, check if this trivia set has necessary data
+                if (!item.data || !item.data.trivia) {
+                    return results;
                 }
-
-                // Check if the trivia data has a "trivia" subnode
-                const triviaNode = triviaData.trivia || null;
-                if (!triviaNode) {
-                    console.log('No trivia node found for trivia #:', item.triviaNumber);
-                    continue;
-                }
-
-                console.log('Found trivia node with rounds:', Object.keys(triviaNode));
                 
                 // Get trivia metadata
                 const triviaNumber = item.triviaNumber;
-                const triviaName = triviaData.name || '';
-                const triviaDate = triviaData.date || '';
+                const triviaName = item.data.name || '';
+                const triviaDate = item.data.date || '';
+                const triviaNode = item.data.trivia;
+                
+                // Apply round filter early to reduce processing
+                let roundsToProcess = Object.keys(triviaNode);
+                if (currentSearch.rounds.length > 0) {
+                    roundsToProcess = roundsToProcess.filter(roundKey => 
+                        currentSearch.rounds.includes(roundKey));
+                    
+                    // If no rounds match, return early
+                    if (roundsToProcess.length === 0) {
+                        return results;
+                    }
+                }
                 
                 // Process each round in the trivia set
-                for (const [roundKey, roundData] of Object.entries(triviaNode)) {
+                for (const roundKey of roundsToProcess) {
+                    const roundData = triviaNode[roundKey];
+                    
                     // Skip non-object values
                     if (typeof roundData !== 'object' || roundData === null) continue;
-                    
-                    // Apply round filter
-                    if (currentSearch.rounds.length > 0 && !currentSearch.rounds.includes(roundKey)) continue;
                     
                     // Get round metadata
                     const roundName = getRoundName(triviaNode, roundKey);
                     
+                    // Apply format filter early
+                    let formatsToProcess = Object.keys(roundData);
+                    if (currentSearch.formats.length > 0) {
+                        formatsToProcess = formatsToProcess.filter(formatKey => 
+                            currentSearch.formats.includes(formatKey));
+                        
+                        // If no formats match, skip this round
+                        if (formatsToProcess.length === 0) {
+                            continue;
+                        }
+                    }
+                    
                     // Process each format in the round
-                    for (const [formatKey, formatData] of Object.entries(roundData)) {
+                    for (const formatKey of formatsToProcess) {
+                        const formatData = roundData[formatKey];
+                        
                         // Skip non-object values
                         if (typeof formatData !== 'object' || formatData === null) continue;
                         
-                        // Apply format filter
-                        if (currentSearch.formats.length > 0 && !currentSearch.formats.includes(formatKey)) continue;
+                        // Precompute regex pattern if using wildcards
+                        let regexPattern = null;
+                        if (currentSearch.query && (currentSearch.query.includes('*') || currentSearch.query.includes('?'))) {
+                            regexPattern = wildcardToRegExp(currentSearch.query);
+                        }
                         
                         // Process each question in the format
                         for (const [questionKey, questionData] of Object.entries(formatData)) {
-                            // Skip non-object values
-                            if (typeof questionData !== 'object' || questionData === null) continue;
+                            // Skip non-object values or non-question keys
+                            if (typeof questionData !== 'object' || questionData === null || 
+                                (isNaN(questionKey) && !/^\d+$/.test(questionKey))) {
+                                continue;
+                            }
                             
-                            // Skip non-numeric question keys (other metadata)
-                            if (isNaN(questionKey) && !/^\d+$/.test(questionKey)) continue;
+                            // Quick search function for fields
+                            const fieldMatches = (fieldName, fieldValue) => {
+                                if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) {
+                                    return false;
+                                }
+                                
+                                const textValue = String(fieldValue).toLowerCase();
+                                const searchQuery = currentSearch.query.toLowerCase();
+                                
+                                // If using regex pattern
+                                if (regexPattern) {
+                                    return regexPattern.test(textValue);
+                                }
+                                
+                                // Simple substring match
+                                return textValue.includes(searchQuery);
+                            };
                             
                             // Check if this question matches our search criteria
                             let matches = false;
@@ -1117,24 +1248,12 @@
                                 // If searching for a specific field
                                 if (currentSearch.fields.length > 0) {
                                     // For field search, check each selected field
-                                    for (const field of currentSearch.fields) {
-                                        const fieldValue = questionData[field];
-                                        if (fieldValue && matchesQuery(fieldValue, currentSearch.query)) {
-                                            matches = true;
-                                            break;
-                                        }
-                                    }
+                                    matches = currentSearch.fields.some(field => 
+                                        fieldMatches(field, questionData[field]));
                                 } else {
                                     // Search in all fields
-                                    for (const [fieldName, fieldValue] of Object.entries(questionData)) {
-                                        // Skip empty values or non-string/number values
-                                        if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) continue;
-                                        
-                                        if (matchesQuery(fieldValue, currentSearch.query)) {
-                                            matches = true;
-                                            break;
-                                        }
-                                    }
+                                    matches = Object.entries(questionData).some(([fieldName, fieldValue]) => 
+                                        fieldMatches(fieldName, fieldValue));
                                 }
                             } else {
                                 // No query, so it matches if it passes the round/format filters
@@ -1159,16 +1278,11 @@
                     }
                 }
                 
-                // Remember the last key for pagination only if we processed this trivia
-                if (processedCount > 1) {
-                    currentSearch.lastKey = item.triviaNumber;
-                }
+                return results;
+            } catch (error) {
+                console.error(`Error processing trivia ${item.triviaNumber}:`, error);
+                return [];
             }
-            
-            // Update paging info - we have more if we found at least one item and processed more than 1
-            currentSearch.hasMore = results.length > 0 && processedCount > 1;
-            
-            return results;
         }
         
         // Helper function to get a round name from trivia data
@@ -1245,6 +1359,15 @@
                 const imageLink = result.questionData['Image Link'] || result.questionData['image_link'] || '';
                 const answerImageLink = result.questionData['Answer Image Link'] || result.questionData['answer_image_link'] || '';
                 
+                // Get round instruction if available (might be at various levels)
+                let roundInstruction = '';
+                
+                // Check in question data first
+                if (result.questionData['Round Instruction']) {
+                    roundInstruction = result.questionData['Round Instruction'];
+                }
+                // Could also be in round metadata or other places - would need more complex logic to find it
+                
                 row.innerHTML = `
                     <td>${result.triviaNumber}</td>
                     <td>${escapeHTML(dateStr)}</td>
@@ -1253,6 +1376,7 @@
                     <td>${result.format}</td>
                     <td class="question-text">${escapeHTML(question)}</td>
                     <td class="question-text">${escapeHTML(answer)}</td>
+                    <td class="question-text">${escapeHTML(roundInstruction)}</td>
                     <td>${createImagePreview(imageLink, 'Question Image')}</td>
                     <td>${createImagePreview(answerImageLink, 'Answer Image')}</td>
                 `;
