@@ -236,15 +236,7 @@
                         <label for="format-filter">Format</label>
                         <select id="format-filter">
                             <option value="">All Formats</option>
-                            <option value="mixedBag">Mixed Bag</option>
-                            <option value="connections">Connections</option>
-                            <option value="numeric">Numeric</option>
-                            <option value="sequential">Sequential</option>
-                            <option value="music">Music</option>
-                            <option value="written">Written</option>
-                            <option value="fillInTheBlank">Fill-In</option>
-                            <option value="visual">Visual</option>
-                            <option value="final">Final</option>
+                            <!-- Formats will be populated dynamically -->
                         </select>
                     </div>
                     
@@ -252,12 +244,7 @@
                         <label for="round-filter">Round</label>
                         <select id="round-filter">
                             <option value="">All Rounds</option>
-                            <option value="1">Round 1</option>
-                            <option value="2">Round 2</option>
-                            <option value="3">Round 3</option>
-                            <option value="4">Round 4</option>
-                            <option value="5">Round 5</option>
-                            <option value="final">Final</option>
+                            <!-- Rounds will be populated dynamically -->
                         </select>
                     </div>
                     
@@ -265,9 +252,11 @@
                         <label for="field-filter">Field</label>
                         <select id="field-filter">
                             <option value="">All Fields</option>
-                            <option value="question">Question</option>
-                            <option value="answer">Answer</option>
-                            <option value="explanation">Explanation</option>
+                            <option value="Question">Question</option>
+                            <option value="Answer">Answer</option>
+                            <option value="Hidden Structure_Theme">Hidden Theme</option>
+                            <option value="Round Name">Round Name</option>
+                            <option value="Round Instruction">Round Instruction</option>
                         </select>
                     </div>
                     
@@ -367,6 +356,123 @@
             hasMore: false
         };
 
+        // Store metadata about the database
+        const dbMetadata = {
+            rounds: new Set(),
+            formats: new Set(),
+            fields: new Set()
+        };
+
+        // Initialize the page
+        async function initializePage() {
+            await loadDatabaseMetadata();
+            populateFilterDropdowns();
+        }
+
+        // Load metadata about database structure
+        async function loadDatabaseMetadata() {
+            try {
+                // Get a sample of the archive to extract structure
+                const archiveRef = db.ref('trivia-archive/archive');
+                const snapshot = await archiveRef.limitToLast(3).once('value');
+                const data = snapshot.val();
+                
+                if (!data) return;
+                
+                console.log('Loading metadata from sample data...');
+                
+                // Process each trivia set to extract rounds and formats
+                for (const [triviaNumber, triviaSet] of Object.entries(data)) {
+                    if (!triviaSet.trivia) continue;
+                    
+                    // Extract rounds
+                    for (const roundKey of Object.keys(triviaSet.trivia)) {
+                        if (typeof triviaSet.trivia[roundKey] !== 'object') continue;
+                        dbMetadata.rounds.add(roundKey);
+                        
+                        // Extract formats for each round
+                        const round = triviaSet.trivia[roundKey];
+                        for (const formatKey of Object.keys(round)) {
+                            if (typeof round[formatKey] !== 'object') continue;
+                            dbMetadata.formats.add(formatKey);
+                            
+                            // Extract fields from a sample question
+                            const format = round[formatKey];
+                            // Find a question
+                            for (const qKey of Object.keys(format)) {
+                                const question = format[qKey];
+                                if (typeof question === 'object' && question !== null) {
+                                    // Extract field names
+                                    for (const fieldName of Object.keys(question)) {
+                                        dbMetadata.fields.add(fieldName);
+                                    }
+                                    break; // Just need one question for fields
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                console.log('Database metadata loaded:', {
+                    rounds: Array.from(dbMetadata.rounds),
+                    formats: Array.from(dbMetadata.formats),
+                    fields: Array.from(dbMetadata.fields)
+                });
+            } catch (error) {
+                console.error('Error loading database metadata:', error);
+            }
+        }
+
+        // Populate dropdowns with database values
+        function populateFilterDropdowns() {
+            // Populate round filter
+            const roundOptions = Array.from(dbMetadata.rounds)
+                .sort((a, b) => {
+                    // Sort numerically if possible
+                    const numA = parseInt(a);
+                    const numB = parseInt(b);
+                    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+                    return a.localeCompare(b);
+                });
+                
+            roundFilter.innerHTML = '<option value="">All Rounds</option>';
+            for (const round of roundOptions) {
+                const option = document.createElement('option');
+                option.value = round;
+                option.textContent = round.startsWith('final') ? 'Final' : `Round ${round}`;
+                roundFilter.appendChild(option);
+            }
+            
+            // Populate format filter
+            const formatOptions = Array.from(dbMetadata.formats).sort();
+            formatFilter.innerHTML = '<option value="">All Formats</option>';
+            for (const format of formatOptions) {
+                const option = document.createElement('option');
+                option.value = format;
+                option.textContent = format;
+                formatFilter.appendChild(option);
+            }
+            
+            // Populate field filter with common fields
+            // We'll keep this manual to ensure consistent naming and order
+            fieldFilter.innerHTML = '<option value="">All Fields</option>';
+            const commonFields = ['Question', 'Answer', 'Hidden Structure_Theme', 'Round Name', 'Round Instruction'];
+            
+            // Add other fields from metadata
+            const allFields = new Set([...commonFields, ...dbMetadata.fields]);
+            const fieldOptions = Array.from(allFields).sort();
+            
+            for (const field of fieldOptions) {
+                // Skip internal fields or fields with no valuable search content
+                if (field === 'uid' || field === 'id' || field === 'createdAt' || field === 'updatedAt') continue;
+                
+                const option = document.createElement('option');
+                option.value = field;
+                option.textContent = field.replace(/_/g, ' ');
+                fieldFilter.appendChild(option);
+            }
+        }
+
         // Convert wildcards to regex pattern
         function wildcardToRegExp(s) {
             if (!s || !s.includes('*') && !s.includes('?')) {
@@ -387,15 +493,19 @@
         function matchesQuery(text, query) {
             if (!text || !query) return false;
             
+            // Ensure we're working with strings
+            const textStr = String(text);
+            const queryStr = String(query);
+            
             // Check if query has wildcards
-            const regexPattern = wildcardToRegExp(query);
+            const regexPattern = wildcardToRegExp(queryStr);
             
             if (regexPattern) {
                 // Split into words and test each word
-                return text.split(/\s+/).some(word => regexPattern.test(word));
+                return textStr.toLowerCase().split(/\s+/).some(word => regexPattern.test(word));
             } else {
                 // Normal contains check (case insensitive)
-                return text.toLowerCase().includes(query.toLowerCase());
+                return textStr.toLowerCase().includes(queryStr.toLowerCase());
             }
         }
         
@@ -416,6 +526,7 @@
                         // User is admin, show search interface
                         authScreen.classList.add('hidden');
                         searchScreen.classList.remove('hidden');
+                        initializePage(); // Initialize dropdowns and metadata
                     } else {
                         // User is not admin
                         authScreen.classList.remove('hidden');
@@ -464,6 +575,12 @@
                 
                 // Log for debugging
                 console.log('Starting search with query:', currentSearch.query);
+                console.log('Search filters:', {
+                    round: currentSearch.round,
+                    format: currentSearch.format,
+                    field: currentSearch.field,
+                    sort: currentSearch.sort
+                });
                 
                 // Get reference to trivia-archive
                 const archiveRef = db.ref('trivia-archive/archive');
@@ -547,7 +664,11 @@
                         continue;
                     }
 
-                    console.log('Found trivia node with keys:', Object.keys(triviaNode));
+                    console.log('Found trivia node with rounds:', Object.keys(triviaNode));
+                    
+                    // Get trivia metadata
+                    const triviaNumber = item.triviaNumber;
+                    const triviaName = triviaData.name || '';
                     
                     // Process each round in the trivia set
                     for (const [roundKey, roundData] of Object.entries(triviaNode)) {
@@ -564,70 +685,63 @@
                             // Skip non-object values
                             if (typeof formatData !== 'object' || formatData === null) continue;
                             
-                            // Apply format filter - need to be flexible with format names
-                            // Convert database format key to camelCase for comparison with our filter
-                            const formatCamelCase = formatKey.toLowerCase()
-                                .replace(/[\s-_]+(.)/g, (_, c) => c.toUpperCase())
-                                .replace(/^(.)/, (_, c) => c.toLowerCase());
+                            // Apply format filter
+                            if (currentSearch.format && currentSearch.format !== formatKey) continue;
+                            
+                            console.log('Processing format:', formatKey, 'with questions:', Object.keys(formatData).length);
+                            
+                            // Process each question in the format
+                            for (const [questionKey, questionData] of Object.entries(formatData)) {
+                                // Skip non-object values
+                                if (typeof questionData !== 'object' || questionData === null) continue;
                                 
-                            if (currentSearch.format && !matchFormat(currentSearch.format, formatKey, formatCamelCase)) continue;
-                            
-                            console.log('Processing format:', formatKey);
-                            
-                            // Check if this is a question container (has numbered keys)
-                            if (isQuestionContainer(formatData)) {
-                                // This format directly contains question numbers
-                                for (const [questionKey, questionData] of Object.entries(formatData)) {
-                                    // Skip non-question keys if they exist
-                                    if (typeof questionData !== 'object' || questionData === null) continue;
-                                    
-                                    // Get the actual question/answer data - adjust for capitalized field names
-                                    const questionText = questionData.Question || questionData.question || '';
-                                    const answerText = questionData.Answer || questionData.answer || '';
-                                    const explanationText = questionData.Explanation || questionData.explanation || '';
-                                    
-                                    // Check if we need to filter by field
-                                    let matches = false;
-                                    
-                                    if (currentSearch.query) {
-                                        if (!currentSearch.field || currentSearch.field === 'question') {
-                                            if (questionText && matchesQuery(questionText, currentSearch.query)) {
-                                                matches = true;
-                                            }
-                                        }
-                                        
-                                        if (!matches && (!currentSearch.field || currentSearch.field === 'answer')) {
-                                            if (answerText && matchesQuery(answerText, currentSearch.query)) {
-                                                matches = true;
-                                            }
-                                        }
-                                        
-                                        if (!matches && (!currentSearch.field || currentSearch.field === 'explanation')) {
-                                            if (explanationText && matchesQuery(explanationText, currentSearch.query)) {
-                                                matches = true;
-                                            }
+                                // Skip non-numeric question keys (other metadata)
+                                if (isNaN(questionKey) && !/^\d+$/.test(questionKey)) continue;
+                                
+                                // Check if this question matches our search criteria
+                                let matches = false;
+                                
+                                if (currentSearch.query) {
+                                    // If searching for a specific field
+                                    if (currentSearch.field) {
+                                        // Check if the question has the field we're looking for
+                                        const fieldValue = questionData[currentSearch.field];
+                                        if (fieldValue && matchesQuery(fieldValue, currentSearch.query)) {
+                                            matches = true;
                                         }
                                     } else {
-                                        // No query, so it matches
-                                        matches = true;
-                                    }
-                                    
-                                    if (matches) {
-                                        results.push({
-                                            triviaNumber: item.triviaNumber,
-                                            round: roundKey,
-                                            format: formatKey,
-                                            questionNum: questionKey,
-                                            question: questionText,
-                                            answer: answerText,
-                                            explanation: explanationText
-                                        });
-                                        
-                                        // Check if we've reached the result limit
-                                        if (currentSearch.results.length + results.length >= 50 && !loadMore) {
-                                            reachedLimit = true;
-                                            break;
+                                        // Search in all fields
+                                        for (const [fieldName, fieldValue] of Object.entries(questionData)) {
+                                            // Skip empty values or non-string/number values
+                                            if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) continue;
+                                            
+                                            if (matchesQuery(fieldValue, currentSearch.query)) {
+                                                matches = true;
+                                                break;
+                                            }
                                         }
+                                    }
+                                } else {
+                                    // No query, so it matches if it passes the round/format filters
+                                    matches = true;
+                                }
+                                
+                                if (matches) {
+                                    const resultItem = {
+                                        triviaNumber: triviaNumber,
+                                        triviaName: triviaName,
+                                        round: roundKey,
+                                        format: formatKey,
+                                        questionNum: questionKey,
+                                        questionData: questionData
+                                    };
+                                    
+                                    results.push(resultItem);
+                                    
+                                    // Check if we've reached the result limit
+                                    if (currentSearch.results.length + results.length >= 50 && !loadMore) {
+                                        reachedLimit = true;
+                                        break;
                                     }
                                 }
                             }
@@ -680,12 +794,16 @@
             results.forEach(result => {
                 const row = document.createElement('tr');
                 
+                // Get the question and answer text from the question data
+                const question = result.questionData.Question || result.questionData.question || '';
+                const answer = result.questionData.Answer || result.questionData.answer || '';
+                
                 row.innerHTML = `
                     <td>${result.triviaNumber}</td>
                     <td>${result.round}</td>
-                    <td>${formatForDisplay(result.format)}</td>
-                    <td class="question-text" title="${escapeHTML(result.question)}">${escapeHTML(result.question)}</td>
-                    <td class="question-text" title="${escapeHTML(result.answer)}">${escapeHTML(result.answer)}</td>
+                    <td>${result.format}</td>
+                    <td class="question-text" title="${escapeHTML(question)}">${escapeHTML(question)}</td>
+                    <td class="question-text" title="${escapeHTML(answer)}">${escapeHTML(answer)}</td>
                 `;
                 
                 // Add click event to show full details
@@ -698,29 +816,8 @@
             resultsCount.textContent = currentSearch.results.length;
         }
         
-        // Helper function to format the format name for display
-        function formatForDisplay(format) {
-            if (!format) return '';
-            
-            // Convert camelCase to Title Case with spaces
-            return format
-                .replace(/([A-Z])/g, ' $1') // Insert space before capital letters
-                .replace(/^./, str => str.toUpperCase()); // Capitalize first letter
-        }
-        
-        // Helper function to escape HTML
-        function escapeHTML(str) {
-            if (!str) return '';
-            return str
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        }
-        
         // Show question details in a modal
-        function showQuestionDetails(question) {
+        function showQuestionDetails(result) {
             // Create modal element
             const modal = document.createElement('div');
             modal.style.position = 'fixed';
@@ -744,57 +841,152 @@
             content.style.maxHeight = '80vh';
             content.style.overflowY = 'auto';
             
-            // Format content
-            content.innerHTML = `
-                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-                    <h2 style="margin: 0;">Question Details</h2>
-                    <button id="closeModal" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <strong>Trivia #:</strong> ${question.triviaNumber}
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <strong>Round:</strong> ${question.round}
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <strong>Format:</strong> ${formatForDisplay(question.format)}
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <strong>Question #:</strong> ${question.questionNum}
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <strong>Question:</strong>
-                    <div style="padding: 10px; background-color: #f9f9f9; border-radius: 4px; margin-top: 5px;">${question.question}</div>
-                </div>
-                <div style="margin-bottom: 15px;">
-                    <strong>Answer:</strong>
-                    <div style="padding: 10px; background-color: #f9f9f9; border-radius: 4px; margin-top: 5px;">${question.answer}</div>
-                </div>
-                ${question.explanation ? `
-                <div style="margin-bottom: 15px;">
-                    <strong>Explanation:</strong>
-                    <div style="padding: 10px; background-color: #f9f9f9; border-radius: 4px; margin-top: 5px;">${question.explanation}</div>
-                </div>
-                ` : ''}
-            `;
+            // Create header with close button
+            const header = document.createElement('div');
+            header.style.display = 'flex';
+            header.style.justifyContent = 'space-between';
+            header.style.marginBottom = '20px';
+            
+            const title = document.createElement('h2');
+            title.style.margin = '0';
+            title.textContent = `Question Details`;
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.id = 'closeModal';
+            closeBtn.style.background = 'none';
+            closeBtn.style.border = 'none';
+            closeBtn.style.fontSize = '24px';
+            closeBtn.style.cursor = 'pointer';
+            closeBtn.innerHTML = '&times;';
+            closeBtn.addEventListener('click', () => {
+                document.body.removeChild(modal);
+            });
+            
+            header.appendChild(title);
+            header.appendChild(closeBtn);
+            content.appendChild(header);
+            
+            // Add basic info fields
+            const basicInfoFields = [
+                {label: 'Trivia #', value: result.triviaNumber},
+                {label: 'Trivia Name', value: result.triviaName},
+                {label: 'Round', value: result.round},
+                {label: 'Format', value: result.format},
+                {label: 'Question #', value: result.questionNum}
+            ];
+            
+            basicInfoFields.forEach(field => {
+                if (field.value) {
+                    addFieldToModal(content, field.label, field.value);
+                }
+            });
+            
+            // Add all question data fields
+            for (const [fieldName, fieldValue] of Object.entries(result.questionData)) {
+                // Skip empty values or complex objects
+                if (!fieldValue || typeof fieldValue === 'object') continue;
+                
+                // Skip fields we already displayed
+                if (basicInfoFields.some(f => f.label === fieldName)) continue;
+                
+                addFieldToModal(content, fieldName, fieldValue);
+            }
             
             // Add content to modal
             modal.appendChild(content);
             
-            // Add close event
-            modal.addEventListener('click', (e) => {
+            // Add close event for clicking outside the modal
+            modal.addEventListener('click', e => {
                 if (e.target === modal) {
                     document.body.removeChild(modal);
                 }
             });
             
-            // Add modal to body
+            // Add to document
             document.body.appendChild(modal);
+        }
+        
+        // Helper function to add a field to the modal
+        function addFieldToModal(container, label, value) {
+            const wrapper = document.createElement('div');
+            wrapper.style.marginBottom = '15px';
             
-            // Set up close button
-            document.getElementById('closeModal').addEventListener('click', () => {
-                document.body.removeChild(modal);
-            });
+            const labelElem = document.createElement('strong');
+            labelElem.textContent = label + ':';
+            wrapper.appendChild(labelElem);
+            
+            const valueContainer = document.createElement('div');
+            valueContainer.style.padding = '10px';
+            valueContainer.style.backgroundColor = '#f9f9f9';
+            valueContainer.style.borderRadius = '4px';
+            valueContainer.style.marginTop = '5px';
+            
+            // Check if it's an image link or a music link
+            if ((label.includes('Image') || label.includes('image')) && typeof value === 'string' && isUrl(value)) {
+                const img = document.createElement('img');
+                img.src = value;
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '300px';
+                valueContainer.appendChild(img);
+                
+                // Also add the raw link
+                const linkText = document.createElement('div');
+                linkText.style.marginTop = '5px';
+                linkText.style.fontSize = '0.8em';
+                linkText.style.wordBreak = 'break-all';
+                linkText.textContent = value;
+                valueContainer.appendChild(linkText);
+            } 
+            else if ((label.includes('Music') || label.includes('Audio') || label.includes('audio')) && 
+                     typeof value === 'string' && isUrl(value)) {
+                const audio = document.createElement('audio');
+                audio.controls = true;
+                audio.src = value;
+                valueContainer.appendChild(audio);
+                
+                // Also add the raw link
+                const linkText = document.createElement('div');
+                linkText.style.marginTop = '5px';
+                linkText.style.fontSize = '0.8em';
+                linkText.style.wordBreak = 'break-all';
+                linkText.textContent = value;
+                valueContainer.appendChild(linkText);
+            }
+            else if (typeof value === 'string' && isUrl(value)) {
+                // For other URLs, make them clickable
+                const link = document.createElement('a');
+                link.href = value;
+                link.target = '_blank';
+                link.textContent = value;
+                link.style.wordBreak = 'break-all';
+                valueContainer.appendChild(link);
+            }
+            else {
+                valueContainer.textContent = value;
+            }
+            
+            wrapper.appendChild(valueContainer);
+            container.appendChild(wrapper);
+        }
+        
+        // Helper function to check if a string is a URL
+        function isUrl(str) {
+            try {
+                return str.startsWith('http://') || str.startsWith('https://');
+            } catch (e) {
+                return false;
+            }
+        }
+        
+        // Helper function to escape HTML
+        function escapeHTML(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
         
         // Event listeners
@@ -835,38 +1027,6 @@
         loadMoreBtn.addEventListener('click', () => {
             loadQuestions(true);
         });
-        
-        // Check if a node is a container for questions (has numbered keys)
-        function isQuestionContainer(node) {
-            if (typeof node !== 'object' || node === null) return false;
-            
-            // Check if it has at least one numeric key or keys like '1', '2', etc.
-            return Object.keys(node).some(key => {
-                // If it has a "Question" field directly, it's probably a question itself
-                if (node[key] && (node[key].Question || node[key].question)) {
-                    return true;
-                }
-                return !isNaN(key) || /^\d+$/.test(key);
-            });
-        }
-        
-        // Match a format name considering variations
-        function matchFormat(filterFormat, dbFormat, camelFormat) {
-            // Normalize both to lowercase for case-insensitive comparison
-            const filterLower = filterFormat.toLowerCase();
-            const dbLower = dbFormat.toLowerCase();
-            const camelLower = camelFormat.toLowerCase();
-            
-            // Check for direct matches or partial matches
-            if (filterLower === dbLower || filterLower === camelLower) return true;
-            
-            // Special cases for format aliases
-            if (filterLower === 'fillintheblank' && (dbLower === 'fill-in' || dbLower.includes('blank'))) return true;
-            if (filterLower === 'mixedbag' && (dbLower === 'mixed' || dbLower === 'mixed bag')) return true;
-            if (filterLower === 'truefalse' && (dbLower === 'true/false' || dbLower === 'true-false')) return true;
-            
-            return false;
-        }
         
         console.log("Search tool loaded successfully!");
     </script>
