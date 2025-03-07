@@ -241,9 +241,8 @@
                             <option value="numeric">Numeric</option>
                             <option value="sequential">Sequential</option>
                             <option value="music">Music</option>
-                            <option value="phrasing">Phrasing</option>
-                            <option value="trueFalse">True/False</option>
-                            <option value="fillInTheBlank">Fill in the Blank</option>
+                            <option value="written">Written</option>
+                            <option value="fillInTheBlank">Fill-In</option>
                             <option value="visual">Visual</option>
                             <option value="final">Final</option>
                         </select>
@@ -531,227 +530,104 @@
                     processedCount++;
                     console.log('Processing trivia #:', item.triviaNumber);
                     
-                    // Process this trivia set - use proper path structure
-                    let triviaRef;
-                    try {
-                        // Try the normal path first
-                        triviaRef = db.ref(`trivia-archive/archive/${item.triviaNumber}/trivia`);
-                        const testSnap = await triviaRef.once('value');
-                        if (!testSnap.exists()) {
-                            // If that doesn't exist, try without the /trivia segment
-                            triviaRef = db.ref(`trivia-archive/archive/${item.triviaNumber}`);
-                        }
-                    } catch (e) {
-                        // If error, try without the /trivia segment
-                        triviaRef = db.ref(`trivia-archive/archive/${item.triviaNumber}`);
-                    }
+                    // First, check if this trivia set has a "trivia" node
+                    const triviaRef = db.ref(`trivia-archive/archive/${item.triviaNumber}`);
+                    const triviaSnap = await triviaRef.once('value');
+                    const triviaData = triviaSnap.val();
                     
-                    const triviaSetSnap = await triviaRef.once('value');
-                    const triviaSet = triviaSetSnap.val();
-                    
-                    if (!triviaSet) {
+                    if (!triviaData) {
                         console.log('No data for trivia #:', item.triviaNumber);
                         continue;
                     }
-                    
-                    // Debug logging - log the structure 
-                    console.log('Trivia structure for #' + item.triviaNumber + ':', 
-                        Object.keys(triviaSet).length + ' keys', 
-                        Object.keys(triviaSet).slice(0, 3));
 
-                    // Handle if the trivia node itself has questions directly
-                    if (triviaSet.question || triviaSet.answer) {
-                        // This is a direct question/answer in the trivia set
-                        let matches = false;
-                        
-                        if (currentSearch.query) {
-                            if (!currentSearch.field || currentSearch.field === 'question') {
-                                if (triviaSet.question && matchesQuery(triviaSet.question, currentSearch.query)) {
-                                    matches = true;
-                                }
-                            }
-                            
-                            if (!matches && (!currentSearch.field || currentSearch.field === 'answer')) {
-                                if (triviaSet.answer && matchesQuery(triviaSet.answer, currentSearch.query)) {
-                                    matches = true;
-                                }
-                            }
-                            
-                            if (!matches && (!currentSearch.field || currentSearch.field === 'explanation')) {
-                                if (triviaSet.explanation && matchesQuery(triviaSet.explanation, currentSearch.query)) {
-                                    matches = true;
-                                }
-                            }
-                        } else {
-                            // No query, so it matches
-                            matches = true;
-                        }
-                        
-                        if (matches) {
-                            results.push({
-                                triviaNumber: item.triviaNumber,
-                                round: 'unknown',
-                                format: 'unknown',
-                                questionNum: '1',
-                                question: triviaSet.question || '',
-                                answer: triviaSet.answer || '',
-                                explanation: triviaSet.explanation || ''
-                            });
-                        }
-                        continue; // Skip the rest of processing
+                    // Check if the trivia data has a "trivia" subnode
+                    const triviaNode = triviaData.trivia || null;
+                    if (!triviaNode) {
+                        console.log('No trivia node found for trivia #:', item.triviaNumber);
+                        continue;
                     }
+
+                    console.log('Found trivia node with keys:', Object.keys(triviaNode));
                     
-                    // Check if we have a "trivia" node or if rounds are direct children
-                    const roundsNode = triviaSet.trivia || triviaSet;
-                    
-                    // Process each round
-                    for (const [roundKey, roundData] of Object.entries(roundsNode)) {
-                        // Skip non-round keys
-                        if (roundKey === 'date' || roundKey === 'host' || roundKey === 'name') continue;
+                    // Process each round in the trivia set
+                    for (const [roundKey, roundData] of Object.entries(triviaNode)) {
+                        // Skip non-object values
+                        if (typeof roundData !== 'object' || roundData === null) continue;
                         
                         // Apply round filter
                         if (currentSearch.round && currentSearch.round !== roundKey) continue;
                         
-                        console.log('Processing round:', roundKey, 'type:', typeof roundData);
+                        console.log('Processing round:', roundKey, 'with formats:', Object.keys(roundData));
                         
-                        // If the round data is a direct question/answer (no format level)
-                        if (roundData.question || roundData.answer) {
-                            let matches = false;
+                        // Process each format in the round
+                        for (const [formatKey, formatData] of Object.entries(roundData)) {
+                            // Skip non-object values
+                            if (typeof formatData !== 'object' || formatData === null) continue;
                             
-                            if (currentSearch.query) {
-                                if (!currentSearch.field || currentSearch.field === 'question') {
-                                    if (roundData.question && matchesQuery(roundData.question, currentSearch.query)) {
+                            // Apply format filter - need to be flexible with format names
+                            // Convert database format key to camelCase for comparison with our filter
+                            const formatCamelCase = formatKey.toLowerCase()
+                                .replace(/[\s-_]+(.)/g, (_, c) => c.toUpperCase())
+                                .replace(/^(.)/, (_, c) => c.toLowerCase());
+                                
+                            if (currentSearch.format && !matchFormat(currentSearch.format, formatKey, formatCamelCase)) continue;
+                            
+                            console.log('Processing format:', formatKey);
+                            
+                            // Check if this is a question container (has numbered keys)
+                            if (isQuestionContainer(formatData)) {
+                                // This format directly contains question numbers
+                                for (const [questionKey, questionData] of Object.entries(formatData)) {
+                                    // Skip non-question keys if they exist
+                                    if (typeof questionData !== 'object' || questionData === null) continue;
+                                    
+                                    // Get the actual question/answer data - adjust for capitalized field names
+                                    const questionText = questionData.Question || questionData.question || '';
+                                    const answerText = questionData.Answer || questionData.answer || '';
+                                    const explanationText = questionData.Explanation || questionData.explanation || '';
+                                    
+                                    // Check if we need to filter by field
+                                    let matches = false;
+                                    
+                                    if (currentSearch.query) {
+                                        if (!currentSearch.field || currentSearch.field === 'question') {
+                                            if (questionText && matchesQuery(questionText, currentSearch.query)) {
+                                                matches = true;
+                                            }
+                                        }
+                                        
+                                        if (!matches && (!currentSearch.field || currentSearch.field === 'answer')) {
+                                            if (answerText && matchesQuery(answerText, currentSearch.query)) {
+                                                matches = true;
+                                            }
+                                        }
+                                        
+                                        if (!matches && (!currentSearch.field || currentSearch.field === 'explanation')) {
+                                            if (explanationText && matchesQuery(explanationText, currentSearch.query)) {
+                                                matches = true;
+                                            }
+                                        }
+                                    } else {
+                                        // No query, so it matches
                                         matches = true;
                                     }
-                                }
-                                
-                                if (!matches && (!currentSearch.field || currentSearch.field === 'answer')) {
-                                    if (roundData.answer && matchesQuery(roundData.answer, currentSearch.query)) {
-                                        matches = true;
-                                    }
-                                }
-                                
-                                if (!matches && (!currentSearch.field || currentSearch.field === 'explanation')) {
-                                    if (roundData.explanation && matchesQuery(roundData.explanation, currentSearch.query)) {
-                                        matches = true;
-                                    }
-                                }
-                            } else {
-                                // No query, so it matches
-                                matches = true;
-                            }
-                            
-                            if (matches) {
-                                results.push({
-                                    triviaNumber: item.triviaNumber,
-                                    round: roundKey,
-                                    format: 'unknown',
-                                    questionNum: '1',
-                                    question: roundData.question || '',
-                                    answer: roundData.answer || '',
-                                    explanation: roundData.explanation || ''
-                                });
-                            }
-                            continue; // Skip to next round
-                        }
-                        
-                        // Process each format inside the round
-                        for (const [format, formatData] of Object.entries(roundData)) {
-                            // Apply format filter
-                            if (currentSearch.format && currentSearch.format !== format) continue;
-                            
-                            // Skip non-format keys if they exist
-                            if (typeof formatData !== 'object') continue;
-                            
-                            console.log('Processing format:', format);
-                            
-                            // Handle if format has direct question/answer (no question number level)
-                            if (formatData.question || formatData.answer) {
-                                let matches = false;
-                                
-                                if (currentSearch.query) {
-                                    if (!currentSearch.field || currentSearch.field === 'question') {
-                                        if (formatData.question && matchesQuery(formatData.question, currentSearch.query)) {
-                                            matches = true;
-                                        }
-                                    }
                                     
-                                    if (!matches && (!currentSearch.field || currentSearch.field === 'answer')) {
-                                        if (formatData.answer && matchesQuery(formatData.answer, currentSearch.query)) {
-                                            matches = true;
+                                    if (matches) {
+                                        results.push({
+                                            triviaNumber: item.triviaNumber,
+                                            round: roundKey,
+                                            format: formatKey,
+                                            questionNum: questionKey,
+                                            question: questionText,
+                                            answer: answerText,
+                                            explanation: explanationText
+                                        });
+                                        
+                                        // Check if we've reached the result limit
+                                        if (currentSearch.results.length + results.length >= 50 && !loadMore) {
+                                            reachedLimit = true;
+                                            break;
                                         }
-                                    }
-                                    
-                                    if (!matches && (!currentSearch.field || currentSearch.field === 'explanation')) {
-                                        if (formatData.explanation && matchesQuery(formatData.explanation, currentSearch.query)) {
-                                            matches = true;
-                                        }
-                                    }
-                                } else {
-                                    // No query, so it matches
-                                    matches = true;
-                                }
-                                
-                                if (matches) {
-                                    results.push({
-                                        triviaNumber: item.triviaNumber,
-                                        round: roundKey,
-                                        format: format,
-                                        questionNum: '1',
-                                        question: formatData.question || '',
-                                        answer: formatData.answer || '',
-                                        explanation: formatData.explanation || ''
-                                    });
-                                }
-                                continue; // Skip to next format
-                            }
-
-                            // Process each question in the format
-                            for (const [questionNum, questionData] of Object.entries(formatData)) {
-                                // Skip non-question keys if they exist
-                                if (typeof questionData !== 'object' && !questionData.question && !questionData.answer) continue;
-                                
-                                // Check if we need to filter by field
-                                let matches = false;
-                                
-                                if (currentSearch.query) {
-                                    if (!currentSearch.field || currentSearch.field === 'question') {
-                                        if (questionData.question && matchesQuery(questionData.question, currentSearch.query)) {
-                                            matches = true;
-                                        }
-                                    }
-                                    
-                                    if (!matches && (!currentSearch.field || currentSearch.field === 'answer')) {
-                                        if (questionData.answer && matchesQuery(questionData.answer, currentSearch.query)) {
-                                            matches = true;
-                                        }
-                                    }
-                                    
-                                    if (!matches && (!currentSearch.field || currentSearch.field === 'explanation')) {
-                                        if (questionData.explanation && matchesQuery(questionData.explanation, currentSearch.query)) {
-                                            matches = true;
-                                        }
-                                    }
-                                } else {
-                                    // No query, so it matches
-                                    matches = true;
-                                }
-                                
-                                if (matches) {
-                                    results.push({
-                                        triviaNumber: item.triviaNumber,
-                                        round: roundKey,
-                                        format: format,
-                                        questionNum: questionNum,
-                                        question: questionData.question || '',
-                                        answer: questionData.answer || '',
-                                        explanation: questionData.explanation || ''
-                                    });
-                                    
-                                    // Check if we've reached the result limit
-                                    if (currentSearch.results.length + results.length >= 50 && !loadMore) {
-                                        reachedLimit = true;
-                                        break;
                                     }
                                 }
                             }
@@ -959,6 +835,38 @@
         loadMoreBtn.addEventListener('click', () => {
             loadQuestions(true);
         });
+        
+        // Check if a node is a container for questions (has numbered keys)
+        function isQuestionContainer(node) {
+            if (typeof node !== 'object' || node === null) return false;
+            
+            // Check if it has at least one numeric key or keys like '1', '2', etc.
+            return Object.keys(node).some(key => {
+                // If it has a "Question" field directly, it's probably a question itself
+                if (node[key] && (node[key].Question || node[key].question)) {
+                    return true;
+                }
+                return !isNaN(key) || /^\d+$/.test(key);
+            });
+        }
+        
+        // Match a format name considering variations
+        function matchFormat(filterFormat, dbFormat, camelFormat) {
+            // Normalize both to lowercase for case-insensitive comparison
+            const filterLower = filterFormat.toLowerCase();
+            const dbLower = dbFormat.toLowerCase();
+            const camelLower = camelFormat.toLowerCase();
+            
+            // Check for direct matches or partial matches
+            if (filterLower === dbLower || filterLower === camelLower) return true;
+            
+            // Special cases for format aliases
+            if (filterLower === 'fillintheblank' && (dbLower === 'fill-in' || dbLower.includes('blank'))) return true;
+            if (filterLower === 'mixedbag' && (dbLower === 'mixed' || dbLower === 'mixed bag')) return true;
+            if (filterLower === 'truefalse' && (dbLower === 'true/false' || dbLower === 'true-false')) return true;
+            
+            return false;
+        }
         
         console.log("Search tool loaded successfully!");
     </script>
