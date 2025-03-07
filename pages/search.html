@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evil Trivia - Search Archive</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #FFCC00;
+            margin-top: 60px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        
+        .search-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .search-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .search-input {
+            flex-grow: 1;
+            min-width: 250px;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        
+        select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            min-width: 150px;
+        }
+        
+        button {
+            background-color: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #333;
+        }
+        
+        .filter-section {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            min-width: 150px;
+        }
+        
+        .filter-group label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        
+        .results-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .results-count {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .results-table th, .results-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .results-table th {
+            background-color: #f5f5f5;
+            color: #333;
+            font-weight: bold;
+        }
+        
+        .results-table tr:hover {
+            background-color: #f9f9f9;
+        }
+        
+        .load-more {
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .question-text {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .no-results {
+            text-align: center;
+            padding: 40px 0;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .auth-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 500px;
+            margin: 40px auto;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .auth-container h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .auth-container p {
+            margin-bottom: 20px;
+            color: #666;
+        }
+        
+        .auth-btn {
+            display: inline-block;
+            background-color: #000;
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Trivia Question Archive Search</h1>
+        
+        <!-- Authentication Required Screen -->
+        <div id="auth-screen" class="auth-container hidden">
+            <h2>Admin Access Required</h2>
+            <p>You need admin privileges to access this page.</p>
+            <a href="/pages/account.html" class="auth-btn">Go to Account Page</a>
+        </div>
+        
+        <!-- Search Interface -->
+        <div id="search-screen" class="hidden">
+            <div class="search-container">
+                <div class="search-row">
+                    <div class="search-input">
+                        <input type="text" id="search-query" placeholder="Search for questions or answers...">
+                    </div>
+                    <button id="search-btn">Search</button>
+                </div>
+                
+                <div class="filter-section">
+                    <div class="filter-group">
+                        <label for="format-filter">Format</label>
+                        <select id="format-filter">
+                            <option value="">All Formats</option>
+                            <option value="mixedBag">Mixed Bag</option>
+                            <option value="connections">Connections</option>
+                            <option value="numeric">Numeric</option>
+                            <option value="sequential">Sequential</option>
+                            <option value="music">Music</option>
+                            <option value="phrasing">Phrasing</option>
+                            <option value="trueFalse">True/False</option>
+                            <option value="fillInTheBlank">Fill in the Blank</option>
+                            <option value="visual">Visual</option>
+                            <option value="final">Final</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="round-filter">Round</label>
+                        <select id="round-filter">
+                            <option value="">All Rounds</option>
+                            <option value="1">Round 1</option>
+                            <option value="2">Round 2</option>
+                            <option value="3">Round 3</option>
+                            <option value="4">Round 4</option>
+                            <option value="5">Round 5</option>
+                            <option value="final">Final</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="field-filter">Field</label>
+                        <select id="field-filter">
+                            <option value="">All Fields</option>
+                            <option value="question">Question</option>
+                            <option value="answer">Answer</option>
+                            <option value="explanation">Explanation</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="sort-filter">Sort By</label>
+                        <select id="sort-filter">
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="relevance">Relevance</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="results-container">
+                <div class="results-header">
+                    <div class="results-count">Showing <span id="results-count">0</span> results</div>
+                    <button id="clear-btn">Clear Results</button>
+                </div>
+                
+                <div id="results-table-container">
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>Trivia #</th>
+                                <th>Round</th>
+                                <th>Format</th>
+                                <th>Question</th>
+                                <th>Answer</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body">
+                            <!-- Results will be populated here -->
+                        </tbody>
+                    </table>
+                    
+                    <div id="no-results" class="no-results hidden">
+                        <p>No matching questions found. Try adjusting your search criteria.</p>
+                    </div>
+                </div>
+                
+                <div class="load-more hidden" id="load-more">
+                    <button id="load-more-btn">Load More Results</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebasestorage.app",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.database();
+        
+        // DOM Elements
+        const authScreen = document.getElementById('auth-screen');
+        const searchScreen = document.getElementById('search-screen');
+        const searchQuery = document.getElementById('search-query');
+        const searchBtn = document.getElementById('search-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const formatFilter = document.getElementById('format-filter');
+        const roundFilter = document.getElementById('round-filter');
+        const fieldFilter = document.getElementById('field-filter');
+        const sortFilter = document.getElementById('sort-filter');
+        const resultsBody = document.getElementById('results-body');
+        const noResults = document.getElementById('no-results');
+        const resultsCount = document.getElementById('results-count');
+        const loadMoreSection = document.getElementById('load-more');
+        const loadMoreBtn = document.getElementById('load-more-btn');
+        
+        // Search state
+        let currentSearch = {
+            query: '',
+            format: '',
+            round: '',
+            field: '',
+            sort: 'newest',
+            lastKey: null,
+            results: [],
+            hasMore: false
+        };
+        
+        // Check if user is admin
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                try {
+                    // Get user data
+                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
+                    const userData = snapshot.val() || {};
+                    
+                    // Check for admin role - in both new roles array and old role field
+                    const isAdmin = 
+                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+                        (userData.role === 'admin');
+                    
+                    if (isAdmin) {
+                        // User is admin, show search interface
+                        authScreen.classList.add('hidden');
+                        searchScreen.classList.remove('hidden');
+                    } else {
+                        // User is not admin
+                        authScreen.classList.remove('hidden');
+                        searchScreen.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error('Error checking user role:', error);
+                    authScreen.classList.remove('hidden');
+                    searchScreen.classList.add('hidden');
+                }
+            } else {
+                // User is not signed in
+                authScreen.classList.remove('hidden');
+                searchScreen.classList.add('hidden');
+            }
+        });
+        
+        // Search function
+        async function searchQuestions() {
+            // Update search state
+            currentSearch.query = searchQuery.value.trim();
+            currentSearch.format = formatFilter.value;
+            currentSearch.round = roundFilter.value;
+            currentSearch.field = fieldFilter.value;
+            currentSearch.sort = sortFilter.value;
+            currentSearch.lastKey = null;
+            currentSearch.results = [];
+            
+            // Clear previous results
+            resultsBody.innerHTML = '';
+            noResults.classList.add('hidden');
+            loadMoreSection.classList.add('hidden');
+            
+            // Perform search
+            await loadQuestions();
+        }
+        
+        // Load questions from Firebase
+        async function loadQuestions(loadMore = false) {
+            try {
+                if (!loadMore) {
+                    // New search, reset results
+                    currentSearch.results = [];
+                    currentSearch.lastKey = null;
+                }
+                
+                // Get reference to trivia-archive
+                const archiveRef = db.ref('trivia-archive/archive');
+                
+                // Start by querying trivia numbers (sort by key in reverse for newest first)
+                let triviaQuery = archiveRef.orderByKey();
+                
+                if (currentSearch.sort === 'newest') {
+                    // For newest first, we start at the end and move backward
+                    if (currentSearch.lastKey) {
+                        triviaQuery = triviaQuery.endAt(currentSearch.lastKey);
+                    }
+                    triviaQuery = triviaQuery.limitToLast(10); // Get 10 trivia sets at a time
+                } else {
+                    // For oldest first, we start at the beginning and move forward
+                    if (currentSearch.lastKey) {
+                        triviaQuery = triviaQuery.startAt(currentSearch.lastKey);
+                    }
+                    triviaQuery = triviaQuery.limitToFirst(10); // Get 10 trivia sets at a time
+                }
+                
+                // Get trivia numbers
+                const triviaSnap = await triviaQuery.once('value');
+                const triviaData = triviaSnap.val();
+                
+                if (!triviaData) {
+                    // No trivia found
+                    if (!loadMore) {
+                        noResults.classList.remove('hidden');
+                        resultsCount.textContent = '0';
+                    }
+                    loadMoreSection.classList.add('hidden');
+                    return;
+                }
+                
+                // Convert to array and sort
+                let triviaItems = Object.entries(triviaData).map(([triviaNumber, data]) => ({
+                    triviaNumber,
+                    data
+                }));
+                
+                // Sort by trivia number (newest first or oldest first)
+                if (currentSearch.sort === 'newest') {
+                    triviaItems.sort((a, b) => b.triviaNumber.localeCompare(a.triviaNumber));
+                } else {
+                    triviaItems.sort((a, b) => a.triviaNumber.localeCompare(b.triviaNumber));
+                }
+                
+                // Process each trivia set
+                const results = [];
+                let processedCount = 0;
+                let reachedLimit = false;
+                
+                for (const item of triviaItems) {
+                    // Skip the first item if loading more (it was the last key from previous batch)
+                    if (loadMore && processedCount === 0 && currentSearch.lastKey === item.triviaNumber) {
+                        processedCount++;
+                        continue;
+                    }
+                    
+                    processedCount++;
+                    
+                    // Process this trivia set
+                    const triviaRef = db.ref(`trivia-archive/archive/${item.triviaNumber}/trivia`);
+                    const triviaSetSnap = await triviaRef.once('value');
+                    const triviaSet = triviaSetSnap.val();
+                    
+                    if (!triviaSet) continue;
+                    
+                    // Process each round
+                    for (const [roundNum, roundData] of Object.entries(triviaSet)) {
+                        // Apply round filter
+                        if (currentSearch.round && currentSearch.round !== roundNum) continue;
+                        
+                        // Process each format
+                        for (const [format, formatData] of Object.entries(roundData)) {
+                            // Apply format filter
+                            if (currentSearch.format && currentSearch.format !== format) continue;
+                            
+                            // Process each question
+                            for (const [questionNum, questionData] of Object.entries(formatData)) {
+                                // Check if we need to filter by field
+                                let matches = false;
+                                
+                                if (currentSearch.query) {
+                                    const query = currentSearch.query.toLowerCase();
+                                    
+                                    if (!currentSearch.field || currentSearch.field === 'question') {
+                                        if (questionData.question && questionData.question.toLowerCase().includes(query)) {
+                                            matches = true;
+                                        }
+                                    }
+                                    
+                                    if (!matches && (!currentSearch.field || currentSearch.field === 'answer')) {
+                                        if (questionData.answer && questionData.answer.toLowerCase().includes(query)) {
+                                            matches = true;
+                                        }
+                                    }
+                                    
+                                    if (!matches && (!currentSearch.field || currentSearch.field === 'explanation')) {
+                                        if (questionData.explanation && questionData.explanation.toLowerCase().includes(query)) {
+                                            matches = true;
+                                        }
+                                    }
+                                } else {
+                                    // No query, so it matches
+                                    matches = true;
+                                }
+                                
+                                if (matches) {
+                                    results.push({
+                                        triviaNumber: item.triviaNumber,
+                                        round: roundNum,
+                                        format: format,
+                                        questionNum: questionNum,
+                                        question: questionData.question || '',
+                                        answer: questionData.answer || '',
+                                        explanation: questionData.explanation || ''
+                                    });
+                                    
+                                    // Check if we've reached the result limit
+                                    if (currentSearch.results.length + results.length >= 50 && !loadMore) {
+                                        reachedLimit = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (reachedLimit) break;
+                        }
+                        
+                        if (reachedLimit) break;
+                    }
+                    
+                    if (reachedLimit) break;
+                    
+                    // Remember the last key for pagination
+                    currentSearch.lastKey = item.triviaNumber;
+                }
+                
+                // Update display
+                displayResults(results, loadMore);
+                
+                // Update paging info
+                currentSearch.hasMore = processedCount > 1 && !reachedLimit;
+                loadMoreSection.classList.toggle('hidden', !currentSearch.hasMore);
+                
+            } catch (error) {
+                console.error('Error searching questions:', error);
+            }
+        }
+        
+        // Display search results
+        function displayResults(results, appendResults = false) {
+            if (!appendResults) {
+                resultsBody.innerHTML = '';
+            }
+            
+            if (!results.length && !currentSearch.results.length) {
+                noResults.classList.remove('hidden');
+                resultsCount.textContent = '0';
+                return;
+            }
+            
+            // Add new results to our state
+            currentSearch.results = [...currentSearch.results, ...results];
+            
+            // Update the display
+            noResults.classList.add('hidden');
+            
+            // Add rows to the table
+            results.forEach(result => {
+                const row = document.createElement('tr');
+                
+                row.innerHTML = `
+                    <td>${result.triviaNumber}</td>
+                    <td>${result.round}</td>
+                    <td>${formatForDisplay(result.format)}</td>
+                    <td class="question-text" title="${escapeHTML(result.question)}">${escapeHTML(result.question)}</td>
+                    <td class="question-text" title="${escapeHTML(result.answer)}">${escapeHTML(result.answer)}</td>
+                `;
+                
+                // Add click event to show full details
+                row.addEventListener('click', () => showQuestionDetails(result));
+                
+                resultsBody.appendChild(row);
+            });
+            
+            // Update count
+            resultsCount.textContent = currentSearch.results.length;
+        }
+        
+        // Helper function to format the format name for display
+        function formatForDisplay(format) {
+            if (!format) return '';
+            
+            // Convert camelCase to Title Case with spaces
+            return format
+                .replace(/([A-Z])/g, ' $1') // Insert space before capital letters
+                .replace(/^./, str => str.toUpperCase()); // Capitalize first letter
+        }
+        
+        // Helper function to escape HTML
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+        
+        // Show question details in a modal
+        function showQuestionDetails(question) {
+            // Create modal element
+            const modal = document.createElement('div');
+            modal.style.position = 'fixed';
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.width = '100%';
+            modal.style.height = '100%';
+            modal.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            modal.style.display = 'flex';
+            modal.style.justifyContent = 'center';
+            modal.style.alignItems = 'center';
+            modal.style.zIndex = '1000';
+            
+            // Create modal content
+            const content = document.createElement('div');
+            content.style.backgroundColor = 'white';
+            content.style.padding = '30px';
+            content.style.borderRadius = '8px';
+            content.style.maxWidth = '800px';
+            content.style.width = '90%';
+            content.style.maxHeight = '80vh';
+            content.style.overflowY = 'auto';
+            
+            // Format content
+            content.innerHTML = `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">Question Details</h2>
+                    <button id="closeModal" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Trivia #:</strong> ${question.triviaNumber}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Round:</strong> ${question.round}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Format:</strong> ${formatForDisplay(question.format)}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Question #:</strong> ${question.questionNum}
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Question:</strong>
+                    <div style="padding: 10px; background-color: #f9f9f9; border-radius: 4px; margin-top: 5px;">${question.question}</div>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong>Answer:</strong>
+                    <div style="padding: 10px; background-color: #f9f9f9; border-radius: 4px; margin-top: 5px;">${question.answer}</div>
+                </div>
+                ${question.explanation ? `
+                <div style="margin-bottom: 15px;">
+                    <strong>Explanation:</strong>
+                    <div style="padding: 10px; background-color: #f9f9f9; border-radius: 4px; margin-top: 5px;">${question.explanation}</div>
+                </div>
+                ` : ''}
+            `;
+            
+            // Add content to modal
+            modal.appendChild(content);
+            
+            // Add close event
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            });
+            
+            // Add modal to body
+            document.body.appendChild(modal);
+            
+            // Set up close button
+            document.getElementById('closeModal').addEventListener('click', () => {
+                document.body.removeChild(modal);
+            });
+        }
+        
+        // Event listeners
+        searchBtn.addEventListener('click', searchQuestions);
+        searchQuery.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchQuestions();
+            }
+        });
+        
+        clearBtn.addEventListener('click', () => {
+            // Clear inputs
+            searchQuery.value = '';
+            formatFilter.value = '';
+            roundFilter.value = '';
+            fieldFilter.value = '';
+            sortFilter.value = 'newest';
+            
+            // Clear results
+            resultsBody.innerHTML = '';
+            noResults.classList.add('hidden');
+            loadMoreSection.classList.add('hidden');
+            resultsCount.textContent = '0';
+            
+            // Reset search state
+            currentSearch = {
+                query: '',
+                format: '',
+                round: '',
+                field: '',
+                sort: 'newest',
+                lastKey: null,
+                results: [],
+                hasMore: false
+            };
+        });
+        
+        loadMoreBtn.addEventListener('click', () => {
+            loadQuestions(true);
+        });
+        
+        // Add the search page to Firebase rewrites
+        console.log("Search page loaded successfully!");
+    </script>
+</body>
+</html> 
