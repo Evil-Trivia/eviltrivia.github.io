@@ -1171,41 +1171,51 @@
             }
             
             const textValue = String(fieldValue).toLowerCase();
+            const queryLower = searchQuery.toLowerCase();
+            
+            // Log for debugging specific search terms we're having trouble with
+            if (textValue.includes('clockwork')) {
+                console.log(`Found field ${fieldName} with value "${textValue}" - checking against "${queryLower}"`);
+            }
+            
+            // For patterns like *text* we want to do a simple substring search first
+            if (searchQuery.startsWith('*') && searchQuery.endsWith('*')) {
+                const innerText = searchQuery.substring(1, searchQuery.length - 1).toLowerCase();
+                if (innerText && textValue.includes(innerText)) {
+                    console.log(`SUCCESS! Substring match: "${innerText}" found in "${textValue}" (field: ${fieldName})`);
+                    return true;
+                }
+            }
             
             // If using regex pattern with wildcards
             if (regexPattern) {
-                // For patterns like *text* we want to do a substring search
-                if (searchQuery.startsWith('*') && searchQuery.endsWith('*')) {
-                    const innerText = searchQuery.substring(1, searchQuery.length - 1).toLowerCase();
-                    if (innerText && textValue.includes(innerText)) {
-                        console.log(`Substring match: ${innerText} found in "${textValue}"`);
-                        return true;
-                    }
-                }
-                
                 // Test with the regex pattern
                 const matches = regexPattern.test(textValue);
                 if (matches) {
-                    console.log(`RegEx match: "${searchQuery}" matches "${textValue}"`);
+                    console.log(`SUCCESS! RegEx match: "${searchQuery}" matches "${textValue}" (field: ${fieldName})`);
+                    return true;
                 }
-                return matches;
             }
             
             // If exact matching is requested (no wildcards used)
             if (useExactMatch) {
                 // Check for exact match of the entire string or for word boundaries
-                const exactMatch = textValue === searchQuery.toLowerCase();
-                const wordMatch = new RegExp(`\\b${searchQuery.toLowerCase()}\\b`).test(textValue);
+                const exactMatch = textValue === queryLower;
+                const wordMatch = new RegExp(`\\b${queryLower}\\b`).test(textValue);
                 
                 if (exactMatch || wordMatch) {
-                    console.log(`Exact match: "${searchQuery}" found in "${textValue}"`);
+                    console.log(`SUCCESS! Exact match: "${searchQuery}" found in "${textValue}" (field: ${fieldName})`);
                     return true;
                 }
-                return false;
+            } else {
+                // Default: Simple substring match for searches without wildcards that don't need to be exact
+                if (textValue.includes(queryLower)) {
+                    console.log(`SUCCESS! Simple substring match: "${queryLower}" found in "${textValue}" (field: ${fieldName})`);
+                    return true;
+                }
             }
             
-            // Default: Simple substring match for searches without wildcards
-            return textValue.includes(searchQuery.toLowerCase());
+            return false;
         };
         
         // Process a single trivia set
@@ -1216,6 +1226,11 @@
                 // First, check if this trivia set has necessary data
                 if (!item.data || !item.data.trivia) {
                     return results;
+                }
+                
+                // Check if we're processing trivia #81 (for debugging)
+                if (item.triviaNumber === '81') {
+                    console.log('Processing trivia #81 - the one with "A Clockwork Orange"');
                 }
                 
                 // Get trivia metadata
@@ -1297,12 +1312,23 @@
                             }
                         }
                         
+                        // Special debugging for formats containing "Written" since that's the format in trivia #81
+                        if (formatKey.includes('Written') && triviaNumber === '81') {
+                            console.log('Found Written format in trivia #81');
+                        }
+                        
                         // Process each question in the format
                         for (const [questionKey, questionData] of Object.entries(formatData)) {
                             // Skip non-object values or non-question keys
                             if (typeof questionData !== 'object' || questionData === null || 
                                 (isNaN(questionKey) && !/^\d+$/.test(questionKey))) {
                                 continue;
+                            }
+                            
+                            // Extra debugging for trivia #81
+                            if (triviaNumber === '81' && questionData.Answer && questionData.Answer.includes('Clockwork')) {
+                                console.log('Found the Clockwork Orange answer in trivia #81');
+                                console.log('Question data:', questionData);
                             }
                             
                             // Check for round name in the question data as a last resort
@@ -1334,6 +1360,11 @@
                             }
                             
                             if (matches) {
+                                // Log when we find a match for trivia #81
+                                if (triviaNumber === '81') {
+                                    console.log('✅ MATCH FOUND for trivia #81:', questionData);
+                                }
+                                
                                 const resultItem = {
                                     triviaNumber: triviaNumber,
                                     triviaName: triviaName,
