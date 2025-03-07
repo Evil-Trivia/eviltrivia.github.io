@@ -160,6 +160,35 @@
             font-style: italic;
         }
         
+        .end-results {
+            text-align: center;
+            padding: 20px 0;
+            color: #666;
+            font-style: italic;
+            border-top: 1px solid #eee;
+            margin-top: 20px;
+        }
+        
+        .image-preview {
+            width: 40px;
+            height: 40px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-right: 5px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+        }
+        
+        .image-preview:hover {
+            border-color: #999;
+        }
+        
+        .image-container {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        
         .auth-container {
             background-color: white;
             border-radius: 8px;
@@ -282,10 +311,13 @@
                         <thead>
                             <tr>
                                 <th>Trivia #</th>
+                                <th>Date</th>
                                 <th>Round</th>
+                                <th>Round Name</th>
                                 <th>Format</th>
                                 <th>Question</th>
                                 <th>Answer</th>
+                                <th>Images</th>
                             </tr>
                         </thead>
                         <tbody id="results-body">
@@ -295,6 +327,10 @@
                     
                     <div id="no-results" class="no-results hidden">
                         <p>No matching questions found. Try adjusting your search criteria.</p>
+                    </div>
+                    
+                    <div id="end-results" class="no-results hidden">
+                        <p>End of results. No more questions to display.</p>
                     </div>
                 </div>
                 
@@ -340,6 +376,7 @@
         const sortFilter = document.getElementById('sort-filter');
         const resultsBody = document.getElementById('results-body');
         const noResults = document.getElementById('no-results');
+        const endResults = document.getElementById('end-results');
         const resultsCount = document.getElementById('results-count');
         const loadMoreSection = document.getElementById('load-more');
         const loadMoreBtn = document.getElementById('load-more-btn');
@@ -353,7 +390,8 @@
             sort: 'newest',
             lastKey: null,
             results: [],
-            hasMore: false
+            hasMore: false,
+            endReached: false
         };
 
         // Store metadata about the database
@@ -571,6 +609,14 @@
                     // New search, reset results
                     currentSearch.results = [];
                     currentSearch.lastKey = null;
+                    currentSearch.endReached = false;
+                    endResults.classList.add('hidden');
+                }
+                
+                // Don't try to load more if we've already reached the end
+                if (currentSearch.endReached) {
+                    console.log('Already reached end of results');
+                    return;
                 }
                 
                 // Log for debugging
@@ -582,193 +628,270 @@
                     sort: currentSearch.sort
                 });
                 
-                // Get reference to trivia-archive
-                const archiveRef = db.ref('trivia-archive/archive');
+                // Track if we need to load more batches to reach 50 results
+                let continueLoading = true;
+                let batchesLoaded = 0;
+                const maxBatches = 10; // Prevent infinite loading
+                let allResults = [];
                 
-                // Start by querying trivia numbers (sort by key in reverse for newest first)
-                let triviaQuery = archiveRef.orderByKey();
-                
-                if (currentSearch.sort === 'newest') {
-                    // For newest first, we start at the end and move backward
-                    if (currentSearch.lastKey) {
-                        triviaQuery = triviaQuery.endAt(currentSearch.lastKey);
-                    }
-                    triviaQuery = triviaQuery.limitToLast(5); // Fewer sets for faster searching
-                } else {
-                    // For oldest first, we start at the beginning and move forward
-                    if (currentSearch.lastKey) {
-                        triviaQuery = triviaQuery.startAt(currentSearch.lastKey);
-                    }
-                    triviaQuery = triviaQuery.limitToFirst(5); // Fewer sets for faster searching
-                }
-                
-                // Get trivia numbers
-                const triviaSnap = await triviaQuery.once('value');
-                const triviaData = triviaSnap.val();
-                
-                if (!triviaData) {
-                    // No trivia found
-                    console.log('No trivia data found');
-                    if (!loadMore) {
-                        noResults.classList.remove('hidden');
-                        resultsCount.textContent = '0';
-                    }
-                    loadMoreSection.classList.add('hidden');
-                    return;
-                }
-                
-                // Convert to array and sort
-                let triviaItems = Object.entries(triviaData).map(([triviaNumber, data]) => ({
-                    triviaNumber,
-                    data
-                }));
-                
-                // Sort by trivia number (newest first or oldest first)
-                if (currentSearch.sort === 'newest') {
-                    triviaItems.sort((a, b) => b.triviaNumber.localeCompare(a.triviaNumber));
-                } else {
-                    triviaItems.sort((a, b) => a.triviaNumber.localeCompare(b.triviaNumber));
-                }
-                
-                console.log('Processing trivia items:', triviaItems.length);
-                
-                // Process each trivia set
-                const results = [];
-                let processedCount = 0;
-                let reachedLimit = false;
-                
-                for (const item of triviaItems) {
-                    // Skip the first item if loading more (it was the last key from previous batch)
-                    if (loadMore && processedCount === 0 && currentSearch.lastKey === item.triviaNumber) {
-                        processedCount++;
-                        continue;
-                    }
+                // Keep loading batches until we have 50 results or exhaust data
+                while (continueLoading && batchesLoaded < maxBatches) {
+                    batchesLoaded++;
+                    const batchResults = await loadQuestionBatch(loadMore || batchesLoaded > 1);
                     
-                    processedCount++;
-                    console.log('Processing trivia #:', item.triviaNumber);
-                    
-                    // First, check if this trivia set has a "trivia" node
-                    const triviaRef = db.ref(`trivia-archive/archive/${item.triviaNumber}`);
-                    const triviaSnap = await triviaRef.once('value');
-                    const triviaData = triviaSnap.val();
-                    
-                    if (!triviaData) {
-                        console.log('No data for trivia #:', item.triviaNumber);
-                        continue;
-                    }
-
-                    // Check if the trivia data has a "trivia" subnode
-                    const triviaNode = triviaData.trivia || null;
-                    if (!triviaNode) {
-                        console.log('No trivia node found for trivia #:', item.triviaNumber);
-                        continue;
-                    }
-
-                    console.log('Found trivia node with rounds:', Object.keys(triviaNode));
-                    
-                    // Get trivia metadata
-                    const triviaNumber = item.triviaNumber;
-                    const triviaName = triviaData.name || '';
-                    
-                    // Process each round in the trivia set
-                    for (const [roundKey, roundData] of Object.entries(triviaNode)) {
-                        // Skip non-object values
-                        if (typeof roundData !== 'object' || roundData === null) continue;
+                    if (batchResults.length === 0) {
+                        // No more results found
+                        console.log('No more results found after batch', batchesLoaded);
+                        currentSearch.endReached = true;
+                        continueLoading = false;
+                    } else {
+                        allResults = [...allResults, ...batchResults];
                         
-                        // Apply round filter
-                        if (currentSearch.round && currentSearch.round !== roundKey) continue;
-                        
-                        console.log('Processing round:', roundKey, 'with formats:', Object.keys(roundData));
-                        
-                        // Process each format in the round
-                        for (const [formatKey, formatData] of Object.entries(roundData)) {
-                            // Skip non-object values
-                            if (typeof formatData !== 'object' || formatData === null) continue;
-                            
-                            // Apply format filter
-                            if (currentSearch.format && currentSearch.format !== formatKey) continue;
-                            
-                            console.log('Processing format:', formatKey, 'with questions:', Object.keys(formatData).length);
-                            
-                            // Process each question in the format
-                            for (const [questionKey, questionData] of Object.entries(formatData)) {
-                                // Skip non-object values
-                                if (typeof questionData !== 'object' || questionData === null) continue;
-                                
-                                // Skip non-numeric question keys (other metadata)
-                                if (isNaN(questionKey) && !/^\d+$/.test(questionKey)) continue;
-                                
-                                // Check if this question matches our search criteria
-                                let matches = false;
-                                
-                                if (currentSearch.query) {
-                                    // If searching for a specific field
-                                    if (currentSearch.field) {
-                                        // Check if the question has the field we're looking for
-                                        const fieldValue = questionData[currentSearch.field];
-                                        if (fieldValue && matchesQuery(fieldValue, currentSearch.query)) {
-                                            matches = true;
-                                        }
-                                    } else {
-                                        // Search in all fields
-                                        for (const [fieldName, fieldValue] of Object.entries(questionData)) {
-                                            // Skip empty values or non-string/number values
-                                            if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) continue;
-                                            
-                                            if (matchesQuery(fieldValue, currentSearch.query)) {
-                                                matches = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // No query, so it matches if it passes the round/format filters
-                                    matches = true;
-                                }
-                                
-                                if (matches) {
-                                    const resultItem = {
-                                        triviaNumber: triviaNumber,
-                                        triviaName: triviaName,
-                                        round: roundKey,
-                                        format: formatKey,
-                                        questionNum: questionKey,
-                                        questionData: questionData
-                                    };
-                                    
-                                    results.push(resultItem);
-                                    
-                                    // Check if we've reached the result limit
-                                    if (currentSearch.results.length + results.length >= 50 && !loadMore) {
-                                        reachedLimit = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            if (reachedLimit) break;
+                        // Check if we have enough results or hit the last batch
+                        if (currentSearch.results.length + allResults.length >= 50 || !currentSearch.hasMore) {
+                            console.log('Reached sufficient results or end of data');
+                            continueLoading = false;
                         }
-                        
-                        if (reachedLimit) break;
                     }
-                    
-                    if (reachedLimit) break;
-                    
-                    // Remember the last key for pagination
-                    currentSearch.lastKey = item.triviaNumber;
                 }
                 
-                console.log('Search complete, found results:', results.length);
+                console.log('Search complete, found total results:', allResults.length);
                 
                 // Update display
-                displayResults(results, loadMore);
+                displayResults(allResults, loadMore);
                 
-                // Update paging info
-                currentSearch.hasMore = processedCount > 1 && !reachedLimit;
-                loadMoreSection.classList.toggle('hidden', !currentSearch.hasMore);
+                // Show end of results message if appropriate
+                if (currentSearch.endReached) {
+                    endResults.classList.remove('hidden');
+                    loadMoreSection.classList.add('hidden');
+                } else {
+                    endResults.classList.add('hidden');
+                    loadMoreSection.classList.toggle('hidden', !currentSearch.hasMore);
+                }
                 
             } catch (error) {
                 console.error('Error searching questions:', error);
+            }
+        }
+        
+        // Load a batch of questions from Firebase
+        async function loadQuestionBatch(loadMore = false) {
+            // Get reference to trivia-archive
+            const archiveRef = db.ref('trivia-archive/archive');
+            
+            // Start by querying trivia numbers (sort by key in reverse for newest first)
+            let triviaQuery = archiveRef.orderByKey();
+            
+            if (currentSearch.sort === 'newest') {
+                // For newest first, we start at the end and move backward
+                if (loadMore && currentSearch.lastKey) {
+                    triviaQuery = triviaQuery.endAt(currentSearch.lastKey);
+                }
+                triviaQuery = triviaQuery.limitToLast(10); // Get more trivia sets at a time
+            } else {
+                // For oldest first, we start at the beginning and move forward
+                if (loadMore && currentSearch.lastKey) {
+                    triviaQuery = triviaQuery.startAt(currentSearch.lastKey);
+                }
+                triviaQuery = triviaQuery.limitToFirst(10); // Get more trivia sets at a time
+            }
+            
+            // Get trivia numbers
+            const triviaSnap = await triviaQuery.once('value');
+            const triviaData = triviaSnap.val();
+            
+            if (!triviaData) {
+                // No trivia found
+                console.log('No trivia data found');
+                if (!loadMore) {
+                    noResults.classList.remove('hidden');
+                    resultsCount.textContent = '0';
+                }
+                loadMoreSection.classList.add('hidden');
+                return [];
+            }
+            
+            // Convert to array and sort
+            let triviaItems = Object.entries(triviaData).map(([triviaNumber, data]) => ({
+                triviaNumber,
+                data
+            }));
+            
+            // Sort by trivia number (newest first or oldest first)
+            if (currentSearch.sort === 'newest') {
+                triviaItems.sort((a, b) => b.triviaNumber.localeCompare(a.triviaNumber));
+            } else {
+                triviaItems.sort((a, b) => a.triviaNumber.localeCompare(b.triviaNumber));
+            }
+            
+            console.log('Processing trivia items:', triviaItems.length);
+            
+            // Process each trivia set
+            const results = [];
+            let processedCount = 0;
+            let reachedLimit = false;
+            
+            for (const item of triviaItems) {
+                // Skip the first item if loading more (it was the last key from previous batch)
+                if (loadMore && processedCount === 0 && currentSearch.lastKey === item.triviaNumber) {
+                    processedCount++;
+                    continue;
+                }
+                
+                processedCount++;
+                console.log('Processing trivia #:', item.triviaNumber);
+                
+                // First, check if this trivia set has a "trivia" node
+                const triviaRef = db.ref(`trivia-archive/archive/${item.triviaNumber}`);
+                const triviaSnap = await triviaRef.once('value');
+                const triviaData = triviaSnap.val();
+                
+                if (!triviaData) {
+                    console.log('No data for trivia #:', item.triviaNumber);
+                    continue;
+                }
+
+                // Check if the trivia data has a "trivia" subnode
+                const triviaNode = triviaData.trivia || null;
+                if (!triviaNode) {
+                    console.log('No trivia node found for trivia #:', item.triviaNumber);
+                    continue;
+                }
+
+                console.log('Found trivia node with rounds:', Object.keys(triviaNode));
+                
+                // Get trivia metadata
+                const triviaNumber = item.triviaNumber;
+                const triviaName = triviaData.name || '';
+                const triviaDate = triviaData.date || '';
+                
+                // Process each round in the trivia set
+                for (const [roundKey, roundData] of Object.entries(triviaNode)) {
+                    // Skip non-object values
+                    if (typeof roundData !== 'object' || roundData === null) continue;
+                    
+                    // Apply round filter
+                    if (currentSearch.round && currentSearch.round !== roundKey) continue;
+                    
+                    console.log('Processing round:', roundKey, 'with formats:', Object.keys(roundData));
+                    
+                    // Get round metadata
+                    const roundName = getRoundName(triviaNode, roundKey);
+                    
+                    // Process each format in the round
+                    for (const [formatKey, formatData] of Object.entries(roundData)) {
+                        // Skip non-object values
+                        if (typeof formatData !== 'object' || formatData === null) continue;
+                        
+                        // Apply format filter
+                        if (currentSearch.format && currentSearch.format !== formatKey) continue;
+                        
+                        console.log('Processing format:', formatKey, 'with questions:', Object.keys(formatData).length);
+                        
+                        // Process each question in the format
+                        for (const [questionKey, questionData] of Object.entries(formatData)) {
+                            // Skip non-object values
+                            if (typeof questionData !== 'object' || questionData === null) continue;
+                            
+                            // Skip non-numeric question keys (other metadata)
+                            if (isNaN(questionKey) && !/^\d+$/.test(questionKey)) continue;
+                            
+                            // Check if this question matches our search criteria
+                            let matches = false;
+                            
+                            if (currentSearch.query) {
+                                // If searching for a specific field
+                                if (currentSearch.field) {
+                                    // Check if the question has the field we're looking for
+                                    const fieldValue = questionData[currentSearch.field];
+                                    if (fieldValue && matchesQuery(fieldValue, currentSearch.query)) {
+                                        matches = true;
+                                    }
+                                } else {
+                                    // Search in all fields
+                                    for (const [fieldName, fieldValue] of Object.entries(questionData)) {
+                                        // Skip empty values or non-string/number values
+                                        if (!fieldValue || (typeof fieldValue !== 'string' && typeof fieldValue !== 'number')) continue;
+                                        
+                                        if (matchesQuery(fieldValue, currentSearch.query)) {
+                                            matches = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No query, so it matches if it passes the round/format filters
+                                matches = true;
+                            }
+                            
+                            if (matches) {
+                                const resultItem = {
+                                    triviaNumber: triviaNumber,
+                                    triviaName: triviaName,
+                                    triviaDate: triviaDate,
+                                    round: roundKey,
+                                    roundName: roundName,
+                                    format: formatKey,
+                                    questionNum: questionKey,
+                                    questionData: questionData
+                                };
+                                
+                                results.push(resultItem);
+                            }
+                        }
+                    }
+                }
+                
+                // Remember the last key for pagination only if we processed this trivia
+                if (processedCount > 1) {
+                    currentSearch.lastKey = item.triviaNumber;
+                }
+            }
+            
+            // Update paging info - we have more if we found at least one item and processed more than 1
+            currentSearch.hasMore = results.length > 0 && processedCount > 1;
+            
+            return results;
+        }
+        
+        // Helper function to get a round name from trivia data
+        function getRoundName(triviaNode, roundKey) {
+            try {
+                // Try to find round name in different possible locations
+                if (triviaNode[roundKey] && triviaNode[roundKey]['Round Name']) {
+                    return triviaNode[roundKey]['Round Name'];
+                }
+                
+                if (triviaNode[roundKey] && typeof triviaNode[roundKey] === 'object') {
+                    // Look through formats for round name
+                    for (const formatKey of Object.keys(triviaNode[roundKey])) {
+                        const format = triviaNode[roundKey][formatKey];
+                        if (format && format['Round Name']) {
+                            return format['Round Name'];
+                        }
+                        
+                        // Look through questions for round name
+                        if (format && typeof format === 'object') {
+                            for (const qKey of Object.keys(format)) {
+                                const q = format[qKey];
+                                if (q && q['Round Name']) {
+                                    return q['Round Name'];
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // If round is 'final', return "Final Round"
+                if (roundKey.toLowerCase().includes('final')) {
+                    return "Final Round";
+                }
+                
+                // Default to formatted round number
+                return `Round ${roundKey}`;
+            } catch (e) {
+                console.error('Error getting round name:', e);
+                return `Round ${roundKey}`;
             }
         }
         
@@ -794,16 +917,29 @@
             results.forEach(result => {
                 const row = document.createElement('tr');
                 
-                // Get the question and answer text from the question data
+                // Get the data from the question data
                 const question = result.questionData.Question || result.questionData.question || '';
                 const answer = result.questionData.Answer || result.questionData.answer || '';
                 
+                // Format the date nicely if available
+                const dateStr = formatDate(result.triviaDate);
+                
+                // Get image links if available
+                const imageLink = result.questionData['Image Link'] || result.questionData['image_link'] || '';
+                const answerImageLink = result.questionData['Answer Image Link'] || result.questionData['answer_image_link'] || '';
+                
+                // Create image previews if available
+                const imagePreviewsHtml = createImagePreviewsHtml(imageLink, answerImageLink);
+                
                 row.innerHTML = `
                     <td>${result.triviaNumber}</td>
+                    <td>${escapeHTML(dateStr)}</td>
                     <td>${result.round}</td>
+                    <td>${escapeHTML(result.roundName || '')}</td>
                     <td>${result.format}</td>
                     <td class="question-text" title="${escapeHTML(question)}">${escapeHTML(question)}</td>
                     <td class="question-text" title="${escapeHTML(answer)}">${escapeHTML(answer)}</td>
+                    <td>${imagePreviewsHtml}</td>
                 `;
                 
                 // Add click event to show full details
@@ -814,6 +950,55 @@
             
             // Update count
             resultsCount.textContent = currentSearch.results.length;
+        }
+        
+        // Format date string
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            
+            try {
+                // Try to parse and format the date
+                // Handle different formats: YYYYMMDD, MM/DD/YYYY, etc.
+                let date;
+                
+                if (/^\d{8}$/.test(dateStr)) {
+                    // Format YYYYMMDD
+                    const year = dateStr.substring(0, 4);
+                    const month = dateStr.substring(4, 6);
+                    const day = dateStr.substring(6, 8);
+                    date = new Date(`${year}-${month}-${day}`);
+                } else {
+                    // Try standard date parsing
+                    date = new Date(dateStr);
+                }
+                
+                // Check if date is valid
+                if (isNaN(date.getTime())) {
+                    return dateStr; // Return original if parsing failed
+                }
+                
+                // Format as MM/DD/YYYY
+                return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+            } catch (e) {
+                console.error('Error formatting date:', e);
+                return dateStr; // Return original on error
+            }
+        }
+        
+        // Create HTML for image previews
+        function createImagePreviewsHtml(imageLink, answerImageLink) {
+            let html = '<div class="image-container">';
+            
+            if (imageLink && isUrl(imageLink)) {
+                html += `<img src="${escapeHTML(imageLink)}" alt="Question Image" class="image-preview" title="Question Image" data-full-url="${escapeHTML(imageLink)}">`;
+            }
+            
+            if (answerImageLink && isUrl(answerImageLink)) {
+                html += `<img src="${escapeHTML(answerImageLink)}" alt="Answer Image" class="image-preview" title="Answer Image" data-full-url="${escapeHTML(answerImageLink)}">`;
+            }
+            
+            html += '</div>';
+            return html;
         }
         
         // Show question details in a modal
@@ -1008,6 +1193,7 @@
             // Clear results
             resultsBody.innerHTML = '';
             noResults.classList.add('hidden');
+            endResults.classList.add('hidden');
             loadMoreSection.classList.add('hidden');
             resultsCount.textContent = '0';
             
@@ -1020,13 +1206,98 @@
                 sort: 'newest',
                 lastKey: null,
                 results: [],
-                hasMore: false
+                hasMore: false,
+                endReached: false
             };
         });
         
         loadMoreBtn.addEventListener('click', () => {
             loadQuestions(true);
         });
+        
+        // Event delegation for image previews
+        document.addEventListener('click', (e) => {
+            if (e.target && e.target.classList.contains('image-preview')) {
+                e.stopPropagation(); // Don't open the question details modal
+                const fullUrl = e.target.getAttribute('data-full-url');
+                if (fullUrl) {
+                    openImageModal(fullUrl, e.target.getAttribute('title') || 'Image');
+                }
+            }
+        });
+        
+        // Open a full-size image in a modal
+        function openImageModal(imageUrl, title) {
+            // Create modal element
+            const modal = document.createElement('div');
+            modal.style.position = 'fixed';
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.width = '100%';
+            modal.style.height = '100%';
+            modal.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+            modal.style.display = 'flex';
+            modal.style.justifyContent = 'center';
+            modal.style.alignItems = 'center';
+            modal.style.zIndex = '2000';
+            
+            // Create image container
+            const container = document.createElement('div');
+            container.style.position = 'relative';
+            container.style.maxWidth = '90%';
+            container.style.maxHeight = '90%';
+            
+            // Create title
+            const titleElement = document.createElement('div');
+            titleElement.textContent = title;
+            titleElement.style.color = 'white';
+            titleElement.style.position = 'absolute';
+            titleElement.style.top = '-40px';
+            titleElement.style.left = '0';
+            titleElement.style.fontSize = '20px';
+            titleElement.style.fontWeight = 'bold';
+            
+            // Create close button
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = '×';
+            closeBtn.style.position = 'absolute';
+            closeBtn.style.top = '-40px';
+            closeBtn.style.right = '0';
+            closeBtn.style.backgroundColor = 'transparent';
+            closeBtn.style.border = 'none';
+            closeBtn.style.color = 'white';
+            closeBtn.style.fontSize = '30px';
+            closeBtn.style.cursor = 'pointer';
+            closeBtn.addEventListener('click', () => {
+                document.body.removeChild(modal);
+            });
+            
+            // Create image
+            const img = document.createElement('img');
+            img.src = imageUrl;
+            img.style.maxWidth = '100%';
+            img.style.maxHeight = '80vh';
+            img.style.objectFit = 'contain';
+            img.style.border = '2px solid white';
+            
+            // Add elements to container
+            container.appendChild(titleElement);
+            container.appendChild(closeBtn);
+            container.appendChild(img);
+            
+            // Add container to modal
+            modal.appendChild(container);
+            
+            // Add close on click outside
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            });
+            
+            // Add to document
+            document.body.appendChild(modal);
+        }
         
         console.log("Search tool loaded successfully!");
     </script>
