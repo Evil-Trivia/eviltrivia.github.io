@@ -128,12 +128,16 @@
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid #eee;
+            vertical-align: top;
         }
         
         .results-table th {
             background-color: #f5f5f5;
             color: #333;
             font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
         
         .results-table tr:hover {
@@ -148,9 +152,93 @@
         
         .question-text {
             max-width: 300px;
+            min-height: 40px;
+            max-height: 80px;
+            overflow-y: auto;
+            white-space: normal;
+            line-height: 1.4;
+        }
+        
+        .iframe-container {
+            width: 120px;
+            height: 80px;
             overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            position: relative;
+        }
+        
+        .iframe-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        .image-preview {
+            width: 120px;
+            height: 80px;
+            object-fit: contain;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+        
+        .image-preview:hover {
+            border-color: #999;
+        }
+        
+        .filter-toggle {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .filter-group-label {
+            font-weight: bold;
+            width: 100%;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        
+        .filter-button {
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+        }
+        
+        .filter-button.active {
+            background-color: #000;
+            color: white;
+        }
+        
+        .filter-button:hover {
+            background-color: #333;
+            color: white;
+        }
+        
+        .only-button {
+            background-color: #888;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 2px 5px;
+            margin-left: 5px;
+            font-size: 11px;
+            cursor: pointer;
+            opacity: 0.7;
+        }
+        
+        .only-button:hover {
+            opacity: 1;
         }
         
         .no-results {
@@ -167,20 +255,6 @@
             font-style: italic;
             border-top: 1px solid #eee;
             margin-top: 20px;
-        }
-        
-        .image-preview {
-            width: 40px;
-            height: 40px;
-            object-fit: cover;
-            border-radius: 4px;
-            margin-right: 5px;
-            cursor: pointer;
-            border: 1px solid #ddd;
-        }
-        
-        .image-preview:hover {
-            border-color: #999;
         }
         
         .image-container {
@@ -262,31 +336,24 @@
                 
                 <div class="filter-section">
                     <div class="filter-group">
-                        <label for="format-filter">Format</label>
-                        <select id="format-filter">
-                            <option value="">All Formats</option>
-                            <!-- Formats will be populated dynamically -->
-                        </select>
+                        <div class="filter-group-label">Format</div>
+                        <div id="format-toggle" class="filter-toggle">
+                            <!-- Format toggles will be populated dynamically -->
+                        </div>
                     </div>
                     
                     <div class="filter-group">
-                        <label for="round-filter">Round</label>
-                        <select id="round-filter">
-                            <option value="">All Rounds</option>
-                            <!-- Rounds will be populated dynamically -->
-                        </select>
+                        <div class="filter-group-label">Round</div>
+                        <div id="round-toggle" class="filter-toggle">
+                            <!-- Round toggles will be populated dynamically -->
+                        </div>
                     </div>
                     
                     <div class="filter-group">
-                        <label for="field-filter">Field</label>
-                        <select id="field-filter">
-                            <option value="">All Fields</option>
-                            <option value="Question">Question</option>
-                            <option value="Answer">Answer</option>
-                            <option value="Hidden Structure_Theme">Hidden Theme</option>
-                            <option value="Round Name">Round Name</option>
-                            <option value="Round Instruction">Round Instruction</option>
-                        </select>
+                        <div class="filter-group-label">Field</div>
+                        <div id="field-toggle" class="filter-toggle">
+                            <!-- Field toggles will be populated dynamically -->
+                        </div>
                     </div>
                     
                     <div class="filter-group">
@@ -317,7 +384,8 @@
                                 <th>Format</th>
                                 <th>Question</th>
                                 <th>Answer</th>
-                                <th>Images</th>
+                                <th>Question Image</th>
+                                <th>Answer Image</th>
                             </tr>
                         </thead>
                         <tbody id="results-body">
@@ -370,9 +438,9 @@
         const searchQuery = document.getElementById('search-query');
         const searchBtn = document.getElementById('search-btn');
         const clearBtn = document.getElementById('clear-btn');
-        const formatFilter = document.getElementById('format-filter');
-        const roundFilter = document.getElementById('round-filter');
-        const fieldFilter = document.getElementById('field-filter');
+        const formatToggle = document.getElementById('format-toggle');
+        const roundToggle = document.getElementById('round-toggle');
+        const fieldToggle = document.getElementById('field-toggle');
         const sortFilter = document.getElementById('sort-filter');
         const resultsBody = document.getElementById('results-body');
         const noResults = document.getElementById('no-results');
@@ -473,30 +541,49 @@
                     return a.localeCompare(b);
                 });
                 
-            roundFilter.innerHTML = '<option value="">All Rounds</option>';
+            roundToggle.innerHTML = '';
+            // Add "All Rounds" button first
+            const allRoundsBtn = document.createElement('button');
+            allRoundsBtn.className = 'filter-button active';
+            allRoundsBtn.textContent = 'All Rounds';
+            allRoundsBtn.dataset.value = '';
+            allRoundsBtn.addEventListener('click', () => toggleFilter(allRoundsBtn, 'round'));
+            roundToggle.appendChild(allRoundsBtn);
+            
             for (const round of roundOptions) {
-                const option = document.createElement('option');
-                option.value = round;
-                option.textContent = round.startsWith('final') ? 'Final' : `Round ${round}`;
-                roundFilter.appendChild(option);
+                const displayName = round.startsWith('final') ? 'Final' : `Round ${round}`;
+                createFilterButton(roundToggle, round, displayName, 'round');
             }
             
             // Populate format filter
             const formatOptions = Array.from(dbMetadata.formats).sort();
-            formatFilter.innerHTML = '<option value="">All Formats</option>';
+            formatToggle.innerHTML = '';
+            
+            // Add "All Formats" button first
+            const allFormatsBtn = document.createElement('button');
+            allFormatsBtn.className = 'filter-button active';
+            allFormatsBtn.textContent = 'All Formats';
+            allFormatsBtn.dataset.value = '';
+            allFormatsBtn.addEventListener('click', () => toggleFilter(allFormatsBtn, 'format'));
+            formatToggle.appendChild(allFormatsBtn);
+            
             for (const format of formatOptions) {
-                const option = document.createElement('option');
-                option.value = format;
-                option.textContent = format;
-                formatFilter.appendChild(option);
+                createFilterButton(formatToggle, format, format, 'format');
             }
             
             // Populate field filter with common fields
-            // We'll keep this manual to ensure consistent naming and order
-            fieldFilter.innerHTML = '<option value="">All Fields</option>';
-            const commonFields = ['Question', 'Answer', 'Hidden Structure_Theme', 'Round Name', 'Round Instruction'];
+            fieldToggle.innerHTML = '';
             
-            // Add other fields from metadata
+            // Add "All Fields" button first
+            const allFieldsBtn = document.createElement('button');
+            allFieldsBtn.className = 'filter-button active';
+            allFieldsBtn.textContent = 'All Fields';
+            allFieldsBtn.dataset.value = '';
+            allFieldsBtn.addEventListener('click', () => toggleFilter(allFieldsBtn, 'field'));
+            fieldToggle.appendChild(allFieldsBtn);
+            
+            // Combine common fields with database fields
+            const commonFields = ['Question', 'Answer', 'Hidden Structure_Theme', 'Round Name', 'Round Instruction'];
             const allFields = new Set([...commonFields, ...dbMetadata.fields]);
             const fieldOptions = Array.from(allFields).sort();
             
@@ -504,91 +591,105 @@
                 // Skip internal fields or fields with no valuable search content
                 if (field === 'uid' || field === 'id' || field === 'createdAt' || field === 'updatedAt') continue;
                 
-                const option = document.createElement('option');
-                option.value = field;
-                option.textContent = field.replace(/_/g, ' ');
-                fieldFilter.appendChild(option);
+                createFilterButton(fieldToggle, field, field.replace(/_/g, ' '), 'field');
+            }
+        }
+        
+        // Helper function to create filter buttons with "only" option
+        function createFilterButton(container, value, displayText, filterType) {
+            const buttonWrapper = document.createElement('div');
+            buttonWrapper.style.display = 'inline-flex';
+            buttonWrapper.style.alignItems = 'center';
+            buttonWrapper.style.margin = '2px';
+            
+            const button = document.createElement('button');
+            button.className = 'filter-button';
+            button.textContent = displayText;
+            button.dataset.value = value;
+            button.addEventListener('click', () => toggleFilter(button, filterType));
+            
+            const onlyBtn = document.createElement('button');
+            onlyBtn.className = 'only-button';
+            onlyBtn.textContent = 'only';
+            onlyBtn.title = `Show only ${displayText}`;
+            onlyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setOnlyFilter(button, filterType);
+            });
+            
+            buttonWrapper.appendChild(button);
+            buttonWrapper.appendChild(onlyBtn);
+            container.appendChild(buttonWrapper);
+        }
+        
+        // Toggle a filter button on/off
+        function toggleFilter(button, filterType) {
+            // Toggle active state
+            button.classList.toggle('active');
+            
+            // Update currentSearch based on active filters
+            updateSearchFilters(filterType);
+        }
+        
+        // Set a filter to "only" this value
+        function setOnlyFilter(button, filterType) {
+            // Deactivate all buttons in this filter group
+            const container = button.closest('.filter-toggle');
+            const allButtons = container.querySelectorAll('.filter-button');
+            allButtons.forEach(btn => btn.classList.remove('active'));
+            
+            // Activate only this button
+            button.classList.add('active');
+            
+            // Update currentSearch
+            updateSearchFilters(filterType);
+        }
+        
+        // Update search filters based on active buttons
+        function updateSearchFilters(filterType) {
+            if (filterType === 'format') {
+                // Get all active format buttons
+                const activeButtons = formatToggle.querySelectorAll('.filter-button.active');
+                const formats = Array.from(activeButtons).map(btn => btn.dataset.value);
+                
+                // If "All Formats" is selected or no format is selected, use empty string
+                if (formats.includes('') || formats.length === 0) {
+                    currentSearch.format = '';
+                } else {
+                    // For now, just use the first active format (we'll expand this later)
+                    currentSearch.format = formats[0];
+                }
+            } else if (filterType === 'round') {
+                // Get all active round buttons
+                const activeButtons = roundToggle.querySelectorAll('.filter-button.active');
+                const rounds = Array.from(activeButtons).map(btn => btn.dataset.value);
+                
+                // If "All Rounds" is selected or no round is selected, use empty string
+                if (rounds.includes('') || rounds.length === 0) {
+                    currentSearch.round = '';
+                } else {
+                    // For now, just use the first active round (we'll expand this later)
+                    currentSearch.round = rounds[0];
+                }
+            } else if (filterType === 'field') {
+                // Get all active field buttons
+                const activeButtons = fieldToggle.querySelectorAll('.filter-button.active');
+                const fields = Array.from(activeButtons).map(btn => btn.dataset.value);
+                
+                // If "All Fields" is selected or no field is selected, use empty string
+                if (fields.includes('') || fields.length === 0) {
+                    currentSearch.field = '';
+                } else {
+                    // For now, just use the first active field (we'll expand this later)
+                    currentSearch.field = fields[0];
+                }
             }
         }
 
-        // Convert wildcards to regex pattern
-        function wildcardToRegExp(s) {
-            if (!s || !s.includes('*') && !s.includes('?')) {
-                return null; // Return null if there are no wildcards
-            }
-            
-            // Escape special regex chars except * and ?
-            let pattern = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-            
-            // Convert * and ? to their regex equivalents
-            pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
-            
-            // Return RegExp object with case-insensitive flag
-            return new RegExp('^' + pattern + '$', 'i');
-        }
-        
-        // Test if a string matches a query (either contains or matches wildcard)
-        function matchesQuery(text, query) {
-            if (!text || !query) return false;
-            
-            // Ensure we're working with strings
-            const textStr = String(text);
-            const queryStr = String(query);
-            
-            // Check if query has wildcards
-            const regexPattern = wildcardToRegExp(queryStr);
-            
-            if (regexPattern) {
-                // Split into words and test each word
-                return textStr.toLowerCase().split(/\s+/).some(word => regexPattern.test(word));
-            } else {
-                // Normal contains check (case insensitive)
-                return textStr.toLowerCase().includes(queryStr.toLowerCase());
-            }
-        }
-        
-        // Check if user is admin
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                try {
-                    // Get user data
-                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
-                    const userData = snapshot.val() || {};
-                    
-                    // Check for admin role - in both new roles array and old role field
-                    const isAdmin = 
-                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
-                        (userData.role === 'admin');
-                    
-                    if (isAdmin) {
-                        // User is admin, show search interface
-                        authScreen.classList.add('hidden');
-                        searchScreen.classList.remove('hidden');
-                        initializePage(); // Initialize dropdowns and metadata
-                    } else {
-                        // User is not admin
-                        authScreen.classList.remove('hidden');
-                        searchScreen.classList.add('hidden');
-                    }
-                } catch (error) {
-                    console.error('Error checking user role:', error);
-                    authScreen.classList.remove('hidden');
-                    searchScreen.classList.add('hidden');
-                }
-            } else {
-                // User is not signed in
-                authScreen.classList.remove('hidden');
-                searchScreen.classList.add('hidden');
-            }
-        });
-        
         // Search function
         async function searchQuestions() {
-            // Update search state
+            // Update search state for query and sort
             currentSearch.query = searchQuery.value.trim();
-            currentSearch.format = formatFilter.value;
-            currentSearch.round = roundFilter.value;
-            currentSearch.field = fieldFilter.value;
             currentSearch.sort = sortFilter.value;
             currentSearch.lastKey = null;
             currentSearch.results = [];
@@ -928,22 +1029,26 @@
                 const imageLink = result.questionData['Image Link'] || result.questionData['image_link'] || '';
                 const answerImageLink = result.questionData['Answer Image Link'] || result.questionData['answer_image_link'] || '';
                 
-                // Create image previews if available
-                const imagePreviewsHtml = createImagePreviewsHtml(imageLink, answerImageLink);
-                
                 row.innerHTML = `
                     <td>${result.triviaNumber}</td>
                     <td>${escapeHTML(dateStr)}</td>
                     <td>${result.round}</td>
                     <td>${escapeHTML(result.roundName || '')}</td>
                     <td>${result.format}</td>
-                    <td class="question-text" title="${escapeHTML(question)}">${escapeHTML(question)}</td>
-                    <td class="question-text" title="${escapeHTML(answer)}">${escapeHTML(answer)}</td>
-                    <td>${imagePreviewsHtml}</td>
+                    <td class="question-text">${escapeHTML(question)}</td>
+                    <td class="question-text">${escapeHTML(answer)}</td>
+                    <td>${createImagePreview(imageLink, 'Question Image')}</td>
+                    <td>${createImagePreview(answerImageLink, 'Answer Image')}</td>
                 `;
                 
                 // Add click event to show full details
-                row.addEventListener('click', () => showQuestionDetails(result));
+                row.addEventListener('click', (e) => {
+                    // Don't trigger detail view when clicking on links or iframes
+                    if (e.target.tagName === 'A' || e.target.tagName === 'IFRAME' || e.target.tagName === 'IMG') {
+                        return;
+                    }
+                    showQuestionDetails(result);
+                });
                 
                 resultsBody.appendChild(row);
             });
@@ -985,20 +1090,77 @@
             }
         }
         
-        // Create HTML for image previews
-        function createImagePreviewsHtml(imageLink, answerImageLink) {
-            let html = '<div class="image-container">';
+        // Extract iframe embeddable URL from various image hosting services
+        function getEmbedUrl(url) {
+            if (!url || typeof url !== 'string') return null;
             
-            if (imageLink && isUrl(imageLink)) {
-                html += `<img src="${escapeHTML(imageLink)}" alt="Question Image" class="image-preview" title="Question Image" data-full-url="${escapeHTML(imageLink)}">`;
+            try {
+                // Handle Google Drive links
+                if (url.includes('drive.google.com')) {
+                    const fileIdMatch = url.match(/[-\w]{25,}/);
+                    if (fileIdMatch) {
+                        return `https://drive.google.com/file/d/${fileIdMatch[0]}/preview`;
+                    }
+                }
+                
+                // Handle Imgur links
+                if (url.includes('imgur.com')) {
+                    const imgurIdMatch = url.match(/imgur\.com\/(?:a\/|gallery\/)?([a-zA-Z0-9]{5,})/);
+                    if (imgurIdMatch) {
+                        return `https://imgur.com/${imgurIdMatch[1]}/embed`;
+                    }
+                }
+                
+                // Handle YouTube links
+                if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                    let videoId;
+                    if (url.includes('youtube.com/watch?v=')) {
+                        videoId = new URL(url).searchParams.get('v');
+                    } else if (url.includes('youtu.be/')) {
+                        videoId = url.split('youtu.be/')[1].split('?')[0];
+                    }
+                    if (videoId) {
+                        return `https://www.youtube.com/embed/${videoId}`;
+                    }
+                }
+                
+                // For direct image URLs, return the original URL (will be used in an img tag)
+                if (url.match(/\.(jpeg|jpg|gif|png)$/i)) {
+                    return url;
+                }
+                
+                // For unknown URLs, return null (will default to showing the URL as text)
+                return null;
+                
+            } catch (e) {
+                console.error('Error parsing URL for embed:', e);
+                return null;
+            }
+        }
+        
+        // Create HTML for image and iframe previews
+        function createImagePreview(url, title) {
+            if (!url || typeof url !== 'string') return '';
+            
+            const embedUrl = getEmbedUrl(url);
+            
+            if (!embedUrl) {
+                // If we couldn't convert to an embeddable URL, just show a link
+                return `<a href="${escapeHTML(url)}" target="_blank" class="image-link">${escapeHTML(title || 'View Image')}</a>`;
             }
             
-            if (answerImageLink && isUrl(answerImageLink)) {
-                html += `<img src="${escapeHTML(answerImageLink)}" alt="Answer Image" class="image-preview" title="Answer Image" data-full-url="${escapeHTML(answerImageLink)}">`;
+            // For direct image URLs
+            if (embedUrl.match(/\.(jpeg|jpg|gif|png)$/i)) {
+                return `<img src="${escapeHTML(embedUrl)}" alt="${escapeHTML(title || 'Image')}" class="image-preview" data-full-url="${escapeHTML(url)}">`;
             }
             
-            html += '</div>';
-            return html;
+            // For embeddable URLs
+            return `
+                <div class="iframe-container">
+                    <iframe src="${escapeHTML(embedUrl)}" title="${escapeHTML(title || 'Preview')}" allowfullscreen></iframe>
+                </div>
+                <a href="${escapeHTML(url)}" target="_blank" class="image-link">${escapeHTML(title || 'View Full Size')}</a>
+            `;
         }
         
         // Show question details in a modal
@@ -1185,10 +1347,10 @@
         clearBtn.addEventListener('click', () => {
             // Clear inputs
             searchQuery.value = '';
-            formatFilter.value = '';
-            roundFilter.value = '';
-            fieldFilter.value = '';
             sortFilter.value = 'newest';
+            
+            // Reset all filter buttons
+            resetFilterButtons();
             
             // Clear results
             resultsBody.innerHTML = '';
@@ -1298,6 +1460,104 @@
             // Add to document
             document.body.appendChild(modal);
         }
+        
+        // Reset all filter buttons to initial state
+        function resetFilterButtons() {
+            // Reset format filters
+            formatToggle.querySelectorAll('.filter-button').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.textContent === 'All Formats') {
+                    btn.classList.add('active');
+                }
+            });
+            
+            // Reset round filters
+            roundToggle.querySelectorAll('.filter-button').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.textContent === 'All Rounds') {
+                    btn.classList.add('active');
+                }
+            });
+            
+            // Reset field filters
+            fieldToggle.querySelectorAll('.filter-button').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.textContent === 'All Fields') {
+                    btn.classList.add('active');
+                }
+            });
+        }
+        
+        // Convert wildcards to regex pattern
+        function wildcardToRegExp(s) {
+            if (!s || !s.includes('*') && !s.includes('?')) {
+                return null; // Return null if there are no wildcards
+            }
+            
+            // Escape special regex chars except * and ?
+            let pattern = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            
+            // Convert * and ? to their regex equivalents
+            pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
+            
+            // Return RegExp object with case-insensitive flag
+            return new RegExp('^' + pattern + '$', 'i');
+        }
+        
+        // Test if a string matches a query (either contains or matches wildcard)
+        function matchesQuery(text, query) {
+            if (!text || !query) return false;
+            
+            // Ensure we're working with strings
+            const textStr = String(text);
+            const queryStr = String(query);
+            
+            // Check if query has wildcards
+            const regexPattern = wildcardToRegExp(queryStr);
+            
+            if (regexPattern) {
+                // Split into words and test each word
+                return textStr.toLowerCase().split(/\s+/).some(word => regexPattern.test(word));
+            } else {
+                // Normal contains check (case insensitive)
+                return textStr.toLowerCase().includes(queryStr.toLowerCase());
+            }
+        }
+        
+        // Check if user is admin
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                try {
+                    // Get user data
+                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
+                    const userData = snapshot.val() || {};
+                    
+                    // Check for admin role - in both new roles array and old role field
+                    const isAdmin = 
+                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+                        (userData.role === 'admin');
+                    
+                    if (isAdmin) {
+                        // User is admin, show search interface
+                        authScreen.classList.add('hidden');
+                        searchScreen.classList.remove('hidden');
+                        initializePage(); // Initialize dropdowns and metadata
+                    } else {
+                        // User is not admin
+                        authScreen.classList.remove('hidden');
+                        searchScreen.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error('Error checking user role:', error);
+                    authScreen.classList.remove('hidden');
+                    searchScreen.classList.add('hidden');
+                }
+            } else {
+                // User is not signed in
+                authScreen.classList.remove('hidden');
+                searchScreen.classList.add('hidden');
+            }
+        });
         
         console.log("Search tool loaded successfully!");
     </script>
