@@ -11,6 +11,7 @@ The codebase is organized as follows:
 - `404.html` - Error page
 - `site.webmanifest` - Web app manifest
 - `favicon.ico` - Favicon
+- Configuration files (`.gitignore`, `.firebaserc`, `firebase.json`, etc.)
 
 ### CSS
 - `/css` - Contains all CSS files
@@ -24,6 +25,7 @@ The codebase is organized as follows:
     - `banner.js` - Banner implementation
   - `/js/firebase` - Firebase-related code
     - `firebase-init.js` - Firebase initialization
+  - `/js/utils` - Utility functions
 
 ### Pages
 - `/pages` - Contains HTML pages
@@ -32,6 +34,7 @@ The codebase is organized as follows:
   - `grading.html` - Grading interface
   - `patreon.html` - Patreon integration page
   - `partner.html` - Partner information page
+  - `puzzlearchive_admin_940872398742093847.html` - Puzzle archive admin
 
 ### Images
 - `/images` - Contains all images
@@ -53,6 +56,10 @@ The codebase is organized as follows:
   - `index.js` - Main functions code
   - Other function-related files
 
+### Tools
+- `/tools` - Development and utility tools
+  - `bfg.jar` - BFG Repo-Cleaner for Git history management
+
 ## Development
 
 To run this project locally:
@@ -63,4 +70,13 @@ To run this project locally:
 
 ## Deployment
 
-The site is deployed to Firebase Hosting. 
+The site is deployed to Firebase Hosting.
+
+## URL Structure
+
+The site uses Firebase redirects to maintain compatibility with legacy URLs:
+- `/account` redirects to `/pages/account.html`
+- `/admin` redirects to `/pages/admin.html`
+- `/grading` redirects to `/pages/grading.html`
+- `/partner` redirects to `/pages/partner.html`
+- `/patreon` redirects to `/pages/patreon.html` 
