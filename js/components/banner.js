@@ -35,6 +35,7 @@
                 <a href="/" style="color: white; text-decoration: none;">Home</a>
                 <a href="/games" style="color: white; text-decoration: none;">Games</a>
                 <a href="/live" style="color: white; text-decoration: none;">Live Trivia</a>
+                <a href="/search" id="searchLink" style="color: white; text-decoration: none; display: none;">Search</a>
                 <a href="/pages/grading.html" id="gradingLink" style="color: white; text-decoration: none; display: none;">Grading</a>
                 <a href="/pages/admin.html" id="adminLink" style="color: white; text-decoration: none; display: none;">Admin</a>
             </nav>
@@ -56,6 +57,7 @@
     // Get DOM elements
     const evilTriviaStatus = document.getElementById('evilTriviaStatus');
     const patreonStatus = document.getElementById('patreonStatus');
+    const searchLink = document.getElementById('searchLink');
     const gradingLink = document.getElementById('gradingLink');
     const adminLink = document.getElementById('adminLink');
 
@@ -123,12 +125,15 @@
                         if (userRoles.includes('admin')) {
                             adminLink.style.display = 'inline';
                             gradingLink.style.display = 'inline';
+                            searchLink.style.display = 'inline';
                         } else if (userRoles.includes('grader')) {
                             gradingLink.style.display = 'inline';
                             adminLink.style.display = 'none';
+                            searchLink.style.display = 'none';
                         } else {
                             gradingLink.style.display = 'none';
                             adminLink.style.display = 'none';
+                            searchLink.style.display = 'none';
                         }
 
                         // Check if user has 'patron' role - if so, that's also a connection to Patreon
@@ -166,6 +171,7 @@
                     // Hide admin and grading links when signed out
                     gradingLink.style.display = 'none';
                     adminLink.style.display = 'none';
+                    searchLink.style.display = 'none';
                     
                     // Check for Patreon ID in localStorage even when not signed in
                     const patreonId = localStorage.getItem('patreonUserId');
