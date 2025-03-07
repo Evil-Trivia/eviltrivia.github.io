@@ -655,7 +655,8 @@
             results: [],
             hasMore: false,
             endReached: false,
-            useExactMatch: false // Add new flag for exact matching
+            useExactMatch: false, // Add new flag for exact matching
+            resultCount: 0 // Add a counter to track total results processed
         };
 
         // Store metadata about the database
@@ -929,6 +930,7 @@
             currentSearch.sort = sortFilter.value;
             currentSearch.lastKey = null;
             currentSearch.results = [];
+            currentSearch.resultCount = 0; // Add a counter to track total results processed
             
             // Determine if we should use exact matching (no wildcards)
             currentSearch.useExactMatch = !currentSearch.query.includes('*') && !currentSearch.query.includes('?');
@@ -944,91 +946,36 @@
             await loadQuestions();
         }
         
-        // Load questions from Firebase
-        async function loadQuestions(loadMore = false) {
-            try {
-                if (!loadMore) {
-                    // New search, reset results
-                    currentSearch.results = [];
-                    currentSearch.lastKey = null;
-                    currentSearch.endReached = false;
-                    endResults.classList.add('hidden');
-                }
-                
-                // Don't try to load more if we've already reached the end
-                if (currentSearch.endReached) {
-                    console.log('Already reached end of results');
-                    return;
-                }
-                
-                // Log for debugging
-                console.log('Starting search with query:', currentSearch.query);
-                console.log('Search filters:', {
-                    formats: currentSearch.formats,
-                    fields: currentSearch.fields,
-                    sort: currentSearch.sort
-                });
-                
-                // Show loading indicator
-                const loadingIndicator = document.createElement('div');
-                loadingIndicator.id = 'search-loading';
-                loadingIndicator.textContent = 'Searching...';
-                loadingIndicator.style.textAlign = 'center';
-                loadingIndicator.style.padding = '20px';
-                loadingIndicator.style.color = '#666';
-                
-                if (!loadMore) {
-                    resultsBody.innerHTML = '';
-                    resultsBody.appendChild(loadingIndicator);
-                } else {
-                    loadMoreBtn.disabled = true;
-                    loadMoreBtn.textContent = 'Loading...';
-                }
-                
-                // Use a smarter approach for loading data
-                // Instead of loading trivia sets one by one, load a larger chunk at once
-                const results = await loadSmartQuestionBatch(loadMore);
-                
-                // Remove loading indicator
-                const existingLoadingIndicator = document.getElementById('search-loading');
-                if (existingLoadingIndicator) {
-                    existingLoadingIndicator.remove();
-                }
-                if (loadMore) {
-                    loadMoreBtn.disabled = false;
-                    loadMoreBtn.textContent = 'Load More Results';
-                }
-                
-                // Update display
-                displayResults(results, loadMore);
-                
-                // Show end of results message if appropriate
-                if (currentSearch.endReached) {
-                    endResults.classList.remove('hidden');
-                    loadMoreSection.classList.add('hidden');
-                } else {
-                    endResults.classList.add('hidden');
-                    loadMoreSection.classList.toggle('hidden', !currentSearch.hasMore);
-                }
-                
-            } catch (error) {
-                console.error('Error searching questions:', error);
-                // Remove loading indicator on error
-                const existingLoadingIndicator = document.getElementById('search-loading');
-                if (existingLoadingIndicator) {
-                    existingLoadingIndicator.remove();
-                }
-                if (loadMore) {
-                    loadMoreBtn.disabled = false;
-                    loadMoreBtn.textContent = 'Load More Results';
-                }
-            }
-        }
-        
         // Smarter batch loading function
         async function loadSmartQuestionBatch(loadMore = false) {
             // Get reference to trivia-archive
             const archiveRef = db.ref('trivia-archive/archive');
+            
+            // Check for wildcard searches that might return too many results
+            const query = currentSearch.query;
+            if (!loadMore && (query === '*' || query === '*a*' || query === '*e*' || query === '*i*' || 
+                query === '*o*' || query === '*u*' || query === '* *')) {
+                console.log('Search query would return too many results, limiting batch size');
+                // For these searches, display a warning and limit results
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'warning-message';
+                warningDiv.style.padding = '10px';
+                warningDiv.style.backgroundColor = '#fff3cd';
+                warningDiv.style.color = '#856404';
+                warningDiv.style.borderRadius = '4px';
+                warningDiv.style.marginBottom = '15px';
+                warningDiv.textContent = 'Your search matches many results. Only showing 50 results at a time. Please use a more specific search term for better results.';
+                
+                // Check if warning is already present
+                const existingWarning = document.querySelector('.warning-message');
+                if (!existingWarning) {
+                    // Insert the warning before the results table
+                    const resultsContainer = document.querySelector('.results-container');
+                    if (resultsContainer) {
+                        resultsContainer.insertBefore(warningDiv, resultsContainer.firstChild);
+                    }
+                }
+            }
             
             // For the initial load, we will get a large batch of trivia sets at once
             // This is much more efficient than loading one set at a time
@@ -1093,15 +1040,6 @@
             // This significantly speeds up the search process
             const processPromises = [];
             
-            // Remember the last key for pagination
-            if (triviaItems.length > 0) {
-                const lastItem = currentSearch.sort === 'newest' 
-                    ? triviaItems[triviaItems.length - 1] 
-                    : triviaItems[triviaItems.length - 1];  // Changed from [0] to always use the last item in the array
-                currentSearch.lastKey = lastItem.triviaNumber;
-                console.log(`Setting last key to ${currentSearch.lastKey} for next pagination`);
-            }
-            
             // Process each trivia item
             for (const item of triviaItems) {
                 processPromises.push(processTrivia(item));
@@ -1113,15 +1051,145 @@
             // Flatten results array
             let results = resultsArrays.flat();
             
-            // Update paging info
-            currentSearch.hasMore = results.length > 0 && triviaItems.length >= (batchSize - 5);  // Allow for some margin
-            
-            // If we didn't find enough results, check if we've reached the end
-            if (results.length === 0) {
-                currentSearch.endReached = true;
+            // If there are no results at all but we have trivia items, we need to try loading more
+            if (results.length === 0 && triviaItems.length > 0) {
+                // There are more trivia items but no matching results in this batch
+                // Set the last key for the next pagination attempt
+                const lastItem = triviaItems[triviaItems.length - 1];
+                currentSearch.lastKey = lastItem.triviaNumber;
+                console.log(`No matching results in this batch. Setting last key to ${currentSearch.lastKey} for next attempt`);
+                
+                // If we're already loading more data, recursively try to load more
+                if (loadMore) {
+                    console.log("Automatically loading next batch since no results were found in this batch");
+                    return loadSmartQuestionBatch(true);
+                } else {
+                    // For initial search, just show no results
+                    currentSearch.endReached = true;
+                    return [];
+                }
             }
             
+            // If we actually found results, update the last key from the current batch
+            if (triviaItems.length > 0) {
+                const lastItem = triviaItems[triviaItems.length - 1];
+                currentSearch.lastKey = lastItem.triviaNumber;
+                console.log(`Setting last key to ${currentSearch.lastKey} for next pagination`);
+            }
+            
+            // Limit results to 50 per page
+            const maxResultsPerPage = 50;
+            
+            // If we have more than maxResultsPerPage new results, cut off the excess
+            if (results.length > maxResultsPerPage) {
+                console.log(`Limiting results from ${results.length} to ${maxResultsPerPage} for this page`);
+                results = results.slice(0, maxResultsPerPage);
+                // Always set hasMore to true if we had to limit the results
+                currentSearch.hasMore = true;
+            } else {
+                // Always set hasMore to true if there are more trivia items to process
+                // (unless we've reached the end of the data)
+                currentSearch.hasMore = triviaItems.length >= (batchSize - 5) && !currentSearch.endReached;
+            }
+            
+            // If we didn't get enough results and there might be more data, set hasMore to true
+            if (results.length < maxResultsPerPage && triviaItems.length >= (batchSize - 5)) {
+                console.log("Setting hasMore to true since we might have more trivia in the database");
+                currentSearch.hasMore = true;
+            }
+            
+            // Increment the result counter
+            const prevResultCount = currentSearch.resultCount || 0;
+            currentSearch.resultCount = prevResultCount + results.length;
+            
             return results;
+        }
+        
+        // Load questions from Firebase
+        async function loadQuestions(loadMore = false) {
+            try {
+                if (!loadMore) {
+                    // New search, reset results
+                    currentSearch.results = [];
+                    currentSearch.lastKey = null;
+                    currentSearch.endReached = false;
+                    currentSearch.resultCount = 0; // Reset counter for new search
+                    endResults.classList.add('hidden');
+                }
+                
+                // Don't try to load more if we've already reached the end
+                if (currentSearch.endReached) {
+                    console.log('Already reached end of results');
+                    return;
+                }
+                
+                // Log for debugging
+                console.log('Starting search with query:', currentSearch.query);
+                console.log('Search filters:', {
+                    formats: currentSearch.formats,
+                    fields: currentSearch.fields,
+                    sort: currentSearch.sort
+                });
+                
+                // Show loading indicator
+                const loadingIndicator = document.createElement('div');
+                loadingIndicator.id = 'search-loading';
+                loadingIndicator.textContent = 'Searching...';
+                loadingIndicator.style.textAlign = 'center';
+                loadingIndicator.style.padding = '20px';
+                loadingIndicator.style.color = '#666';
+                
+                if (!loadMore) {
+                    resultsBody.innerHTML = '';
+                    resultsBody.appendChild(loadingIndicator);
+                } else {
+                    loadMoreBtn.disabled = true;
+                    loadMoreBtn.textContent = 'Loading...';
+                }
+                
+                // Use a smarter approach for loading data
+                // Instead of loading trivia sets one by one, load a larger chunk at once
+                const results = await loadSmartQuestionBatch(loadMore);
+                
+                // Remove loading indicator
+                const existingLoadingIndicator = document.getElementById('search-loading');
+                if (existingLoadingIndicator) {
+                    existingLoadingIndicator.remove();
+                }
+                if (loadMore) {
+                    loadMoreBtn.disabled = false;
+                    loadMoreBtn.textContent = 'Load More Results';
+                }
+                
+                // Update display
+                displayResults(results, loadMore);
+                
+                // Show end of results message if appropriate
+                if (currentSearch.endReached) {
+                    endResults.classList.remove('hidden');
+                    loadMoreSection.classList.add('hidden');
+                } else if (currentSearch.hasMore) {
+                    // Show load more button if there are potentially more results
+                    endResults.classList.add('hidden');
+                    loadMoreSection.classList.remove('hidden');
+                } else {
+                    // No more results but not officially at the end (e.g., if we have exactly 50 results)
+                    endResults.classList.remove('hidden');
+                    loadMoreSection.classList.add('hidden');
+                }
+                
+            } catch (error) {
+                console.error('Error searching questions:', error);
+                // Remove loading indicator on error
+                const existingLoadingIndicator = document.getElementById('search-loading');
+                if (existingLoadingIndicator) {
+                    existingLoadingIndicator.remove();
+                }
+                if (loadMore) {
+                    loadMoreBtn.disabled = false;
+                    loadMoreBtn.textContent = 'Load More Results';
+                }
+            }
         }
         
         // Define fieldMatches function once at this level
@@ -1142,6 +1210,22 @@
             if (searchQuery.startsWith('*') && searchQuery.endsWith('*')) {
                 // Extract the inner part of the wildcard search
                 const innerText = searchQuery.substring(1, searchQuery.length - 1).toLowerCase();
+                
+                // Skip searches that would match almost everything
+                // We should return false for "*" and "*a*" type patterns with very short inner text
+                if (innerText.length <= 1) {
+                    // For short wildcard searches, we'll be more selective
+                    // Only match if the inner character(s) is significant
+                    if (!innerText || innerText === ' ' || 'aeiou'.includes(innerText)) {
+                        // Skip extremely common single letters and spaces - these match almost everything
+                        // Only check on fields likely to contain these frequently (like question and answer)
+                        if (fieldName.toLowerCase().includes('question') || 
+                            fieldName.toLowerCase().includes('answer') ||
+                            fieldName.toLowerCase() === 'round name') {
+                            return false;
+                        }
+                    }
+                }
                 
                 // When the inner text contains spaces, we should be more flexible
                 if (innerText.includes(' ')) {
@@ -1444,6 +1528,9 @@
             // Update the display
             noResults.classList.add('hidden');
             
+            // Update the results count display
+            resultsCount.textContent = currentSearch.results.length;
+            
             // Add rows to the table
             results.forEach(result => {
                 const row = document.createElement('tr');
@@ -1507,9 +1594,6 @@
                 
                 resultsBody.appendChild(row);
             });
-            
-            // Update count
-            resultsCount.textContent = currentSearch.results.length;
         }
         
         // Show all questions in a round
@@ -1914,7 +1998,8 @@
                 results: [],
                 hasMore: false,
                 endReached: false,
-                useExactMatch: false
+                useExactMatch: false,
+                resultCount: 0 // Add counter to track total results
             };
         });
         
