@@ -530,22 +530,6 @@
                 padding: 8px 5px;
             }
             
-            /* Adjust column widths for mobile */
-            table.results-table th:first-child,
-            table.results-table td:first-child {
-                width: 60px;
-            }
-            
-            table.results-table th:last-child,
-            table.results-table td:last-child {
-                width: 80px;
-            }
-            
-            .pagination-controls button {
-                padding: 8px 12px;
-                font-size: 14px;
-            }
-            
             /* Improve question display on mobile */
             .question-dialog-content {
                 padding: 10px;
@@ -660,6 +644,7 @@
                     <button id="clear-btn">Clear Results</button>
                 </div>
                 
+                <!-- Wrap table in responsive div -->
                 <div class="table-responsive">
                     <table class="results-table">
                         <thead>
@@ -683,15 +668,15 @@
                 </div>
                 
                 <div id="no-results" class="no-results hidden">
-                    <p>No results found. Try a different search term or filters.</p>
-                </div>
-                
-                <div id="load-more-section" class="pagination-controls hidden">
-                    <button id="load-more-btn">Load More Results</button>
+                    <p>No matching questions found. Try adjusting your search criteria.</p>
                 </div>
                 
                 <div id="end-results" class="no-results hidden">
                     <p>End of results. No more questions to display.</p>
+                </div>
+                
+                <div class="load-more hidden" id="load-more">
+                    <button id="load-more-btn">Load More Results</button>
                 </div>
             </div>
         </div>
@@ -735,7 +720,7 @@
         const noResults = document.getElementById('no-results');
         const endResults = document.getElementById('end-results');
         const resultsCount = document.getElementById('results-count');
-        const loadMoreSection = document.getElementById('load-more-section');
+        const loadMoreSection = document.getElementById('load-more');
         const loadMoreBtn = document.getElementById('load-more-btn');
         
         // Search state
@@ -1021,9 +1006,7 @@
         async function searchQuestions() {
             // Update search state for query and sort
             currentSearch.query = searchQuery.value.trim();
-            currentSearch.formats = getSelectedFormats();
-            currentSearch.fields = getSelectedFields();
-            currentSearch.sort = document.getElementById('sort-filter').value;
+            currentSearch.sort = sortFilter.value;
             currentSearch.lastKey = null;
             currentSearch.results = [];
             currentSearch.resultCount = 0; // Add a counter to track total results processed
@@ -1038,12 +1021,6 @@
             resultsBody.innerHTML = '';
             noResults.classList.add('hidden');
             loadMoreSection.classList.add('hidden');
-            
-            // Scroll to top of results container
-            const resultsContainer = document.querySelector('.results-container');
-            if (resultsContainer) {
-                resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
             
             // Perform search
             await loadQuestions();
@@ -2010,12 +1987,33 @@
                 .replace(/'/g, '&#039;');
         }
         
+        // Helper function to scroll to results - separated to avoid breaking search functionality
+        function scrollToResults() {
+            // Scroll to results container when performing search
+            try {
+                const resultsContainer = document.querySelector('.results-container');
+                if (resultsContainer) {
+                    setTimeout(() => {
+                        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 100);
+                }
+            } catch (error) {
+                console.error('Error scrolling to results:', error);
+                // Fail silently - don't break search functionality
+            }
+        }
+
         // Event listeners
-        searchBtn.addEventListener('click', searchQuestions);
+        searchBtn.addEventListener('click', () => {
+            searchQuestions();
+            scrollToResults();
+        });
+
         searchQuery.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                e.preventDefault();
+                e.preventDefault(); // Prevent form submission
                 searchQuestions();
+                scrollToResults();
             }
         });
         
