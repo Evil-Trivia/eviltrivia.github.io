@@ -8,46 +8,178 @@
         return setTimeout(injectBanner, 10);
     }
 
-    // Banner HTML
-    const bannerHTML = `
-    <div id="siteBanner" style="
-        background: #000000;
-        color: white;
-        padding: 10px 20px;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: 1000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    ">
-        <div style="
+    // Add CSS styles for responsive design
+    const styleElement = document.createElement('style');
+    styleElement.textContent = `
+        #siteBanner {
+            background: #000000;
+            color: white;
+            padding: 10px 20px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .banner-container {
             width: 100%;
             max-width: 1200px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-        ">
-            <a href="/" style="color: #FFCC00; text-decoration: none; font-weight: bold;">Evil Trivia</a>
-            <nav style="display: flex; gap: 20px;">
-                <a href="/" style="color: white; text-decoration: none;">Home</a>
-                <a href="/games" style="color: white; text-decoration: none;">Games</a>
-                <a href="/live" style="color: white; text-decoration: none;">Live Trivia</a>
-                <a href="/tools" id="toolsLink" style="color: white; text-decoration: none; display: none;">Tools</a>
-                <a href="/pages/grading.html" id="gradingLink" style="color: white; text-decoration: none; display: none;">Grading</a>
-                <a href="/pages/admin.html" id="adminLink" style="color: white; text-decoration: none; display: none;">Admin</a>
+        }
+        
+        .banner-logo {
+            color: #FFCC00;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .banner-nav {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .banner-nav a {
+            color: white;
+            text-decoration: none;
+        }
+        
+        .banner-account {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            white-space: nowrap;
+        }
+        
+        .banner-account-status {
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .banner-account-link {
+            color: white;
+            text-decoration: none;
+            background: #333;
+            padding: 6px 12px;
+            border-radius: 4px;
+            margin-left: 10px;
+        }
+        
+        #hamburgerMenu {
+            display: none;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 30px;
+            height: 21px;
+            cursor: pointer;
+        }
+        
+        #hamburgerMenu span {
+            display: block;
+            height: 3px;
+            width: 100%;
+            background-color: white;
+        }
+        
+        .mobile-menu {
+            display: none;
+            position: fixed;
+            top: 60px;
+            left: 0;
+            right: 0;
+            background: #000000;
+            padding: 20px;
+            z-index: 999;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .mobile-menu a {
+            color: white;
+            text-decoration: none;
+            padding: 10px 0;
+            border-bottom: 1px solid #333;
+        }
+        
+        .mobile-menu .banner-account-status {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #333;
+        }
+        
+        .mobile-menu .banner-account-status span {
+            margin: 0;
+        }
+        
+        .mobile-menu .banner-account-link {
+            margin-left: 0;
+            align-self: flex-start;
+        }
+        
+        @media (max-width: 1024px) {
+            .banner-nav, .banner-account {
+                display: none;
+            }
+            
+            #hamburgerMenu {
+                display: flex;
+            }
+            
+            .mobile-menu.active {
+                display: flex;
+            }
+        }
+    `;
+    document.head.appendChild(styleElement);
+
+    // Banner HTML with updated responsive classes
+    const bannerHTML = `
+    <div id="siteBanner">
+        <div class="banner-container">
+            <a href="/" class="banner-logo">Evil Trivia</a>
+            <nav class="banner-nav">
+                <a href="/">Home</a>
+                <a href="/games">Games</a>
+                <a href="/live">Live Trivia</a>
+                <a href="/tools" id="toolsLink" style="display: none;">Tools</a>
+                <a href="/pages/grading.html" id="gradingLink" style="display: none;">Grading</a>
+                <a href="/pages/admin.html" id="adminLink" style="display: none;">Admin</a>
             </nav>
-            <div style="display: flex; align-items: center; gap: 15px;">
-                <div id="accountStatus" style="font-size: 14px; display: flex; align-items: center;">
+            <div class="banner-account">
+                <div id="accountStatus" class="banner-account-status">
                     <span>Evil Trivia: <span id="evilTriviaStatus">Not Logged In</span></span>
                     <span style="margin: 0 10px;">|</span>
                     <span>Patreon: <span id="patreonStatus">Not Connected</span></span>
                 </div>
-                <a href="/pages/account.html" style="color: white; text-decoration: none; background: #333; padding: 6px 12px; border-radius: 4px; margin-left: 10px;">My Account</a>
+                <a href="/pages/account.html" class="banner-account-link">My Account</a>
+            </div>
+            <div id="hamburgerMenu">
+                <span></span>
+                <span></span>
+                <span></span>
             </div>
         </div>
+    </div>
+    <div id="mobileMenu" class="mobile-menu">
+        <a href="/">Home</a>
+        <a href="/games">Games</a>
+        <a href="/live">Live Trivia</a>
+        <a href="/tools" id="mobileToolsLink" style="display: none;">Tools</a>
+        <a href="/pages/grading.html" id="mobileGradingLink" style="display: none;">Grading</a>
+        <a href="/pages/admin.html" id="mobileAdminLink" style="display: none;">Admin</a>
+        <div id="mobileAccountStatus" class="banner-account-status">
+            <span>Evil Trivia: <span id="mobileEvilTriviaStatus">Not Logged In</span></span>
+            <span>Patreon: <span id="mobilePatreonStatus">Not Connected</span></span>
+        </div>
+        <a href="/pages/account.html" class="banner-account-link">My Account</a>
     </div>
     `;
 
@@ -60,6 +192,20 @@
     const toolsLink = document.getElementById('toolsLink');
     const gradingLink = document.getElementById('gradingLink');
     const adminLink = document.getElementById('adminLink');
+    
+    // Mobile elements
+    const mobileEvilTriviaStatus = document.getElementById('mobileEvilTriviaStatus');
+    const mobilePatreonStatus = document.getElementById('mobilePatreonStatus');
+    const mobileToolsLink = document.getElementById('mobileToolsLink');
+    const mobileGradingLink = document.getElementById('mobileGradingLink');
+    const mobileAdminLink = document.getElementById('mobileAdminLink');
+    const hamburgerMenu = document.getElementById('hamburgerMenu');
+    const mobileMenu = document.getElementById('mobileMenu');
+
+    // Hamburger menu toggle
+    hamburgerMenu.addEventListener('click', function() {
+        mobileMenu.classList.toggle('active');
+    });
 
     // Wait for Firebase to be initialized
     const initBannerAuth = async () => {
@@ -107,10 +253,13 @@
                         
                         if (userData?.firstName) {
                             evilTriviaStatus.textContent = userData.firstName;
+                            mobileEvilTriviaStatus.textContent = userData.firstName;
                         } else if (user.displayName) {
                             evilTriviaStatus.textContent = user.displayName.split(' ')[0];
+                            mobileEvilTriviaStatus.textContent = user.displayName.split(' ')[0];
                         } else {
                             evilTriviaStatus.textContent = user.email ? user.email.split('@')[0] : 'Logged In';
+                            mobileEvilTriviaStatus.textContent = user.email ? user.email.split('@')[0] : 'Logged In';
                         }
 
                         // Get user roles - handle both new array format and legacy string format
@@ -121,28 +270,37 @@
                             userRoles = [userData.role];
                         }
                         
-                        // Show/hide admin and grading links based on roles
-                        if (userRoles.includes('admin')) {
-                            adminLink.style.display = 'inline';
-                            gradingLink.style.display = 'inline';
-                            toolsLink.style.display = 'inline';
-                        } else if (userRoles.includes('grader')) {
-                            gradingLink.style.display = 'inline';
-                            adminLink.style.display = 'none';
-                            toolsLink.style.display = 'none';
-                        } else {
-                            gradingLink.style.display = 'none';
-                            adminLink.style.display = 'none';
-                            toolsLink.style.display = 'none';
-                        }
+                        // Show/hide links based on roles per requirements:
+                        // Home, Live Trivia, Games = all roles (always shown)
+                        // Grading = admin, grader
+                        // Tools = admin, tools
+                        // Admin = admin
+                        
+                        const isAdmin = userRoles.includes('admin');
+                        const isGrader = userRoles.includes('grader');
+                        const hasToolsAccess = userRoles.includes('tools');
+                        
+                        // Admin link - only for admins
+                        adminLink.style.display = isAdmin ? 'inline' : 'none';
+                        mobileAdminLink.style.display = isAdmin ? 'block' : 'none';
+                        
+                        // Grading link - for admins and graders
+                        gradingLink.style.display = (isAdmin || isGrader) ? 'inline' : 'none';
+                        mobileGradingLink.style.display = (isAdmin || isGrader) ? 'block' : 'none';
+                        
+                        // Tools link - for admins and those with tools access
+                        toolsLink.style.display = (isAdmin || hasToolsAccess) ? 'inline' : 'none';
+                        mobileToolsLink.style.display = (isAdmin || hasToolsAccess) ? 'block' : 'none';
 
                         // Check if user has 'patron' role - if so, that's also a connection to Patreon
                         if (userData?.patreonId || userRoles.includes('patron')) {
                             // If we have pledge amount info, display it in the status
                             if (userData?.patreonPledgeAmount) {
                                 patreonStatus.textContent = `$${userData.patreonPledgeAmount}`;
+                                mobilePatreonStatus.textContent = `$${userData.patreonPledgeAmount}`;
                             } else {
                                 patreonStatus.textContent = 'Connected';
+                                mobilePatreonStatus.textContent = 'Connected';
                             }
                         } else {
                             // Check localStorage as fallback
@@ -152,33 +310,44 @@
                                 const pledgeAmount = localStorage.getItem('patreonPledgeAmount');
                                 if (pledgeAmount) {
                                     patreonStatus.textContent = `$${pledgeAmount}`;
+                                    mobilePatreonStatus.textContent = `$${pledgeAmount}`;
                                 } else {
                                     patreonStatus.textContent = 'Connected';
+                                    mobilePatreonStatus.textContent = 'Connected';
                                 }
                             } else {
                                 patreonStatus.textContent = 'Not Connected';
+                                mobilePatreonStatus.textContent = 'Not Connected';
                             }
                         }
                     } catch (error) {
                         console.error("Banner error fetching user data:", error);
                         evilTriviaStatus.textContent = 'Logged In';
+                        mobileEvilTriviaStatus.textContent = 'Logged In';
                         patreonStatus.textContent = 'Not Connected';
+                        mobilePatreonStatus.textContent = 'Not Connected';
                     }
                 } else {
                     console.log("Banner sees user is signed out");
                     evilTriviaStatus.textContent = 'Not Logged In';
+                    mobileEvilTriviaStatus.textContent = 'Not Logged In';
                     
                     // Hide admin and grading links when signed out
                     gradingLink.style.display = 'none';
                     adminLink.style.display = 'none';
                     toolsLink.style.display = 'none';
+                    mobileGradingLink.style.display = 'none';
+                    mobileAdminLink.style.display = 'none';
+                    mobileToolsLink.style.display = 'none';
                     
                     // Check for Patreon ID in localStorage even when not signed in
                     const patreonId = localStorage.getItem('patreonUserId');
                     if (patreonId) {
                         patreonStatus.textContent = 'Connected';
+                        mobilePatreonStatus.textContent = 'Connected';
                     } else {
                         patreonStatus.textContent = 'Not Connected';
+                        mobilePatreonStatus.textContent = 'Not Connected';
                     }
                 }
             });
