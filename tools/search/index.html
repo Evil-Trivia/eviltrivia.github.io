@@ -480,6 +480,100 @@
         .results-table td:nth-child(6) {
             width: 80px;  /* Format */
         }
+        
+        /* Add mobile responsiveness improvements */
+        @media (max-width: 768px) {
+            .container {
+                max-width: 100%;
+                padding: 10px;
+            }
+            
+            .search-container, 
+            .results-container {
+                padding: 15px;
+            }
+            
+            .search-row {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .search-input {
+                width: 100%;
+            }
+            
+            .filter-section {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .filter-group {
+                width: 100%;
+            }
+            
+            /* Make table horizontally scrollable on mobile */
+            .table-responsive {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                margin-bottom: 15px;
+                white-space: nowrap;
+            }
+            
+            table.results-table {
+                font-size: 14px;
+                width: 100%;
+                min-width: 500px; /* Ensure minimum width for scrolling */
+            }
+            
+            table.results-table td, 
+            table.results-table th {
+                padding: 8px 5px;
+            }
+            
+            /* Adjust column widths for mobile */
+            table.results-table th:first-child,
+            table.results-table td:first-child {
+                width: 60px;
+            }
+            
+            table.results-table th:last-child,
+            table.results-table td:last-child {
+                width: 80px;
+            }
+            
+            .pagination-controls button {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+            
+            /* Improve question display on mobile */
+            .question-dialog-content {
+                padding: 10px;
+                max-width: 100%;
+                width: 95%;
+                margin: 10px auto;
+            }
+            
+            .question-dialog-content h2 {
+                font-size: 1.2rem;
+                margin-top: 0;
+            }
+            
+            .question-dialog-content .info-row {
+                flex-direction: column;
+                align-items: flex-start;
+                margin-bottom: 15px;
+            }
+            
+            /* Optimize loading indicator */
+            #search-loading {
+                padding: 15px !important;
+                margin: 10px auto;
+                background-color: rgba(255,255,255,0.8);
+                border-radius: 4px;
+                font-weight: bold;
+            }
+        }
     </style>
 </head>
 <body>
@@ -566,7 +660,7 @@
                     <button id="clear-btn">Clear Results</button>
                 </div>
                 
-                <div id="results-table-container">
+                <div class="table-responsive">
                     <table class="results-table">
                         <thead>
                             <tr>
@@ -586,18 +680,18 @@
                             <!-- Results will be populated here -->
                         </tbody>
                     </table>
-                    
-                    <div id="no-results" class="no-results hidden">
-                        <p>No matching questions found. Try adjusting your search criteria.</p>
-                    </div>
-                    
-                    <div id="end-results" class="no-results hidden">
-                        <p>End of results. No more questions to display.</p>
-                    </div>
                 </div>
                 
-                <div class="load-more hidden" id="load-more">
+                <div id="no-results" class="no-results hidden">
+                    <p>No results found. Try a different search term or filters.</p>
+                </div>
+                
+                <div id="load-more-section" class="pagination-controls hidden">
                     <button id="load-more-btn">Load More Results</button>
+                </div>
+                
+                <div id="end-results" class="no-results hidden">
+                    <p>End of results. No more questions to display.</p>
                 </div>
             </div>
         </div>
@@ -641,7 +735,7 @@
         const noResults = document.getElementById('no-results');
         const endResults = document.getElementById('end-results');
         const resultsCount = document.getElementById('results-count');
-        const loadMoreSection = document.getElementById('load-more');
+        const loadMoreSection = document.getElementById('load-more-section');
         const loadMoreBtn = document.getElementById('load-more-btn');
         
         // Search state
@@ -927,7 +1021,9 @@
         async function searchQuestions() {
             // Update search state for query and sort
             currentSearch.query = searchQuery.value.trim();
-            currentSearch.sort = sortFilter.value;
+            currentSearch.formats = getSelectedFormats();
+            currentSearch.fields = getSelectedFields();
+            currentSearch.sort = document.getElementById('sort-filter').value;
             currentSearch.lastKey = null;
             currentSearch.results = [];
             currentSearch.resultCount = 0; // Add a counter to track total results processed
@@ -942,6 +1038,12 @@
             resultsBody.innerHTML = '';
             noResults.classList.add('hidden');
             loadMoreSection.classList.add('hidden');
+            
+            // Scroll to top of results container
+            const resultsContainer = document.querySelector('.results-container');
+            if (resultsContainer) {
+                resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
             
             // Perform search
             await loadQuestions();
@@ -1912,6 +2014,7 @@
         searchBtn.addEventListener('click', searchQuestions);
         searchQuery.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
+                e.preventDefault();
                 searchQuestions();
             }
         });
