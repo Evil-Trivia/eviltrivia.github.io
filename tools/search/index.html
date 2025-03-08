@@ -933,7 +933,8 @@
             currentSearch.resultCount = 0; // Add a counter to track total results processed
             
             // Determine if we should use exact matching (no wildcards)
-            currentSearch.useExactMatch = !currentSearch.query.includes('*') && !currentSearch.query.includes('?');
+            const hasWildcards = currentSearch.query.includes('*') || currentSearch.query.includes('?');
+            currentSearch.useExactMatch = !hasWildcards;
             
             console.log('Search mode:', currentSearch.useExactMatch ? 'Exact match' : 'Wildcard match');
             
@@ -1077,25 +1078,21 @@
                 console.log(`Setting last key to ${currentSearch.lastKey} for next pagination`);
             }
             
-            // Limit results to 50 per page
+            // Always limit results to exactly 50 per page
             const maxResultsPerPage = 50;
             
-            // If we have more than maxResultsPerPage new results, cut off the excess
             if (results.length > maxResultsPerPage) {
                 console.log(`Limiting results from ${results.length} to ${maxResultsPerPage} for this page`);
                 results = results.slice(0, maxResultsPerPage);
                 // Always set hasMore to true if we had to limit the results
                 currentSearch.hasMore = true;
-            } else {
-                // Always set hasMore to true if there are more trivia items to process
-                // (unless we've reached the end of the data)
-                currentSearch.hasMore = triviaItems.length >= (batchSize - 5) && !currentSearch.endReached;
-            }
-            
-            // If we didn't get enough results and there might be more data, set hasMore to true
-            if (results.length < maxResultsPerPage && triviaItems.length >= (batchSize - 5)) {
+            } else if (triviaItems.length >= (batchSize - 5) && !currentSearch.endReached) {
+                // There might be more results in the database if we got close to a full batch
                 console.log("Setting hasMore to true since we might have more trivia in the database");
                 currentSearch.hasMore = true;
+            } else {
+                // We didn't fill a page and didn't get close to a full batch, so probably no more results
+                currentSearch.hasMore = false;
             }
             
             // Increment the result counter
@@ -1115,6 +1112,12 @@
                     currentSearch.endReached = false;
                     currentSearch.resultCount = 0; // Reset counter for new search
                     endResults.classList.add('hidden');
+                    
+                    // Remove any existing warning messages
+                    const existingWarning = document.querySelector('.warning-message');
+                    if (existingWarning) {
+                        existingWarning.remove();
+                    }
                 }
                 
                 // Don't try to load more if we've already reached the end
@@ -1201,63 +1204,9 @@
             const textValue = String(fieldValue).toLowerCase();
             const queryLower = searchQuery.toLowerCase();
             
-            // Log for debugging specific search terms we're having trouble with
-            if (textValue.includes('clockwork') || forceVerbose) {
-                console.log(`Found field ${fieldName} with value "${textValue}" - checking against "${queryLower}"`);
-            }
-            
-            // For patterns like *text* we want to do a simple substring search first
-            if (searchQuery.startsWith('*') && searchQuery.endsWith('*')) {
-                // Extract the inner part of the wildcard search
-                const innerText = searchQuery.substring(1, searchQuery.length - 1).toLowerCase();
-                
-                // Skip searches that would match almost everything
-                // We should return false for "*" and "*a*" type patterns with very short inner text
-                if (innerText.length <= 1) {
-                    // For short wildcard searches, we'll be more selective
-                    // Only match if the inner character(s) is significant
-                    if (!innerText || innerText === ' ' || 'aeiou'.includes(innerText)) {
-                        // Skip extremely common single letters and spaces - these match almost everything
-                        // Only check on fields likely to contain these frequently (like question and answer)
-                        if (fieldName.toLowerCase().includes('question') || 
-                            fieldName.toLowerCase().includes('answer') ||
-                            fieldName.toLowerCase() === 'round name') {
-                            return false;
-                        }
-                    }
-                }
-                
-                // Special handling for clockwork search
-                if (innerText.includes('clockwork') && textValue.includes('clockwork')) {
-                    console.log(`⭐ Clockwork found in field ${fieldName} with value "${textValue}"`);
-                    return true;
-                }
-                
-                // When the inner text contains spaces, we should be more flexible
-                if (innerText.includes(' ')) {
-                    // Split the inner text into words and check if each word appears in the target text
-                    const words = innerText.split(/\s+/).filter(word => word.length > 0);
-                    
-                    // Simple check: do all the words appear somewhere in the text?
-                    const allWordsAppear = words.every(word => textValue.includes(word));
-                    
-                    if (allWordsAppear) {
-                        console.log(`SUCCESS! All words in "${innerText}" found in "${textValue}" (field: ${fieldName})`);
-                        return true;
-                    }
-                }
-                
-                // Try direct substring match
-                if (innerText && textValue.includes(innerText)) {
-                    console.log(`SUCCESS! Substring match: "${innerText}" found in "${textValue}" (field: ${fieldName})`);
-                    return true;
-                }
-            }
-            
-            // Direct check for clockwork in the value (special handling)
-            if (queryLower.includes('clockwork') && textValue.includes('clockwork')) {
-                console.log(`⭐ Direct clockwork match in field ${fieldName}: "${textValue}"`);
-                return true;
+            // Log for debugging (with forceVerbose flag)
+            if (forceVerbose) {
+                console.log(`Checking field ${fieldName} with value "${textValue}" against "${queryLower}"`);
             }
             
             // If using regex pattern with wildcards
@@ -1268,13 +1217,17 @@
                     console.log(`SUCCESS! RegEx match: "${searchQuery}" matches "${textValue}" (field: ${fieldName})`);
                     return true;
                 }
+                
+                // Return false if we have a regex pattern but it didn't match
+                // This ensures wildcard searches are handled exclusively by the regex
+                return false;
             }
             
             // If exact matching is requested (no wildcards used)
             if (useExactMatch) {
                 // Check for exact match of the entire string or for word boundaries
                 const exactMatch = textValue === queryLower;
-                const wordMatch = new RegExp(`\\b${queryLower}\\b`).test(textValue);
+                const wordMatch = new RegExp(`\\b${escapeRegExp(queryLower)}\\b`).test(textValue);
                 
                 if (exactMatch || wordMatch) {
                     console.log(`SUCCESS! Exact match: "${searchQuery}" found in "${textValue}" (field: ${fieldName})`);
@@ -1297,23 +1250,6 @@
                 return null;
             }
             
-            // For wildcard searches with spaces, create a more flexible pattern
-            if ((s.startsWith('*') || s.endsWith('*')) && s.includes(' ')) {
-                // Extract the text between wildcards (if any)
-                let innerText = s;
-                if (s.startsWith('*')) innerText = innerText.substring(1);
-                if (s.endsWith('*')) innerText = innerText.substring(0, innerText.length - 1);
-                
-                // Split into words and create a pattern that looks for all words in any order
-                const words = innerText.split(/\s+/).filter(word => word.length > 0);
-                if (words.length > 0) {
-                    const wordPatterns = words.map(word => `(?=.*${escapeRegExp(word)})`);
-                    const pattern = new RegExp(wordPatterns.join('') + '.*', 'i');
-                    console.log(`Converting "${s}" to flexible word-based regex: ${pattern}`);
-                    return pattern;
-                }
-            }
-            
             // Escape special regex chars except * and ?
             let pattern = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
             
@@ -1324,18 +1260,12 @@
             // Replace * with .* (any number of characters) and ? with . (exactly one character)
             pattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
             
-            // Only add anchors if the pattern doesn't have wildcards at beginning/end
+            // Apply anchors appropriately based on whether wildcards are at beginning/end
             if (!startsWithWildcard) {
                 pattern = '^' + pattern;
             }
             if (!endsWithWildcard) {
                 pattern = pattern + '$';
-            }
-            
-            // If pattern is surrounded by wildcards (*something*), we want a substring match
-            if (startsWithWildcard && endsWithWildcard) {
-                // Remove beginning/end anchors that might have been added
-                pattern = pattern.replace(/^\^\.\*/, '').replace(/\.\*\$$/, '');
             }
             
             console.log(`Converting "${s}" to regex: ${pattern}`);
@@ -1359,62 +1289,6 @@
                     return results;
                 }
                 
-                // Special case handling for trivia #81 and clockwork search
-                const isTrivia81 = item.triviaNumber === '81';
-                const searchingForClockwork = currentSearch.query && 
-                    currentSearch.query.toLowerCase().includes('clockwork');
-                
-                // Emergency override for Clockwork Orange in trivia #81
-                if (isTrivia81 && searchingForClockwork) {
-                    console.log('🚨 SPECIAL CASE: Adding trivia #81 with Clockwork Orange directly to results');
-                    
-                    // Extract the data we know exists from the previous debugging
-                    const roundKey = "1";
-                    const formatKey = "Written";
-                    let questionData = null;
-                    let roundName = "";
-                    
-                    try {
-                        // Try to get the actual data
-                        const roundData = item.data.trivia[roundKey];
-                        const formatData = roundData[formatKey];
-                        questionData = formatData["8"]; // We know from screenshots this is question 8
-                        roundName = formatData["Round Name"] || "Hidden Theme";
-                        
-                        console.log('Found Clockwork Orange in trivia #81 question 8:', questionData);
-                    } catch (e) {
-                        // Fallback: create bare minimum data needed to display the item
-                        console.log('Error extracting data, using fallback:', e);
-                        questionData = {
-                            "Question": "What novel is broken up into the following 3 parts: 1. Alex's World, 2. The Ludovico Technique, and 3. After prison?",
-                            "Answer": "A Clockwork Orange - Orange Wine",
-                            "Round Type": "Hidden Theme"
-                        };
-                    }
-                    
-                    // Force add this result
-                    results.push({
-                        triviaNumber: "81",
-                        triviaName: item.data.name || "Wine",
-                        triviaDate: item.data.date || "2022-05-31",
-                        round: roundKey,
-                        roundName: roundName || "Hidden Theme",
-                        format: "Written",
-                        roundType: "Hidden Theme",
-                        questionNum: "8",
-                        questionData: questionData
-                    });
-                    
-                    // Continue normal processing too, just in case
-                }
-                
-                // Existing debugging code for trivia #81
-                if (isTrivia81) {
-                    console.log('Processing trivia #81 - the one with "A Clockwork Orange"');
-                    // Deep log the structure for debugging
-                    console.log('Trivia #81 structure:', JSON.stringify(item.data.trivia));
-                }
-                
                 // Get trivia metadata
                 const triviaNumber = item.triviaNumber;
                 const triviaName = item.data.name || '';
@@ -1435,10 +1309,6 @@
                     
                     // Skip non-object values
                     if (typeof roundData !== 'object' || roundData === null) continue;
-                    
-                    if (isTrivia81) {
-                        console.log(`Processing round ${roundKey} in trivia #81`);
-                    }
                     
                     // Try to find a round name
                     let roundName = '';
@@ -1472,11 +1342,6 @@
                         
                         // Skip non-object values
                         if (typeof formatData !== 'object' || formatData === null) continue;
-
-                        if (isTrivia81) {
-                            console.log(`Processing format ${formatKey} in round ${roundKey} of trivia #81`);
-                            console.log('Format data:', JSON.stringify(formatData));
-                        }
                         
                         // Check for round name in the format data as well
                         let formatRoundName = roundName;
@@ -1503,13 +1368,6 @@
                             }
                         }
                         
-                        // Special debugging for formats containing "Written" since that's the format in trivia #81
-                        if (formatKey.includes('Written') && triviaNumber === '81') {
-                            console.log('Found Written format in trivia #81');
-                            // Log the entire formatData for debugging
-                            console.log('Written format data:', JSON.stringify(formatData));
-                        }
-                        
                         // Process each question in the format
                         for (const [questionKey, questionData] of Object.entries(formatData)) {
                             // Skip non-object values or non-question keys
@@ -1523,24 +1381,11 @@
                             if (metadataKeys.includes(questionKey)) {
                                 continue;
                             }
-
-                            if (isTrivia81) {
-                                console.log(`Processing question ${questionKey} in format ${formatKey} of round ${roundKey} in trivia #81`);
-                                if (questionKey === '8' || questionData.Answer && questionData.Answer.includes('Clockwork')) {
-                                    console.log('Found question with Clockwork in trivia #81:', JSON.stringify(questionData));
-                                }
-                            }
-                            
-                            // Extra debugging for trivia #81
-                            if (triviaNumber === '81' && questionData.Answer && questionData.Answer.includes('Clockwork')) {
-                                console.log('Found the Clockwork Orange answer in trivia #81');
-                                console.log('Question data:', questionData);
-                            }
                             
                             // Check for round name in the question data as a last resort
-                            let questionRoundName = formatRoundName;
+                            let formatRoundNameFinal = formatRoundName;
                             if (questionData['Round Name']) {
-                                questionRoundName = questionData['Round Name'];
+                                formatRoundNameFinal = questionData['Round Name'];
                             }
                             
                             // Get question-specific round type if available
@@ -1550,29 +1395,20 @@
                             let matches = false;
                             
                             if (currentSearch.query) {
-                                // Force verbose output for trivia #81 and clockwork
-                                const forceVerbose = triviaNumber === '81' && currentSearch.query.toLowerCase().includes('clockwork');
-                                
                                 // If searching for a specific field
                                 if (currentSearch.fields.length > 0) {
                                     // For field search, check each selected field
                                     for (const field of currentSearch.fields) {
-                                        if (fieldMatches(field, questionData[field], regexPattern, searchQuery, currentSearch.useExactMatch, forceVerbose)) {
+                                        if (fieldMatches(field, questionData[field], regexPattern, searchQuery, currentSearch.useExactMatch)) {
                                             matches = true;
-                                            if (forceVerbose) {
-                                                console.log(`Field match in trivia #81: field=${field}, value=${questionData[field]}`);
-                                            }
                                             break;
                                         }
                                     }
                                 } else {
                                     // Search in all fields
                                     for (const [fieldName, fieldValue] of Object.entries(questionData)) {
-                                        if (fieldMatches(fieldName, fieldValue, regexPattern, searchQuery, currentSearch.useExactMatch, forceVerbose)) {
+                                        if (fieldMatches(fieldName, fieldValue, regexPattern, searchQuery, currentSearch.useExactMatch)) {
                                             matches = true;
-                                            if (forceVerbose) {
-                                                console.log(`Field match in trivia #81: field=${fieldName}, value=${fieldValue}`);
-                                            }
                                             break;
                                         }
                                     }
@@ -1583,17 +1419,12 @@
                             }
                             
                             if (matches) {
-                                // Log when we find a match for trivia #81
-                                if (triviaNumber === '81') {
-                                    console.log('✅ MATCH FOUND for trivia #81:', questionData);
-                                }
-                                
                                 const resultItem = {
                                     triviaNumber: triviaNumber,
                                     triviaName: triviaName,
                                     triviaDate: triviaDate,
                                     round: roundKey,
-                                    roundName: questionRoundName,
+                                    roundName: formatRoundNameFinal,
                                     // Use Round Format field for format if available, otherwise use format key
                                     format: roundFormat || formatKey,
                                     roundType: questionRoundType,
