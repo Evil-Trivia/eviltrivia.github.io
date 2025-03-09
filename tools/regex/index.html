@@ -94,6 +94,12 @@
         .search-button {
             font-size: 16px;
             padding: 12px 25px;
+            background-color: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
         }
         
         .file-select {
@@ -342,8 +348,8 @@
                         toolScreen.classList.remove('hidden');
                         userIsAdmin = true;
                         
-                        // Load available files
-                        loadAvailableFiles();
+                        // Skip loading files and go straight to manual input
+                        showManualFileInput();
                     } else {
                         // User does not have access
                         authScreen.classList.remove('hidden');
@@ -361,68 +367,21 @@
             }
         });
         
-        // Load available files from Firebase
+        // Load available files from Firebase - We're skipping this function now
         async function loadAvailableFiles() {
-            try {
-                // Set a timeout for the loading process
-                const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('Loading timed out')), 10000); // 10 second timeout
-                });
-                
-                // Use a shallow query to only get the file names, not the entire data
-                const dataPromise = db.ref('tools').once('value', snapshot => {
-                    return snapshot.key;
-                });
-                
-                // Race the data fetch against the timeout
-                const snapshot = await Promise.race([dataPromise, timeoutPromise]);
-                const tools = snapshot.val() || {};
-                
-                // Get filenames
-                availableFiles = Object.keys(tools);
-                
-                // Display file checkboxes
-                if (availableFiles.length > 0) {
-                    fileSelectContainer.innerHTML = '';
-                    
-                    availableFiles.forEach(file => {
-                        const fileCheckbox = document.createElement('div');
-                        fileCheckbox.className = 'file-checkbox';
-                        
-                        const checkbox = document.createElement('input');
-                        checkbox.type = 'checkbox';
-                        checkbox.id = `file-${file}`;
-                        checkbox.value = file;
-                        
-                        const label = document.createElement('label');
-                        label.htmlFor = `file-${file}`;
-                        label.textContent = file;
-                        
-                        fileCheckbox.appendChild(checkbox);
-                        fileCheckbox.appendChild(label);
-                        fileSelectContainer.appendChild(fileCheckbox);
-                    });
-                    
-                    // If only one file, check it by default
-                    if (availableFiles.length === 1) {
-                        document.getElementById(`file-${availableFiles[0]}`).checked = true;
-                    }
-                } else {
-                    showManualFileInput();
-                }
-            } catch (error) {
-                console.error('Error loading available files:', error);
-                
-                // Show manual file input form
-                showManualFileInput();
-            }
+            // Not using this anymore - directly using manual input
+            showManualFileInput();
         }
         
-        // Display manual file input when automatic loading fails
+        // Display manual file input
         function showManualFileInput() {
             fileSelectContainer.innerHTML = `
-                <div class="error-message">
-                    <strong>Could not load files automatically.</strong> Please specify file names below:
+                <div class="info-message">
+                    <strong>File Selection:</strong> Add the database files you want to search through.
+                    <p>Common files: <code>RankedWiki.txt</code></p>
+                </div>
+                <div class="error-message" style="background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;">
+                    Could not load files automatically. Please specify file names below.
                 </div>
                 <div id="manual-files">
                     <div class="file-input-row">
@@ -583,44 +542,96 @@
             const results = [];
             
             try {
-                // Set a timeout for the search
+                // Set a longer timeout for the search
                 const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error(`Search in ${filename} timed out`)), 15000); // 15 second timeout
+                    setTimeout(() => reject(new Error(`Search in ${filename} timed out`)), 30000); // 30 second timeout (increased from 15)
                 });
                 
-                // Query for scores in the file
-                const dataPromise = db.ref(`tools/${filename}`).once('value');
+                // Break down the search into score ranges for large files
+                // This helps avoid "payload too large" errors
+                let searchPromises = [];
                 
-                // Race the data fetch against the timeout
-                const scoresSnapshot = await Promise.race([dataPromise, timeoutPromise]);
-                const scores = scoresSnapshot.val() || {};
+                // Check if the file exists first with a smaller query
+                const fileCheckPromise = db.ref(`tools/${filename}`).limitToFirst(1).once('value');
+                const fileSnapshot = await Promise.race([fileCheckPromise, timeoutPromise]);
                 
-                // For each score
-                for (const scoreVal in scores) {
-                    if (scores.hasOwnProperty(scoreVal)) {
-                        const terms = scores[scoreVal];
-                        
-                        // For each term ID
-                        for (const termId in terms) {
-                            if (terms.hasOwnProperty(termId)) {
-                                const termData = terms[termId];
+                if (!fileSnapshot.exists()) {
+                    return [{
+                        term: `Error: File not found: ${filename}`,
+                        parentheses: 'This file does not exist in the database',
+                        score: 0,
+                        filename: filename,
+                        termId: 'error',
+                        isError: true
+                    }];
+                }
+                
+                // Strategy: Search in score groups to avoid huge payloads
+                const scoreRanges = [
+                    { min: 90, max: 100 }, // Highest scores first
+                    { min: 80, max: 89 },
+                    { min: 70, max: 79 },
+                    { min: 60, max: 69 },
+                    { min: 50, max: 59 },
+                    { min: 40, max: 49 },
+                    { min: 30, max: 39 },
+                    { min: 20, max: 29 },
+                    { min: 10, max: 19 },
+                    { min: 0, max: 9 }
+                ];
+                
+                for (const range of scoreRanges) {
+                    const rangePromise = new Promise(async (resolve) => {
+                        try {
+                            const rangeResults = [];
+                            
+                            // Query for each score in the range
+                            for (let score = range.max; score >= range.min; score--) {
+                                const scoreQuery = db.ref(`tools/${filename}/${score}`).once('value');
+                                const scoreSnapshot = await scoreQuery;
+                                const terms = scoreSnapshot.val() || {};
                                 
-                                // Skip items without term property or not matching pattern
-                                if (!termData.term) continue;
-                                
-                                // Check if term matches regex pattern
-                                if (regexPattern.test(termData.term)) {
-                                    results.push({
-                                        term: termData.term,
-                                        parentheses: termData.parentheses || '',
-                                        score: parseInt(scoreVal, 10),
-                                        filename: filename,
-                                        termId: termId
-                                    });
+                                // For each term ID
+                                for (const termId in terms) {
+                                    if (terms.hasOwnProperty(termId)) {
+                                        const termData = terms[termId];
+                                        
+                                        // Skip items without term property
+                                        if (!termData.term) continue;
+                                        
+                                        // Check if term matches regex pattern
+                                        if (regexPattern.test(termData.term)) {
+                                            rangeResults.push({
+                                                term: termData.term,
+                                                parentheses: termData.parentheses || '',
+                                                score: score,
+                                                filename: filename,
+                                                termId: termId
+                                            });
+                                        }
+                                    }
                                 }
                             }
+                            
+                            resolve(rangeResults);
+                        } catch (err) {
+                            console.error(`Error searching score range ${range.min}-${range.max}:`, err);
+                            resolve([]); // Return empty results but don't fail the whole search
                         }
-                    }
+                    });
+                    
+                    searchPromises.push(rangePromise);
+                }
+                
+                // Run all range searches in parallel with a timeout
+                const allResults = await Promise.race([
+                    Promise.all(searchPromises),
+                    timeoutPromise
+                ]);
+                
+                // Combine results from all ranges
+                for (const rangeResults of allResults) {
+                    results.push(...rangeResults);
                 }
                 
                 return results;
@@ -640,7 +651,16 @@
                 } else if (error.message && error.message.includes('timed out')) {
                     return [{
                         term: `Error: Search timed out for ${filename}`,
-                        parentheses: 'The database query took too long',
+                        parentheses: 'Try a more specific search term for better results',
+                        score: 0,
+                        filename: filename,
+                        termId: 'error',
+                        isError: true
+                    }];
+                } else if (error.message && error.message.includes('payload is too large')) {
+                    return [{
+                        term: `Error: Data payload too large for ${filename}`,
+                        parentheses: 'Try a more specific search term to reduce results',
                         score: 0,
                         filename: filename,
                         termId: 'error',
@@ -674,7 +694,7 @@
             const errorResults = results.filter(r => r.isError);
             if (errorResults.length === results.length) {
                 const errorHtml = errorResults.map(err => 
-                    `<div class="error-message">
+                    `<div class="error-message" style="margin-bottom: 10px;">
                         <strong>${err.term}</strong><br>
                         ${err.parentheses}
                     </div>`
@@ -683,6 +703,14 @@
                 resultsContainer.innerHTML = `
                     <p class="no-results">Encountered errors while searching:</p>
                     ${errorHtml}
+                    <div class="info-message" style="margin-top: 20px;">
+                        <strong>Suggestions:</strong>
+                        <ul>
+                            <li>Try using more specific search terms (e.g., use 'science' instead of '*s*')</li>
+                            <li>Make sure the file name is correct (e.g., 'RankedWiki.txt')</li>
+                            <li>Break large searches into smaller ones</li>
+                        </ul>
+                    </div>
                 `;
                 return;
             }
@@ -737,6 +765,9 @@
                 if (errorResults.length > 0) {
                     const errorWarning = document.createElement('div');
                     errorWarning.className = 'error-message';
+                    errorWarning.style.backgroundColor = '#fff3cd';
+                    errorWarning.style.color = '#856404';
+                    errorWarning.style.border = '1px solid #ffeeba';
                     errorWarning.innerHTML = `<strong>Note:</strong> Some files had errors and were excluded from results.`;
                     resultsContainer.insertBefore(errorWarning, table);
                 }
