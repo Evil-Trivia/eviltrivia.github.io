@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evil Trivia - OneLook Tool</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #FFCC00;
+            margin-top: 60px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        
+        .content-box {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .auth-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 500px;
+            margin: 40px auto;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .auth-container h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .auth-container p {
+            margin-bottom: 20px;
+            color: #666;
+        }
+        
+        .auth-btn {
+            display: inline-block;
+            background-color: #000;
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .search-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .search-row {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .search-input {
+            font-size: 16px;
+            padding: 12px 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            flex: 1;
+        }
+        
+        .search-button {
+            font-size: 16px;
+            padding: 12px 25px;
+            background-color: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .param-group {
+            margin-bottom: 15px;
+            padding: 15px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        
+        .param-group h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .param-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .param-label {
+            width: 200px;
+            font-weight: bold;
+        }
+        
+        .info-message {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .error-message {
+            color: #d9534f;
+            background-color: #f8d7da;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .results-table th {
+            background-color: #f2f2f2;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        .results-table td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .results-container {
+            margin-top: 20px;
+        }
+        
+        .no-results {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 30px;
+        }
+        
+        .loading:after {
+            content: "";
+            width: 20px;
+            height: 20px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #000;
+            border-radius: 50%;
+            margin-left: 10px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .result-count {
+            font-weight: bold;
+            margin-bottom: 15px;
+            background-color: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+        
+        /* Clipboard styles */
+        .clipboard-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            overflow: hidden;
+            border: 1px solid #ddd;
+        }
+        
+        .clipboard-header {
+            padding: 10px 15px;
+            background-color: #f2f2f2;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        
+        .clipboard-title {
+            font-weight: bold;
+            margin: 0;
+        }
+        
+        .clipboard-content {
+            padding: 10px 15px;
+            overflow-y: auto;
+            max-height: 200px;
+            flex-grow: 1;
+        }
+        
+        .clipboard-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .clipboard-actions {
+            padding: 10px 15px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .clipboard-btn {
+            background-color: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .clipboard-toggle {
+            background-color: #f2f2f2;
+            color: #333;
+            border: 1px solid #ddd;
+            min-width: 30px;
+            height: 30px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+        }
+        
+        .clipboard-clear {
+            background-color: #d9534f;
+        }
+        
+        .clipboard-copy {
+            background-color: #5cb85c;
+        }
+        
+        .remove-item {
+            color: #d9534f;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        
+        .add-to-clipboard {
+            background-color: #5cb85c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        
+        .collapsed {
+            max-height: 50px;
+            opacity: 0.9;
+        }
+        
+        .collapsed .clipboard-content,
+        .collapsed .clipboard-actions {
+            display: none;
+        }
+        
+        .dictionary-link {
+            color: #007bff;
+            text-decoration: none;
+        }
+        
+        .dictionary-link:hover {
+            text-decoration: underline;
+        }
+        
+        .definition-list {
+            margin: 0;
+            padding-left: 20px;
+        }
+        
+        .expand-details {
+            cursor: pointer;
+            color: #007bff;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+        
+        .details-container {
+            display: none;
+            background-color: #f9f9f9;
+            padding: 10px;
+            margin-top: 5px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .show-details {
+            display: block;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            background-color: #f2f2f2;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            margin-right: 5px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+        
+        .tab.active {
+            background-color: #fff;
+            border-bottom: 1px solid #fff;
+            margin-bottom: -1px;
+            font-weight: bold;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .param-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .param-label {
+                width: 100%;
+                margin-bottom: 5px;
+            }
+            
+            .search-row {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OneLook / Datamuse Tool</h1>
+        
+        <!-- Authentication Required Screen -->
+        <div id="auth-screen" class="auth-container hidden">
+            <h2>Access Required</h2>
+            <p>You need admin privileges to access this page.</p>
+            <a href="/account" class="auth-btn">Go to Account Page</a>
+        </div>
+        
+        <!-- Tool Interface -->
+        <div id="tool-screen" class="hidden">
+            <div class="content-box">
+                <h2>Search Options</h2>
+                
+                <div class="info-message">
+                    <strong>About this tool:</strong> This tool uses the Datamuse API (which powers OneLook) to find words and phrases based on meaning, sound, spelling, and more. Results are sorted by frequency.
+                </div>
+                
+                <div class="tabs">
+                    <div class="tab active" data-tab="basic">Basic Search</div>
+                    <div class="tab" data-tab="advanced">Advanced Search</div>
+                </div>
+                
+                <!-- Basic Search Tab -->
+                <div id="basic-tab" class="tab-content active">
+                    <div class="search-container">
+                        <div class="param-group">
+                            <h3>Simple Search</h3>
+                            <div class="param-row">
+                                <label class="param-label" for="basic-search">Search Term:</label>
+                                <input type="text" id="basic-search" class="search-input" placeholder="Enter what you're looking for...">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="search-type">Search Type:</label>
+                                <select id="search-type" class="search-input">
+                                    <option value="ml">Means like</option>
+                                    <option value="sl">Sounds like</option>
+                                    <option value="sp">Spelled like (wildcards: ? for one letter, * for many)</option>
+                                    <option value="rel_syn">Synonyms</option>
+                                    <option value="rel_ant">Antonyms</option>
+                                    <option value="rel_trg">Triggers/Associations</option>
+                                    <option value="rel_jjb">Adjectives for this noun</option>
+                                    <option value="rel_jja">Nouns modified by this adjective</option>
+                                </select>
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="basic-max">Max Results:</label>
+                                <input type="number" id="basic-max" class="search-input" placeholder="Up to 1000" value="100">
+                            </div>
+                        </div>
+                        <button id="basic-search-button" class="search-button">Search</button>
+                    </div>
+                </div>
+                
+                <!-- Advanced Search Tab -->
+                <div id="advanced-tab" class="tab-content">
+                    <div class="search-container">
+                        <div class="param-group">
+                            <h3>Basic Constraints</h3>
+                            <div class="param-row">
+                                <label class="param-label" for="ml">Means like:</label>
+                                <input type="text" id="ml" class="search-input" placeholder="e.g. ringing in the ears">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="sl">Sounds like:</label>
+                                <input type="text" id="sl" class="search-input" placeholder="e.g. jirraf">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="sp">Spelled like:</label>
+                                <input type="text" id="sp" class="search-input" placeholder="e.g. c*t or ?at">
+                            </div>
+                        </div>
+                        
+                        <div class="param-group">
+                            <h3>Related Words</h3>
+                            <div class="param-row">
+                                <label class="param-label" for="rel_syn">Synonyms:</label>
+                                <input type="text" id="rel_syn" class="search-input" placeholder="ocean → sea">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="rel_ant">Antonyms:</label>
+                                <input type="text" id="rel_ant" class="search-input" placeholder="late → early">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="rel_trg">Triggers/Associations:</label>
+                                <input type="text" id="rel_trg" class="search-input" placeholder="cow → milking">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="rel_jjb">Adjectives for noun:</label>
+                                <input type="text" id="rel_jjb" class="search-input" placeholder="ocean → blue, vast">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="rel_jja">Nouns for adjective:</label>
+                                <input type="text" id="rel_jja" class="search-input" placeholder="red → fire, apple">
+                            </div>
+                        </div>
+                        
+                        <div class="param-group">
+                            <h3>Context & Options</h3>
+                            <div class="param-row">
+                                <label class="param-label" for="topics">Topics:</label>
+                                <input type="text" id="topics" class="search-input" placeholder="e.g. temperature, weather">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="lc">Left context:</label>
+                                <input type="text" id="lc" class="search-input" placeholder="word immediately to the left">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="rc">Right context:</label>
+                                <input type="text" id="rc" class="search-input" placeholder="word immediately to the right">
+                            </div>
+                            <div class="param-row">
+                                <label class="param-label" for="maxResults">Max results:</label>
+                                <input type="number" id="maxResults" class="search-input" placeholder="up to 1000" value="100">
+                            </div>
+                        </div>
+                        
+                        <div class="param-group">
+                            <h3>Metadata</h3>
+                            <div class="param-row">
+                                <label class="param-label">Include:</label>
+                                <div>
+                                    <label><input type="checkbox" class="mdOption" value="d"> Definitions</label><br>
+                                    <label><input type="checkbox" class="mdOption" value="p"> Part of speech</label><br>
+                                    <label><input type="checkbox" class="mdOption" value="s"> Syllables</label><br>
+                                    <label><input type="checkbox" class="mdOption" value="r"> Pronunciation</label>
+                                </div>
+                            </div>
+                        </div>
+                        <button id="advanced-search-button" class="search-button">Search</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Clipboard Container -->
+            <div id="clipboard-container" class="clipboard-container collapsed">
+                <div class="clipboard-header">
+                    <h3 class="clipboard-title">Collected Words</h3>
+                    <button id="toggle-clipboard" class="clipboard-btn clipboard-toggle">▼</button>
+                </div>
+                <div id="clipboard-content" class="clipboard-content">
+                    <p>No words added yet.</p>
+                </div>
+                <div class="clipboard-actions">
+                    <button id="clear-clipboard" class="clipboard-btn clipboard-clear">Clear All</button>
+                    <button id="copy-clipboard" class="clipboard-btn clipboard-copy">Copy All</button>
+                </div>
+            </div>
+            
+            <div class="content-box">
+                <h2>Search Results</h2>
+                <div id="results-container" class="results-container">
+                    <p class="no-results">Enter a search term to see results.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebasestorage.app",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.database();
+        
+        // DOM Elements
+        const authScreen = document.getElementById('auth-screen');
+        const toolScreen = document.getElementById('tool-screen');
+        const resultsContainer = document.getElementById('results-container');
+        const basicSearchButton = document.getElementById('basic-search-button');
+        const advancedSearchButton = document.getElementById('advanced-search-button');
+        
+        // Tab elements
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+        
+        // Global variables
+        let userIsAdmin = false;
+        let clipboardWords = [];
+        
+        // Check if user is admin
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                try {
+                    // Get user data
+                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
+                    const userData = snapshot.val() || {};
+                    
+                    // Check for admin role - in both new roles array and old role field
+                    const isAdmin = 
+                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+                        (userData.role === 'admin');
+                    
+                    if (isAdmin) {
+                        // User is admin, show tool interface
+                        authScreen.classList.add('hidden');
+                        toolScreen.classList.remove('hidden');
+                        userIsAdmin = true;
+                    } else {
+                        // User does not have access
+                        authScreen.classList.remove('hidden');
+                        toolScreen.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error('Error checking user role:', error);
+                    authScreen.classList.remove('hidden');
+                    toolScreen.classList.add('hidden');
+                }
+            } else {
+                // User is not signed in
+                authScreen.classList.remove('hidden');
+                toolScreen.classList.add('hidden');
+            }
+        });
+        
+        // Tab switching functionality
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Remove active class from all tabs
+                tabs.forEach(t => t.classList.remove('active'));
+                
+                // Add active class to clicked tab
+                tab.classList.add('active');
+                
+                // Hide all tab contents
+                tabContents.forEach(content => content.classList.remove('active'));
+                
+                // Show the corresponding tab content
+                const tabId = tab.getAttribute('data-tab');
+                document.getElementById(`${tabId}-tab`).classList.add('active');
+            });
+        });
+        
+        // Build Datamuse API URL based on parameters
+        function buildDatamuseUrl(isAdvanced) {
+            const baseUrl = "https://api.datamuse.com/words";
+            const params = [];
+            
+            if (isAdvanced) {
+                // Advanced search parameters
+                const ml = document.getElementById("ml").value.trim();
+                if (ml) params.push("ml=" + encodeURIComponent(ml));
+                
+                const sl = document.getElementById("sl").value.trim();
+                if (sl) params.push("sl=" + encodeURIComponent(sl));
+                
+                const sp = document.getElementById("sp").value.trim();
+                if (sp) params.push("sp=" + encodeURIComponent(sp));
+                
+                const rel_syn = document.getElementById("rel_syn").value.trim();
+                if (rel_syn) params.push("rel_syn=" + encodeURIComponent(rel_syn));
+                
+                const rel_ant = document.getElementById("rel_ant").value.trim();
+                if (rel_ant) params.push("rel_ant=" + encodeURIComponent(rel_ant));
+                
+                const rel_trg = document.getElementById("rel_trg").value.trim();
+                if (rel_trg) params.push("rel_trg=" + encodeURIComponent(rel_trg));
+                
+                const rel_jjb = document.getElementById("rel_jjb").value.trim();
+                if (rel_jjb) params.push("rel_jjb=" + encodeURIComponent(rel_jjb));
+                
+                const rel_jja = document.getElementById("rel_jja").value.trim();
+                if (rel_jja) params.push("rel_jja=" + encodeURIComponent(rel_jja));
+                
+                const topics = document.getElementById("topics").value.trim();
+                if (topics) params.push("topics=" + encodeURIComponent(topics));
+                
+                const lc = document.getElementById("lc").value.trim();
+                if (lc) params.push("lc=" + encodeURIComponent(lc));
+                
+                const rc = document.getElementById("rc").value.trim();
+                if (rc) params.push("rc=" + encodeURIComponent(rc));
+                
+                const maxResults = document.getElementById("maxResults").value.trim();
+                if (maxResults) params.push("max=" + encodeURIComponent(maxResults));
+            } else {
+                // Basic search
+                const searchTerm = document.getElementById("basic-search").value.trim();
+                const searchType = document.getElementById("search-type").value;
+                const maxResults = document.getElementById("basic-max").value.trim();
+                
+                if (searchTerm) {
+                    params.push(`${searchType}=${encodeURIComponent(searchTerm)}`);
+                }
+                
+                if (maxResults) {
+                    params.push("max=" + encodeURIComponent(maxResults));
+                }
+            }
+            
+            // Metadata - always include frequency (f)
+            let mdString = "f";
+            document.querySelectorAll(".mdOption:checked").forEach(chk => {
+                mdString += chk.value;
+            });
+            
+            if (mdString) {
+                params.push("md=" + encodeURIComponent(mdString));
+            }
+            
+            if (params.length === 0) {
+                return baseUrl;
+            }
+            
+            return baseUrl + "?" + params.join("&");
+        }
+        
+        // Search function
+        async function performSearch(isAdvanced) {
+            if (!userIsAdmin) {
+                alert('You need admin privileges to perform searches.');
+                return;
+            }
+            
+            // Show loading
+            resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
+            
+            try {
+                // Build URL based on active tab
+                const url = buildDatamuseUrl(isAdvanced);
+                console.log("Searching with URL:", url);
+                
+                // Fetch results from Datamuse API
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Display results
+                displayResults(data);
+            } catch (error) {
+                console.error('Error searching:', error);
+                resultsContainer.innerHTML = `
+                    <div class="error-message">
+                        <strong>Error:</strong> ${error.message || 'Unknown error occurred while searching'}
+                    </div>
+                `;
+            }
+        }
+        
+        // Display search results
+        function displayResults(results) {
+            if (!Array.isArray(results) || results.length === 0) {
+                resultsContainer.innerHTML = '<p class="no-results">No results found. Try different search terms.</p>';
+                return;
+            }
+            
+            // Process results - extract frequency from tags and sort by frequency
+            results.forEach(item => {
+                item.freq = 0;
+                if (Array.isArray(item.tags)) {
+                    item.tags.forEach(tag => {
+                        if (tag.startsWith("f:")) {
+                            item.freq = parseFloat(tag.substring(2));
+                        }
+                    });
+                }
+            });
+            
+            // Sort by frequency descending
+            results.sort((a, b) => b.freq - a.freq);
+            
+            // Create results HTML
+            let html = `<div class="result-count">Found ${results.length} result${results.length !== 1 ? 's' : ''}</div>`;
+            
+            html += `<table class="results-table">
+                <thead>
+                    <tr>
+                        <th>Word</th>
+                        <th>Frequency Score</th>
+                        <th>Details</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+            
+            results.forEach((item, index) => {
+                // Extract part of speech if available
+                let partOfSpeech = '';
+                if (Array.isArray(item.tags)) {
+                    const posTags = item.tags.filter(tag => ['n', 'v', 'adj', 'adv'].includes(tag));
+                    if (posTags.length > 0) {
+                        partOfSpeech = `(${posTags.join(', ')})`;
+                    }
+                }
+                
+                // Create details content
+                let detailsContent = '';
+                
+                // Add definitions if available
+                if (Array.isArray(item.defs) && item.defs.length > 0) {
+                    detailsContent += '<strong>Definitions:</strong><ul class="definition-list">';
+                    item.defs.slice(0, 3).forEach(def => {
+                        // Each def is typically like "n\ta document..."
+                        const parts = def.split('\t');
+                        const pos = parts[0];
+                        const definition = parts[1] || parts[0];
+                        detailsContent += `<li><em>${pos}</em>: ${definition}</li>`;
+                    });
+                    if (item.defs.length > 3) {
+                        detailsContent += `<li>...and ${item.defs.length - 3} more</li>`;
+                    }
+                    detailsContent += '</ul>';
+                }
+                
+                // Add syllables if available
+                if (typeof item.numSyllables === 'number') {
+                    detailsContent += `<strong>Syllables:</strong> ${item.numSyllables}<br>`;
+                }
+                
+                // Add pronunciation if available
+                if (item.pron) {
+                    detailsContent += `<strong>Pronunciation:</strong> ${item.pron}<br>`;
+                }
+                
+                // Create the row HTML
+                html += `
+                    <tr>
+                        <td>
+                            <span>${item.word}</span> ${partOfSpeech}
+                        </td>
+                        <td>${item.freq.toFixed(2)}</td>
+                        <td>
+                            ${detailsContent ? 
+                                `<span class="expand-details" data-index="${index}">Show details</span>
+                                <div id="details-${index}" class="details-container">${detailsContent}</div>` 
+                                : 'No additional details'}
+                        </td>
+                        <td>
+                            <button class="add-to-clipboard" onclick="addToClipboard('${item.word.replace(/'/g, "\\'")}')">Add to clipboard</button>
+                            <a href="https://www.merriam-webster.com/dictionary/${encodeURIComponent(item.word)}" class="dictionary-link" target="_blank">Dictionary</a>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            
+            resultsContainer.innerHTML = html;
+            
+            // Add event listeners to "Show details" buttons
+            document.querySelectorAll('.expand-details').forEach(button => {
+                button.addEventListener('click', function() {
+                    const index = this.getAttribute('data-index');
+                    const detailsContainer = document.getElementById(`details-${index}`);
+                    
+                    detailsContainer.classList.toggle('show-details');
+                    this.textContent = detailsContainer.classList.contains('show-details') ? 'Hide details' : 'Show details';
+                });
+            });
+        }
+        
+        // Clipboard functions
+        function addToClipboard(word) {
+            // Check if the word is already in the clipboard
+            if (!clipboardWords.includes(word)) {
+                clipboardWords.push(word);
+                updateClipboardDisplay();
+            }
+        }
+        
+        function removeFromClipboard(index) {
+            clipboardWords.splice(index, 1);
+            updateClipboardDisplay();
+        }
+        
+        function clearClipboard() {
+            clipboardWords = [];
+            updateClipboardDisplay();
+        }
+        
+        function copyAllWords() {
+            if (clipboardWords.length === 0) {
+                alert('No words to copy');
+                return;
+            }
+            
+            const textToCopy = clipboardWords.join('\n');
+            navigator.clipboard.writeText(textToCopy)
+                .then(() => {
+                    alert('All words copied to clipboard!');
+                })
+                .catch(err => {
+                    console.error('Could not copy text: ', err);
+                    // Fallback for browsers that don't support clipboard API
+                    const textarea = document.createElement('textarea');
+                    textarea.value = textToCopy;
+                    textarea.style.position = 'fixed';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    alert('All words copied to clipboard!');
+                });
+        }
+        
+        function updateClipboardDisplay() {
+            const clipboardContent = document.getElementById('clipboard-content');
+            
+            if (clipboardWords.length === 0) {
+                clipboardContent.innerHTML = '<p>No words added yet.</p>';
+                return;
+            }
+            
+            let html = '';
+            clipboardWords.forEach((word, index) => {
+                html += `
+                    <div class="clipboard-item">
+                        <span>${word}</span>
+                        <span class="remove-item" onclick="removeFromClipboard(${index})">×</span>
+                    </div>
+                `;
+            });
+            
+            clipboardContent.innerHTML = html;
+        }
+        
+        function toggleClipboard() {
+            const container = document.getElementById('clipboard-container');
+            container.classList.toggle('collapsed');
+            
+            // Update the toggle button text
+            const toggleBtn = document.getElementById('toggle-clipboard');
+            if (container.classList.contains('collapsed')) {
+                toggleBtn.textContent = '▼';
+                toggleBtn.setAttribute('aria-label', 'Expand clipboard');
+                toggleBtn.title = 'Show clipboard';
+            } else {
+                toggleBtn.textContent = '▲';
+                toggleBtn.setAttribute('aria-label', 'Collapse clipboard');
+                toggleBtn.title = 'Hide clipboard';
+            }
+        }
+        
+        // Event listeners
+        basicSearchButton.addEventListener('click', () => performSearch(false));
+        advancedSearchButton.addEventListener('click', () => performSearch(true));
+        
+        // Allow pressing Enter to search
+        document.getElementById('basic-search').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch(false);
+            }
+        });
+        
+        // Clipboard event listeners
+        document.getElementById('toggle-clipboard').addEventListener('click', toggleClipboard);
+        document.getElementById('clear-clipboard').addEventListener('click', clearClipboard);
+        document.getElementById('copy-clipboard').addEventListener('click', copyAllWords);
+        
+        // Make the entire header clickable
+        document.querySelector('.clipboard-header').addEventListener('click', function(e) {
+            if (e.target === this || e.target.classList.contains('clipboard-title')) {
+                toggleClipboard();
+            }
+        });
+        
+        // Make addToClipboard and removeFromClipboard available globally
+        window.addToClipboard = addToClipboard;
+        window.removeFromClipboard = removeFromClipboard;
+    </script>
+</body>
+</html>
