@@ -328,6 +328,18 @@
         let lastLoadedItems = {};
         const resultsPerPage = 50;
         let userIsAdmin = false;
+        // Track search state for pagination
+        let currentSearchState = {
+            searchTerm: '',
+            pattern: null,
+            selectedFiles: [],
+            fileIndex: 0,
+            scoreRanges: [],
+            scoreRangeIndex: 0,
+            currentScore: 0,
+            hasMoreResults: false,
+            resultsFound: 0
+        };
         
         // Check if user is admin
         auth.onAuthStateChanged(async (user) => {
@@ -348,8 +360,8 @@
                         toolScreen.classList.remove('hidden');
                         userIsAdmin = true;
                         
-                        // Skip loading files and go straight to manual input
-                        showManualFileInput();
+                        // Try to load file names from tools branch
+                        loadToolsFileNames();
                     } else {
                         // User does not have access
                         authScreen.classList.remove('hidden');
@@ -367,10 +379,52 @@
             }
         });
         
-        // Load available files from Firebase - We're skipping this function now
-        async function loadAvailableFiles() {
-            // Not using this anymore - directly using manual input
-            showManualFileInput();
+        // Load file names directly from the tools branch
+        async function loadToolsFileNames() {
+            try {
+                // First try to get just the keys to avoid a large payload
+                const snapshot = await db.ref('tools').once('value');
+                if (snapshot.exists()) {
+                    // Get just the branch names (which are the file names)
+                    const fileNames = Object.keys(snapshot.val() || {});
+                    
+                    if (fileNames.length > 0) {
+                        // Successfully got file names
+                        availableFiles = fileNames;
+                        showFileSelectionInterface(fileNames);
+                        return;
+                    }
+                }
+                
+                // If we couldn't get file names or there were none, show manual input
+                showManualFileInput();
+            } catch (error) {
+                console.error('Error loading tool file names:', error);
+                showManualFileInput();
+            }
+        }
+        
+        // Show file selection interface with checkboxes
+        function showFileSelectionInterface(fileNames) {
+            // Create the file selection interface HTML
+            let html = `
+                <div class="info-message">
+                    <strong>File Selection:</strong> Select the database files you want to search through.
+                </div>
+            `;
+            
+            // Create a checkbox for each file
+            fileNames.forEach(fileName => {
+                html += `
+                    <div class="file-checkbox">
+                        <input type="checkbox" id="file-${fileName}" value="${fileName}" checked>
+                        <label for="file-${fileName}">${fileName}</label>
+                    </div>
+                `;
+            });
+            
+            // Update the file select container
+            fileSelectContainer.innerHTML = html;
         }
         
         // Display manual file input
@@ -463,65 +517,95 @@
         }
         
         // Search for terms
-        async function searchTerms() {
+        async function searchTerms(continueSearch = false) {
             if (!userIsAdmin) {
                 alert('You need admin privileges to perform searches.');
                 return;
             }
             
-            const searchTerm = searchInput.value.trim();
-            
-            if (!searchTerm) {
-                alert('Please enter a search term');
-                return;
-            }
-            
-            // Get selected files
-            const selectedFiles = [];
-            availableFiles.forEach(file => {
-                const checkbox = document.getElementById(`file-${file}`);
-                if (checkbox && checkbox.checked) {
-                    // Fix file names that incorrectly use dots instead of underscores
-                    let correctedFileName = file;
-                    if (file.includes('.') && !file.includes('_')) {
-                        correctedFileName = file.replace(/\./g, '_');
-                        console.warn(`File name contains dots, attempting to use ${correctedFileName} instead`);
-                    }
-                    selectedFiles.push(correctedFileName);
+            // If not continuing a previous search, start a new one
+            if (!continueSearch) {
+                const searchTerm = searchInput.value.trim();
+                
+                if (!searchTerm) {
+                    alert('Please enter a search term');
+                    return;
                 }
-            });
-            
-            if (selectedFiles.length === 0) {
-                alert('Please select at least one file');
-                return;
+                
+                // Get selected files
+                const selectedFiles = [];
+                availableFiles.forEach(file => {
+                    const checkbox = document.getElementById(`file-${file}`);
+                    if (checkbox && checkbox.checked) {
+                        // Fix file names that incorrectly use dots instead of underscores
+                        let correctedFileName = file;
+                        if (file.includes('.') && !file.includes('_')) {
+                            correctedFileName = file.replace(/\./g, '_');
+                            console.warn(`File name contains dots, attempting to use ${correctedFileName} instead`);
+                        }
+                        selectedFiles.push(correctedFileName);
+                    }
+                });
+                
+                if (selectedFiles.length === 0) {
+                    alert('Please select at least one file');
+                    return;
+                }
+                
+                // Define the score ranges for the search (highest to lowest)
+                const scoreRanges = [
+                    { min: 90, max: 100 }, // Highest scores first
+                    { min: 80, max: 89 },
+                    { min: 70, max: 79 },
+                    { min: 60, max: 69 },
+                    { min: 50, max: 59 },
+                    { min: 40, max: 49 },
+                    { min: 30, max: 39 },
+                    { min: 20, max: 29 },
+                    { min: 10, max: 19 },
+                    { min: 0, max: 9 }
+                ];
+                
+                // Create regex pattern from search term
+                const regexPattern = wildcardToRegex(searchTerm);
+                
+                // Initialize search state
+                currentSearchState = {
+                    searchTerm: searchTerm,
+                    pattern: regexPattern,
+                    selectedFiles: selectedFiles,
+                    fileIndex: 0,
+                    scoreRanges: scoreRanges,
+                    scoreRangeIndex: 0,
+                    currentScore: scoreRanges[0].max,
+                    hasMoreResults: false,
+                    resultsFound: 0,
+                    allResults: [],
+                    errors: []
+                };
             }
             
             // Show loading
-            resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
-            
-            // Reset last loaded items
-            lastLoadedItems = {};
-            selectedFiles.forEach(file => {
-                lastLoadedItems[file] = null;
-            });
-            
-            // Create regex pattern from search term
-            const regexPattern = wildcardToRegex(searchTerm);
-            
-            // Search in selected files
-            let allResults = [];
+            if (!continueSearch) {
+                resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
+            } else {
+                // If continuing, update or create the loading indicator for additional results
+                let loadingElem = document.getElementById('loading-more');
+                if (!loadingElem) {
+                    loadingElem = document.createElement('div');
+                    loadingElem.id = 'loading-more';
+                    loadingElem.className = 'loading';
+                    loadingElem.textContent = 'Loading more results...';
+                    resultsContainer.appendChild(loadingElem);
+                }
+            }
             
             try {
-                for (const file of selectedFiles) {
-                    const results = await searchInFile(file, regexPattern);
-                    allResults = allResults.concat(results);
-                }
+                // Start or continue the search process
+                const results = await searchBatch();
                 
-                // Sort by score (descending)
-                allResults.sort((a, b) => b.score - a.score);
-                
-                // Display results
-                displayResults(allResults, false);
+                // Display results, indicating if this is a continuation of a previous search
+                displayResults(results, continueSearch);
             } catch (error) {
                 console.error('Error searching terms:', error);
                 
@@ -543,163 +627,211 @@
             }
         }
         
-        // Search in a specific file
-        async function searchInFile(filename, regexPattern) {
+        // Search in batches until we find enough results or exhaust the search space
+        async function searchBatch() {
             const results = [];
+            const errors = [];
+            
+            // 30 second timeout for the entire batch
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Search timed out`)), 30000);
+            });
             
             try {
-                // Set a longer timeout for the search
-                const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error(`Search in ${filename} timed out`)), 30000); // 30 second timeout (increased from 15)
-                });
-                
-                // Break down the search into score ranges for large files
-                // This helps avoid "payload too large" errors
-                let searchPromises = [];
-                
-                // Check if the file exists first with a smaller query
-                const fileCheckPromise = db.ref(`tools/${filename}`).limitToFirst(1).once('value');
-                const fileSnapshot = await Promise.race([fileCheckPromise, timeoutPromise]);
-                
-                if (!fileSnapshot.exists()) {
-                    // Check if the filename contains dots instead of underscores
-                    if (filename.includes('.')) {
-                        const correctedName = filename.replace(/\./g, '_');
-                        return [{
-                            term: `Error: File not found: ${filename}`,
-                            parentheses: `Files use underscores, not dots. Did you mean "${correctedName}"?`,
-                            score: 0,
-                            filename: filename,
-                            termId: 'error',
-                            isError: true
-                        }];
-                    } else {
-                        return [{
-                            term: `Error: File not found: ${filename}`,
-                            parentheses: 'This file does not exist in the database. Available files: RankedWiki_txt, RankedWiktionary_txt, ScrabbleDict_txt, jeopardy_wordlist_txt',
-                            score: 0,
-                            filename: filename,
-                            termId: 'error',
-                            isError: true
-                        }];
-                    }
-                }
-                
-                // Strategy: Search in score groups to avoid huge payloads
-                const scoreRanges = [
-                    { min: 90, max: 100 }, // Highest scores first
-                    { min: 80, max: 89 },
-                    { min: 70, max: 79 },
-                    { min: 60, max: 69 },
-                    { min: 50, max: 59 },
-                    { min: 40, max: 49 },
-                    { min: 30, max: 39 },
-                    { min: 20, max: 29 },
-                    { min: 10, max: 19 },
-                    { min: 0, max: 9 }
-                ];
-                
-                for (const range of scoreRanges) {
-                    const rangePromise = new Promise(async (resolve) => {
-                        try {
-                            const rangeResults = [];
-                            
-                            // Query for each score in the range
-                            for (let score = range.max; score >= range.min; score--) {
-                                const scoreQuery = db.ref(`tools/${filename}/${score}`).once('value');
-                                const scoreSnapshot = await scoreQuery;
-                                const terms = scoreSnapshot.val() || {};
-                                
-                                // For each term ID
-                                for (const termId in terms) {
-                                    if (terms.hasOwnProperty(termId)) {
-                                        const termData = terms[termId];
-                                        
-                                        // Skip items without term property
-                                        if (!termData.term) continue;
-                                        
-                                        // Check if term matches regex pattern
-                                        if (regexPattern.test(termData.term)) {
-                                            rangeResults.push({
-                                                term: termData.term,
-                                                parentheses: termData.parentheses || '',
-                                                score: score,
-                                                filename: filename,
-                                                termId: termId
-                                            });
-                                        }
+                const searchPromise = (async () => {
+                    // Continue from where we left off
+                    let {selectedFiles, fileIndex, scoreRanges, scoreRangeIndex, currentScore} = currentSearchState;
+                    
+                    // Loop through files
+                    while (fileIndex < selectedFiles.length) {
+                        const filename = selectedFiles[fileIndex];
+                        
+                        // Check if file exists (only on first file access)
+                        if (scoreRangeIndex === 0 && currentScore === scoreRanges[0].max) {
+                            try {
+                                const fileExists = await checkFileExists(filename);
+                                if (!fileExists) {
+                                    // File doesn't exist, add error and skip to next file
+                                    if (filename.includes('.')) {
+                                        const correctedName = filename.replace(/\./g, '_');
+                                        errors.push({
+                                            term: `Error: File not found: ${filename}`,
+                                            parentheses: `Files use underscores, not dots. Did you mean "${correctedName}"?`,
+                                            score: 0,
+                                            filename: filename,
+                                            termId: 'error',
+                                            isError: true
+                                        });
+                                    } else {
+                                        errors.push({
+                                            term: `Error: File not found: ${filename}`,
+                                            parentheses: 'This file does not exist in the database. Available files: RankedWiki_txt, RankedWiktionary_txt, ScrabbleDict_txt, jeopardy_wordlist_txt',
+                                            score: 0,
+                                            filename: filename,
+                                            termId: 'error',
+                                            isError: true
+                                        });
                                     }
+                                    fileIndex++;
+                                    continue;
                                 }
+                            } catch (error) {
+                                console.error(`Error checking if file exists: ${filename}`, error);
+                                errors.push({
+                                    term: `Error checking file: ${filename}`,
+                                    parentheses: error.message || 'Unknown error',
+                                    score: 0,
+                                    filename: filename,
+                                    termId: 'error',
+                                    isError: true
+                                });
+                                fileIndex++;
+                                continue;
+                            }
+                        }
+                        
+                        // Loop through score ranges
+                        while (scoreRangeIndex < scoreRanges.length) {
+                            const range = scoreRanges[scoreRangeIndex];
+                            
+                            // Loop through scores in the current range
+                            while (currentScore >= range.min) {
+                                try {
+                                    // Search for one score at a time
+                                    const scoreResults = await searchScore(filename, currentScore, currentSearchState.pattern);
+                                    results.push(...scoreResults);
+                                    
+                                    // Update total results found
+                                    currentSearchState.resultsFound += scoreResults.length;
+                                    
+                                    // If we have enough results, stop searching
+                                    if (currentSearchState.resultsFound >= resultsPerPage) {
+                                        // Remember where we left off
+                                        currentSearchState.currentScore = currentScore - 1;
+                                        
+                                        // Check if there could be more results
+                                        currentSearchState.hasMoreResults = true;
+                                        
+                                        // Return the current batch
+                                        return results;
+                                    }
+                                } catch (error) {
+                                    console.error(`Error searching score ${currentScore} in ${filename}:`, error);
+                                    // Just skip this score and continue
+                                }
+                                
+                                // Move to next score
+                                currentScore--;
                             }
                             
-                            resolve(rangeResults);
-                        } catch (err) {
-                            console.error(`Error searching score range ${range.min}-${range.max}:`, err);
-                            resolve([]); // Return empty results but don't fail the whole search
+                            // Move to next range
+                            scoreRangeIndex++;
+                            if (scoreRangeIndex < scoreRanges.length) {
+                                currentScore = scoreRanges[scoreRangeIndex].max;
+                            }
                         }
-                    });
+                        
+                        // Reset for next file
+                        fileIndex++;
+                        scoreRangeIndex = 0;
+                        if (scoreRanges.length > 0) {
+                            currentScore = scoreRanges[0].max;
+                        }
+                    }
                     
-                    searchPromises.push(rangePromise);
+                    // If we get here, we've exhausted all search options
+                    currentSearchState.hasMoreResults = false;
+                    
+                    return results;
+                })();
+                
+                // Race the search against the timeout
+                const batchResults = await Promise.race([searchPromise, timeoutPromise]);
+                
+                // Add any errors we encountered
+                if (errors.length > 0) {
+                    // Add errors to the front of the results
+                    batchResults.unshift(...errors);
+                    
+                    // Also track them in the search state
+                    if (!currentSearchState.errors) {
+                        currentSearchState.errors = [];
+                    }
+                    currentSearchState.errors.push(...errors);
                 }
                 
-                // Run all range searches in parallel with a timeout
-                const allResults = await Promise.race([
-                    Promise.all(searchPromises),
-                    timeoutPromise
-                ]);
+                return batchResults;
+            } catch (error) {
+                console.error('Error in search batch:', error);
                 
-                // Combine results from all ranges
-                for (const rangeResults of allResults) {
-                    results.push(...rangeResults);
+                // Return whatever results we had plus the error
+                const errorResult = {
+                    term: `Error during search`,
+                    parentheses: error.message || 'Unknown error',
+                    score: 0,
+                    termId: 'error',
+                    isError: true
+                };
+                
+                results.push(errorResult);
+                return results;
+            }
+        }
+        
+        // Check if a file exists in the database
+        async function checkFileExists(filename) {
+            try {
+                const snapshot = await db.ref(`tools/${filename}`).limitToFirst(1).once('value');
+                return snapshot.exists();
+            } catch (error) {
+                console.error(`Error checking if file exists: ${filename}`, error);
+                throw error;
+            }
+        }
+        
+        // Search a specific score in a file
+        async function searchScore(filename, score, regexPattern) {
+            try {
+                const snapshot = await db.ref(`tools/${filename}/${score}`).once('value');
+                const terms = snapshot.val() || {};
+                const results = [];
+                
+                // For each term ID
+                for (const termId in terms) {
+                    if (terms.hasOwnProperty(termId)) {
+                        const termData = terms[termId];
+                        
+                        // Skip items without term property
+                        if (!termData.term) continue;
+                        
+                        // Check if term matches regex pattern
+                        if (regexPattern.test(termData.term)) {
+                            results.push({
+                                term: termData.term,
+                                parentheses: termData.parentheses || '',
+                                score: score,
+                                filename: filename,
+                                termId: termId
+                            });
+                        }
+                    }
                 }
                 
                 return results;
             } catch (error) {
-                console.error(`Error searching in file ${filename}:`, error);
-                
-                // Return an empty array but add a "special" result to indicate error
-                if (error.code === 'PERMISSION_DENIED') {
-                    return [{
-                        term: `Error: Permission denied for ${filename}`,
-                        parentheses: 'Please update Firebase security rules',
-                        score: 0,
-                        filename: filename,
-                        termId: 'error',
-                        isError: true
-                    }];
-                } else if (error.message && error.message.includes('timed out')) {
-                    return [{
-                        term: `Error: Search timed out for ${filename}`,
-                        parentheses: 'Try a more specific search term for better results',
-                        score: 0,
-                        filename: filename,
-                        termId: 'error',
-                        isError: true
-                    }];
-                } else if (error.message && error.message.includes('payload is too large')) {
-                    return [{
-                        term: `Error: Data payload too large for ${filename}`,
-                        parentheses: 'Try a more specific search term to reduce results',
-                        score: 0,
-                        filename: filename,
-                        termId: 'error',
-                        isError: true
-                    }];
-                } else {
-                    return [{
-                        term: `Error searching in ${filename}`,
-                        parentheses: error.message || 'Unknown error',
-                        score: 0,
-                        filename: filename,
-                        termId: 'error',
-                        isError: true
-                    }];
-                }
+                console.error(`Error searching score ${score} in ${filename}:`, error);
+                throw error;
             }
         }
         
         // Display search results
         function displayResults(results, isLoadMore) {
+            // Remove loading more indicator if it exists
+            const loadingMore = document.getElementById('loading-more');
+            if (loadingMore) {
+                loadingMore.remove();
+            }
+            
             if (!isLoadMore) {
                 resultsContainer.innerHTML = '';
             }
@@ -711,7 +843,7 @@
             
             // Check if all results are errors
             const errorResults = results.filter(r => r.isError);
-            if (errorResults.length === results.length) {
+            if (errorResults.length === results.length && !isLoadMore) {
                 const errorHtml = errorResults.map(err => 
                     `<div class="error-message" style="margin-bottom: 10px;">
                         <strong>${err.term}</strong><br>
@@ -738,6 +870,18 @@
             // Filter out error results for normal display
             const validResults = results.filter(r => !r.isError);
             
+            // If we're loading more and there are only errors in this batch, show a message
+            if (isLoadMore && validResults.length === 0 && errorResults.length > 0) {
+                const errorWarning = document.createElement('div');
+                errorWarning.className = 'error-message';
+                errorWarning.style.backgroundColor = '#fff3cd';
+                errorWarning.style.color = '#856404';
+                errorWarning.style.border = '1px solid #ffeeba';
+                errorWarning.innerHTML = `<strong>Note:</strong> No additional results found. There were errors accessing some data.`;
+                resultsContainer.appendChild(errorWarning);
+                return;
+            }
+            
             // Create table if it doesn't exist
             let table = document.getElementById('results-table');
             
@@ -750,7 +894,8 @@
                 const thead = document.createElement('thead');
                 const headerRow = document.createElement('tr');
                 
-                const headers = ['Score', 'Term', 'Parenthetical'];
+                // Include all columns, including placeholders for future implementation
+                const headers = ['Score', 'Term', 'Parenthetical', 'Wikipedia Link', 'Merriam Webster Link', 'Trivia Archive Results'];
                 headers.forEach(headerText => {
                     const th = document.createElement('th');
                     th.textContent = headerText;
@@ -771,13 +916,14 @@
             // Get or create table body
             const tbody = document.getElementById('results-tbody');
             
-            // Display results (limited to resultsPerPage)
-            const displayCount = Math.min(validResults.length, resultsPerPage);
+            // If this is a continued search, we'll append to the existing table
+            // If it's a new search, we've already cleared the results container above
             
-            // Add count of results
+            // Add count of results if this is the first batch
             if (!isLoadMore) {
                 const totalCount = document.createElement('div');
                 totalCount.className = 'result-count';
+                totalCount.id = 'result-count';
                 totalCount.textContent = `Found ${validResults.length} result${validResults.length !== 1 ? 's' : ''}`;
                 resultsContainer.insertBefore(totalCount, table);
                 
@@ -791,11 +937,18 @@
                     errorWarning.innerHTML = `<strong>Note:</strong> Some files had errors and were excluded from results.`;
                     resultsContainer.insertBefore(errorWarning, table);
                 }
+            } else {
+                // If we're loading more, update the count
+                const totalCount = document.getElementById('result-count');
+                if (totalCount) {
+                    const currentCount = parseInt(totalCount.textContent.match(/\d+/)[0], 10);
+                    const newCount = currentCount + validResults.length;
+                    totalCount.textContent = `Found ${newCount} result${newCount !== 1 ? 's' : ''}`;
+                }
             }
             
-            for (let i = 0; i < displayCount; i++) {
-                const result = validResults[i];
-                
+            // Display valid results
+            for (const result of validResults) {
                 const row = document.createElement('tr');
                 
                 // Score cell
@@ -813,26 +966,40 @@
                 parenthesesCell.textContent = result.parentheses || '';
                 row.appendChild(parenthesesCell);
                 
+                // Wikipedia Link (placeholder)
+                const wikiCell = document.createElement('td');
+                wikiCell.textContent = 'Coming soon';
+                row.appendChild(wikiCell);
+                
+                // Merriam Webster Link (placeholder)
+                const mwCell = document.createElement('td');
+                mwCell.textContent = 'Coming soon';
+                row.appendChild(mwCell);
+                
+                // Trivia Archive (placeholder)
+                const triviaCell = document.createElement('td');
+                triviaCell.textContent = 'Coming soon';
+                row.appendChild(triviaCell);
+                
                 tbody.appendChild(row);
             }
             
-            // Add "Load More" button if there are more results
-            if (validResults.length > resultsPerPage) {
-                // Remove existing load more button if any
-                const existingButton = document.getElementById('load-more-button');
-                if (existingButton) {
-                    existingButton.remove();
-                }
-                
-                const remainingResults = validResults.slice(resultsPerPage);
-                
+            // Show "Load More" button if there are potentially more results
+            // Remove existing button first
+            const existingButton = document.getElementById('load-more-button');
+            if (existingButton) {
+                existingButton.remove();
+            }
+            
+            if (currentSearchState.hasMoreResults) {
                 const loadMoreButton = document.createElement('button');
                 loadMoreButton.id = 'load-more-button';
                 loadMoreButton.className = 'load-more';
-                loadMoreButton.textContent = `Load More (${remainingResults.length} more results)`;
+                loadMoreButton.textContent = 'Load More Results';
                 
                 loadMoreButton.addEventListener('click', () => {
-                    displayResults(remainingResults, true);
+                    // Continue the search from where we left off
+                    searchTerms(true);
                 });
                 
                 resultsContainer.appendChild(loadMoreButton);
