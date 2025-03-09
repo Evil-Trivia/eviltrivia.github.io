@@ -239,6 +239,113 @@
             border-radius: 4px;
             display: inline-block;
         }
+        
+        /* Additional styles for clipboard functionality and links */
+        .clipboard-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 300px;
+            max-height: 400px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease;
+        }
+        
+        .clipboard-header {
+            padding: 10px 15px;
+            background-color: #f2f2f2;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .clipboard-title {
+            font-weight: bold;
+            margin: 0;
+        }
+        
+        .clipboard-content {
+            padding: 10px 15px;
+            overflow-y: auto;
+            max-height: 300px;
+            flex-grow: 1;
+        }
+        
+        .clipboard-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .clipboard-actions {
+            padding: 10px 15px;
+            display: flex;
+            justify-content: space-between;
+            border-top: 1px solid #ddd;
+        }
+        
+        .clipboard-btn {
+            background-color: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .clipboard-toggle {
+            background-color: #f2f2f2;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+        
+        .clipboard-clear {
+            background-color: #d9534f;
+        }
+        
+        .clipboard-copy {
+            background-color: #5cb85c;
+        }
+        
+        .remove-item {
+            color: #d9534f;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        
+        .add-to-clipboard {
+            background-color: #5cb85c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        
+        .collapsed {
+            transform: translateX(290px);
+        }
+        
+        .dictionary-link {
+            color: #007bff;
+            text-decoration: none;
+        }
+        
+        .dictionary-link:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -292,6 +399,21 @@
         </div>
     </div>
     
+    <!-- Clipboard Container -->
+    <div id="clipboard-container" class="clipboard-container collapsed">
+        <div class="clipboard-header">
+            <h3 class="clipboard-title">Collected Terms</h3>
+            <button id="toggle-clipboard" class="clipboard-btn clipboard-toggle"><<</button>
+        </div>
+        <div id="clipboard-content" class="clipboard-content">
+            <p>No terms added yet.</p>
+        </div>
+        <div class="clipboard-actions">
+            <button id="clear-clipboard" class="clipboard-btn clipboard-clear">Clear All</button>
+            <button id="copy-clipboard" class="clipboard-btn clipboard-copy">Copy All</button>
+        </div>
+    </div>
+    
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
@@ -328,6 +450,8 @@
         let lastLoadedItems = {};
         const resultsPerPage = 50;
         let userIsAdmin = false;
+        // Clipboard array to store terms
+        let clipboardTerms = [];
         // Track search state for pagination
         let currentSearchState = {
             searchTerm: '',
@@ -969,9 +1093,14 @@
                 scoreCell.textContent = result.score;
                 row.appendChild(scoreCell);
                 
-                // Term cell
+                // Term cell with clipboard button
                 const termCell = document.createElement('td');
-                termCell.textContent = result.term;
+                termCell.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>${result.term}</span>
+                        <button class="add-to-clipboard" onclick="addToClipboard('${result.term.replace(/'/g, "\\'")}')">+</button>
+                    </div>
+                `;
                 row.appendChild(termCell);
                 
                 // Parenthetical cell
@@ -979,14 +1108,16 @@
                 parenthesesCell.textContent = result.parentheses || '';
                 row.appendChild(parenthesesCell);
                 
-                // Wikipedia Link (placeholder)
+                // Wikipedia Link
                 const wikiCell = document.createElement('td');
-                wikiCell.textContent = 'Coming soon';
+                const wikiLink = getWikipediaLink(result.term);
+                wikiCell.innerHTML = `<a href="${wikiLink}" class="dictionary-link" target="_blank">Wikipedia</a>`;
                 row.appendChild(wikiCell);
                 
-                // Merriam Webster Link (placeholder)
+                // Merriam Webster Link
                 const mwCell = document.createElement('td');
-                mwCell.textContent = 'Coming soon';
+                const mwLink = getMerriamWebsterLink(result.term);
+                mwCell.innerHTML = `<a href="${mwLink}" class="dictionary-link" target="_blank">Merriam-Webster</a>`;
                 row.appendChild(mwCell);
                 
                 // Trivia Archive (placeholder)
@@ -1028,6 +1159,103 @@
                 searchTerms();
             }
         });
+        
+        // Clipboard management functions
+        function addToClipboard(term) {
+            // Check if the term is already in the clipboard
+            if (!clipboardTerms.includes(term)) {
+                clipboardTerms.push(term);
+                updateClipboardDisplay();
+            }
+        }
+        
+        function removeFromClipboard(index) {
+            clipboardTerms.splice(index, 1);
+            updateClipboardDisplay();
+        }
+        
+        function clearClipboard() {
+            clipboardTerms = [];
+            updateClipboardDisplay();
+        }
+        
+        function copyAllTerms() {
+            if (clipboardTerms.length === 0) {
+                alert('No terms to copy');
+                return;
+            }
+            
+            const textToCopy = clipboardTerms.join('\n');
+            navigator.clipboard.writeText(textToCopy)
+                .then(() => {
+                    alert('All terms copied to clipboard!');
+                })
+                .catch(err => {
+                    console.error('Could not copy text: ', err);
+                    // Fallback for browsers that don't support clipboard API
+                    const textarea = document.createElement('textarea');
+                    textarea.value = textToCopy;
+                    textarea.style.position = 'fixed';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    alert('All terms copied to clipboard!');
+                });
+        }
+        
+        function updateClipboardDisplay() {
+            const clipboardContent = document.getElementById('clipboard-content');
+            
+            if (clipboardTerms.length === 0) {
+                clipboardContent.innerHTML = '<p>No terms added yet.</p>';
+                return;
+            }
+            
+            let html = '';
+            clipboardTerms.forEach((term, index) => {
+                html += `
+                    <div class="clipboard-item">
+                        <span>${term}</span>
+                        <span class="remove-item" onclick="removeFromClipboard(${index})">×</span>
+                    </div>
+                `;
+            });
+            
+            clipboardContent.innerHTML = html;
+        }
+        
+        function toggleClipboard() {
+            const container = document.getElementById('clipboard-container');
+            container.classList.toggle('collapsed');
+            
+            // Update the toggle button text
+            const toggleBtn = document.getElementById('toggle-clipboard');
+            if (container.classList.contains('collapsed')) {
+                toggleBtn.textContent = '>>';
+            } else {
+                toggleBtn.textContent = '<<';
+            }
+        }
+        
+        // Generate Wikipedia link for a term
+        function getWikipediaLink(term) {
+            // Replace spaces with underscores
+            const formattedTerm = term.replace(/\s+/g, '_');
+            return `https://en.wikipedia.org/wiki/${encodeURIComponent(formattedTerm)}`;
+        }
+        
+        // Generate Merriam-Webster link for a term
+        function getMerriamWebsterLink(term) {
+            // Replace spaces with %20
+            const formattedTerm = term.replace(/\s+/g, '%20');
+            return `https://www.merriam-webster.com/dictionary/${formattedTerm}`;
+        }
+        
+        // Clipboard event listeners
+        document.getElementById('toggle-clipboard').addEventListener('click', toggleClipboard);
+        document.getElementById('clear-clipboard').addEventListener('click', clearClipboard);
+        document.getElementById('copy-clipboard').addEventListener('click', copyAllTerms);
     </script>
 </body>
 </html> 
