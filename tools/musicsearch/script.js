@@ -1,5 +1,6 @@
 // Global variables
 let chartData = [];
+let currentResults = []; // Store current results to allow deduping without re-searching
 const dataUrl = 'https://raw.githubusercontent.com/utdata/rwd-billboard-data/main/data-out/billboard-200-current.csv';
 
 // DOM elements
@@ -12,6 +13,7 @@ const startDateInput = document.getElementById('startDate');
 const endDateInput = document.getElementById('endDate');
 const exactMatchCheckbox = document.getElementById('exactMatch');
 const resetBtn = document.getElementById('resetBtn');
+const dedupeBtn = document.getElementById('dedupeBtn');
 const loading = document.getElementById('loading');
 const resultsBody = document.getElementById('resultsBody');
 const resultCount = document.getElementById('resultCount');
@@ -35,6 +37,13 @@ function init() {
     searchForm.addEventListener('submit', handleSearch);
     searchTypeSelect.addEventListener('change', toggleSearchFields);
     resetBtn.addEventListener('click', resetForm);
+    dedupeBtn.addEventListener('click', dedupeResults);
+    
+    // Initialize tooltips
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function(tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
     
     // Set today as the default end date
     const today = new Date().toISOString().split('T')[0];
@@ -82,7 +91,8 @@ async function fetchChartData() {
         loading.style.display = 'none';
         
         // Display some initial results
-        displayResults(chartData.slice(0, 25));
+        currentResults = chartData.slice(0, 25);
+        displayResults(currentResults);
         resultCount.textContent = chartData.length;
         
     } catch (error) {
@@ -194,9 +204,53 @@ function handleSearch(event) {
             break;
     }
     
+    // Store current results for potential deduping
+    currentResults = filteredResults;
+    
     displayResults(filteredResults);
     calculateStatistics(filteredResults, searchType);
     resultCount.textContent = filteredResults.length;
+}
+
+function dedupeResults() {
+    if (currentResults.length === 0) {
+        return; // Nothing to dedupe
+    }
+    
+    // Create a map to hold unique album-artist combinations
+    const uniqueMap = new Map();
+    
+    // Group by album-artist
+    currentResults.forEach(item => {
+        const key = `${item.title.toLowerCase()}-${item.performer.toLowerCase()}`;
+        
+        if (!uniqueMap.has(key)) {
+            uniqueMap.set(key, item);
+        } else {
+            const existingItem = uniqueMap.get(key);
+            
+            // Choose the better record based on criteria:
+            // 1. Better peak position (lower number is better)
+            // 2. If same peak, longer chart run
+            const existingPeak = parseInt(existingItem.peak_pos, 10);
+            const currentPeak = parseInt(item.peak_pos, 10);
+            const existingWeeks = parseInt(existingItem.wks_on_chart, 10) || 0;
+            const currentWeeks = parseInt(item.wks_on_chart, 10) || 0;
+            
+            if (currentPeak < existingPeak || 
+                (currentPeak === existingPeak && currentWeeks > existingWeeks)) {
+                uniqueMap.set(key, item);
+            }
+        }
+    });
+    
+    // Get the deduplicated array and display
+    const dedupedResults = Array.from(uniqueMap.values());
+    
+    // Show deduplicated results
+    displayResults(dedupedResults);
+    calculateStatistics(dedupedResults, searchTypeSelect.value);
+    resultCount.textContent = `${dedupedResults.length} (deduplicated from ${currentResults.length})`;
 }
 
 function displayResults(results) {
@@ -415,6 +469,7 @@ function resetForm() {
     statsContainer.style.display = 'none';
     
     // Show recent results
-    displayResults(chartData.slice(0, 25));
+    currentResults = chartData.slice(0, 25);
+    displayResults(currentResults);
     resultCount.textContent = '25';
 } 
