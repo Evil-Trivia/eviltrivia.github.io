@@ -2670,13 +2670,87 @@
                     // Auto submit the search if requested
                     if (autoSubmit) {
                         console.log('Auto-submitting search...');
-                        setTimeout(() => {
-                            // Find search button and click it
+                        
+                        // Approach 1: Try to click the search button
+                        const executeSearch = function() {
+                            console.log('Executing search directly...');
+                            
+                            // First, try to call the search function directly if it exists
+                            if (typeof searchQuestions === 'function') {
+                                searchQuestions();
+                                return true;
+                            }
+                            
+                            // Second, try to click the search button
                             const searchButton = document.getElementById('search-btn');
                             if (searchButton) {
                                 searchButton.click();
+                                return true;
                             }
-                        }, 500); // Short delay to ensure page is ready
+                            
+                            return false;
+                        };
+                        
+                        // Try immediately
+                        if (!executeSearch()) {
+                            // Try again after a short delay
+                            setTimeout(executeSearch, 500);
+                            
+                            // And once more with a longer delay as a fallback
+                            setTimeout(executeSearch, 2000);
+                        }
+                        
+                        // Approach 2: Setup a MutationObserver as a backup to watch for when the UI changes
+                        // This will catch when auth completes or page finishes rendering
+                        const observer = new MutationObserver(function(mutations) {
+                            const searchButton = document.getElementById('search-btn');
+                            if (searchButton && !searchButton._clicked) {
+                                searchButton._clicked = true; // Set a flag to prevent multiple clicks
+                                console.log('MutationObserver triggering search...');
+                                
+                                // Try direct search function if available
+                                if (typeof searchQuestions === 'function') {
+                                    searchQuestions();
+                                } else {
+                                    searchButton.click();
+                                }
+                                
+                                observer.disconnect(); // Stop watching once we trigger search
+                            }
+                        });
+                        
+                        // Watch for changes to the entire body
+                        observer.observe(document.body, { 
+                            childList: true, 
+                            subtree: true,
+                            attributes: true 
+                        });
+                        
+                        // Approach 3: Set up a check every second for up to 10 seconds
+                        let checkCount = 0;
+                        const checkTimer = setInterval(function() {
+                            checkCount++;
+                            const searchButton = document.getElementById('search-btn');
+                            
+                            if (searchButton && !searchButton._clicked) {
+                                searchButton._clicked = true;
+                                console.log('Interval check triggering search...');
+                                
+                                // Try direct search function if available
+                                if (typeof searchQuestions === 'function') {
+                                    searchQuestions();
+                                } else {
+                                    searchButton.click();
+                                }
+                                
+                                clearInterval(checkTimer);
+                            }
+                            
+                            // Stop checking after 10 attempts
+                            if (checkCount >= 10) {
+                                clearInterval(checkTimer);
+                            }
+                        }, 1000);
                     }
                 }
             }
