@@ -31,9 +31,9 @@
         .content-box {
             background-color: white;
             border-radius: 8px;
-            padding: 40px;
+            padding: 30px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
+            margin-bottom: 20px;
         }
         
         .auth-container {
@@ -69,6 +69,117 @@
         .hidden {
             display: none;
         }
+        
+        /* New styles for the regex tool */
+        .search-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .search-row {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .search-input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        
+        .search-button {
+            background-color: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .file-select {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+        
+        .file-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .results-table th {
+            background-color: #f2f2f2;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        .results-table td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .results-container {
+            margin-top: 20px;
+        }
+        
+        .load-more {
+            display: block;
+            margin: 20px auto;
+            background-color: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .no-results {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .info-message {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .wild-card-info {
+            margin-top: 10px;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        
+        .wild-card-info h3 {
+            margin-top: 0;
+        }
+        
+        .wild-card-info ul {
+            margin-bottom: 0;
+        }
     </style>
 </head>
 <body>
@@ -85,9 +196,39 @@
         <!-- Tool Interface -->
         <div id="tool-screen" class="hidden">
             <div class="content-box">
-                <h2>Coming Soon</h2>
-                <p>The Regex Tool is currently under development.</p>
-                <p>Check back later for updates!</p>
+                <h2>Search Terms</h2>
+                
+                <div class="wild-card-info">
+                    <h3>Wildcard Options:</h3>
+                    <ul>
+                        <li><strong>apple</strong> - Exact match (not case sensitive)</li>
+                        <li><strong>*apple*</strong> - Contains "apple" anywhere in the term</li>
+                        <li><strong>apple*</strong> - Begins with "apple"</li>
+                        <li><strong>*apple</strong> - Ends with "apple"</li>
+                        <li><strong>?</strong> - Matches any single character (e.g., "apple?" could match "apples")</li>
+                    </ul>
+                </div>
+                
+                <div class="search-container">
+                    <div class="search-row">
+                        <input type="text" id="search-input" class="search-input" placeholder="Enter search term (e.g., apple, *apple*, a?ple)">
+                        <button id="search-button" class="search-button">Search</button>
+                    </div>
+                    
+                    <div>
+                        <h3>Select Files:</h3>
+                        <div id="file-select" class="file-select">
+                            <p>Loading available files...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="content-box">
+                <h2>Search Results</h2>
+                <div id="results-container" class="results-container">
+                    <p class="no-results">Enter a search term and select files to see results.</p>
+                </div>
             </div>
         </div>
     </div>
@@ -118,6 +259,15 @@
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
         const toolScreen = document.getElementById('tool-screen');
+        const searchInput = document.getElementById('search-input');
+        const searchButton = document.getElementById('search-button');
+        const fileSelectContainer = document.getElementById('file-select');
+        const resultsContainer = document.getElementById('results-container');
+        
+        // Global variables
+        let availableFiles = [];
+        let lastLoadedItems = {};
+        const resultsPerPage = 50;
         
         // Check if user is admin
         auth.onAuthStateChanged(async (user) => {
@@ -141,6 +291,9 @@
                         // User has appropriate access, show tool interface
                         authScreen.classList.add('hidden');
                         toolScreen.classList.remove('hidden');
+                        
+                        // Load available files
+                        loadAvailableFiles();
                     } else {
                         // User does not have access
                         authScreen.classList.remove('hidden');
@@ -155,6 +308,264 @@
                 // User is not signed in
                 authScreen.classList.remove('hidden');
                 toolScreen.classList.add('hidden');
+            }
+        });
+        
+        // Load available files from Firebase
+        async function loadAvailableFiles() {
+            try {
+                const snapshot = await db.ref('tools').once('value');
+                const tools = snapshot.val() || {};
+                
+                // Get filenames
+                availableFiles = Object.keys(tools);
+                
+                // Display file checkboxes
+                if (availableFiles.length > 0) {
+                    fileSelectContainer.innerHTML = '';
+                    
+                    availableFiles.forEach(file => {
+                        const fileCheckbox = document.createElement('div');
+                        fileCheckbox.className = 'file-checkbox';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.id = `file-${file}`;
+                        checkbox.value = file;
+                        
+                        const label = document.createElement('label');
+                        label.htmlFor = `file-${file}`;
+                        label.textContent = file;
+                        
+                        fileCheckbox.appendChild(checkbox);
+                        fileCheckbox.appendChild(label);
+                        fileSelectContainer.appendChild(fileCheckbox);
+                    });
+                    
+                    // If only one file, check it by default
+                    if (availableFiles.length === 1) {
+                        document.getElementById(`file-${availableFiles[0]}`).checked = true;
+                    }
+                } else {
+                    fileSelectContainer.innerHTML = '<p>No files available</p>';
+                }
+            } catch (error) {
+                console.error('Error loading available files:', error);
+                fileSelectContainer.innerHTML = '<p>Error loading files. Please try again later.</p>';
+            }
+        }
+        
+        // Convert wildcard pattern to regex
+        function wildcardToRegex(pattern) {
+            // Escape special regex characters except * and ?
+            let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            
+            // Convert * to regex .*
+            regexPattern = regexPattern.replace(/\*/g, '.*');
+            
+            // Convert ? to regex .
+            regexPattern = regexPattern.replace(/\?/g, '.');
+            
+            // Create case-insensitive regex
+            return new RegExp(`^${regexPattern}$`, 'i');
+        }
+        
+        // Search for terms
+        async function searchTerms() {
+            const searchTerm = searchInput.value.trim();
+            
+            if (!searchTerm) {
+                alert('Please enter a search term');
+                return;
+            }
+            
+            // Get selected files
+            const selectedFiles = [];
+            availableFiles.forEach(file => {
+                const checkbox = document.getElementById(`file-${file}`);
+                if (checkbox && checkbox.checked) {
+                    selectedFiles.push(file);
+                }
+            });
+            
+            if (selectedFiles.length === 0) {
+                alert('Please select at least one file');
+                return;
+            }
+            
+            // Show loading
+            resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
+            
+            // Reset last loaded items
+            lastLoadedItems = {};
+            selectedFiles.forEach(file => {
+                lastLoadedItems[file] = null;
+            });
+            
+            // Create regex pattern from search term
+            const regexPattern = wildcardToRegex(searchTerm);
+            
+            // Search in selected files
+            let allResults = [];
+            
+            try {
+                for (const file of selectedFiles) {
+                    const results = await searchInFile(file, regexPattern);
+                    allResults = allResults.concat(results);
+                }
+                
+                // Sort by score (descending)
+                allResults.sort((a, b) => b.score - a.score);
+                
+                // Display results
+                displayResults(allResults, false);
+            } catch (error) {
+                console.error('Error searching terms:', error);
+                resultsContainer.innerHTML = '<p class="no-results">Error searching terms. Please try again later.</p>';
+            }
+        }
+        
+        // Search in a specific file
+        async function searchInFile(filename, regexPattern) {
+            const results = [];
+            
+            try {
+                // Get scores from the file
+                const scoresSnapshot = await db.ref(`tools/${filename}`).once('value');
+                const scores = scoresSnapshot.val() || {};
+                
+                // For each score
+                for (const scoreVal in scores) {
+                    if (scores.hasOwnProperty(scoreVal)) {
+                        const terms = scores[scoreVal];
+                        
+                        // For each term ID
+                        for (const termId in terms) {
+                            if (terms.hasOwnProperty(termId)) {
+                                const termData = terms[termId];
+                                
+                                // Check if term matches regex pattern
+                                if (termData.term && regexPattern.test(termData.term)) {
+                                    results.push({
+                                        term: termData.term,
+                                        parentheses: termData.parentheses || '',
+                                        score: parseInt(scoreVal, 10),
+                                        filename: filename,
+                                        termId: termId
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                return results;
+            } catch (error) {
+                console.error(`Error searching in file ${filename}:`, error);
+                return [];
+            }
+        }
+        
+        // Display search results
+        function displayResults(results, isLoadMore) {
+            if (!isLoadMore) {
+                resultsContainer.innerHTML = '';
+            }
+            
+            if (results.length === 0 && !isLoadMore) {
+                resultsContainer.innerHTML = '<p class="no-results">No results found. Try a different search term.</p>';
+                return;
+            }
+            
+            // Create table if it doesn't exist
+            let table = document.getElementById('results-table');
+            
+            if (!table) {
+                table = document.createElement('table');
+                table.id = 'results-table';
+                table.className = 'results-table';
+                
+                // Create header
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                
+                const headers = ['Score', 'Term', 'Parenthetical'];
+                headers.forEach(headerText => {
+                    const th = document.createElement('th');
+                    th.textContent = headerText;
+                    headerRow.appendChild(th);
+                });
+                
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+                
+                // Create table body
+                const tbody = document.createElement('tbody');
+                tbody.id = 'results-tbody';
+                table.appendChild(tbody);
+                
+                resultsContainer.appendChild(table);
+            }
+            
+            // Get or create table body
+            const tbody = document.getElementById('results-tbody');
+            
+            // Display results (limited to resultsPerPage)
+            const displayCount = Math.min(results.length, resultsPerPage);
+            
+            for (let i = 0; i < displayCount; i++) {
+                const result = results[i];
+                
+                const row = document.createElement('tr');
+                
+                // Score cell
+                const scoreCell = document.createElement('td');
+                scoreCell.textContent = result.score;
+                row.appendChild(scoreCell);
+                
+                // Term cell
+                const termCell = document.createElement('td');
+                termCell.textContent = result.term;
+                row.appendChild(termCell);
+                
+                // Parenthetical cell
+                const parenthesesCell = document.createElement('td');
+                parenthesesCell.textContent = result.parentheses || '';
+                row.appendChild(parenthesesCell);
+                
+                tbody.appendChild(row);
+            }
+            
+            // Add "Load More" button if there are more results
+            if (results.length > resultsPerPage) {
+                // Remove existing load more button if any
+                const existingButton = document.getElementById('load-more-button');
+                if (existingButton) {
+                    existingButton.remove();
+                }
+                
+                const remainingResults = results.slice(resultsPerPage);
+                
+                const loadMoreButton = document.createElement('button');
+                loadMoreButton.id = 'load-more-button';
+                loadMoreButton.className = 'load-more';
+                loadMoreButton.textContent = `Load More (${remainingResults.length} more results)`;
+                
+                loadMoreButton.addEventListener('click', () => {
+                    displayResults(remainingResults, true);
+                });
+                
+                resultsContainer.appendChild(loadMoreButton);
+            }
+        }
+        
+        // Event listeners
+        searchButton.addEventListener('click', searchTerms);
+        
+        // Allow Enter key to trigger search
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchTerms();
             }
         });
     </script>
