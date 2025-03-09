@@ -403,7 +403,7 @@
                         <li><strong>apple*</strong> - Begins with "apple"</li>
                         <li><strong>*apple</strong> - Ends with "apple"</li>
                         <li><strong>?</strong> - Matches any single character (e.g., "apple?" could match "apples")</li>
-                        <li><strong>Crossword Mode:</strong> When enabled, ? only matches letters (A-Z), not spaces or special characters</li>
+                        <li><strong>Crossword Mode:</strong> When enabled, ? only counts letters (A-Z) and ignores spaces/punctuation. Example: "?????" matches "Wall-E" (5 letters)</li>
                     </ul>
                 </div>
                 
@@ -682,23 +682,108 @@
             // Get crossword mode state
             const crosswordMode = document.getElementById('crossword-mode').checked;
             
-            // Escape special regex characters except * and ?
-            let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-            
-            // Convert * to regex .*
-            regexPattern = regexPattern.replace(/\*/g, '.*');
-            
-            // Convert ? to regex . or [A-Za-z] based on crossword mode
-            if (crosswordMode) {
-                // In crossword mode, ? only matches letters (A-Z, a-z)
-                regexPattern = regexPattern.replace(/\?/g, '[A-Za-z]');
-            } else {
-                // In normal mode, ? matches any character
+            if (!crosswordMode) {
+                // Standard mode - same as before
+                // Escape special regex characters except * and ?
+                let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                
+                // Convert * to regex .*
+                regexPattern = regexPattern.replace(/\*/g, '.*');
+                
+                // Convert ? to regex . (matches any character)
                 regexPattern = regexPattern.replace(/\?/g, '.');
+                
+                // Create case-insensitive regex
+                return new RegExp(`^${regexPattern}$`, 'i');
+            } else {
+                // Crossword mode - special handling where ? only counts letters
+                
+                // First, handle asterisks by replacing them with placeholders
+                let preparedPattern = pattern.replace(/\*/g, '###ASTERISK###');
+                
+                // Count the number of question marks
+                const questionMarkCount = (preparedPattern.match(/\?/g) || []).length;
+                
+                if (questionMarkCount === 0) {
+                    // No ? wildcards, just handle as normal but with exact letter matching
+                    let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                    regexPattern = regexPattern.replace(/\*/g, '.*');
+                    return new RegExp(`^${regexPattern}$`, 'i');
+                }
+                
+                // Special case: pattern is all question marks (e.g., "?????")
+                if (preparedPattern.replace(/\?/g, '') === '') {
+                    // Create regex that matches exactly questionMarkCount letters
+                    // [^A-Za-z]* = match any number of non-letter characters
+                    // ([A-Za-z][^A-Za-z]*){n} = match exactly n letters with any non-letter chars in between
+                    // We use a lookahead to ensure the string contains exactly n letters total
+                    return new RegExp(`^(?=[^A-Za-z]*([A-Za-z][^A-Za-z]*){${questionMarkCount}}$)[\\s\\S]*$`, 'i');
+                }
+                
+                // Handle mix of ? and other characters
+                // Replace sequences of ? with a special pattern
+                let parts = [];
+                let currentPart = '';
+                let inQuestionMarkSequence = false;
+                
+                for (let i = 0; i < preparedPattern.length; i++) {
+                    const char = preparedPattern[i];
+                    
+                    if (char === '?') {
+                        if (!inQuestionMarkSequence) {
+                            // Start of a new ? sequence
+                            if (currentPart) {
+                                // Add accumulated non-? part
+                                parts.push({ type: 'literal', value: currentPart });
+                                currentPart = '';
+                            }
+                            inQuestionMarkSequence = true;
+                            currentPart = '?';
+                        } else {
+                            // Continue ? sequence
+                            currentPart += '?';
+                        }
+                    } else {
+                        if (inQuestionMarkSequence) {
+                            // End of ? sequence
+                            parts.push({ type: 'questionMarks', count: currentPart.length });
+                            currentPart = char;
+                            inQuestionMarkSequence = false;
+                        } else {
+                            // Continue non-? part
+                            currentPart += char;
+                        }
+                    }
+                }
+                
+                // Add the last part
+                if (currentPart) {
+                    if (inQuestionMarkSequence) {
+                        parts.push({ type: 'questionMarks', count: currentPart.length });
+                    } else {
+                        parts.push({ type: 'literal', value: currentPart });
+                    }
+                }
+                
+                // Convert parts to regex segments
+                let regexParts = [];
+                
+                for (const part of parts) {
+                    if (part.type === 'literal') {
+                        // Escape special chars except the asterisk placeholder
+                        let value = part.value.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                        // Restore asterisks
+                        value = value.replace(/###ASTERISK###/g, '.*');
+                        regexParts.push(value);
+                    } else if (part.type === 'questionMarks') {
+                        // ? sequence represents exactly n letters with any non-letters in between
+                        regexParts.push(`(?:[^A-Za-z]*[A-Za-z]){${part.count}}[^A-Za-z]*`);
+                    }
+                }
+                
+                // Join parts and create the final regex
+                return new RegExp(`^${regexParts.join('')}$`, 'i');
             }
-            
-            // Create case-insensitive regex
-            return new RegExp(`^${regexPattern}$`, 'i');
         }
         
         // Search for terms
