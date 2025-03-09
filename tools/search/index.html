@@ -730,6 +730,13 @@
             border: 1px solid #ddd;
         }
         
+        /* Specific styling for Google Drive player */
+        iframe[src*="drive.google.com"] {
+            border: none;
+            width: 100%;
+            min-height: 80px;
+        }
+        
         .card-view .audio-player-container {
             margin-top: 15px;
         }
@@ -2565,6 +2572,32 @@
             if (!url || typeof url !== 'string') return '';
             
             try {
+                // Detect if Google Drive
+                if (url.includes('drive.google.com')) {
+                    let fileId;
+                    
+                    // Extract file ID from Google Drive URL
+                    if (url.includes('/d/')) {
+                        // Format: https://drive.google.com/file/d/FILE_ID/view
+                        fileId = url.split('/d/')[1].split('/')[0];
+                    } else if (url.includes('id=')) {
+                        // Format: https://drive.google.com/open?id=FILE_ID
+                        fileId = new URL(url).searchParams.get('id');
+                    }
+                    
+                    if (fileId) {
+                        return `
+                            <div class="audio-player-container">
+                                <iframe class="audio-player" 
+                                        src="https://drive.google.com/file/d/${fileId}/preview" 
+                                        width="300" 
+                                        height="80" 
+                                        allow="autoplay"></iframe>
+                            </div>
+                        `;
+                    }
+                }
+                
                 // Detect if YouTube
                 if (url.includes('youtube.com') || url.includes('youtu.be')) {
                     let videoId;
@@ -2612,6 +2645,20 @@
                             <iframe class="audio-player" 
                                     src="https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false" 
                                     frameborder="0" 
+                                    allow="autoplay"></iframe>
+                        </div>
+                    `;
+                }
+                
+                // If it's a direct Google Drive ID (not a full URL)
+                if (/^[a-zA-Z0-9_-]{25,}$/.test(url.trim())) {
+                    const fileId = url.trim();
+                    return `
+                        <div class="audio-player-container">
+                            <iframe class="audio-player" 
+                                    src="https://drive.google.com/file/d/${fileId}/preview" 
+                                    width="300" 
+                                    height="80" 
                                     allow="autoplay"></iframe>
                         </div>
                     `;
