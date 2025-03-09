@@ -180,6 +180,14 @@
         .wild-card-info ul {
             margin-bottom: 0;
         }
+        
+        .error-message {
+            color: #d9534f;
+            background-color: #f8d7da;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
@@ -189,7 +197,7 @@
         <!-- Authentication Required Screen -->
         <div id="auth-screen" class="auth-container hidden">
             <h2>Access Required</h2>
-            <p>You need admin or tools privileges to access this page.</p>
+            <p>You need admin privileges to access this page.</p>
             <a href="/account" class="auth-btn">Go to Account Page</a>
         </div>
         
@@ -268,6 +276,7 @@
         let availableFiles = [];
         let lastLoadedItems = {};
         const resultsPerPage = 50;
+        let userIsAdmin = false;
         
         // Check if user is admin
         auth.onAuthStateChanged(async (user) => {
@@ -282,15 +291,11 @@
                         (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
                         (userData.role === 'admin');
                     
-                    // Check for tools role
-                    const hasToolsAccess =
-                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
-                        (userData.role === 'tools');
-                    
-                    if (isAdmin || hasToolsAccess) {
-                        // User has appropriate access, show tool interface
+                    if (isAdmin) {
+                        // User is admin, show tool interface
                         authScreen.classList.add('hidden');
                         toolScreen.classList.remove('hidden');
+                        userIsAdmin = true;
                         
                         // Load available files
                         loadAvailableFiles();
@@ -314,6 +319,9 @@
         // Load available files from Firebase
         async function loadAvailableFiles() {
             try {
+                // Instead of directly accessing the tools node, which may be restricted,
+                // we'll try a different approach. Since we've verified the user is an admin,
+                // we can try to access the 'tools' path directly
                 const snapshot = await db.ref('tools').once('value');
                 const tools = snapshot.val() || {};
                 
@@ -347,11 +355,26 @@
                         document.getElementById(`file-${availableFiles[0]}`).checked = true;
                     }
                 } else {
-                    fileSelectContainer.innerHTML = '<p>No files available</p>';
+                    fileSelectContainer.innerHTML = '<p>No files available in the tools database.</p>';
                 }
             } catch (error) {
                 console.error('Error loading available files:', error);
-                fileSelectContainer.innerHTML = '<p>Error loading files. Please try again later.</p>';
+                
+                // Set more specific error message based on the error type
+                if (error.code === 'PERMISSION_DENIED') {
+                    fileSelectContainer.innerHTML = `
+                        <div class="error-message">
+                            <strong>Permission denied:</strong> Your Firebase security rules do not allow reading from the 'tools' path.
+                            Update your rules to allow read access to the 'tools' path for admin users.
+                        </div>
+                    `;
+                } else {
+                    fileSelectContainer.innerHTML = `
+                        <div class="error-message">
+                            <strong>Error loading files:</strong> ${error.message || 'Unknown error'}
+                        </div>
+                    `;
+                }
             }
         }
         
@@ -372,6 +395,11 @@
         
         // Search for terms
         async function searchTerms() {
+            if (!userIsAdmin) {
+                alert('You need admin privileges to perform searches.');
+                return;
+            }
+            
             const searchTerm = searchInput.value.trim();
             
             if (!searchTerm) {
@@ -421,7 +449,22 @@
                 displayResults(allResults, false);
             } catch (error) {
                 console.error('Error searching terms:', error);
-                resultsContainer.innerHTML = '<p class="no-results">Error searching terms. Please try again later.</p>';
+                
+                // Set more specific error message based on the error type
+                if (error.code === 'PERMISSION_DENIED') {
+                    resultsContainer.innerHTML = `
+                        <div class="error-message">
+                            <strong>Permission denied:</strong> Your Firebase security rules do not allow reading from the 'tools' path.
+                            Update your rules to allow read access to the 'tools' path for admin users.
+                        </div>
+                    `;
+                } else {
+                    resultsContainer.innerHTML = `
+                        <div class="error-message">
+                            <strong>Error searching terms:</strong> ${error.message || 'Unknown error'}
+                        </div>
+                    `;
+                }
             }
         }
         
@@ -462,7 +505,7 @@
                 return results;
             } catch (error) {
                 console.error(`Error searching in file ${filename}:`, error);
-                return [];
+                throw error; // Pass error up to be handled by the calling function
             }
         }
         
