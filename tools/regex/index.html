@@ -381,39 +381,52 @@
         
         // Load file names directly from the tools branch
         async function loadToolsFileNames() {
+            // Hard-coded fallback list - using this if Firebase fails
+            const knownFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
+            
             try {
-                // First try to get just the keys to avoid a large payload
-                const snapshot = await db.ref('tools').once('value');
+                // Add a timeout for the file loading
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('File loading timed out')), 5000); // 5 second timeout
+                });
+                
+                // Use the shallow option to only get the keys without any data
+                const fetchPromise = db.ref('tools').shallow(true).once('value');
+                
+                // Race the fetch against the timeout
+                const snapshot = await Promise.race([fetchPromise, timeoutPromise]);
+                
                 if (snapshot.exists()) {
-                    // Get just the branch names (which are the file names)
+                    // Extract just the file names (which are the direct children keys)
                     const fileNames = Object.keys(snapshot.val() || {});
                     
                     if (fileNames.length > 0) {
                         // Successfully got file names
+                        console.log("Found files in database:", fileNames);
                         availableFiles = fileNames;
                         showFileSelectionInterface(fileNames);
                         return;
                     }
                 }
                 
-                // If we couldn't get file names or there were none, show manual input
-                showManualFileInput();
+                // If we can't get the files from Firebase, use the hard-coded list
+                console.log("Using fallback file list");
+                availableFiles = knownFiles;
+                showFileSelectionInterface(knownFiles);
             } catch (error) {
                 console.error('Error loading tool file names:', error);
-                showManualFileInput();
+                
+                // Always fall back to the known files if there's any error
+                availableFiles = knownFiles;
+                showFileSelectionInterface(knownFiles);
             }
         }
         
         // Show file selection interface with checkboxes
         function showFileSelectionInterface(fileNames) {
-            // Create the file selection interface HTML
-            let html = `
-                <div class="info-message">
-                    <strong>File Selection:</strong> Select the database files you want to search through.
-                </div>
-            `;
+            // Create a simple list of checkboxes, one for each file
+            let html = '';
             
-            // Create a checkbox for each file
             fileNames.forEach(fileName => {
                 html += `
                     <div class="file-checkbox">
@@ -424,7 +437,7 @@
             });
             
             // Update the file select container
-            fileSelectContainer.innerHTML = html;
+            fileSelectContainer.innerHTML = html || '<p>No files found. Please check the database.</p>';
         }
         
         // Display manual file input
