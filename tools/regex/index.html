@@ -84,21 +84,16 @@
         }
         
         .search-input {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
             font-size: 16px;
+            padding: 12px 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            flex: 1;
         }
         
         .search-button {
-            background-color: #000;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            padding: 10px 20px;
-            cursor: pointer;
-            font-weight: bold;
+            font-size: 16px;
+            padding: 12px 25px;
         }
         
         .file-select {
@@ -112,6 +107,29 @@
             display: flex;
             align-items: center;
             gap: 5px;
+        }
+        
+        /* Manual file input styles */
+        .file-input-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            margin-top: 15px;
+        }
+        
+        .manual-file-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .manual-file-list .file-checkbox {
+            margin-bottom: 5px;
+        }
+        
+        #manual-files {
+            margin-top: 10px;
         }
         
         .results-table {
@@ -155,8 +173,26 @@
         }
         
         .loading {
-            text-align: center;
-            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 30px;
+        }
+        
+        .loading:after {
+            content: "";
+            width: 20px;
+            height: 20px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #000;
+            border-radius: 50%;
+            margin-left: 10px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         
         .info-message {
@@ -187,6 +223,15 @@
             padding: 15px;
             border-radius: 4px;
             margin-bottom: 20px;
+        }
+        
+        .result-count {
+            font-weight: bold;
+            margin-bottom: 15px;
+            background-color: #f8f9fa;
+            padding: 10px 15px;
+            border-radius: 4px;
+            display: inline-block;
         }
     </style>
 </head>
@@ -319,10 +364,18 @@
         // Load available files from Firebase
         async function loadAvailableFiles() {
             try {
-                // Instead of directly accessing the tools node, which may be restricted,
-                // we'll try a different approach. Since we've verified the user is an admin,
-                // we can try to access the 'tools' path directly
-                const snapshot = await db.ref('tools').once('value');
+                // Set a timeout for the loading process
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Loading timed out')), 10000); // 10 second timeout
+                });
+                
+                // Use a shallow query to only get the file names, not the entire data
+                const dataPromise = db.ref('tools').once('value', snapshot => {
+                    return snapshot.key;
+                });
+                
+                // Race the data fetch against the timeout
+                const snapshot = await Promise.race([dataPromise, timeoutPromise]);
                 const tools = snapshot.val() || {};
                 
                 // Get filenames
@@ -355,26 +408,83 @@
                         document.getElementById(`file-${availableFiles[0]}`).checked = true;
                     }
                 } else {
-                    fileSelectContainer.innerHTML = '<p>No files available in the tools database.</p>';
+                    showManualFileInput();
                 }
             } catch (error) {
                 console.error('Error loading available files:', error);
                 
-                // Set more specific error message based on the error type
-                if (error.code === 'PERMISSION_DENIED') {
-                    fileSelectContainer.innerHTML = `
-                        <div class="error-message">
-                            <strong>Permission denied:</strong> Your Firebase security rules do not allow reading from the 'tools' path.
-                            Update your rules to allow read access to the 'tools' path for admin users.
-                        </div>
-                    `;
+                // Show manual file input form
+                showManualFileInput();
+            }
+        }
+        
+        // Display manual file input when automatic loading fails
+        function showManualFileInput() {
+            fileSelectContainer.innerHTML = `
+                <div class="error-message">
+                    <strong>Could not load files automatically.</strong> Please specify file names below:
+                </div>
+                <div id="manual-files">
+                    <div class="file-input-row">
+                        <input type="text" class="search-input" placeholder="Enter file name (e.g., RankedWiki.txt)" value="RankedWiki.txt">
+                        <button class="search-button add-file-btn">Add File</button>
+                    </div>
+                    <div class="manual-file-list">
+                        <!-- Files will be added here -->
+                    </div>
+                </div>
+            `;
+            
+            // Add event listener for the "Add File" button
+            const addFileBtn = fileSelectContainer.querySelector('.add-file-btn');
+            const fileInput = fileSelectContainer.querySelector('.file-input-row input');
+            const fileList = fileSelectContainer.querySelector('.manual-file-list');
+            
+            addFileBtn.addEventListener('click', () => {
+                const fileName = fileInput.value.trim();
+                if (fileName) {
+                    // Add to availableFiles array if not already there
+                    if (!availableFiles.includes(fileName)) {
+                        availableFiles.push(fileName);
+                        
+                        // Create checkbox for the file
+                        const fileCheckbox = document.createElement('div');
+                        fileCheckbox.className = 'file-checkbox';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.id = `file-${fileName}`;
+                        checkbox.value = fileName;
+                        checkbox.checked = true; // Check it by default
+                        
+                        const label = document.createElement('label');
+                        label.htmlFor = `file-${fileName}`;
+                        label.textContent = fileName;
+                        
+                        fileCheckbox.appendChild(checkbox);
+                        fileCheckbox.appendChild(label);
+                        fileList.appendChild(fileCheckbox);
+                        
+                        // Clear input
+                        fileInput.value = '';
+                    } else {
+                        alert(`File "${fileName}" is already in the list`);
+                    }
                 } else {
-                    fileSelectContainer.innerHTML = `
-                        <div class="error-message">
-                            <strong>Error loading files:</strong> ${error.message || 'Unknown error'}
-                        </div>
-                    `;
+                    alert('Please enter a file name');
                 }
+            });
+            
+            // Also allow pressing Enter to add a file
+            fileInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    addFileBtn.click();
+                }
+            });
+            
+            // Add RankedWiki.txt as the default file if input is pre-filled
+            if (fileInput.value.trim()) {
+                addFileBtn.click();
             }
         }
         
@@ -473,8 +583,16 @@
             const results = [];
             
             try {
-                // Get scores from the file
-                const scoresSnapshot = await db.ref(`tools/${filename}`).once('value');
+                // Set a timeout for the search
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error(`Search in ${filename} timed out`)), 15000); // 15 second timeout
+                });
+                
+                // Query for scores in the file
+                const dataPromise = db.ref(`tools/${filename}`).once('value');
+                
+                // Race the data fetch against the timeout
+                const scoresSnapshot = await Promise.race([dataPromise, timeoutPromise]);
                 const scores = scoresSnapshot.val() || {};
                 
                 // For each score
@@ -487,8 +605,11 @@
                             if (terms.hasOwnProperty(termId)) {
                                 const termData = terms[termId];
                                 
+                                // Skip items without term property or not matching pattern
+                                if (!termData.term) continue;
+                                
                                 // Check if term matches regex pattern
-                                if (termData.term && regexPattern.test(termData.term)) {
+                                if (regexPattern.test(termData.term)) {
                                     results.push({
                                         term: termData.term,
                                         parentheses: termData.parentheses || '',
@@ -505,7 +626,36 @@
                 return results;
             } catch (error) {
                 console.error(`Error searching in file ${filename}:`, error);
-                throw error; // Pass error up to be handled by the calling function
+                
+                // Return an empty array but add a "special" result to indicate error
+                if (error.code === 'PERMISSION_DENIED') {
+                    return [{
+                        term: `Error: Permission denied for ${filename}`,
+                        parentheses: 'Please update Firebase security rules',
+                        score: 0,
+                        filename: filename,
+                        termId: 'error',
+                        isError: true
+                    }];
+                } else if (error.message && error.message.includes('timed out')) {
+                    return [{
+                        term: `Error: Search timed out for ${filename}`,
+                        parentheses: 'The database query took too long',
+                        score: 0,
+                        filename: filename,
+                        termId: 'error',
+                        isError: true
+                    }];
+                } else {
+                    return [{
+                        term: `Error searching in ${filename}`,
+                        parentheses: error.message || 'Unknown error',
+                        score: 0,
+                        filename: filename,
+                        termId: 'error',
+                        isError: true
+                    }];
+                }
             }
         }
         
@@ -519,6 +669,26 @@
                 resultsContainer.innerHTML = '<p class="no-results">No results found. Try a different search term.</p>';
                 return;
             }
+            
+            // Check if all results are errors
+            const errorResults = results.filter(r => r.isError);
+            if (errorResults.length === results.length) {
+                const errorHtml = errorResults.map(err => 
+                    `<div class="error-message">
+                        <strong>${err.term}</strong><br>
+                        ${err.parentheses}
+                    </div>`
+                ).join('');
+                
+                resultsContainer.innerHTML = `
+                    <p class="no-results">Encountered errors while searching:</p>
+                    ${errorHtml}
+                `;
+                return;
+            }
+            
+            // Filter out error results for normal display
+            const validResults = results.filter(r => !r.isError);
             
             // Create table if it doesn't exist
             let table = document.getElementById('results-table');
@@ -554,10 +724,26 @@
             const tbody = document.getElementById('results-tbody');
             
             // Display results (limited to resultsPerPage)
-            const displayCount = Math.min(results.length, resultsPerPage);
+            const displayCount = Math.min(validResults.length, resultsPerPage);
+            
+            // Add count of results
+            if (!isLoadMore) {
+                const totalCount = document.createElement('div');
+                totalCount.className = 'result-count';
+                totalCount.textContent = `Found ${validResults.length} result${validResults.length !== 1 ? 's' : ''}`;
+                resultsContainer.insertBefore(totalCount, table);
+                
+                // If there were errors, also show a warning
+                if (errorResults.length > 0) {
+                    const errorWarning = document.createElement('div');
+                    errorWarning.className = 'error-message';
+                    errorWarning.innerHTML = `<strong>Note:</strong> Some files had errors and were excluded from results.`;
+                    resultsContainer.insertBefore(errorWarning, table);
+                }
+            }
             
             for (let i = 0; i < displayCount; i++) {
-                const result = results[i];
+                const result = validResults[i];
                 
                 const row = document.createElement('tr');
                 
@@ -580,14 +766,14 @@
             }
             
             // Add "Load More" button if there are more results
-            if (results.length > resultsPerPage) {
+            if (validResults.length > resultsPerPage) {
                 // Remove existing load more button if any
                 const existingButton = document.getElementById('load-more-button');
                 if (existingButton) {
                     existingButton.remove();
                 }
                 
-                const remainingResults = results.slice(resultsPerPage);
+                const remainingResults = validResults.slice(resultsPerPage);
                 
                 const loadMoreButton = document.createElement('button');
                 loadMoreButton.id = 'load-more-button';
