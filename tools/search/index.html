@@ -34,6 +34,8 @@
             padding: 20px;
             margin-bottom: 30px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            box-sizing: border-box;
         }
         
         .search-row {
@@ -41,11 +43,14 @@
             gap: 15px;
             margin-bottom: 20px;
             flex-wrap: wrap;
+            width: 100%;
         }
         
         .search-input {
             flex-grow: 1;
             min-width: 250px;
+            width: 100%;
+            box-sizing: border-box;
         }
         
         input[type="text"] {
@@ -54,6 +59,7 @@
             border: 1px solid #ddd;
             border-radius: 4px;
             font-size: 16px;
+            box-sizing: border-box;
         }
         
         select {
@@ -707,6 +713,26 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
+        }
+        
+        /* Audio player styles */
+        .audio-player-container {
+            margin-top: 10px;
+            margin-bottom: 10px;
+            width: 100%;
+            max-width: 350px;
+        }
+        
+        .audio-player {
+            width: 100%;
+            height: 80px;
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid #ddd;
+        }
+        
+        .card-view .audio-player-container {
+            margin-top: 15px;
         }
     </style>
 </head>
@@ -1753,6 +1779,9 @@
                 const imageLink = result.questionData['Image Link'] || result.questionData['image_link'] || '';
                 const answerImageLink = result.questionData['Answer Image Link'] || result.questionData['answer_image_link'] || '';
                 
+                // Get music clip link if available
+                const musicClipLink = result.questionData['Music Clip Link'] || result.questionData['music_clip_link'] || '';
+                
                 // Get round instruction if available (might be at various levels)
                 let roundInstruction = '';
                 
@@ -1777,6 +1806,18 @@
                     displayFormat = roundType;
                 }
                 
+                // Create music player HTML if there's a music clip
+                let musicPlayerHtml = '';
+                if (musicClipLink) {
+                    musicPlayerHtml = createMusicPlayer(musicClipLink);
+                }
+                
+                // Combine question text with music player if available
+                const questionContent = `
+                    <div class="question-text">${escapeHTML(question)}</div>
+                    ${musicPlayerHtml}
+                `;
+                
                 row.innerHTML = `
                     <td>${result.triviaNumber}</td>
                     <td>${escapeHTML(dateStr)}</td>
@@ -1784,7 +1825,7 @@
                     <td>${escapeHTML(result.roundName || '')}</td>
                     <td class="question-text">${escapeHTML(roundInstruction)}</td>
                     <td>${escapeHTML(displayFormat)}</td>
-                    <td class="question-text">${escapeHTML(question)}</td>
+                    <td>${questionContent}</td>
                     <td class="question-text">${escapeHTML(answer)}</td>
                     <td>${createImagePreview(imageLink, 'Question Image')}</td>
                     <td>${createImagePreview(answerImageLink, 'Answer Image')}</td>
@@ -1825,6 +1866,9 @@
                 const imageLink = result.questionData['Image Link'] || result.questionData['image_link'] || '';
                 const answerImageLink = result.questionData['Answer Image Link'] || result.questionData['answer_image_link'] || '';
                 
+                // Get music clip link if available
+                const musicClipLink = result.questionData['Music Clip Link'] || result.questionData['music_clip_link'] || '';
+                
                 // Get round instruction if available (might be at various levels)
                 let roundInstruction = '';
                 
@@ -1846,6 +1890,12 @@
                     displayFormat = roundType;
                 }
                 
+                // Create music player HTML if there's a music clip
+                let musicPlayerHtml = '';
+                if (musicClipLink) {
+                    musicPlayerHtml = createMusicPlayer(musicClipLink);
+                }
+                
                 // Create the card HTML
                 card.innerHTML = `
                     <div class="result-card-header">
@@ -1863,6 +1913,7 @@
                         <div class="result-card-section">
                             <h4>Question</h4>
                             <p>${escapeHTML(question)}</p>
+                            ${musicPlayerHtml}
                         </div>
                         
                         <div class="result-card-section">
@@ -2513,6 +2564,76 @@
         });
         
         console.log("Search tool loaded successfully!");
+        
+        // Create music player from music clip link
+        function createMusicPlayer(url) {
+            if (!url || typeof url !== 'string') return '';
+            
+            try {
+                // Detect if YouTube
+                if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                    let videoId;
+                    if (url.includes('youtube.com/watch?v=')) {
+                        videoId = new URL(url).searchParams.get('v');
+                    } else if (url.includes('youtu.be/')) {
+                        videoId = url.split('youtu.be/')[1].split('?')[0];
+                    }
+                    
+                    if (videoId) {
+                        return `
+                            <div class="audio-player-container">
+                                <iframe class="audio-player" 
+                                        src="https://www.youtube.com/embed/${videoId}" 
+                                        title="Music Clip" 
+                                        frameborder="0" 
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                        allowfullscreen></iframe>
+                            </div>
+                        `;
+                    }
+                }
+                
+                // Detect if Spotify
+                if (url.includes('spotify.com')) {
+                    const spotifyMatch = url.match(/track\/([a-zA-Z0-9]+)/);
+                    if (spotifyMatch) {
+                        const trackId = spotifyMatch[1];
+                        return `
+                            <div class="audio-player-container">
+                                <iframe class="audio-player" 
+                                        src="https://open.spotify.com/embed/track/${trackId}" 
+                                        frameborder="0" 
+                                        allowtransparency="true" 
+                                        allow="encrypted-media"></iframe>
+                            </div>
+                        `;
+                    }
+                }
+                
+                // Detect if SoundCloud
+                if (url.includes('soundcloud.com')) {
+                    return `
+                        <div class="audio-player-container">
+                            <iframe class="audio-player" 
+                                    src="https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false" 
+                                    frameborder="0" 
+                                    allow="autoplay"></iframe>
+                        </div>
+                    `;
+                }
+                
+                // If not recognized as an embeddable audio/video service, just provide link
+                return `
+                    <div class="audio-player-container">
+                        <a href="${escapeHTML(url)}" target="_blank" class="image-link">Listen to Music Clip</a>
+                    </div>
+                `;
+                
+            } catch (e) {
+                console.error('Error creating music player:', e);
+                return `<a href="${escapeHTML(url)}" target="_blank">Music Clip</a>`;
+            }
+        }
     </script>
 </body>
 </html> 
