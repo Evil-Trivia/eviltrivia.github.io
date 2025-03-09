@@ -378,14 +378,14 @@
             fileSelectContainer.innerHTML = `
                 <div class="info-message">
                     <strong>File Selection:</strong> Add the database files you want to search through.
-                    <p>Common files: <code>RankedWiki.txt</code></p>
+                    <p>Common files: <code>RankedWiki_txt</code>, <code>RankedWiktionary_txt</code>, <code>ScrabbleDict_txt</code>, <code>jeopardy_wordlist_txt</code></p>
                 </div>
                 <div class="error-message" style="background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;">
                     Could not load files automatically. Please specify file names below.
                 </div>
                 <div id="manual-files">
                     <div class="file-input-row">
-                        <input type="text" class="search-input" placeholder="Enter file name (e.g., RankedWiki.txt)" value="RankedWiki.txt">
+                        <input type="text" class="search-input" placeholder="Enter file name (e.g., RankedWiki_txt)" value="RankedWiki_txt">
                         <button class="search-button add-file-btn">Add File</button>
                     </div>
                     <div class="manual-file-list">
@@ -481,7 +481,13 @@
             availableFiles.forEach(file => {
                 const checkbox = document.getElementById(`file-${file}`);
                 if (checkbox && checkbox.checked) {
-                    selectedFiles.push(file);
+                    // Fix file names that incorrectly use dots instead of underscores
+                    let correctedFileName = file;
+                    if (file.includes('.') && !file.includes('_')) {
+                        correctedFileName = file.replace(/\./g, '_');
+                        console.warn(`File name contains dots, attempting to use ${correctedFileName} instead`);
+                    }
+                    selectedFiles.push(correctedFileName);
                 }
             });
             
@@ -556,14 +562,27 @@
                 const fileSnapshot = await Promise.race([fileCheckPromise, timeoutPromise]);
                 
                 if (!fileSnapshot.exists()) {
-                    return [{
-                        term: `Error: File not found: ${filename}`,
-                        parentheses: 'This file does not exist in the database',
-                        score: 0,
-                        filename: filename,
-                        termId: 'error',
-                        isError: true
-                    }];
+                    // Check if the filename contains dots instead of underscores
+                    if (filename.includes('.')) {
+                        const correctedName = filename.replace(/\./g, '_');
+                        return [{
+                            term: `Error: File not found: ${filename}`,
+                            parentheses: `Files use underscores, not dots. Did you mean "${correctedName}"?`,
+                            score: 0,
+                            filename: filename,
+                            termId: 'error',
+                            isError: true
+                        }];
+                    } else {
+                        return [{
+                            term: `Error: File not found: ${filename}`,
+                            parentheses: 'This file does not exist in the database. Available files: RankedWiki_txt, RankedWiktionary_txt, ScrabbleDict_txt, jeopardy_wordlist_txt',
+                            score: 0,
+                            filename: filename,
+                            termId: 'error',
+                            isError: true
+                        }];
+                    }
                 }
                 
                 // Strategy: Search in score groups to avoid huge payloads
@@ -707,7 +726,8 @@
                         <strong>Suggestions:</strong>
                         <ul>
                             <li>Try using more specific search terms (e.g., use 'science' instead of '*s*')</li>
-                            <li>Make sure the file name is correct (e.g., 'RankedWiki.txt')</li>
+                            <li>Make sure the file name is correct and uses underscores, not dots (e.g., 'RankedWiki_txt' not 'RankedWiki.txt')</li>
+                            <li>Available files: RankedWiki_txt, RankedWiktionary_txt, ScrabbleDict_txt, jeopardy_wordlist_txt</li>
                             <li>Break large searches into smaller ones</li>
                         </ul>
                     </div>
