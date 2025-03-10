@@ -2,6 +2,8 @@
 let chartData = [];
 let currentResults = []; // Store current results to allow deduping without re-searching
 const dataUrl = 'https://raw.githubusercontent.com/utdata/rwd-billboard-data/main/data-out/billboard-200-current.csv';
+// Alternative data source
+const fallbackDataUrl = 'https://raw.githubusercontent.com/KoreanThinker/billboard-json/main/billboard-200/recent.json';
 let clipboardAlbums = []; // Array to store albums for clipboard
 
 // DOM elements
@@ -121,8 +123,31 @@ async function fetchChartData() {
             retryCount++;
             
             if (retryCount >= maxRetries) {
-                showError('Failed to load chart data after multiple attempts. The data source may be temporarily unavailable. Please try again later.');
-                throw error;
+                console.log('Attempting to fetch data from fallback source...');
+                showError('Primary data source is currently unavailable. Trying alternative source...');
+                
+                try {
+                    const fallbackResponse = await fetch(fallbackDataUrl);
+                    if (!fallbackResponse.ok) {
+                        throw new Error(`Fallback data source failed: ${fallbackResponse.status}`);
+                    }
+                    
+                    const jsonData = await fallbackResponse.json();
+                    
+                    // Convert the JSON format to match our expected CSV format
+                    chartData = convertJsonToChartFormat(jsonData);
+                    
+                    // Clear the error since we succeeded with the fallback
+                    hideError();
+                    showError('Using alternative data source. Some features may be limited.');
+                    setTimeout(() => hideError(), 5000);
+                    
+                    return chartData;
+                } catch (fallbackError) {
+                    console.error('Error fetching fallback chart data:', fallbackError);
+                    showError('Failed to load chart data after multiple attempts. The data source may be temporarily unavailable. Please try again later.');
+                    throw new Error('Failed to load chart data from both primary and fallback sources.');
+                }
             }
             
             // Wait before retrying
@@ -441,4 +466,35 @@ function toggleClipboard(show) {
 
 // Make clipboard functions globally available
 window.addToClipboard = addToClipboard;
-window.removeFromClipboard = removeFromClipboard; 
+window.removeFromClipboard = removeFromClipboard;
+
+// Function to convert JSON data from the alternative source to our expected format
+function convertJsonToChartFormat(jsonData) {
+    if (!jsonData) {
+        return [];
+    }
+    
+    // Log the structure to debug
+    console.log('JSON Data structure:', Object.keys(jsonData));
+    
+    // Handle KoreanThinker/billboard-json format
+    if (jsonData.date && jsonData.data) {
+        console.log('Using KoreanThinker format');
+        return jsonData.data.map(item => {
+            return {
+                'chart_date': jsonData.date || new Date().toISOString().split('T')[0],
+                'album': item.name || '',
+                'performer': item.artist || '',
+                'this_week_position': item.rank || '',
+                'previous_week_position': item.last_week_rank || '',
+                'peak_position': item.peak_rank || '',
+                'weeks_on_chart': item.weeks_on_chart || '',
+                'instance': '1'
+            };
+        });
+    }
+    
+    // Error fallback - create minimal dataset if format is unknown
+    console.log('Unknown JSON format, creating minimal dataset');
+    return [];
+} 

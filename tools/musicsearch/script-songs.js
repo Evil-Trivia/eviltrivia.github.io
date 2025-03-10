@@ -2,7 +2,7 @@
 let chartData = [];
 let currentResults = []; // Store current results to allow deduping without re-searching
 const dataUrl = 'https://raw.githubusercontent.com/utdata/rwd-billboard-data/main/data-out/hot-100-current.csv';
-// Alternative data source
+// Alternative data source - different format
 const fallbackDataUrl = 'https://raw.githubusercontent.com/mhollingshead/billboard-hot-100/main/recent.json';
 let clipboardSongs = []; // Array to store songs for clipboard
 
@@ -711,20 +711,31 @@ window.removeFromClipboard = removeFromClipboard;
 
 // Function to convert JSON data from the alternative source to our expected format
 function convertJsonToChartFormat(jsonData) {
-    if (!jsonData || !jsonData.songs) {
+    if (!jsonData) {
         return [];
     }
     
-    return jsonData.songs.map(song => {
-        return {
-            'chart_date': jsonData.date || new Date().toISOString().split('T')[0],
-            'performer': song.artist || '',
-            'song': song.title || '',
-            'instance': '1',
-            'previous_week_position': song.last_week || '',
-            'peak_position': song.peak_position || '',
-            'weeks_on_chart': song.weeks_on_chart || '',
-            'this_week_position': song.position || '',
-        };
-    });
+    // Log the structure to debug
+    console.log('JSON Data structure:', Object.keys(jsonData));
+    
+    // Handle the mhollingshead format
+    if (jsonData.date && jsonData.songs) {
+        console.log('Using mhollingshead format');
+        return jsonData.songs.map(song => {
+            return {
+                'chart_date': jsonData.date || new Date().toISOString().split('T')[0],
+                'performer': song.artist || '',
+                'song': song.title || '',
+                'instance': '1',
+                'previous_week_position': song.last_week || '',
+                'peak_position': song.peak_position || '',
+                'weeks_on_chart': song.weeks_on_chart || '',
+                'this_week_position': song.position || '',
+            };
+        });
+    }
+    
+    // Error fallback - create minimal dataset if format is unknown
+    console.log('Unknown JSON format, creating minimal dataset');
+    return [];
 } 

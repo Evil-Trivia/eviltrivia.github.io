@@ -264,15 +264,17 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
         
         // Construct search query based on selected search fields
         let searchQueryParts = [];
+        const encodedQuery = encodeURIComponent(query);
         
         // If we have multiple fields, we'll build a query for each field
+        // Using Spotify's advanced syntax: https://developer.spotify.com/documentation/web-api/reference/search
         searchFields.forEach(field => {
             if (field === 'track') {
-                searchQueryParts.push(`track:"${query}"`);
+                searchQueryParts.push(`track:${query}`); // Removed quotes for more flexible matching
             } else if (field === 'artist') {
-                searchQueryParts.push(`artist:"${query}"`);
+                searchQueryParts.push(`artist:${query}`);
             } else if (field === 'album') {
-                searchQueryParts.push(`album:"${query}"`);
+                searchQueryParts.push(`album:${query}`);
             }
         });
         
@@ -308,31 +310,54 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
             return { items: [], total: 0 };
         }
         
-        // Log the total available before filtering
+        // Log the total available before any processing
         console.log(`Spotify reports ${data.tracks.total} total tracks available for this search`);
-        
-        // Only apply client-side filtering for track titles to ensure they actually contain the search term
-        let filteredTracks = data.tracks.items;
+
+        // Store all tracks from the response
+        let allTracks = data.tracks.items;
         let originalTotal = data.tracks.total;
         
-        // Only apply the filter for track names if ONLY the track option is selected
-        // When multiple fields are selected, rely on Spotify's search instead
-        if (searchFields.length === 1 && searchFields[0] === 'track') {
+        // Only apply additional filtering when track name is one of the selected fields
+        // and the results seem off (this provides better results than Spotify's default filtering)
+        if (searchFields.includes('track')) {
             const lowerQuery = query.toLowerCase();
-            filteredTracks = data.tracks.items.filter(track => 
-                track.name.toLowerCase().includes(lowerQuery)
-            );
-            console.log(`Filtered from ${data.tracks.items.length} to ${filteredTracks.length} tracks that actually contain "${query}" in title`);
+            
+            // For debugging
+            const beforeCount = allTracks.length;
+            
+            // If track name is one of multiple fields, we want to show tracks that match ANY field
+            if (searchFields.length > 1) {
+                // For multiple fields, just make sure tracks matching only non-title fields are preserved
+                // Tracks should match at least one criterion - if track title doesn't match, that's fine as long as
+                // the track matches another selected field (artist or album)
+            } else {
+                // Only filtering for track title - make sure track title contains the query
+                allTracks = allTracks.filter(track => 
+                    track.name.toLowerCase().includes(lowerQuery)
+                );
+                console.log(`Filtered from ${beforeCount} to ${allTracks.length} tracks that actually contain "${query}" in title`);
+            }
+        }
+        
+        // Set a message to inform the user about the filtering that occurred
+        if (searchFields.length > 1) {
+            showFilterInfo(`Showing tracks matching any of the selected fields`);
+        } else if (searchFields[0] === 'track') {
+            showFilterInfo(`Showing only tracks with "${query}" in the title`);
+        } else if (searchFields[0] === 'artist') {
+            showFilterInfo(`Showing tracks by artists matching "${query}"`);
+        } else if (searchFields[0] === 'album') {
+            showFilterInfo(`Showing tracks from albums matching "${query}"`);
         }
         
         // Sort tracks by popularity (descending)
-        const sortedTracks = filteredTracks.sort((a, b) => b.popularity - a.popularity);
+        const sortedTracks = allTracks.sort((a, b) => b.popularity - a.popularity);
         
-        // Return the data in the format expected by handleSearch with both original and filtered totals
+        // Return the data in the format expected by handleSearch
         return {
             items: sortedTracks,
-            total: filteredTracks.length, // Filtered count for pagination
-            originalTotal: originalTotal  // Keep track of original total from Spotify
+            total: sortedTracks.length,
+            originalTotal: originalTotal
         };
     } catch (error) {
         console.error('Error searching tracks:', error);
