@@ -2,6 +2,7 @@
 let chartData = [];
 let currentResults = []; // Store current results to allow deduping without re-searching
 const dataUrl = 'https://raw.githubusercontent.com/utdata/rwd-billboard-data/main/data-out/hot-100-current.csv';
+let clipboardSongs = []; // Array to store songs for clipboard
 
 // DOM elements
 const searchForm = document.getElementById('searchForm');
@@ -18,6 +19,18 @@ const loading = document.getElementById('loading');
 const resultsBody = document.getElementById('resultsBody');
 const resultCount = document.getElementById('resultCount');
 const statsContainer = document.getElementById('statsContainer');
+const resultsContainer = document.getElementById('resultsContainer');
+const errorMessage = document.getElementById('errorMessage');
+const errorText = document.getElementById('errorText');
+
+// Text search inputs
+const textSearch = document.getElementById('text-search');
+const dateSearch = document.getElementById('date-search');
+const positionSearch = document.getElementById('position-search');
+const durationSearch = document.getElementById('duration-search');
+const chartWeekInput = document.getElementById('chartWeek');
+const chartPositionInput = document.getElementById('chartPosition');
+const minWeeksInput = document.getElementById('minWeeks');
 
 // Stats elements
 const totalAppearances = document.getElementById('totalAppearances');
@@ -29,8 +42,20 @@ const firstAppearance = document.getElementById('firstAppearance');
 const lastAppearance = document.getElementById('lastAppearance');
 const chartTimeline = document.getElementById('chartTimeline');
 
+// Clipboard elements
+const clipboardContainer = document.getElementById('clipboard-container');
+const clipboardContent = document.getElementById('clipboard-content');
+const toggleClipboardBtn = document.getElementById('toggle-clipboard');
+const clearClipboardBtn = document.getElementById('clear-clipboard');
+const copyClipboardBtn = document.getElementById('copy-clipboard');
+
 // Initialize the application
 document.addEventListener('DOMContentLoaded', init);
+
+// Add event listeners for clipboard
+toggleClipboardBtn.addEventListener('click', toggleClipboard);
+clearClipboardBtn.addEventListener('click', clearClipboard);
+copyClipboardBtn.addEventListener('click', copyAllSongs);
 
 function init() {
     // Event listeners
@@ -54,8 +79,27 @@ function init() {
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
     startDateInput.value = oneMonthAgo.toISOString().split('T')[0];
     
+    // Set min and max dates
+    const minDate = "1958-08-04";
+    const maxDate = "2023-09-02";
+    chartWeekInput.min = minDate;
+    chartWeekInput.max = maxDate;
+    
+    // Default to hidden error messages
+    errorMessage.style.display = 'none';
+    
     // Load the chart data
-    fetchChartData();
+    loading.style.display = 'block';
+    fetchChartData()
+        .then(() => {
+            loading.style.display = 'none';
+            console.log('Chart data loaded successfully.');
+        })
+        .catch(error => {
+            loading.style.display = 'none';
+            showError('Failed to load chart data. Please try refreshing the page.');
+            console.error('Error loading chart data:', error);
+        });
 }
 
 function toggleSearchFields() {
@@ -77,74 +121,62 @@ function toggleSearchFields() {
 
 async function fetchChartData() {
     try {
-        loading.style.display = 'block';
-        
         const response = await fetch(dataUrl);
-        
         if (!response.ok) {
-            throw new Error(`Failed to fetch data: ${response.status} ${response.statusText}`);
+            throw new Error(`Network response was not ok: ${response.status}`);
         }
-        
         const csvText = await response.text();
         chartData = parseCSV(csvText);
-        
-        loading.style.display = 'none';
-        
-        // Display some initial results
-        currentResults = chartData.slice(0, 25);
-        displayResults(currentResults);
-        resultCount.textContent = chartData.length;
-        
+        return chartData;
     } catch (error) {
         console.error('Error fetching chart data:', error);
-        loading.style.display = 'none';
-        alert(`Error loading chart data: ${error.message}`);
+        throw error;
     }
 }
 
 function parseCSV(csvText) {
-    // Split into lines and get header
+    // Split by lines and get header
     const lines = csvText.split('\n');
     const headers = lines[0].split(',');
     
-    // Process each data line
     const data = [];
     
+    // Process each line
     for (let i = 1; i < lines.length; i++) {
         if (!lines[i].trim()) continue; // Skip empty lines
         
-        // Handle commas within quoted fields
-        const values = [];
-        let currentValue = '';
+        // Handle commas within quotes
+        let row = [];
         let inQuotes = false;
+        let currentValue = '';
         
-        for (let j = 0; j < lines[i].length; j++) {
-            const char = lines[i][j];
-            
+        for (let char of lines[i]) {
             if (char === '"') {
                 inQuotes = !inQuotes;
             } else if (char === ',' && !inQuotes) {
-                values.push(currentValue);
+                row.push(currentValue);
                 currentValue = '';
             } else {
                 currentValue += char;
             }
         }
+        row.push(currentValue); // Add the last value
         
-        values.push(currentValue); // Add the last value
+        // Create object with header keys
+        const rowObj = {};
+        for (let j = 0; j < headers.length; j++) {
+            const key = headers[j].trim();
+            let value = row[j] || '';
+            
+            // Clean up quotes
+            if (value.startsWith('"') && value.endsWith('"')) {
+                value = value.substring(1, value.length - 1);
+            }
+            
+            rowObj[key] = value.trim();
+        }
         
-        // Create an object with named properties
-        const entry = {
-            chart_week: values[0],
-            current_week: values[1],
-            title: values[2].replace(/"/g, ''), // Remove quotes
-            performer: values[3].replace(/"/g, ''), // Remove quotes
-            last_week: values[4],
-            peak_pos: values[5],
-            wks_on_chart: values[6]
-        };
-        
-        data.push(entry);
+        data.push(rowObj);
     }
     
     return data;
@@ -153,133 +185,166 @@ function parseCSV(csvText) {
 function handleSearch(event) {
     event.preventDefault();
     
+    // Reset UI
+    hideError();
+    loading.style.display = 'block';
+    resultsBody.innerHTML = '';
+    statsContainer.style.display = 'none';
+    
     const searchType = searchTypeSelect.value;
-    const query = queryInput.value.trim().toLowerCase();
-    const exactMatch = exactMatchCheckbox.checked;
+    let searchTerm = '';
+    let isExactMatch = exactMatchCheckbox.checked;
     
-    let filteredResults = [];
-    
-    switch (searchType) {
-        case 'artist':
-            if (exactMatch) {
-                filteredResults = chartData.filter(item => 
-                    item.performer.toLowerCase() === query
-                );
-            } else {
-                filteredResults = chartData.filter(item => 
-                    item.performer.toLowerCase().includes(query)
-                );
-            }
-            break;
-            
-        case 'song':
-            if (exactMatch) {
-                filteredResults = chartData.filter(item => 
-                    item.title.toLowerCase() === query
-                );
-            } else {
-                filteredResults = chartData.filter(item => 
-                    item.title.toLowerCase().includes(query)
-                );
-            }
-            break;
-            
-        case 'date':
-            const startDate = new Date(startDateInput.value);
-            const endDate = new Date(endDateInput.value);
-            
-            filteredResults = chartData.filter(item => {
-                const chartDate = new Date(item.chart_week);
-                return chartDate >= startDate && chartDate <= endDate;
-            });
-            break;
-            
-        case 'position':
-            const position = parseInt(query, 10);
-            if (!isNaN(position)) {
-                filteredResults = chartData.filter(item => 
-                    parseInt(item.peak_pos, 10) === position
-                );
-            }
-            break;
-    }
-    
-    // Store current results for potential deduping
-    currentResults = filteredResults;
-    
-    displayResults(filteredResults);
-    calculateStatistics(filteredResults, searchType);
-    resultCount.textContent = filteredResults.length;
-}
-
-function dedupeResults() {
-    if (currentResults.length === 0) {
-        return; // Nothing to dedupe
-    }
-    
-    // Create a map to hold unique song-artist combinations
-    const uniqueMap = new Map();
-    
-    // Group by song-artist
-    currentResults.forEach(item => {
-        const key = `${item.title.toLowerCase()}-${item.performer.toLowerCase()}`;
-        
-        if (!uniqueMap.has(key)) {
-            uniqueMap.set(key, item);
-        } else {
-            const existingItem = uniqueMap.get(key);
-            
-            // Choose the better record based on criteria:
-            // 1. Better peak position (lower number is better)
-            // 2. If same peak, longer chart run
-            const existingPeak = parseInt(existingItem.peak_pos, 10);
-            const currentPeak = parseInt(item.peak_pos, 10);
-            const existingWeeks = parseInt(existingItem.wks_on_chart, 10) || 0;
-            const currentWeeks = parseInt(item.wks_on_chart, 10) || 0;
-            
-            if (currentPeak < existingPeak || 
-                (currentPeak === existingPeak && currentWeeks > existingWeeks)) {
-                uniqueMap.set(key, item);
-            }
+    // Get search term based on search type
+    if (searchType === 'title' || searchType === 'artist') {
+        searchTerm = queryInput.value.trim();
+        if (!searchTerm) {
+            showError('Please enter a search term.');
+            loading.style.display = 'none';
+            return;
         }
+    } else if (searchType === 'date') {
+        searchTerm = chartWeekInput.value;
+        if (!searchTerm) {
+            showError('Please select a chart week.');
+            loading.style.display = 'none';
+            return;
+        }
+    } else if (searchType === 'position') {
+        searchTerm = chartPositionInput.value;
+        if (!searchTerm || searchTerm < 1 || searchTerm > 100) {
+            showError('Please enter a valid chart position (1-100).');
+            loading.style.display = 'none';
+            return;
+        }
+    } else if (searchType === 'duration') {
+        searchTerm = minWeeksInput.value;
+        if (!searchTerm || searchTerm < 1) {
+            showError('Please enter a valid number of weeks.');
+            loading.style.display = 'none';
+            return;
+        }
+    }
+    
+    // Search chart data
+    let results = [];
+    
+    if (searchType === 'title') {
+        const searchRegex = isExactMatch 
+            ? new RegExp(`^${escapeRegExp(searchTerm)}$`, 'i') 
+            : new RegExp(escapeRegExp(searchTerm), 'i');
+        
+        results = chartData.filter(entry => searchRegex.test(entry.song));
+    } 
+    else if (searchType === 'artist') {
+        const searchRegex = isExactMatch 
+            ? new RegExp(`^${escapeRegExp(searchTerm)}$`, 'i') 
+            : new RegExp(escapeRegExp(searchTerm), 'i');
+        
+        results = chartData.filter(entry => searchRegex.test(entry.artist));
+    } 
+    else if (searchType === 'date') {
+        results = chartData.filter(entry => entry.chart_date === searchTerm);
+    } 
+    else if (searchType === 'position') {
+        results = chartData.filter(entry => parseInt(entry.position) === parseInt(searchTerm));
+    } 
+    else if (searchType === 'duration') {
+        // Group by song-artist to find entries with minimum weeks
+        const songMap = new Map();
+        
+        chartData.forEach(entry => {
+            const key = `${entry.song} - ${entry.artist}`;
+            if (!songMap.has(key)) {
+                songMap.set(key, []);
+            }
+            songMap.get(key).push(entry);
+        });
+        
+        // Filter for songs that appeared at least the specified number of weeks
+        songMap.forEach((entries, key) => {
+            if (entries.length >= parseInt(searchTerm)) {
+                // Add all entries for this song
+                results = results.concat(entries);
+            }
+        });
+    }
+    
+    // Sort results by chart date and position
+    results.sort((a, b) => {
+        if (a.chart_date === b.chart_date) {
+            return parseInt(a.position) - parseInt(b.position);
+        }
+        return a.chart_date.localeCompare(b.chart_date);
     });
     
-    // Get the deduplicated array and display
-    const dedupedResults = Array.from(uniqueMap.values());
+    // Store for potential further operations
+    currentResults = results;
     
-    // Show deduplicated results
-    displayResults(dedupedResults);
-    calculateStatistics(dedupedResults, searchTypeSelect.value);
-    resultCount.textContent = `${dedupedResults.length} (deduplicated from ${currentResults.length})`;
+    // Display results
+    displayResults(results);
+    
+    // Update statistics
+    if (results.length > 0) {
+        calculateStatistics(results, searchType);
+        statsContainer.style.display = 'block';
+    }
+    
+    resultsContainer.style.display = 'block';
+    loading.style.display = 'none';
+}
+
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function displayResults(results) {
     resultsBody.innerHTML = '';
     
     if (results.length === 0) {
-        const noResultsRow = document.createElement('tr');
-        noResultsRow.innerHTML = '<td colspan="7" class="text-center">No results found</td>';
-        resultsBody.appendChild(noResultsRow);
+        resultCount.textContent = '0';
+        resultsBody.innerHTML = '<tr><td colspan="5" class="text-center">No results found</td></tr>';
         return;
     }
     
-    // Sort results by chart date (newest first)
-    results.sort((a, b) => new Date(b.chart_week) - new Date(a.chart_week));
+    resultCount.textContent = results.length;
     
-    results.forEach(item => {
+    results.forEach(entry => {
         const row = document.createElement('tr');
         
+        // Generate YouTube search URL
+        const youtubeSearchQuery = `${encodeURIComponent(entry.song)} ${encodeURIComponent(entry.artist)}`;
+        const youtubeUrl = `https://www.youtube.com/results?search_query=${youtubeSearchQuery.replace(/%20/g, "+")}`;
+        
+        // Create table row
         row.innerHTML = `
-            <td>${formatDate(item.chart_week)}</td>
-            <td>${item.current_week}</td>
-            <td>${escapeHtml(item.title)}</td>
-            <td>${escapeHtml(item.performer)}</td>
-            <td>${item.last_week}</td>
-            <td>${item.peak_pos}</td>
-            <td>${item.wks_on_chart}</td>
+            <td>${formatDate(entry.chart_date)}</td>
+            <td>${escapeHtml(entry.song)}</td>
+            <td>${escapeHtml(entry.artist)}</td>
+            <td>${entry.position}</td>
+            <td>
+                <div class="d-flex">
+                    <a href="${youtubeUrl}" target="_blank" class="btn btn-sm btn-danger me-1" title="Search on YouTube">
+                        <i class="bi bi-youtube"></i>
+                    </a>
+                    <button class="btn btn-sm btn-primary add-song-btn" title="Add to clipboard" 
+                        data-song="${escapeHtml(entry.song)}" data-artist="${escapeHtml(entry.artist)}">
+                        <i class="bi bi-clipboard-plus"></i>
+                    </button>
+                </div>
+            </td>
         `;
         
         resultsBody.appendChild(row);
+    });
+    
+    // Add event listeners to the clipboard buttons
+    document.querySelectorAll('.add-song-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            const songName = button.getAttribute('data-song');
+            const artistName = button.getAttribute('data-artist');
+            addToClipboard(`${songName} - ${artistName}`);
+        });
     });
 }
 
@@ -296,11 +361,11 @@ function calculateStatistics(results, searchType) {
     totalAppearances.textContent = results.length;
     
     // Best position (lowest number is better)
-    const bestPos = Math.min(...results.map(item => parseInt(item.peak_pos, 10)));
+    const bestPos = Math.min(...results.map(item => parseInt(item.position, 10)));
     bestPosition.textContent = bestPos || '-';
     
     // Longest run on chart
-    const maxWeeks = Math.max(...results.map(item => parseInt(item.wks_on_chart, 10) || 0));
+    const maxWeeks = Math.max(...results.map(item => parseInt(item.position, 10) || 0));
     longestRun.textContent = maxWeeks || 0;
     
     // Count unique entries (by title-artist combination or just one depending on search type)
@@ -308,15 +373,15 @@ function calculateStatistics(results, searchType) {
     
     if (searchType === 'artist') {
         // Count unique songs for this artist
-        results.forEach(item => uniqueItems.add(item.title.toLowerCase()));
+        results.forEach(item => uniqueItems.add(item.song.toLowerCase()));
         uniqueEntries.textContent = uniqueItems.size;
     } else if (searchType === 'song') {
         // For song searches, just count different artists if there are cover versions
-        results.forEach(item => uniqueItems.add(item.performer.toLowerCase()));
+        results.forEach(item => uniqueItems.add(item.artist.toLowerCase()));
         uniqueEntries.textContent = uniqueItems.size;
     } else {
         // For other searches, count unique title-performer combinations
-        results.forEach(item => uniqueItems.add(`${item.title.toLowerCase()}-${item.performer.toLowerCase()}`));
+        results.forEach(item => uniqueItems.add(`${item.song.toLowerCase()}-${item.artist.toLowerCase()}`));
         uniqueEntries.textContent = uniqueItems.size;
     }
     
@@ -324,7 +389,7 @@ function calculateStatistics(results, searchType) {
     displayTopSongs(results, searchType);
     
     // Display timeline information
-    const chartDates = results.map(item => new Date(item.chart_week));
+    const chartDates = results.map(item => new Date(item.chart_date));
     const firstDate = new Date(Math.min(...chartDates));
     const lastDate = new Date(Math.max(...chartDates));
     
@@ -351,78 +416,78 @@ function displayTopSongs(results, searchType) {
         const songGroups = {};
         
         results.forEach(item => {
-            const title = item.title.toLowerCase();
+            const title = item.song.toLowerCase();
             if (!songGroups[title]) {
                 songGroups[title] = {
-                    title: item.title,
-                    performer: item.performer,
-                    peak: parseInt(item.peak_pos, 10),
-                    weeks: parseInt(item.wks_on_chart, 10) || 0
+                    title: item.song,
+                    artist: item.artist,
+                    position: parseInt(item.position, 10),
+                    weeks: parseInt(item.position, 10) || 0
                 };
             } else {
-                // Update peak position if better
-                songGroups[title].peak = Math.min(songGroups[title].peak, parseInt(item.peak_pos, 10));
+                // Update position if better
+                songGroups[title].position = Math.min(songGroups[title].position, parseInt(item.position, 10));
                 // Update weeks if higher
-                songGroups[title].weeks = Math.max(songGroups[title].weeks, parseInt(item.wks_on_chart, 10) || 0);
+                songGroups[title].weeks = Math.max(songGroups[title].weeks, parseInt(item.position, 10) || 0);
             }
         });
         
         topItems = Object.values(songGroups);
         
-        // Sort by peak position
-        topItems.sort((a, b) => a.peak - b.peak);
+        // Sort by position
+        topItems.sort((a, b) => a.position - b.position);
         
     } else if (searchType === 'song') {
         // For song searches, we might have multiple versions/artists
         const artistGroups = {};
         
         results.forEach(item => {
-            const performer = item.performer.toLowerCase();
+            const performer = item.artist.toLowerCase();
             if (!artistGroups[performer]) {
                 artistGroups[performer] = {
-                    title: item.title,
-                    performer: item.performer,
-                    peak: parseInt(item.peak_pos, 10),
-                    weeks: parseInt(item.wks_on_chart, 10) || 0
+                    title: item.song,
+                    artist: item.artist,
+                    position: parseInt(item.position, 10),
+                    weeks: parseInt(item.position, 10) || 0
                 };
             } else {
-                // Update peak position if better
-                artistGroups[performer].peak = Math.min(artistGroups[performer].peak, parseInt(item.peak_pos, 10));
+                // Update position if better
+                artistGroups[performer].position = Math.min(artistGroups[performer].position, parseInt(item.position, 10));
                 // Update weeks if higher
-                artistGroups[performer].weeks = Math.max(artistGroups[performer].weeks, parseInt(item.wks_on_chart, 10) || 0);
+                artistGroups[performer].weeks = Math.max(artistGroups[performer].weeks, parseInt(item.position, 10) || 0);
             }
         });
         
         topItems = Object.values(artistGroups);
         
-        // Sort by peak position
-        topItems.sort((a, b) => a.peak - b.peak);
+        // Sort by position
+        topItems.sort((a, b) => a.position - b.position);
         
     } else {
         // For other searches, group by title-performer
         const itemGroups = {};
         
         results.forEach(item => {
-            const key = `${item.title.toLowerCase()}-${item.performer.toLowerCase()}`;
+            const key = `${item.song.toLowerCase()}-${item.artist.toLowerCase()}`;
             if (!itemGroups[key]) {
                 itemGroups[key] = {
-                    title: item.title,
-                    performer: item.performer,
-                    peak: parseInt(item.peak_pos, 10),
-                    weeks: parseInt(item.wks_on_chart, 10) || 0
+                    title: item.song,
+                    artist: item.artist,
+                    position: parseInt(item.position, 10),
+                    weeks: parseInt(item.position, 10) || 0
                 };
             } else {
-                // Update peak position if better
-                itemGroups[key].peak = Math.min(itemGroups[key].peak, parseInt(item.peak_pos, 10));
+                // Update position if better
+                itemGroups[key].position = Math.min(itemGroups[key].position, parseInt(item.position, 10));
                 // Update weeks if higher
-                itemGroups[key].weeks = Math.max(itemGroups[key].weeks, parseInt(item.wks_on_chart, 10) || 0);
+                itemGroups[key].weeks = Math.max(itemGroups[key].weeks, parseInt(item.position, 10) || 0);
             }
         });
         
         topItems = Object.values(itemGroups);
         
-        // Sort by peak position
-        topItems.sort((a, b) => a.peak - b.peak);
+        // Sort by position
+        topItems.sort((a, b) => a.position - b.position);
     }
     
     // Display top 5 items
@@ -430,9 +495,9 @@ function displayTopSongs(results, searchType) {
         const listItem = document.createElement('li');
         listItem.className = 'list-group-item';
         listItem.innerHTML = `
-            <b>${escapeHtml(item.title)}</b> - ${escapeHtml(item.performer)}
+            <b>${escapeHtml(item.title)}</b> - ${escapeHtml(item.artist)}
             <br>
-            <small>Peak Position: #${item.peak} | Weeks on Chart: ${item.weeks}</small>
+            <small>Position: #${item.position} | Weeks on Chart: ${item.weeks}</small>
         `;
         topSongsList.appendChild(listItem);
     });
@@ -472,4 +537,141 @@ function resetForm() {
     currentResults = chartData.slice(0, 25);
     displayResults(currentResults);
     resultCount.textContent = '25';
-} 
+}
+
+function dedupeResults() {
+    if (currentResults.length === 0) {
+        return; // Nothing to dedupe
+    }
+    
+    // Create a map to hold unique song-artist combinations
+    const uniqueMap = new Map();
+    
+    // Group by song-artist
+    currentResults.forEach(item => {
+        const key = `${item.song.toLowerCase()}-${item.artist.toLowerCase()}`;
+        
+        if (!uniqueMap.has(key)) {
+            uniqueMap.set(key, item);
+        } else {
+            const existingItem = uniqueMap.get(key);
+            
+            // Choose the better record based on criteria:
+            // 1. Better position (lower number is better)
+            // 2. If same position, longer chart run
+            const existingPos = parseInt(existingItem.position, 10);
+            const currentPos = parseInt(item.position, 10);
+            const existingWeeks = parseInt(existingItem.position, 10) || 0;
+            const currentWeeks = parseInt(item.position, 10) || 0;
+            
+            if (currentPos < existingPos || 
+                (currentPos === existingPos && currentWeeks > existingWeeks)) {
+                uniqueMap.set(key, item);
+            }
+        }
+    });
+    
+    // Get the deduplicated array and display
+    const dedupedResults = Array.from(uniqueMap.values());
+    
+    // Show deduplicated results
+    displayResults(dedupedResults);
+    calculateStatistics(dedupedResults, searchTypeSelect.value);
+    resultCount.textContent = `${dedupedResults.length} (deduplicated from ${currentResults.length})`;
+}
+
+// Clipboard management functions
+function addToClipboard(songInfo) {
+    // Check if the song is already in the clipboard
+    if (!clipboardSongs.includes(songInfo)) {
+        clipboardSongs.push(songInfo);
+        updateClipboardDisplay();
+        
+        // Show clipboard if it's the first item
+        if (clipboardSongs.length === 1) {
+            toggleClipboard(true);
+        }
+    }
+}
+
+function removeFromClipboard(index) {
+    clipboardSongs.splice(index, 1);
+    updateClipboardDisplay();
+}
+
+function clearClipboard() {
+    clipboardSongs = [];
+    updateClipboardDisplay();
+}
+
+function copyAllSongs() {
+    if (clipboardSongs.length === 0) {
+        return;
+    }
+    
+    const textToCopy = clipboardSongs.join('\n');
+    navigator.clipboard.writeText(textToCopy)
+        .then(() => {
+            alert('All songs copied to clipboard!');
+        })
+        .catch(err => {
+            // Fallback for browsers that don't support clipboard API
+            const textarea = document.createElement('textarea');
+            textarea.value = textToCopy;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            alert('All songs copied to clipboard!');
+        });
+}
+
+function updateClipboardDisplay() {
+    if (clipboardSongs.length === 0) {
+        clipboardContent.innerHTML = '<p>No songs added yet.</p>';
+        return;
+    }
+    
+    let html = '';
+    clipboardSongs.forEach((song, index) => {
+        html += `
+        <div class="clipboard-item">
+            ${escapeHtml(song)}
+            <span class="remove-item" onclick="removeFromClipboard(${index})">×</span>
+        </div>
+        `;
+    });
+    
+    clipboardContent.innerHTML = html;
+}
+
+function toggleClipboard(show) {
+    const isCollapsed = clipboardContainer.classList.contains('collapsed');
+    
+    if (show === true || isCollapsed) {
+        clipboardContainer.classList.remove('collapsed');
+        toggleClipboardBtn.innerHTML = '▲';
+        toggleClipboardBtn.setAttribute('aria-label', 'Collapse clipboard');
+        toggleClipboardBtn.title = 'Hide clipboard';
+    } else {
+        clipboardContainer.classList.add('collapsed');
+        toggleClipboardBtn.innerHTML = '▼';
+        toggleClipboardBtn.setAttribute('aria-label', 'Expand clipboard');
+        toggleClipboardBtn.title = 'Show clipboard';
+    }
+}
+
+// Display error messages
+function showError(message) {
+    errorText.textContent = message;
+    errorMessage.style.display = 'block';
+}
+
+// Hide error messages
+function hideError() {
+    errorMessage.style.display = 'none';
+}
+
+// Make clipboard functions globally available
+window.addToClipboard = addToClipboard;
+window.removeFromClipboard = removeFromClipboard; 
