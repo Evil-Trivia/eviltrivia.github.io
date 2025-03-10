@@ -311,12 +311,13 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
         // Log the total available before filtering
         console.log(`Spotify reports ${data.tracks.total} total tracks available for this search`);
         
-        // If searching by track title, do an additional client-side filter
-        // to ensure results actually contain the search term in the title
+        // Only apply client-side filtering for track titles to ensure they actually contain the search term
         let filteredTracks = data.tracks.items;
         let originalTotal = data.tracks.total;
         
-        if (searchFields.includes('track')) {
+        // Only apply the filter for track names if ONLY the track option is selected
+        // When multiple fields are selected, rely on Spotify's search instead
+        if (searchFields.length === 1 && searchFields[0] === 'track') {
             const lowerQuery = query.toLowerCase();
             filteredTracks = data.tracks.items.filter(track => 
                 track.name.toLowerCase().includes(lowerQuery)

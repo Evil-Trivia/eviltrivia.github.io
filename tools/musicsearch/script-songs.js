@@ -2,6 +2,8 @@
 let chartData = [];
 let currentResults = []; // Store current results to allow deduping without re-searching
 const dataUrl = 'https://raw.githubusercontent.com/utdata/rwd-billboard-data/main/data-out/hot-100-current.csv';
+// Alternative data source
+const fallbackDataUrl = 'https://raw.githubusercontent.com/mhollingshead/billboard-hot-100/main/recent.json';
 let clipboardSongs = []; // Array to store songs for clipboard
 
 // DOM elements
@@ -125,16 +127,43 @@ function toggleSearchFields() {
 
 async function fetchChartData() {
     try {
+        // Try the primary data source first
         const response = await fetch(dataUrl);
         if (!response.ok) {
+            console.warn(`Primary data source failed with status: ${response.status}. Trying fallback...`);
             throw new Error(`Network response was not ok: ${response.status}`);
         }
         const csvText = await response.text();
         chartData = parseCSV(csvText);
         return chartData;
-    } catch (error) {
-        console.error('Error fetching chart data:', error);
-        throw error;
+    } catch (primaryError) {
+        console.error('Error fetching primary chart data:', primaryError);
+        
+        // Try the fallback data source
+        try {
+            console.log('Attempting to fetch data from fallback source...');
+            showError('Primary data source is currently unavailable. Trying alternative source...');
+            
+            const fallbackResponse = await fetch(fallbackDataUrl);
+            if (!fallbackResponse.ok) {
+                throw new Error(`Fallback data source failed: ${fallbackResponse.status}`);
+            }
+            
+            const jsonData = await fallbackResponse.json();
+            
+            // Convert the JSON format to match our expected CSV format
+            chartData = convertJsonToChartFormat(jsonData);
+            
+            // Clear the error since we succeeded with the fallback
+            hideError();
+            showError('Using alternative data source. Some features may be limited.');
+            setTimeout(() => hideError(), 5000);
+            
+            return chartData;
+        } catch (fallbackError) {
+            console.error('Error fetching fallback chart data:', fallbackError);
+            throw new Error('Failed to load chart data from both primary and fallback sources.');
+        }
     }
 }
 
@@ -678,4 +707,24 @@ function hideError() {
 
 // Make clipboard functions globally available
 window.addToClipboard = addToClipboard;
-window.removeFromClipboard = removeFromClipboard; 
+window.removeFromClipboard = removeFromClipboard;
+
+// Function to convert JSON data from the alternative source to our expected format
+function convertJsonToChartFormat(jsonData) {
+    if (!jsonData || !jsonData.songs) {
+        return [];
+    }
+    
+    return jsonData.songs.map(song => {
+        return {
+            'chart_date': jsonData.date || new Date().toISOString().split('T')[0],
+            'performer': song.artist || '',
+            'song': song.title || '',
+            'instance': '1',
+            'previous_week_position': song.last_week || '',
+            'peak_position': song.peak_position || '',
+            'weeks_on_chart': song.weeks_on_chart || '',
+            'this_week_position': song.position || '',
+        };
+    });
+} 

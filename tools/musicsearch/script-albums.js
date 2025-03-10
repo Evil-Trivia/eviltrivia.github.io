@@ -103,17 +103,32 @@ function hideError() {
 }
 
 async function fetchChartData() {
-    try {
-        const response = await fetch(dataUrl);
-        if (!response.ok) {
-            throw new Error(`Network response was not ok: ${response.status}`);
+    let retryCount = 0;
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second
+    
+    while (retryCount < maxRetries) {
+        try {
+            const response = await fetch(dataUrl);
+            if (!response.ok) {
+                throw new Error(`Network response was not ok: ${response.status}`);
+            }
+            const csvText = await response.text();
+            chartData = parseCSV(csvText);
+            return chartData;
+        } catch (error) {
+            console.error(`Error fetching chart data (attempt ${retryCount + 1}/${maxRetries}):`, error);
+            retryCount++;
+            
+            if (retryCount >= maxRetries) {
+                showError('Failed to load chart data after multiple attempts. The data source may be temporarily unavailable. Please try again later.');
+                throw error;
+            }
+            
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, retryDelay * retryCount));
+            showError(`Retrying data load... (${retryCount}/${maxRetries})`);
         }
-        const csvText = await response.text();
-        chartData = parseCSV(csvText);
-        return chartData;
-    } catch (error) {
-        console.error('Error fetching chart data:', error);
-        throw error;
     }
 }
 
