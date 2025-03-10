@@ -186,43 +186,72 @@ function toggleLoadMoreButton(currentCount, totalCount) {
     }
 }
 
-// Search for tracks on Spotify
-async function searchTracks(query, searchType, offset = 0, limit = 25) {
-    const accessToken = localStorage.getItem('spotify_access_token');
-    if (!accessToken) {
-        throw new Error('Not authenticated');
-    }
-    
-    // Build the query based on search type
-    let searchQuery = query;
-    if (searchType === 'track') {
-        searchQuery = `track:${query}`;
-    } else if (searchType === 'artist') {
-        searchQuery = `artist:${query}`;
-    } else if (searchType === 'album') {
-        searchQuery = `album:${query}`;
-    }
-    // If 'all', we use the original query to search across all fields
-    
-    const response = await fetch(`${apiBaseUrl}/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=${limit}&offset=${offset}`, {
-        method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`
+// Search for tracks
+async function searchTracks(query, searchBy, offset = 0, limit = 25) {
+    try {
+        if (!query) {
+            showError('Please enter a search query');
+            return { items: [], total: 0 };
         }
-    });
-    
-    if (!response.ok) {
-        const error = new Error(`API request failed with status ${response.status}`);
-        error.status = response.status;
+
+        // Clear error message if any
+        hideError();
+        
+        // Construct search query based on filter selection
+        let searchQuery = '';
+        
+        if (searchBy === 'all') {
+            searchQuery = query;
+        } else if (searchBy === 'track') {
+            // Use double quotes to match exact string in track name
+            searchQuery = `track:"${query}"`;
+        } else if (searchBy === 'artist') {
+            searchQuery = `artist:"${query}"`;
+        } else if (searchBy === 'album') {
+            searchQuery = `album:"${query}"`;
+        }
+        
+        // Log the constructed query for debugging
+        console.log('Searching with query:', searchQuery);
+        
+        // Get access token
+        const token = localStorage.getItem('spotify_access_token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+        
+        // Make search request
+        const response = await fetch(
+            `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=${limit}&offset=${offset}&market=US`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            const error = new Error(`API request failed with status ${response.status}`);
+            error.status = response.status;
+            throw error;
+        }
+
+        const data = await response.json();
+        
+        if (!data.tracks || data.tracks.items.length === 0) {
+            return { items: [], total: 0 };
+        }
+        
+        // Sort tracks by popularity (descending)
+        const sortedTracks = data.tracks.items.sort((a, b) => b.popularity - a.popularity);
+        
+        // Return the data in the format expected by handleSearch
+        return {
+            items: sortedTracks,
+            total: data.tracks.total
+        };
+    } catch (error) {
+        console.error('Error searching tracks:', error);
         throw error;
     }
-    
-    const data = await response.json();
-    
-    // Sort by popularity (descending)
-    data.tracks.items.sort((a, b) => b.popularity - a.popularity);
-    
-    return data.tracks;
 }
 
 // Get detailed track information
@@ -263,6 +292,15 @@ function displayTracks(tracks, append = false) {
         const releaseDate = track.album.release_date || 'Unknown';
         const duration = formatDuration(track.duration_ms);
         
+        // Check if preview URL exists and is not null (robustly check for non-empty string)
+        const hasPreview = track.preview_url !== null && track.preview_url !== undefined && track.preview_url !== '';
+        const previewHtml = hasPreview 
+            ? `<audio controls preload="none" src="${track.preview_url}" class="preview-player"></audio>` 
+            : '<span class="text-muted">No preview</span>';
+        
+        // For debugging
+        console.log(`Track: ${track.name}, Preview URL: ${track.preview_url || 'none'}`);
+        
         const row = document.createElement('tr');
         
         // Create the table row HTML
@@ -281,11 +319,7 @@ function displayTracks(tracks, append = false) {
                 ${track.popularity}/100
             </td>
             <td>${duration}</td>
-            <td>
-                ${track.preview_url ? 
-                    `<audio controls src="${track.preview_url}" preload="none" class="preview-player"></audio>` : 
-                    '<span class="text-muted">No preview</span>'}
-            </td>
+            <td>${previewHtml}</td>
             <td>
                 <a href="${track.external_urls.spotify}" target="_blank" class="btn btn-sm btn-spotify me-1" title="Open in Spotify">
                     <i class="bi bi-spotify"></i>
