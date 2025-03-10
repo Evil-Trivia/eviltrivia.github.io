@@ -158,34 +158,20 @@ async function handleSearch(event) {
             totalTracks = tracks.originalTotal;
             resultCount.textContent = allLoadedTracks.length;
             
-            // Update the load more button and its text
-            if (allLoadedTracks.length < tracks.originalTotal) {
-                loadMoreBtn.style.display = 'inline-block';
-                loadMoreBtn.textContent = `Load More & Re-sort (Showing ${allLoadedTracks.length} of ${tracks.originalTotal}+)`;
-            } else {
-                loadMoreBtn.style.display = 'none';
-            }
+            // Use the toggle function to update the load more button
+            toggleLoadMoreButton(allLoadedTracks.length, tracks.originalTotal);
             
-            // Check if filtered in track title mode
-            if (searchFields.includes('track') && allLoadedTracks.length < tracks.originalTotal) {
-                showFilterInfo(`Showing ${allLoadedTracks.length} tracks that contain "${query}" (Spotify returned ${tracks.originalTotal} total results)`);
-            }
+            // Make sure the loadMoreBtn has a click event handler
+            loadMoreBtn.addEventListener('click', handleLoadMore);
+            
+            console.log(`Search complete. Showing ${allLoadedTracks.length} of ${tracks.originalTotal} total results.`);
         } else {
             showError('No tracks found matching your search.');
         }
     } catch (error) {
         loading.style.display = 'none';
         console.error('Error searching tracks:', error);
-        
-        if (error.status === 401) {
-            // Token expired or invalid
-            localStorage.removeItem('spotify_access_token');
-            localStorage.removeItem('spotify_token_timestamp');
-            showError('Your session has expired. Please log in again.');
-            showLoginInterface();
-        } else {
-            showError(`Error: ${error.message || 'Failed to search tracks'}`);
-        }
+        showError(`Error: ${error.message || 'Failed to search tracks'}`);
     }
 }
 
@@ -243,7 +229,10 @@ async function handleLoadMore() {
 
 // Toggle load more button visibility and update text
 function toggleLoadMoreButton(currentCount, totalCount) {
-    if (currentCount < totalCount) {
+    console.log(`toggleLoadMoreButton: currentCount=${currentCount}, totalCount=${totalCount}`);
+    
+    // Always show the button if we have more results to load
+    if (totalCount > currentCount) {
         loadMoreBtn.style.display = 'inline-block';
         loadMoreBtn.textContent = `Load More (${currentCount} of ${totalCount}+ shown)`;
         
@@ -260,6 +249,7 @@ function toggleLoadMoreButton(currentCount, totalCount) {
             showFilterInfo(`Showing ${currentCount} tracks matching "${lastQuery}" in ${fieldType} (${totalCount}+ total matches)`);
         }
     } else {
+        // Hide the button if we've loaded all available results
         loadMoreBtn.style.display = 'none';
         showFilterInfo(`All available tracks loaded for "${lastQuery}" (${currentCount} tracks)`);
     }
@@ -287,7 +277,7 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
         // We'll make separate requests for each field and combine the results
         
         let allResults = [];
-        let totalTracksFound = 0;
+        let totalPotentialResults = 0; // Track this properly for pagination
         
         // Make a request for each selected field
         for (const field of searchFields) {
@@ -320,11 +310,14 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
             const data = await response.json();
             
             if (data.tracks && data.tracks.items.length > 0) {
-                console.log(`${field} search returned ${data.tracks.items.length} results`);
+                console.log(`${field} search returned ${data.tracks.items.length} results (total of ${data.tracks.total} available)`);
                 
                 // Add these results to our collection
                 allResults = allResults.concat(data.tracks.items);
-                totalTracksFound += data.tracks.items.length;
+                
+                // Update the max potential total results across all search types
+                // This helps us know if there are more results to load
+                totalPotentialResults = Math.max(totalPotentialResults, data.tracks.total);
             }
         }
         
@@ -365,10 +358,17 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
             showFilterInfo(`Showing tracks from albums matching "${query}" (${sortedTracks.length} results)`);
         }
         
+        // We need a larger "total" to tell the pagination system there are more results
+        // Set originalTotal to be larger than the current result count if we have more results available
+        const moreResultsAvailable = totalPotentialResults > (offset + limit); 
+        const calculatedTotal = moreResultsAvailable ? totalPotentialResults : sortedTracks.length;
+        
+        console.log(`Search complete. Found ${sortedTracks.length} unique tracks. Total potential: ${totalPotentialResults}`);
+        
         return {
             items: sortedTracks,
             total: sortedTracks.length,
-            originalTotal: totalTracksFound
+            originalTotal: calculatedTotal
         };
     } catch (error) {
         console.error('Error searching tracks:', error);
