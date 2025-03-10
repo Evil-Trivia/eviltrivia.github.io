@@ -240,13 +240,24 @@ async function searchTracks(query, searchBy, offset = 0, limit = 25) {
             return { items: [], total: 0 };
         }
         
+        // If searching by track title, do an additional client-side filter
+        // to ensure results actually contain the search term in the title
+        let filteredTracks = data.tracks.items;
+        if (searchBy === 'track') {
+            const lowerQuery = query.toLowerCase();
+            filteredTracks = data.tracks.items.filter(track => 
+                track.name.toLowerCase().includes(lowerQuery)
+            );
+            console.log(`Filtered from ${data.tracks.items.length} to ${filteredTracks.length} tracks that actually contain "${query}" in title`);
+        }
+        
         // Sort tracks by popularity (descending)
-        const sortedTracks = data.tracks.items.sort((a, b) => b.popularity - a.popularity);
+        const sortedTracks = filteredTracks.sort((a, b) => b.popularity - a.popularity);
         
         // Return the data in the format expected by handleSearch
         return {
             items: sortedTracks,
-            total: data.tracks.total
+            total: filteredTracks.length // Update total to reflect filtered count
         };
     } catch (error) {
         console.error('Error searching tracks:', error);
