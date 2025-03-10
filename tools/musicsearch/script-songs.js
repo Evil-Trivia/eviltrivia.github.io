@@ -103,19 +103,23 @@ function init() {
 }
 
 function toggleSearchFields() {
-    if (searchTypeSelect.value === 'date') {
-        queryContainer.style.display = 'none';
-        dateRangeContainer.style.display = 'block';
-    } else {
-        queryContainer.style.display = 'block';
-        dateRangeContainer.style.display = 'none';
-    }
+    const searchType = searchTypeSelect.value;
     
-    // Show/hide exact match option based on search type
-    if (searchTypeSelect.value === 'position') {
-        document.querySelector('.form-check').style.display = 'none';
-    } else {
-        document.querySelector('.form-check').style.display = 'block';
+    // Hide all search inputs first
+    textSearch.style.display = 'none';
+    dateSearch.style.display = 'none';
+    positionSearch.style.display = 'none';
+    durationSearch.style.display = 'none';
+    
+    // Show relevant search input based on selection
+    if (searchType === 'title' || searchType === 'artist') {
+        textSearch.style.display = 'block';
+    } else if (searchType === 'date') {
+        dateSearch.style.display = 'block';
+    } else if (searchType === 'position') {
+        positionSearch.style.display = 'block';
+    } else if (searchType === 'duration') {
+        durationSearch.style.display = 'block';
     }
 }
 

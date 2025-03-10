@@ -18,7 +18,9 @@ const loginButton = document.getElementById('loginButton');
 const loginContainer = document.getElementById('loginContainer');
 const searchContainer = document.getElementById('searchContainer');
 const searchForm = document.getElementById('searchForm');
-const searchTypeSelect = document.getElementById('searchType');
+const searchTrackCheckbox = document.getElementById('searchTrack');
+const searchArtistCheckbox = document.getElementById('searchArtist');
+const searchAlbumCheckbox = document.getElementById('searchAlbum');
 const queryInput = document.getElementById('query');
 const loading = document.getElementById('loading');
 const trackResults = document.getElementById('trackResults');
@@ -35,7 +37,7 @@ const copyClipboardBtn = document.getElementById('copy-clipboard');
 
 // Search state variables
 let lastQuery = '';
-let lastSearchType = '';
+let lastSearchFields = [];
 let currentOffset = 0;
 let totalTracks = 0;
 let allLoadedTracks = []; // New array to store all loaded tracks
@@ -114,11 +116,22 @@ async function handleSearch(event) {
     const query = queryInput.value.trim();
     if (!query) return;
     
+    // Get selected search fields
+    const searchFields = [];
+    if (searchTrackCheckbox.checked) searchFields.push('track');
+    if (searchArtistCheckbox.checked) searchFields.push('artist');
+    if (searchAlbumCheckbox.checked) searchFields.push('album');
+    
+    // Ensure at least one field is selected
+    if (searchFields.length === 0) {
+        showError('Please select at least one field to search');
+        return;
+    }
+    
     // Reset pagination for new search
     currentOffset = 0;
     lastQuery = query;
-    lastSearchType = searchTypeSelect.value;
-    allLoadedTracks = []; // Reset all loaded tracks
+    lastSearchFields = searchFields;
     
     try {
         loading.style.display = 'block';
@@ -129,7 +142,7 @@ async function handleSearch(event) {
         // Clear previous results
         tracksContainer.innerHTML = '';
         
-        const tracks = await searchTracks(query, lastSearchType, currentOffset, RESULTS_PER_PAGE);
+        const tracks = await searchTracks(query, searchFields, currentOffset, RESULTS_PER_PAGE);
         
         loading.style.display = 'none';
         
@@ -148,14 +161,14 @@ async function handleSearch(event) {
             // Update the load more button and its text
             if (allLoadedTracks.length < tracks.originalTotal) {
                 loadMoreBtn.style.display = 'inline-block';
-                loadMoreBtn.textContent = `Load More (Showing ${allLoadedTracks.length} of ${tracks.originalTotal}+)`;
+                loadMoreBtn.textContent = `Load More & Re-sort (Showing ${allLoadedTracks.length} of ${tracks.originalTotal}+)`;
             } else {
                 loadMoreBtn.style.display = 'none';
             }
             
-            // Check if using track filter, show info about filtering
-            if (lastSearchType === 'track' && tracks.items.length < tracks.originalTotal) {
-                showFilterInfo(`Showing ${tracks.items.length} tracks that actually contain "${query}" in title (Spotify returned ${tracks.originalTotal} total results)`);
+            // Check if filtered in track title mode
+            if (searchFields.includes('track') && allLoadedTracks.length < tracks.originalTotal) {
+                showFilterInfo(`Showing ${allLoadedTracks.length} tracks that contain "${query}" (Spotify returned ${tracks.originalTotal} total results)`);
             }
         } else {
             showError('No tracks found matching your search.');
@@ -186,7 +199,7 @@ async function handleLoadMore() {
         loading.style.display = 'block';
         loadMoreBtn.disabled = true;
         
-        const tracks = await searchTracks(lastQuery, lastSearchType, currentOffset, RESULTS_PER_PAGE);
+        const tracks = await searchTracks(lastQuery, lastSearchFields, currentOffset, RESULTS_PER_PAGE);
         
         loading.style.display = 'none';
         loadMoreBtn.disabled = false;
@@ -213,8 +226,8 @@ async function handleLoadMore() {
             }
             
             // Update filter info if we're doing track title filtering
-            if (lastSearchType === 'track') {
-                showFilterInfo(`Showing ${allLoadedTracks.length} tracks that actually contain "${lastQuery}" in title (Spotify returned ${tracks.originalTotal} total results)`);
+            if (lastSearchFields.includes('track')) {
+                showFilterInfo(`Showing ${allLoadedTracks.length} tracks that contain "${lastQuery}" (Spotify returned ${tracks.originalTotal} total results)`);
             }
         } else {
             // No more results to load
@@ -239,7 +252,7 @@ function toggleLoadMoreButton(currentCount, totalCount) {
 }
 
 // Search for tracks
-async function searchTracks(query, searchBy, offset = 0, limit = RESULTS_PER_PAGE) {
+async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER_PAGE) {
     try {
         if (!query) {
             showError('Please enter a search query');
@@ -249,19 +262,22 @@ async function searchTracks(query, searchBy, offset = 0, limit = RESULTS_PER_PAG
         // Clear error message if any
         hideError();
         
-        // Construct search query based on filter selection
-        let searchQuery = '';
+        // Construct search query based on selected search fields
+        let searchQueryParts = [];
         
-        if (searchBy === 'all') {
-            searchQuery = query;
-        } else if (searchBy === 'track') {
-            // Use double quotes to match exact string in track name
-            searchQuery = `track:"${query}"`;
-        } else if (searchBy === 'artist') {
-            searchQuery = `artist:"${query}"`;
-        } else if (searchBy === 'album') {
-            searchQuery = `album:"${query}"`;
-        }
+        // If we have multiple fields, we'll build a query for each field
+        searchFields.forEach(field => {
+            if (field === 'track') {
+                searchQueryParts.push(`track:"${query}"`);
+            } else if (field === 'artist') {
+                searchQueryParts.push(`artist:"${query}"`);
+            } else if (field === 'album') {
+                searchQueryParts.push(`album:"${query}"`);
+            }
+        });
+        
+        // Join the query parts with OR
+        const searchQuery = searchQueryParts.join(' OR ');
         
         // Log the constructed query for debugging
         console.log('Searching with query:', searchQuery);
@@ -300,7 +316,7 @@ async function searchTracks(query, searchBy, offset = 0, limit = RESULTS_PER_PAG
         let filteredTracks = data.tracks.items;
         let originalTotal = data.tracks.total;
         
-        if (searchBy === 'track') {
+        if (searchFields.includes('track')) {
             const lowerQuery = query.toLowerCase();
             filteredTracks = data.tracks.items.filter(track => 
                 track.name.toLowerCase().includes(lowerQuery)
