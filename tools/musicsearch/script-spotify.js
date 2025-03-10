@@ -199,14 +199,22 @@ async function handleLoadMore() {
         loading.style.display = 'block';
         loadMoreBtn.disabled = true;
         
+        // Use the same multi-field search approach as the initial search
         const tracks = await searchTracks(lastQuery, lastSearchFields, currentOffset, RESULTS_PER_PAGE);
         
         loading.style.display = 'none';
         loadMoreBtn.disabled = false;
         
         if (tracks.items.length > 0) {
-            // Add new tracks to our allLoadedTracks array
-            allLoadedTracks = [...allLoadedTracks, ...tracks.items];
+            // We need to deduplicate the tracks since we're combining results
+            const newTrackIds = new Set(tracks.items.map(track => track.id));
+            const existingTrackIds = new Set(allLoadedTracks.map(track => track.id));
+            
+            // Filter out any tracks we already have
+            const uniqueNewTracks = tracks.items.filter(track => !existingTrackIds.has(track.id));
+            
+            // Add only unique new tracks to our allLoadedTracks array
+            allLoadedTracks = [...allLoadedTracks, ...uniqueNewTracks];
             
             // Re-sort the entire list by popularity
             allLoadedTracks.sort((a, b) => b.popularity - a.popularity);
@@ -217,37 +225,43 @@ async function handleLoadMore() {
             // Update displayed count
             resultCount.textContent = allLoadedTracks.length;
             
-            // Update load more button text
-            if (allLoadedTracks.length < tracks.originalTotal) {
-                loadMoreBtn.style.display = 'inline-block';
-                loadMoreBtn.textContent = `Load More & Re-sort (Showing ${allLoadedTracks.length} of ${tracks.originalTotal}+)`;
-            } else {
-                loadMoreBtn.style.display = 'none';
-            }
+            // Update load more button visibility and text
+            toggleLoadMoreButton(allLoadedTracks.length, tracks.originalTotal);
             
-            // Update filter info if we're doing track title filtering
-            if (lastSearchFields.includes('track')) {
-                showFilterInfo(`Showing ${allLoadedTracks.length} tracks that contain "${lastQuery}" (Spotify returned ${tracks.originalTotal} total results)`);
-            }
+            console.log(`Added ${uniqueNewTracks.length} unique new tracks. Total: ${allLoadedTracks.length}`);
         } else {
-            // No more results to load
+            // If no more results, hide the load more button
             loadMoreBtn.style.display = 'none';
-            showFilterInfo(`All available tracks loaded that contain "${lastQuery}" (${allLoadedTracks.length} tracks)`);
         }
     } catch (error) {
         loading.style.display = 'none';
         loadMoreBtn.disabled = false;
+        showError(`Error loading more tracks: ${error.message}`);
         console.error('Error loading more tracks:', error);
-        showError(`Error: ${error.message || 'Failed to load more tracks'}`);
     }
 }
 
-// Toggle load more button visibility
+// Toggle load more button visibility and update text
 function toggleLoadMoreButton(currentCount, totalCount) {
     if (currentCount < totalCount) {
         loadMoreBtn.style.display = 'inline-block';
+        loadMoreBtn.textContent = `Load More (${currentCount} of ${totalCount}+ shown)`;
+        
+        // Update filter info with counts
+        if (lastSearchFields.length > 1) {
+            const fieldNames = lastSearchFields.map(field => {
+                if (field === 'track') return 'title';
+                return field;
+            }).join(', ');
+            showFilterInfo(`Showing ${currentCount} tracks with "${lastQuery}" in ${fieldNames} (${totalCount}+ total matches)`);
+        } else {
+            const fieldType = lastSearchFields[0] === 'track' ? 'track title' : 
+                             lastSearchFields[0] === 'artist' ? 'artist name' : 'album title';
+            showFilterInfo(`Showing ${currentCount} tracks matching "${lastQuery}" in ${fieldType} (${totalCount}+ total matches)`);
+        }
     } else {
         loadMoreBtn.style.display = 'none';
+        showFilterInfo(`All available tracks loaded for "${lastQuery}" (${currentCount} tracks)`);
     }
 }
 
@@ -262,105 +276,103 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
         // Clear error message if any
         hideError();
         
-        // Construct search query based on selected search fields
-        let searchQueryParts = [];
-        const encodedQuery = encodeURIComponent(query);
-        
-        // If we have multiple fields, we'll build a query for each field
-        // Using Spotify's advanced syntax: https://developer.spotify.com/documentation/web-api/reference/search
-        searchFields.forEach(field => {
-            if (field === 'track') {
-                searchQueryParts.push(`track:${query}`); // Removed quotes for more flexible matching
-            } else if (field === 'artist') {
-                searchQueryParts.push(`artist:${query}`);
-            } else if (field === 'album') {
-                searchQueryParts.push(`album:${query}`);
-            }
-        });
-        
-        // Join the query parts with OR
-        const searchQuery = searchQueryParts.join(' OR ');
-        
-        // Log the constructed query for debugging
-        console.log('Searching with query:', searchQuery);
-        
         // Get access token
         const token = localStorage.getItem('spotify_access_token');
         if (!token) {
             throw new Error('Not authenticated');
         }
         
-        // Make search request
-        const response = await fetch(
-            `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=${limit}&offset=${offset}&market=US`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
+        // IMPORTANT: For OR logic between fields, we need a simpler approach
+        // Instead of constructing complex queries with field:query syntax,
+        // We'll make separate requests for each field and combine the results
+        
+        let allResults = [];
+        let totalTracksFound = 0;
+        
+        // Make a request for each selected field
+        for (const field of searchFields) {
+            // Construct a simple query for this field
+            let fieldQuery;
+            
+            if (field === 'track') {
+                fieldQuery = `track:${query}`;
+            } else if (field === 'artist') {
+                fieldQuery = `artist:${query}`;
+            } else if (field === 'album') {
+                fieldQuery = `album:${query}`;
+            }
+            
+            console.log(`Searching with ${field} query: ${fieldQuery}`);
+            
+            // Make the search request for this field
+            const response = await fetch(
+                `https://api.spotify.com/v1/search?q=${encodeURIComponent(fieldQuery)}&type=track&limit=${limit}&offset=${offset}&market=US`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) {
+                console.error(`API request for ${field} failed with status ${response.status}`);
+                continue; // Skip this field if request fails, but try others
+            }
+            
+            const data = await response.json();
+            
+            if (data.tracks && data.tracks.items.length > 0) {
+                console.log(`${field} search returned ${data.tracks.items.length} results`);
+                
+                // Add these results to our collection
+                allResults = allResults.concat(data.tracks.items);
+                totalTracksFound += data.tracks.items.length;
+            }
+        }
+        
+        // If we didn't find any results from any fields
+        if (allResults.length === 0) {
+            showFilterInfo(`No results found for "${query}" in the selected fields`);
+            return { items: [], total: 0, originalTotal: 0 };
+        }
+        
+        // De-duplicate results (tracks can appear in multiple searches)
+        const uniqueTrackMap = new Map();
+        
+        allResults.forEach(track => {
+            // Use track ID as the unique key
+            if (!uniqueTrackMap.has(track.id)) {
+                uniqueTrackMap.set(track.id, track);
             }
         });
-
-        if (!response.ok) {
-            const error = new Error(`API request failed with status ${response.status}`);
-            error.status = response.status;
-            throw error;
-        }
-
-        const data = await response.json();
         
-        if (!data.tracks || data.tracks.items.length === 0) {
-            return { items: [], total: 0 };
-        }
-        
-        // Log the total available before any processing
-        console.log(`Spotify reports ${data.tracks.total} total tracks available for this search`);
-
-        // Store all tracks from the response
-        let allTracks = data.tracks.items;
-        let originalTotal = data.tracks.total;
-        
-        // Only apply additional filtering when track name is one of the selected fields
-        // and the results seem off (this provides better results than Spotify's default filtering)
-        if (searchFields.includes('track')) {
-            const lowerQuery = query.toLowerCase();
-            
-            // For debugging
-            const beforeCount = allTracks.length;
-            
-            // If track name is one of multiple fields, we want to show tracks that match ANY field
-            if (searchFields.length > 1) {
-                // For multiple fields, just make sure tracks matching only non-title fields are preserved
-                // Tracks should match at least one criterion - if track title doesn't match, that's fine as long as
-                // the track matches another selected field (artist or album)
-            } else {
-                // Only filtering for track title - make sure track title contains the query
-                allTracks = allTracks.filter(track => 
-                    track.name.toLowerCase().includes(lowerQuery)
-                );
-                console.log(`Filtered from ${beforeCount} to ${allTracks.length} tracks that actually contain "${query}" in title`);
-            }
-        }
-        
-        // Set a message to inform the user about the filtering that occurred
-        if (searchFields.length > 1) {
-            showFilterInfo(`Showing tracks matching any of the selected fields`);
-        } else if (searchFields[0] === 'track') {
-            showFilterInfo(`Showing only tracks with "${query}" in the title`);
-        } else if (searchFields[0] === 'artist') {
-            showFilterInfo(`Showing tracks by artists matching "${query}"`);
-        } else if (searchFields[0] === 'album') {
-            showFilterInfo(`Showing tracks from albums matching "${query}"`);
-        }
+        // Convert back to array
+        const uniqueTracks = Array.from(uniqueTrackMap.values());
         
         // Sort tracks by popularity (descending)
-        const sortedTracks = allTracks.sort((a, b) => b.popularity - a.popularity);
+        const sortedTracks = uniqueTracks.sort((a, b) => b.popularity - a.popularity);
         
-        // Return the data in the format expected by handleSearch
+        // Set the proper filter message
+        if (searchFields.length > 1) {
+            const fieldNames = searchFields.map(field => {
+                if (field === 'track') return 'title';
+                return field;
+            }).join(', ');
+            showFilterInfo(`Showing tracks with "${query}" in ${fieldNames} (${sortedTracks.length} results)`);
+        } else if (searchFields[0] === 'track') {
+            showFilterInfo(`Showing tracks with "${query}" in the title (${sortedTracks.length} results)`);
+        } else if (searchFields[0] === 'artist') {
+            showFilterInfo(`Showing tracks by artists matching "${query}" (${sortedTracks.length} results)`);
+        } else if (searchFields[0] === 'album') {
+            showFilterInfo(`Showing tracks from albums matching "${query}" (${sortedTracks.length} results)`);
+        }
+        
         return {
             items: sortedTracks,
             total: sortedTracks.length,
-            originalTotal: originalTotal
+            originalTotal: totalTracksFound
         };
     } catch (error) {
         console.error('Error searching tracks:', error);
+        showError(`Search error: ${error.message}`);
         throw error;
     }
 }
