@@ -1,7 +1,7 @@
 // Spotify API integration
 // Configuration - replace these with your own values from Spotify Developer Dashboard
-const clientId = 'YOUR_CLIENT_ID'; // Replace with your Spotify Client ID
-const redirectUri = window.location.origin + window.location.pathname; // Current page URL
+const clientId = '02c2d852391944d58f80d2aa3fd9296e'; // Replace with your Spotify Client ID
+const redirectUri = 'https://eviltrivia.com/tools/musicsearch/spotify.html'; // Explicit redirect URI
 
 // Spotify API endpoints
 const authEndpoint = 'https://accounts.spotify.com/authorize';
@@ -63,7 +63,13 @@ function init() {
 
 // Redirect to Spotify authorization page
 function authorizeWithSpotify() {
+    console.log("Authorizing with Spotify using:");
+    console.log("Client ID:", clientId);
+    console.log("Redirect URI:", redirectUri);
+    
     const authUrl = `${authEndpoint}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes.join(' '))}&response_type=token&show_dialog=true`;
+    console.log("Auth URL:", authUrl);
+    
     window.location.href = authUrl;
 }
 
