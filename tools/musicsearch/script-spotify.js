@@ -18,17 +18,28 @@ const loginButton = document.getElementById('loginButton');
 const loginContainer = document.getElementById('loginContainer');
 const searchContainer = document.getElementById('searchContainer');
 const searchForm = document.getElementById('searchForm');
+const searchTypeSelect = document.getElementById('searchType');
 const queryInput = document.getElementById('query');
 const loading = document.getElementById('loading');
 const trackResults = document.getElementById('trackResults');
 const tracksContainer = document.getElementById('tracksContainer');
+const resultCount = document.getElementById('resultCount');
+const loadMoreBtn = document.getElementById('loadMoreBtn');
 const errorMessage = document.getElementById('errorMessage');
 const errorText = document.getElementById('errorText');
+
+// Search state variables
+let lastQuery = '';
+let lastSearchType = '';
+let currentOffset = 0;
+let totalTracks = 0;
+const RESULTS_PER_PAGE = 25;
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', init);
 loginButton.addEventListener('click', authorizeWithSpotify);
 searchForm.addEventListener('submit', handleSearch);
+loadMoreBtn.addEventListener('click', handleLoadMore);
 
 // Initialize the application
 function init() {
@@ -93,18 +104,31 @@ async function handleSearch(event) {
     const query = queryInput.value.trim();
     if (!query) return;
     
+    // Reset pagination for new search
+    currentOffset = 0;
+    lastQuery = query;
+    lastSearchType = searchTypeSelect.value;
+    
     try {
         loading.style.display = 'block';
         trackResults.style.display = 'none';
         hideError();
         
-        const tracks = await searchTracks(query);
+        // Clear previous results
+        tracksContainer.innerHTML = '';
+        
+        const tracks = await searchTracks(query, lastSearchType, currentOffset, RESULTS_PER_PAGE);
         
         loading.style.display = 'none';
         
-        if (tracks.length > 0) {
-            displayTracks(tracks);
+        if (tracks.items.length > 0) {
+            displayTracks(tracks.items);
             trackResults.style.display = 'block';
+            
+            // Update total count and toggle load more button
+            totalTracks = tracks.total;
+            resultCount.textContent = totalTracks;
+            toggleLoadMoreButton(tracks.items.length, totalTracks);
         } else {
             showError('No tracks found matching your search.');
         }
@@ -124,14 +148,63 @@ async function handleSearch(event) {
     }
 }
 
+// Handle load more button click
+async function handleLoadMore() {
+    if (!lastQuery) return;
+    
+    currentOffset += RESULTS_PER_PAGE;
+    
+    try {
+        loading.style.display = 'block';
+        loadMoreBtn.disabled = true;
+        
+        const tracks = await searchTracks(lastQuery, lastSearchType, currentOffset, RESULTS_PER_PAGE);
+        
+        loading.style.display = 'none';
+        loadMoreBtn.disabled = false;
+        
+        if (tracks.items.length > 0) {
+            displayTracks(tracks.items, true); // true means append to existing results
+            toggleLoadMoreButton(currentOffset + tracks.items.length, totalTracks);
+        } else {
+            loadMoreBtn.style.display = 'none';
+        }
+    } catch (error) {
+        loading.style.display = 'none';
+        loadMoreBtn.disabled = false;
+        console.error('Error loading more tracks:', error);
+        showError(`Error: ${error.message || 'Failed to load more tracks'}`);
+    }
+}
+
+// Toggle load more button visibility
+function toggleLoadMoreButton(currentCount, totalCount) {
+    if (currentCount < totalCount) {
+        loadMoreBtn.style.display = 'inline-block';
+    } else {
+        loadMoreBtn.style.display = 'none';
+    }
+}
+
 // Search for tracks on Spotify
-async function searchTracks(query) {
+async function searchTracks(query, searchType, offset = 0, limit = 25) {
     const accessToken = localStorage.getItem('spotify_access_token');
     if (!accessToken) {
         throw new Error('Not authenticated');
     }
     
-    const response = await fetch(`${apiBaseUrl}/search?q=${encodeURIComponent(query)}&type=track&limit=20`, {
+    // Build the query based on search type
+    let searchQuery = query;
+    if (searchType === 'track') {
+        searchQuery = `track:${query}`;
+    } else if (searchType === 'artist') {
+        searchQuery = `artist:${query}`;
+    } else if (searchType === 'album') {
+        searchQuery = `album:${query}`;
+    }
+    // If 'all', we use the original query to search across all fields
+    
+    const response = await fetch(`${apiBaseUrl}/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=${limit}&offset=${offset}`, {
         method: 'GET',
         headers: {
             'Authorization': `Bearer ${accessToken}`
@@ -145,7 +218,11 @@ async function searchTracks(query) {
     }
     
     const data = await response.json();
-    return data.tracks.items;
+    
+    // Sort by popularity (descending)
+    data.tracks.items.sort((a, b) => b.popularity - a.popularity);
+    
+    return data.tracks;
 }
 
 // Get detailed track information
@@ -171,63 +248,55 @@ async function getTrack(trackId) {
     return await response.json();
 }
 
-// Display tracks in the UI
-function displayTracks(tracks) {
-    tracksContainer.innerHTML = '';
+// Display tracks in the UI as a table
+function displayTracks(tracks, append = false) {
+    if (!append) {
+        tracksContainer.innerHTML = '';
+    }
     
     tracks.forEach(track => {
         const albumImage = track.album.images.length > 0 
-            ? track.album.images[0].url 
-            : 'https://placehold.co/300/333/fff?text=No+Image';
+            ? track.album.images[track.album.images.length - 1].url  // Use smallest image for table
+            : 'https://placehold.co/50/333/fff?text=NA';
         
         const artistNames = track.artists.map(artist => artist.name).join(', ');
         const releaseDate = track.album.release_date || 'Unknown';
         const duration = formatDuration(track.duration_ms);
         
-        const trackCard = document.createElement('div');
-        trackCard.className = 'col-md-6';
-        trackCard.innerHTML = `
-            <div class="track-card">
-                <div class="row g-0">
-                    <div class="col-md-4 d-flex align-items-center justify-content-center p-3">
-                        <img src="${albumImage}" class="album-cover" alt="${track.album.name}">
-                    </div>
-                    <div class="col-md-8">
-                        <div class="track-info">
-                            <div class="track-title">${escapeHtml(track.name)}</div>
-                            <div class="track-artist">${escapeHtml(artistNames)}</div>
-                            <div class="track-album">Album: ${escapeHtml(track.album.name)} (${releaseDate})</div>
-                            
-                            <div class="popularity-bar" title="Popularity: ${track.popularity}/100">
-                                <div class="popularity-fill" style="width: ${track.popularity}%"></div>
-                            </div>
-                            
-                            <div class="track-metadata">
-                                <span>Popularity: ${track.popularity}/100</span>
-                                <span>Duration: ${duration}</span>
-                            </div>
-                            
-                            ${track.preview_url ? `
-                                <audio controls class="preview-player" src="${track.preview_url}"></audio>
-                            ` : `
-                                <p class="text-muted mt-2"><small>No preview available</small></p>
-                            `}
-                            
-                            <div class="mt-2">
-                                <a href="${track.external_urls.spotify}" target="_blank" class="btn btn-sm btn-spotify">
-                                    <i class="bi bi-spotify"></i> Open in Spotify
-                                </a>
-                                <button class="btn btn-sm btn-outline-secondary ms-2 track-details-btn" data-track-id="${track.id}">
-                                    <i class="bi bi-info-circle"></i> More Details
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+        const row = document.createElement('tr');
+        
+        // Create the table row HTML
+        row.innerHTML = `
+            <td>
+                <img src="${albumImage}" class="album-cover" alt="${escapeHtml(track.album.name)}">
+            </td>
+            <td>${escapeHtml(track.name)}</td>
+            <td>${escapeHtml(artistNames)}</td>
+            <td>${escapeHtml(track.album.name)}</td>
+            <td>${releaseDate}</td>
+            <td>
+                <div class="popularity-bar" title="Popularity: ${track.popularity}/100">
+                    <div class="popularity-fill" style="width: ${track.popularity}%"></div>
                 </div>
-            </div>
+                ${track.popularity}/100
+            </td>
+            <td>${duration}</td>
+            <td>
+                ${track.preview_url ? 
+                    `<audio controls src="${track.preview_url}" preload="none" class="preview-player"></audio>` : 
+                    '<span class="text-muted">No preview</span>'}
+            </td>
+            <td>
+                <a href="${track.external_urls.spotify}" target="_blank" class="btn btn-sm btn-spotify me-1" title="Open in Spotify">
+                    <i class="bi bi-spotify"></i>
+                </a>
+                <button class="btn btn-sm btn-outline-secondary track-details-btn" data-track-id="${track.id}" title="View Details">
+                    <i class="bi bi-info-circle"></i>
+                </button>
+            </td>
         `;
         
-        tracksContainer.appendChild(trackCard);
+        tracksContainer.appendChild(row);
     });
     
     // Add event listeners to the "More Details" buttons
