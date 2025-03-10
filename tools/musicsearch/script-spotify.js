@@ -33,7 +33,7 @@ let lastQuery = '';
 let lastSearchType = '';
 let currentOffset = 0;
 let totalTracks = 0;
-const RESULTS_PER_PAGE = 25;
+const RESULTS_PER_PAGE = 50;
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', init);
@@ -113,6 +113,7 @@ async function handleSearch(event) {
         loading.style.display = 'block';
         trackResults.style.display = 'none';
         hideError();
+        hideFilterInfo();
         
         // Clear previous results
         tracksContainer.innerHTML = '';
@@ -125,10 +126,22 @@ async function handleSearch(event) {
             displayTracks(tracks.items);
             trackResults.style.display = 'block';
             
-            // Update total count and toggle load more button
-            totalTracks = tracks.total;
-            resultCount.textContent = totalTracks;
-            toggleLoadMoreButton(tracks.items.length, totalTracks);
+            // Update total count 
+            totalTracks = tracks.originalTotal;
+            resultCount.textContent = tracks.items.length;
+            
+            // Update the load more button and its text
+            if (tracks.items.length < tracks.originalTotal) {
+                loadMoreBtn.style.display = 'inline-block';
+                loadMoreBtn.textContent = `Load More (Showing ${tracks.items.length} of ${tracks.originalTotal}+)`;
+            } else {
+                loadMoreBtn.style.display = 'none';
+            }
+            
+            // Check if using track filter, show info about filtering
+            if (lastSearchType === 'track' && tracks.items.length < tracks.originalTotal) {
+                showFilterInfo(`Showing ${tracks.items.length} tracks that actually contain "${query}" in title (Spotify returned ${tracks.originalTotal} total results)`);
+            }
         } else {
             showError('No tracks found matching your search.');
         }
@@ -164,10 +177,29 @@ async function handleLoadMore() {
         loadMoreBtn.disabled = false;
         
         if (tracks.items.length > 0) {
+            // Add new tracks to the display
             displayTracks(tracks.items, true); // true means append to existing results
-            toggleLoadMoreButton(currentOffset + tracks.items.length, totalTracks);
+            
+            // Update displayed count
+            const currentCount = document.querySelectorAll('#tracksContainer tr').length;
+            resultCount.textContent = currentCount;
+            
+            // Update load more button text
+            if (currentCount < tracks.originalTotal) {
+                loadMoreBtn.style.display = 'inline-block';
+                loadMoreBtn.textContent = `Load More (Showing ${currentCount} of ${tracks.originalTotal}+)`;
+            } else {
+                loadMoreBtn.style.display = 'none';
+            }
+            
+            // Update filter info if we're doing track title filtering
+            if (lastSearchType === 'track') {
+                showFilterInfo(`Showing ${currentCount} tracks that actually contain "${lastQuery}" in title (Spotify returned ${tracks.originalTotal} total results)`);
+            }
         } else {
+            // No more results to load
             loadMoreBtn.style.display = 'none';
+            showFilterInfo(`All available tracks loaded that contain "${lastQuery}" (${document.querySelectorAll('#tracksContainer tr').length} tracks)`);
         }
     } catch (error) {
         loading.style.display = 'none';
@@ -187,7 +219,7 @@ function toggleLoadMoreButton(currentCount, totalCount) {
 }
 
 // Search for tracks
-async function searchTracks(query, searchBy, offset = 0, limit = 25) {
+async function searchTracks(query, searchBy, offset = 0, limit = RESULTS_PER_PAGE) {
     try {
         if (!query) {
             showError('Please enter a search query');
@@ -240,9 +272,14 @@ async function searchTracks(query, searchBy, offset = 0, limit = 25) {
             return { items: [], total: 0 };
         }
         
+        // Log the total available before filtering
+        console.log(`Spotify reports ${data.tracks.total} total tracks available for this search`);
+        
         // If searching by track title, do an additional client-side filter
         // to ensure results actually contain the search term in the title
         let filteredTracks = data.tracks.items;
+        let originalTotal = data.tracks.total;
+        
         if (searchBy === 'track') {
             const lowerQuery = query.toLowerCase();
             filteredTracks = data.tracks.items.filter(track => 
@@ -254,10 +291,11 @@ async function searchTracks(query, searchBy, offset = 0, limit = 25) {
         // Sort tracks by popularity (descending)
         const sortedTracks = filteredTracks.sort((a, b) => b.popularity - a.popularity);
         
-        // Return the data in the format expected by handleSearch
+        // Return the data in the format expected by handleSearch with both original and filtered totals
         return {
             items: sortedTracks,
-            total: filteredTracks.length // Update total to reflect filtered count
+            total: filteredTracks.length, // Filtered count for pagination
+            originalTotal: originalTotal  // Keep track of original total from Spotify
         };
     } catch (error) {
         console.error('Error searching tracks:', error);
@@ -404,4 +442,31 @@ function escapeHtml(unsafe) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+// Show filter info message
+function showFilterInfo(message) {
+    // Create info alert if it doesn't exist
+    if (!document.getElementById('filterInfoMessage')) {
+        const infoAlert = document.createElement('div');
+        infoAlert.id = 'filterInfoMessage';
+        infoAlert.className = 'alert alert-info mt-3';
+        infoAlert.innerHTML = `<i class="bi bi-info-circle"></i> <span id="filterInfoText"></span>`;
+        
+        // Insert after error message
+        const errorMsg = document.getElementById('errorMessage');
+        errorMsg.parentNode.insertBefore(infoAlert, errorMsg.nextSibling);
+    }
+    
+    // Set message and show
+    document.getElementById('filterInfoText').textContent = message;
+    document.getElementById('filterInfoMessage').style.display = 'block';
+}
+
+// Hide filter info message
+function hideFilterInfo() {
+    const filterInfo = document.getElementById('filterInfoMessage');
+    if (filterInfo) {
+        filterInfo.style.display = 'none';
+    }
 } 
