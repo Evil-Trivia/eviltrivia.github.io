@@ -19,7 +19,6 @@ const loginContainer = document.getElementById('loginContainer');
 const searchContainer = document.getElementById('searchContainer');
 const searchForm = document.getElementById('searchForm');
 const searchTypeSelect = document.getElementById('searchType');
-const searchMethodSelect = document.getElementById('searchMethod'); // New element for search method
 const queryInput = document.getElementById('query');
 const loading = document.getElementById('loading');
 const trackResults = document.getElementById('trackResults');
@@ -32,10 +31,10 @@ const errorText = document.getElementById('errorText');
 // Search state variables
 let lastQuery = '';
 let lastSearchType = '';
-let lastSearchMethod = ''; // New variable to track search method
 let currentOffset = 0;
 let totalTracks = 0;
-const RESULTS_PER_PAGE = 50;
+let allLoadedTracks = []; // New array to store all loaded tracks
+const RESULTS_PER_PAGE = 50; // Increased from 25 to 50
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', init);
@@ -71,18 +70,6 @@ function init() {
             // No valid token, show login
             showLoginInterface();
         }
-    }
-    
-    // Set up search method dropdown if it exists
-    if (searchMethodSelect) {
-        searchMethodSelect.addEventListener('change', function() {
-            // Show/hide filter info when search method changes
-            if (this.value === 'comprehensive') {
-                showFilterInfo('Comprehensive search combines results from multiple query types and sorts by popularity');
-            } else {
-                hideFilterInfo();
-            }
-        });
     }
 }
 
@@ -122,7 +109,7 @@ async function handleSearch(event) {
     currentOffset = 0;
     lastQuery = query;
     lastSearchType = searchTypeSelect.value;
-    lastSearchMethod = searchMethodSelect.value;
+    allLoadedTracks = []; // Reset all loaded tracks
     
     try {
         loading.style.display = 'block';
@@ -133,22 +120,26 @@ async function handleSearch(event) {
         // Clear previous results
         tracksContainer.innerHTML = '';
         
-        const tracks = await searchTracks(query, lastSearchType, lastSearchMethod, currentOffset, RESULTS_PER_PAGE);
+        const tracks = await searchTracks(query, lastSearchType, currentOffset, RESULTS_PER_PAGE);
         
         loading.style.display = 'none';
         
         if (tracks.items.length > 0) {
-            displayTracks(tracks.items);
+            // Store the tracks
+            allLoadedTracks = [...tracks.items];
+            
+            // Display tracks
+            displayTracks(allLoadedTracks);
             trackResults.style.display = 'block';
             
             // Update total count 
             totalTracks = tracks.originalTotal;
-            resultCount.textContent = tracks.items.length;
+            resultCount.textContent = allLoadedTracks.length;
             
             // Update the load more button and its text
-            if (tracks.items.length < tracks.originalTotal) {
+            if (allLoadedTracks.length < tracks.originalTotal) {
                 loadMoreBtn.style.display = 'inline-block';
-                loadMoreBtn.textContent = `Load More (Showing ${tracks.items.length} of ${tracks.originalTotal}+)`;
+                loadMoreBtn.textContent = `Load More (Showing ${allLoadedTracks.length} of ${tracks.originalTotal}+)`;
             } else {
                 loadMoreBtn.style.display = 'none';
             }
@@ -186,35 +177,40 @@ async function handleLoadMore() {
         loading.style.display = 'block';
         loadMoreBtn.disabled = true;
         
-        const tracks = await searchTracks(lastQuery, lastSearchType, lastSearchMethod, currentOffset, RESULTS_PER_PAGE);
+        const tracks = await searchTracks(lastQuery, lastSearchType, currentOffset, RESULTS_PER_PAGE);
         
         loading.style.display = 'none';
         loadMoreBtn.disabled = false;
         
         if (tracks.items.length > 0) {
-            // Add new tracks to the display
-            displayTracks(tracks.items, true); // true means append to existing results
+            // Add new tracks to our allLoadedTracks array
+            allLoadedTracks = [...allLoadedTracks, ...tracks.items];
+            
+            // Re-sort the entire list by popularity
+            allLoadedTracks.sort((a, b) => b.popularity - a.popularity);
+            
+            // Display all tracks (this will clear and redisplay everything)
+            displayTracks(allLoadedTracks);
             
             // Update displayed count
-            const currentCount = document.querySelectorAll('#tracksContainer tr').length;
-            resultCount.textContent = currentCount;
+            resultCount.textContent = allLoadedTracks.length;
             
             // Update load more button text
-            if (currentCount < tracks.originalTotal) {
+            if (allLoadedTracks.length < tracks.originalTotal) {
                 loadMoreBtn.style.display = 'inline-block';
-                loadMoreBtn.textContent = `Load More (Showing ${currentCount} of ${tracks.originalTotal}+)`;
+                loadMoreBtn.textContent = `Load More & Re-sort (Showing ${allLoadedTracks.length} of ${tracks.originalTotal}+)`;
             } else {
                 loadMoreBtn.style.display = 'none';
             }
             
             // Update filter info if we're doing track title filtering
             if (lastSearchType === 'track') {
-                showFilterInfo(`Showing ${currentCount} tracks that actually contain "${lastQuery}" in title (Spotify returned ${tracks.originalTotal} total results)`);
+                showFilterInfo(`Showing ${allLoadedTracks.length} tracks that actually contain "${lastQuery}" in title (Spotify returned ${tracks.originalTotal} total results)`);
             }
         } else {
             // No more results to load
             loadMoreBtn.style.display = 'none';
-            showFilterInfo(`All available tracks loaded that contain "${lastQuery}" (${document.querySelectorAll('#tracksContainer tr').length} tracks)`);
+            showFilterInfo(`All available tracks loaded that contain "${lastQuery}" (${allLoadedTracks.length} tracks)`);
         }
     } catch (error) {
         loading.style.display = 'none';
@@ -234,7 +230,7 @@ function toggleLoadMoreButton(currentCount, totalCount) {
 }
 
 // Search for tracks
-async function searchTracks(query, searchBy, searchMethod = 'standard', offset = 0, limit = RESULTS_PER_PAGE) {
+async function searchTracks(query, searchBy, offset = 0, limit = RESULTS_PER_PAGE) {
     try {
         if (!query) {
             showError('Please enter a search query');
@@ -244,34 +240,14 @@ async function searchTracks(query, searchBy, searchMethod = 'standard', offset =
         // Clear error message if any
         hideError();
         
-        // Get access token
-        const token = localStorage.getItem('spotify_access_token');
-        if (!token) {
-            throw new Error('Not authenticated');
-        }
-        
-        // For comprehensive search, we'll combine multiple search strategies
-        if (searchMethod === 'comprehensive' && searchBy === 'track') {
-            return await comprehensiveTrackSearch(query, token, offset, limit);
-        }
-        
-        // Standard search approach
         // Construct search query based on filter selection
         let searchQuery = '';
         
         if (searchBy === 'all') {
             searchQuery = query;
         } else if (searchBy === 'track') {
-            if (searchMethod === 'contains') {
-                // Search for tracks containing the term
-                searchQuery = `track:${query}`;
-            } else if (searchMethod === 'exact') {
-                // Search for exact track title matches
-                searchQuery = `track:"${query}"`;
-            } else {
-                // Default (standard) - use quotes for better matching
-                searchQuery = `track:"${query}"`;
-            }
+            // Use double quotes to match exact string in track name
+            searchQuery = `track:"${query}"`;
         } else if (searchBy === 'artist') {
             searchQuery = `artist:"${query}"`;
         } else if (searchBy === 'album') {
@@ -280,6 +256,12 @@ async function searchTracks(query, searchBy, searchMethod = 'standard', offset =
         
         // Log the constructed query for debugging
         console.log('Searching with query:', searchQuery);
+        
+        // Get access token
+        const token = localStorage.getItem('spotify_access_token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
         
         // Make search request
         const response = await fetch(
@@ -298,7 +280,7 @@ async function searchTracks(query, searchBy, searchMethod = 'standard', offset =
         const data = await response.json();
         
         if (!data.tracks || data.tracks.items.length === 0) {
-            return { items: [], total: 0, originalTotal: 0 };
+            return { items: [], total: 0 };
         }
         
         // Log the total available before filtering
@@ -309,7 +291,7 @@ async function searchTracks(query, searchBy, searchMethod = 'standard', offset =
         let filteredTracks = data.tracks.items;
         let originalTotal = data.tracks.total;
         
-        if (searchBy === 'track' && searchMethod !== 'contains') {
+        if (searchBy === 'track') {
             const lowerQuery = query.toLowerCase();
             filteredTracks = data.tracks.items.filter(track => 
                 track.name.toLowerCase().includes(lowerQuery)
@@ -328,73 +310,6 @@ async function searchTracks(query, searchBy, searchMethod = 'standard', offset =
         };
     } catch (error) {
         console.error('Error searching tracks:', error);
-        throw error;
-    }
-}
-
-// Comprehensive track search that combines multiple search strategies
-async function comprehensiveTrackSearch(query, token, offset = 0, limit = RESULTS_PER_PAGE) {
-    console.log('Performing comprehensive search for:', query);
-    
-    try {
-        // Create multiple search queries to cast a wide net
-        const searchStrategies = [
-            `track:"${query}"`,          // Exact phrase in track title
-            `track:${query}`,            // Term in track title
-            `${query}`,                  // General search
-            `track:${query.split(' ').join(' track:')}` // Each word must appear in track title
-        ];
-        
-        // Track unique songs to avoid duplicates
-        const uniqueTracks = new Map();
-        let totalFound = 0;
-        
-        // Execute all searches in parallel for speed
-        const searchPromises = searchStrategies.map(async (searchQuery) => {
-            const response = await fetch(
-                `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchQuery)}&type=track&limit=${limit}&market=US`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            
-            if (!response.ok) return [];
-            
-            const data = await response.json();
-            totalFound += data.tracks.total;
-            return data.tracks.items || [];
-        });
-        
-        // Wait for all searches to complete
-        const resultsArrays = await Promise.all(searchPromises);
-        
-        // Combine results, keeping track of unique items by ID
-        for (const tracks of resultsArrays) {
-            for (const track of tracks) {
-                // Only add if not already in our results and if it contains the search term
-                if (!uniqueTracks.has(track.id) && 
-                    track.name.toLowerCase().includes(query.toLowerCase())) {
-                    uniqueTracks.set(track.id, track);
-                }
-            }
-        }
-        
-        console.log(`Comprehensive search found ${uniqueTracks.size} unique relevant tracks`);
-        
-        // Convert to array and sort by popularity
-        const combinedTracks = Array.from(uniqueTracks.values())
-            .sort((a, b) => b.popularity - a.popularity);
-        
-        // Apply pagination (client-side)
-        const paginatedTracks = combinedTracks.slice(offset, offset + limit);
-        
-        return {
-            items: paginatedTracks,
-            total: uniqueTracks.size,
-            originalTotal: totalFound
-        };
-    } catch (error) {
-        console.error('Error in comprehensive search:', error);
         throw error;
     }
 }
