@@ -27,6 +27,11 @@ const resultCount = document.getElementById('resultCount');
 const loadMoreBtn = document.getElementById('loadMoreBtn');
 const errorMessage = document.getElementById('errorMessage');
 const errorText = document.getElementById('errorText');
+const clipboardContainer = document.getElementById('clipboard-container');
+const clipboardContent = document.getElementById('clipboard-content');
+const toggleClipboardBtn = document.getElementById('toggle-clipboard');
+const clearClipboardBtn = document.getElementById('clear-clipboard');
+const copyClipboardBtn = document.getElementById('copy-clipboard');
 
 // Search state variables
 let lastQuery = '';
@@ -35,12 +40,16 @@ let currentOffset = 0;
 let totalTracks = 0;
 let allLoadedTracks = []; // New array to store all loaded tracks
 const RESULTS_PER_PAGE = 50; // Increased from 25 to 50
+let clipboardTracks = []; // Array to store tracks for clipboard
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', init);
 loginButton.addEventListener('click', authorizeWithSpotify);
 searchForm.addEventListener('submit', handleSearch);
 loadMoreBtn.addEventListener('click', handleLoadMore);
+toggleClipboardBtn.addEventListener('click', toggleClipboard);
+clearClipboardBtn.addEventListener('click', clearClipboard);
+copyClipboardBtn.addEventListener('click', copyAllTracks);
 
 // Initialize the application
 function init() {
@@ -352,14 +361,9 @@ function displayTracks(tracks, append = false) {
         const releaseDate = track.album.release_date || 'Unknown';
         const duration = formatDuration(track.duration_ms);
         
-        // Check if preview URL exists and is not null (robustly check for non-empty string)
-        const hasPreview = track.preview_url !== null && track.preview_url !== undefined && track.preview_url !== '';
-        const previewHtml = hasPreview 
-            ? `<audio controls preload="none" src="${track.preview_url}" class="preview-player"></audio>` 
-            : '<span class="text-muted">No preview</span>';
-        
-        // For debugging
-        console.log(`Track: ${track.name}, Preview URL: ${track.preview_url || 'none'}`);
+        // Generate YouTube search URL
+        const youtubeSearchQuery = `${encodeURIComponent(track.name)} ${encodeURIComponent(artistNames)}`;
+        const youtubeUrl = `https://www.youtube.com/results?search_query=${youtubeSearchQuery.replace(/%20/g, "+")}`;
         
         const row = document.createElement('tr');
         
@@ -379,14 +383,22 @@ function displayTracks(tracks, append = false) {
                 ${track.popularity}/100
             </td>
             <td>${duration}</td>
-            <td>${previewHtml}</td>
             <td>
-                <a href="${track.external_urls.spotify}" target="_blank" class="btn btn-sm btn-spotify me-1" title="Open in Spotify">
-                    <i class="bi bi-spotify"></i>
-                </a>
-                <button class="btn btn-sm btn-outline-secondary track-details-btn" data-track-id="${track.id}" title="View Details">
-                    <i class="bi bi-info-circle"></i>
-                </button>
+                <div class="d-flex">
+                    <a href="${track.external_urls.spotify}" target="_blank" class="btn btn-sm btn-spotify me-1" title="Open in Spotify">
+                        <i class="bi bi-spotify"></i>
+                    </a>
+                    <a href="${youtubeUrl}" target="_blank" class="btn btn-sm btn-danger me-1" title="Search on YouTube">
+                        <i class="bi bi-youtube"></i>
+                    </a>
+                    <button class="btn btn-sm btn-primary me-1 add-track-btn" title="Add to clipboard" 
+                        data-track="${escapeHtml(track.name)}" data-artist="${escapeHtml(artistNames)}">
+                        <i class="bi bi-clipboard-plus"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary track-details-btn" data-track-id="${track.id}" title="View Details">
+                        <i class="bi bi-info-circle"></i>
+                    </button>
+                </div>
             </td>
         `;
         
@@ -407,6 +419,15 @@ function displayTracks(tracks, append = false) {
                 console.error('Error fetching track details:', error);
                 showError(`Error: Failed to fetch track details`);
             }
+        });
+    });
+    
+    // Add event listeners to the "Add to clipboard" buttons
+    document.querySelectorAll('.add-track-btn').forEach(button => {
+        button.addEventListener('click', () => {
+            const trackName = button.getAttribute('data-track');
+            const artistName = button.getAttribute('data-artist');
+            addToClipboard(`${trackName} - ${artistName}`);
         });
     });
 }
@@ -480,4 +501,89 @@ function hideFilterInfo() {
     if (filterInfo) {
         filterInfo.style.display = 'none';
     }
-} 
+}
+
+// Clipboard management functions
+function addToClipboard(trackInfo) {
+    // Check if the track is already in the clipboard
+    if (!clipboardTracks.includes(trackInfo)) {
+        clipboardTracks.push(trackInfo);
+        updateClipboardDisplay();
+        
+        // Show clipboard if it's the first item
+        if (clipboardTracks.length === 1) {
+            toggleClipboard(true);
+        }
+    }
+}
+
+function removeFromClipboard(index) {
+    clipboardTracks.splice(index, 1);
+    updateClipboardDisplay();
+}
+
+function clearClipboard() {
+    clipboardTracks = [];
+    updateClipboardDisplay();
+}
+
+function copyAllTracks() {
+    if (clipboardTracks.length === 0) {
+        return;
+    }
+    
+    const textToCopy = clipboardTracks.join('\n');
+    navigator.clipboard.writeText(textToCopy)
+        .then(() => {
+            alert('All tracks copied to clipboard!');
+        })
+        .catch(err => {
+            // Fallback for browsers that don't support clipboard API
+            const textarea = document.createElement('textarea');
+            textarea.value = textToCopy;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            alert('All tracks copied to clipboard!');
+        });
+}
+
+function updateClipboardDisplay() {
+    if (clipboardTracks.length === 0) {
+        clipboardContent.innerHTML = '<p>No tracks added yet.</p>';
+        return;
+    }
+    
+    let html = '';
+    clipboardTracks.forEach((track, index) => {
+        html += `
+        <div class="clipboard-item">
+            ${escapeHtml(track)}
+            <span class="remove-item" onclick="removeFromClipboard(${index})">×</span>
+        </div>
+        `;
+    });
+    
+    clipboardContent.innerHTML = html;
+}
+
+function toggleClipboard(show) {
+    const isCollapsed = clipboardContainer.classList.contains('collapsed');
+    
+    if (show === true || isCollapsed) {
+        clipboardContainer.classList.remove('collapsed');
+        toggleClipboardBtn.innerHTML = '▲';
+        toggleClipboardBtn.setAttribute('aria-label', 'Collapse clipboard');
+        toggleClipboardBtn.title = 'Hide clipboard';
+    } else {
+        clipboardContainer.classList.add('collapsed');
+        toggleClipboardBtn.innerHTML = '▼';
+        toggleClipboardBtn.setAttribute('aria-label', 'Expand clipboard');
+        toggleClipboardBtn.title = 'Show clipboard';
+    }
+}
+
+// Make clipboard functions globally available
+window.addToClipboard = addToClipboard;
+window.removeFromClipboard = removeFromClipboard; 
