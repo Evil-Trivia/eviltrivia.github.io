@@ -35,10 +35,10 @@ const chartPositionInput = document.getElementById('chartPosition');
 const minWeeksInput = document.getElementById('minWeeks');
 
 // Stats elements
-const totalAppearances = document.getElementById('totalAppearances');
+const totalOccurrences = document.getElementById('totalOccurrences');
 const bestPosition = document.getElementById('bestPosition');
 const longestRun = document.getElementById('longestRun');
-const uniqueEntries = document.getElementById('uniqueEntries');
+const uniqueSongs = document.getElementById('uniqueSongs');
 const topSongsList = document.getElementById('topSongsList');
 const firstAppearance = document.getElementById('firstAppearance');
 const lastAppearance = document.getElementById('lastAppearance');
@@ -55,16 +55,16 @@ const copyClipboardBtn = document.getElementById('copy-clipboard');
 document.addEventListener('DOMContentLoaded', init);
 
 // Add event listeners for clipboard
-toggleClipboardBtn.addEventListener('click', toggleClipboard);
-clearClipboardBtn.addEventListener('click', clearClipboard);
-copyClipboardBtn.addEventListener('click', copyAllSongs);
+if (toggleClipboardBtn) toggleClipboardBtn.addEventListener('click', toggleClipboard);
+if (clearClipboardBtn) clearClipboardBtn.addEventListener('click', clearClipboard);
+if (copyClipboardBtn) copyClipboardBtn.addEventListener('click', copyAllSongs);
 
 function init() {
-    // Event listeners
-    searchForm.addEventListener('submit', handleSearch);
-    searchTypeSelect.addEventListener('change', toggleSearchFields);
-    resetBtn.addEventListener('click', resetForm);
-    dedupeBtn.addEventListener('click', dedupeResults);
+    // Event listeners - only add if the elements exist
+    if (searchForm) searchForm.addEventListener('submit', handleSearch);
+    if (searchTypeSelect) searchTypeSelect.addEventListener('change', toggleSearchFields);
+    if (resetBtn) resetBtn.addEventListener('click', resetForm);
+    if (dedupeBtn) dedupeBtn.addEventListener('click', dedupeResults);
     
     // Initialize tooltips
     const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -74,31 +74,33 @@ function init() {
     
     // Set today as the default end date
     const today = new Date().toISOString().split('T')[0];
-    endDateInput.value = today;
+    if (endDateInput) endDateInput.value = today;
     
     // Set a default start date (1 month ago)
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-    startDateInput.value = oneMonthAgo.toISOString().split('T')[0];
+    if (startDateInput) startDateInput.value = oneMonthAgo.toISOString().split('T')[0];
     
     // Set min and max dates
     const minDate = "1958-08-04";
     const maxDate = "2023-09-02";
-    chartWeekInput.min = minDate;
-    chartWeekInput.max = maxDate;
+    if (chartWeekInput) {
+        chartWeekInput.min = minDate;
+        chartWeekInput.max = maxDate;
+    }
     
     // Default to hidden error messages
-    errorMessage.style.display = 'none';
+    if (errorMessage) errorMessage.style.display = 'none';
     
     // Load the chart data
-    loading.style.display = 'block';
+    if (loading) loading.style.display = 'block';
     fetchChartData()
         .then(() => {
-            loading.style.display = 'none';
+            if (loading) loading.style.display = 'none';
             console.log('Chart data loaded successfully.');
         })
         .catch(error => {
-            loading.style.display = 'none';
+            if (loading) loading.style.display = 'none';
             showError('Failed to load chart data. Please try refreshing the page.');
             console.error('Error loading chart data:', error);
         });
@@ -127,14 +129,30 @@ function toggleSearchFields() {
 
 async function fetchChartData() {
     try {
+        console.log('Fetching chart data from primary source...');
+        
         // Try the primary data source first
         const response = await fetch(dataUrl);
         if (!response.ok) {
             console.warn(`Primary data source failed with status: ${response.status}. Trying fallback...`);
             throw new Error(`Network response was not ok: ${response.status}`);
         }
+        
         const csvText = await response.text();
+        console.log(`CSV data fetched, size: ${csvText.length} bytes`);
+        
+        if (!csvText || csvText.length < 100) {
+            console.error('CSV data appears to be empty or too small');
+            throw new Error('CSV data appears to be empty or corrupted');
+        }
+        
         chartData = parseCSV(csvText);
+        console.log(`Parsed ${chartData.length} records from CSV`);
+        
+        if (chartData.length === 0) {
+            throw new Error('No chart data parsed from CSV');
+        }
+        
         return chartData;
     } catch (primaryError) {
         console.error('Error fetching primary chart data:', primaryError);
@@ -150,9 +168,15 @@ async function fetchChartData() {
             }
             
             const jsonData = await fallbackResponse.json();
+            console.log(`Fallback JSON data fetched, size: ${JSON.stringify(jsonData).length} bytes`);
             
             // Convert the JSON format to match our expected CSV format
             chartData = convertJsonToChartFormat(jsonData);
+            console.log(`Converted ${chartData.length} records from JSON`);
+            
+            if (chartData.length === 0) {
+                throw new Error('No chart data converted from JSON');
+            }
             
             // Clear the error since we succeeded with the fallback
             hideError();
@@ -170,7 +194,52 @@ async function fetchChartData() {
 function parseCSV(csvText) {
     // Split by lines and get header
     const lines = csvText.split('\n');
+    if (lines.length < 2) {
+        console.error('CSV has insufficient lines');
+        return [];
+    }
+    
     const headers = lines[0].split(',');
+    console.log('CSV Headers:', headers);
+    
+    // Define column name mappings to handle different column names in source data
+    const columnMap = {
+        'week_id': 'chart_date',
+        'week': 'chart_date',
+        'chart_date': 'chart_date',
+        'date': 'chart_date',
+        
+        'song': 'song',
+        'title': 'song',
+        'track': 'song',
+        'name': 'song',
+        
+        'performer': 'artist',
+        'artist': 'artist',
+        'act': 'artist',
+        
+        'position': 'position',
+        'rank': 'position',
+        'this_week': 'position',
+        'this_week_position': 'position',
+        'chart_position': 'position',
+        
+        'last_week': 'previous_week_position',
+        'last_week_position': 'previous_week_position',
+        'previous_week': 'previous_week_position',
+        'previous_week_position': 'previous_week_position',
+        
+        'weeks_on_chart': 'weeks_on_chart',
+        'weeks': 'weeks_on_chart'
+    };
+    
+    // Map headers to standardized field names
+    const standardHeaders = headers.map(header => {
+        const cleanHeader = header.trim().toLowerCase();
+        return columnMap[cleanHeader] || cleanHeader;
+    });
+    
+    console.log('Mapped headers:', standardHeaders);
     
     const data = [];
     
@@ -197,9 +266,9 @@ function parseCSV(csvText) {
         
         // Create object with header keys
         const rowObj = {};
-        for (let j = 0; j < headers.length; j++) {
-            const key = headers[j].trim();
-            let value = row[j] || '';
+        for (let j = 0; j < standardHeaders.length; j++) {
+            const key = standardHeaders[j];
+            let value = (j < row.length) ? row[j] || '' : '';
             
             // Clean up quotes
             if (value.startsWith('"') && value.endsWith('"')) {
@@ -208,6 +277,12 @@ function parseCSV(csvText) {
             
             rowObj[key] = value.trim();
         }
+        
+        // Ensure required fields exist
+        if (!rowObj.song) rowObj.song = '';
+        if (!rowObj.artist) rowObj.artist = '';
+        if (!rowObj.position) rowObj.position = '';
+        if (!rowObj.chart_date) rowObj.chart_date = '';
         
         data.push(rowObj);
     }
@@ -220,9 +295,9 @@ function handleSearch(event) {
     
     // Reset UI
     hideError();
-    loading.style.display = 'block';
-    resultsBody.innerHTML = '';
-    statsContainer.style.display = 'none';
+    if (loading) loading.style.display = 'block';
+    if (resultsBody) resultsBody.innerHTML = '';
+    if (statsContainer) statsContainer.style.display = 'none';
     
     const searchType = searchTypeSelect.value;
     let searchTerm = '';
@@ -233,31 +308,34 @@ function handleSearch(event) {
         searchTerm = queryInput.value.trim();
         if (!searchTerm) {
             showError('Please enter a search term.');
-            loading.style.display = 'none';
+            if (loading) loading.style.display = 'none';
             return;
         }
     } else if (searchType === 'date') {
         searchTerm = chartWeekInput.value;
         if (!searchTerm) {
             showError('Please select a chart week.');
-            loading.style.display = 'none';
+            if (loading) loading.style.display = 'none';
             return;
         }
     } else if (searchType === 'position') {
         searchTerm = chartPositionInput.value;
         if (!searchTerm || searchTerm < 1 || searchTerm > 100) {
             showError('Please enter a valid chart position (1-100).');
-            loading.style.display = 'none';
+            if (loading) loading.style.display = 'none';
             return;
         }
     } else if (searchType === 'duration') {
         searchTerm = minWeeksInput.value;
         if (!searchTerm || searchTerm < 1) {
             showError('Please enter a valid number of weeks.');
-            loading.style.display = 'none';
+            if (loading) loading.style.display = 'none';
             return;
         }
     }
+    
+    // Log data state for debugging
+    console.log(`Searching for "${searchTerm}" in ${searchType}, data length: ${chartData.length}`);
     
     // Search chart data
     let results = [];
@@ -303,6 +381,9 @@ function handleSearch(event) {
         });
     }
     
+    // Log results for debugging
+    console.log(`Found ${results.length} results`);
+    
     // Sort results by chart date and position
     results.sort((a, b) => {
         if (a.chart_date === b.chart_date) {
@@ -320,11 +401,11 @@ function handleSearch(event) {
     // Update statistics
     if (results.length > 0) {
         calculateStatistics(results, searchType);
-        statsContainer.style.display = 'block';
+        if (statsContainer) statsContainer.style.display = 'block';
     }
     
-    resultsContainer.style.display = 'block';
-    loading.style.display = 'none';
+    if (resultsContainer) resultsContainer.style.display = 'block';
+    if (loading) loading.style.display = 'none';
 }
 
 function escapeRegExp(string) {
@@ -332,15 +413,16 @@ function escapeRegExp(string) {
 }
 
 function displayResults(results) {
+    if (!resultsBody) return;
     resultsBody.innerHTML = '';
     
     if (results.length === 0) {
-        resultCount.textContent = '0';
+        if (resultCount) resultCount.textContent = '0';
         resultsBody.innerHTML = '<tr><td colspan="5" class="text-center">No results found</td></tr>';
         return;
     }
     
-    resultCount.textContent = results.length;
+    if (resultCount) resultCount.textContent = results.length;
     
     results.forEach(entry => {
         const row = document.createElement('tr');
@@ -384,50 +466,41 @@ function displayResults(results) {
 function calculateStatistics(results, searchType) {
     // Only show statistics if there are results
     if (results.length === 0) {
-        statsContainer.style.display = 'none';
+        if (statsContainer) statsContainer.style.display = 'none';
         return;
     }
     
-    statsContainer.style.display = 'block';
+    if (statsContainer) statsContainer.style.display = 'block';
     
-    // Total appearances
-    totalAppearances.textContent = results.length;
+    // Total occurrences
+    if (totalOccurrences) totalOccurrences.textContent = results.length;
     
-    // Best position (lowest number is better)
-    const bestPos = Math.min(...results.map(item => parseInt(item.position, 10)));
-    bestPosition.textContent = bestPos || '-';
-    
-    // Longest run on chart
-    const maxWeeks = Math.max(...results.map(item => parseInt(item.position, 10) || 0));
-    longestRun.textContent = maxWeeks || 0;
-    
-    // Count unique entries (by title-artist combination or just one depending on search type)
+    // Calculate unique songs/artists
     let uniqueItems = new Set();
+    results.forEach(item => {
+        uniqueItems.add(`${item.song.toLowerCase()}-${item.artist.toLowerCase()}`);
+    });
+    if (uniqueSongs) uniqueSongs.textContent = uniqueItems.size;
     
-    if (searchType === 'artist') {
-        // Count unique songs for this artist
-        results.forEach(item => uniqueItems.add(item.song.toLowerCase()));
-        uniqueEntries.textContent = uniqueItems.size;
-    } else if (searchType === 'song') {
-        // For song searches, just count different artists if there are cover versions
-        results.forEach(item => uniqueItems.add(item.artist.toLowerCase()));
-        uniqueEntries.textContent = uniqueItems.size;
-    } else {
-        // For other searches, count unique title-performer combinations
-        results.forEach(item => uniqueItems.add(`${item.song.toLowerCase()}-${item.artist.toLowerCase()}`));
-        uniqueEntries.textContent = uniqueItems.size;
-    }
+    // Calculate average position
+    const totalPosition = results.reduce((sum, entry) => sum + parseInt(entry.position), 0);
+    const avgPos = (totalPosition / results.length).toFixed(1);
+    if (avgPosition) avgPosition.textContent = avgPos;
+    
+    // Count number of #1s
+    const numberOnes = results.filter(entry => entry.position === '1').length;
+    if (numberOne) numberOne.textContent = numberOnes;
     
     // Display top songs (by weeks on chart or peak position)
     displayTopSongs(results, searchType);
     
-    // Display timeline information
+    // Display timeline information if the elements exist
     const chartDates = results.map(item => new Date(item.chart_date));
     const firstDate = new Date(Math.min(...chartDates));
     const lastDate = new Date(Math.max(...chartDates));
     
-    firstAppearance.textContent = formatDate(firstDate);
-    lastAppearance.textContent = formatDate(lastDate);
+    if (firstAppearance) firstAppearance.textContent = formatDate(firstDate);
+    if (lastAppearance) lastAppearance.textContent = formatDate(lastDate);
     
     // Calculate timeline percentage (what percentage of the entire Hot 100 history this spans)
     const hot100Start = new Date('1958-08-04'); // Approximate start of Hot 100
@@ -436,7 +509,7 @@ function calculateStatistics(results, searchType) {
     const resultTimespan = lastDate - firstDate;
     const percentage = Math.min(100, Math.round((resultTimespan / totalTimespan) * 100));
     
-    chartTimeline.style.width = `${percentage}%`;
+    if (chartTimeline) chartTimeline.style.width = `${percentage}%`;
 }
 
 function displayTopSongs(results, searchType) {
