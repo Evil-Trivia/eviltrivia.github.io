@@ -39,8 +39,42 @@ const toggleClipboardBtn = document.getElementById('toggle-clipboard');
 const clearClipboardBtn = document.getElementById('clear-clipboard');
 const copyClipboardBtn = document.getElementById('copy-clipboard');
 
-// Initialize the application
-document.addEventListener('DOMContentLoaded', init);
+// Initialize once DOM is fully loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Get element references
+    resultsContainer = document.getElementById('resultsContainer');
+    resultsBody = document.getElementById('resultsBody');
+    loading = document.getElementById('loading');
+    searchForm = document.getElementById('searchForm');
+    searchTypeSelect = document.getElementById('searchType');
+    queryInput = document.getElementById('query');
+    chartWeekInput = document.getElementById('chartWeek');
+    chartPositionInput = document.getElementById('chartPosition');
+    minWeeksInput = document.getElementById('minWeeks');
+    exactMatchCheckbox = document.getElementById('exactMatch');
+    resultCount = document.getElementById('resultCount');
+    errorContainer = document.getElementById('errorContainer');
+    errorMessage = document.getElementById('errorMessage');
+    errorText = document.getElementById('errorText');
+    clipboardContainer = document.getElementById('clipboard-container');
+    clipboardContent = document.getElementById('clipboard-content');
+    toggleClipboardBtn = document.getElementById('toggle-clipboard');
+    clearClipboardBtn = document.getElementById('clear-clipboard');
+    copyClipboardBtn = document.getElementById('copy-clipboard');
+    resetBtn = document.getElementById('resetBtn');
+    dedupeBtn = document.getElementById('dedupeBtn');
+    statsContainer = document.getElementById('statsContainer');
+    statsBody = document.getElementById('statsBody');
+    
+    // Call init to set up event handlers
+    init();
+    
+    // Load data
+    fetchChartData();
+    
+    // Initialize from localStorage
+    loadClipboardFromStorage();
+});
 
 // Add event listeners for clipboard
 if (toggleClipboardBtn) toggleClipboardBtn.addEventListener('click', toggleClipboard);
@@ -200,6 +234,39 @@ async function fetchChartData() {
     }
 }
 
+// Define column name mappings to handle different column names in source data
+const columnMap = {
+    'chart_week': 'chart_date',
+    'chart_date': 'chart_date',
+    'week_id': 'chart_date',
+    'week': 'chart_date',
+    'date': 'chart_date',
+    
+    'title': 'album',
+    'album': 'album',
+    'name': 'album',
+    
+    'performer': 'artist',
+    'artist': 'artist',
+    'act': 'artist',
+    
+    'current_week': 'position',
+    'position': 'position',
+    'rank': 'position',
+    'this_week': 'position',
+    'this_week_position': 'position',
+    'chart_position': 'position',
+    
+    'last_week': 'previous_week_position',
+    'last_week_position': 'previous_week_position',
+    'previous_week': 'previous_week_position',
+    'previous_week_position': 'previous_week_position',
+    
+    'wks_on_chart': 'weeks_on_chart',
+    'weeks_on_chart': 'weeks_on_chart',
+    'weeks': 'weeks_on_chart'
+};
+
 function parseCSV(csvText) {
     // Split by lines and get header
     const lines = csvText.split('\n');
@@ -210,37 +277,6 @@ function parseCSV(csvText) {
     
     const headers = lines[0].split(',');
     console.log('CSV Headers:', headers);
-    
-    // Define column name mappings to handle different column names in source data
-    const columnMap = {
-        'week_id': 'chart_date',
-        'week': 'chart_date',
-        'chart_date': 'chart_date',
-        'date': 'chart_date',
-        
-        'album': 'album',
-        'title': 'album',
-        'lp': 'album',
-        'name': 'album',
-        
-        'performer': 'artist',
-        'artist': 'artist',
-        'act': 'artist',
-        
-        'position': 'position',
-        'rank': 'position',
-        'this_week': 'position',
-        'this_week_position': 'position',
-        'chart_position': 'position',
-        
-        'last_week': 'previous_week_position',
-        'last_week_position': 'previous_week_position',
-        'previous_week': 'previous_week_position',
-        'previous_week_position': 'previous_week_position',
-        
-        'weeks_on_chart': 'weeks_on_chart',
-        'weeks': 'weeks_on_chart'
-    };
     
     // Map headers to standardized field names
     const standardHeaders = headers.map(header => {
@@ -443,20 +479,23 @@ function displayResults(results) {
     results.forEach(entry => {
         const row = document.createElement('tr');
         
-        // Generate YouTube search URL
-        const youtubeSearchQuery = `${encodeURIComponent(entry.album)} ${encodeURIComponent(entry.artist)}`;
-        const youtubeUrl = `https://www.youtube.com/results?search_query=${youtubeSearchQuery.replace(/%20/g, "+")}`;
+        // Generate search URLs
+        const spotifySearchQuery = `${encodeURIComponent(entry.album)} ${encodeURIComponent(entry.artist)}`;
+        const spotifyUrl = `https://open.spotify.com/search/${spotifySearchQuery.replace(/%20/g, "+")}`;
+        
+        // Format the date properly
+        const formattedDate = formatDate(entry.chart_date);
         
         // Create table row
         row.innerHTML = `
-            <td>${formatDate(entry.chart_date)}</td>
+            <td>${formattedDate}</td>
             <td>${escapeHtml(entry.album)}</td>
             <td>${escapeHtml(entry.artist)}</td>
             <td>${entry.position}</td>
             <td>
                 <div class="d-flex">
-                    <a href="${youtubeUrl}" target="_blank" class="btn btn-sm btn-danger me-1" title="Search on YouTube">
-                        <i class="bi bi-youtube"></i>
+                    <a href="${spotifyUrl}" target="_blank" class="btn btn-sm btn-success me-1" title="Search on Spotify">
+                        <i class="bi bi-spotify"></i>
                     </a>
                     <button class="btn btn-sm btn-primary add-album-btn" title="Add to clipboard" 
                         data-album="${escapeHtml(entry.album)}" data-artist="${escapeHtml(entry.artist)}">
@@ -500,12 +539,34 @@ function calculateStatistics(results, searchType) {
     if (numberOne) numberOne.textContent = numberOnes;
 }
 
-// Format date from YYYY-MM-DD to MM/DD/YYYY
 function formatDate(dateString) {
     if (!dateString) return '';
-    const parts = dateString.split('-');
-    if (parts.length !== 3) return dateString;
-    return `${parts[1]}/${parts[2]}/${parts[0]}`;
+    
+    try {
+        // Check if it's already in a readable format
+        if (dateString.includes('/')) return dateString;
+        
+        // Assume YYYY-MM-DD format
+        const parts = dateString.split('-');
+        if (parts.length !== 3) return dateString;
+        
+        const months = [
+            'January', 'February', 'March', 'April', 'May', 'June', 
+            'July', 'August', 'September', 'October', 'November', 'December'
+        ];
+        
+        // Format as "Month DD, YYYY"
+        const month = parseInt(parts[1], 10);
+        const day = parseInt(parts[2], 10);
+        const year = parts[0];
+        
+        if (isNaN(month) || month < 1 || month > 12) return dateString;
+        
+        return `${months[month-1]} ${day}, ${year}`;
+    } catch (e) {
+        console.error('Error formatting date:', e);
+        return dateString; // Return original if there's any error
+    }
 }
 
 // Escape HTML to prevent XSS
@@ -657,18 +718,25 @@ function resetForm() {
     if (resultCount) resultCount.textContent = '0';
 }
 
-// Add dedupeResults function
 function dedupeResults() {
     console.log('Deduping results');
-    if (currentResults.length === 0) {
+    if (!currentResults || currentResults.length === 0) {
+        showError('No results to deduplicate');
         return; // Nothing to dedupe
     }
+    
+    debug(`Starting deduplication of ${currentResults.length} results`);
     
     // Create a map to hold unique album-artist combinations
     const uniqueMap = new Map();
     
     // Group by album-artist
     currentResults.forEach(item => {
+        if (!item.album || !item.artist) {
+            debug('Skipping item with missing album or artist', item);
+            return;
+        }
+        
         const key = `${item.album.toLowerCase()}-${item.artist.toLowerCase()}`;
         
         if (!uniqueMap.has(key)) {
@@ -693,6 +761,7 @@ function dedupeResults() {
     
     // Get the deduplicated array and display
     const dedupedResults = Array.from(uniqueMap.values());
+    debug(`Deduplicated to ${dedupedResults.length} results`);
     
     // Show deduplicated results
     displayResults(dedupedResults);
