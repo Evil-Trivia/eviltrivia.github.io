@@ -51,6 +51,8 @@ function init() {
     // Event listeners
     if (searchForm) searchForm.addEventListener('submit', handleSearch);
     if (searchTypeSelect) searchTypeSelect.addEventListener('change', toggleSearchFields);
+    if (resetBtn) resetBtn.addEventListener('click', resetForm);
+    if (dedupeBtn) dedupeBtn.addEventListener('click', dedupeResults);
     
     // Set min and max dates
     const minDate = "1967-01-01";
@@ -106,10 +108,17 @@ function hideError() {
     if (errorMessage) errorMessage.style.display = 'none';
 }
 
+// Add debugging function
+function debug(message, data) {
+    console.log(`[DEBUG] ${message}`, data || '');
+}
+
 async function fetchChartData() {
     let retryCount = 0;
     const maxRetries = 3;
     const retryDelay = 1000; // 1 second
+    
+    debug('Starting chart data fetch');
     
     while (retryCount < maxRetries) {
         try {
@@ -133,6 +142,11 @@ async function fetchChartData() {
             
             if (chartData.length === 0) {
                 throw new Error('No chart data parsed from CSV');
+            }
+            
+            // Log some sample records for debugging
+            if (chartData.length > 0) {
+                debug('Sample record', chartData[0]);
             }
             
             return chartData;
@@ -159,6 +173,11 @@ async function fetchChartData() {
                     
                     if (chartData.length === 0) {
                         throw new Error('No chart data converted from JSON');
+                    }
+                    
+                    // Log some sample records for debugging
+                    if (chartData.length > 0) {
+                        debug('Sample record from fallback', chartData[0]);
                     }
                     
                     // Clear the error since we succeeded with the fallback
@@ -318,7 +337,10 @@ function handleSearch(event) {
     }
     
     // Log data state for debugging
-    console.log(`Searching for "${searchTerm}" in ${searchType}, data length: ${chartData.length}`);
+    debug(`Searching for "${searchTerm}" in ${searchType}`, {
+        dataLength: chartData.length,
+        exactMatch: isExactMatch
+    });
     
     // Search chart data
     let results = [];
@@ -328,24 +350,55 @@ function handleSearch(event) {
             ? new RegExp(`^${escapeRegExp(searchTerm)}$`, 'i') 
             : new RegExp(escapeRegExp(searchTerm), 'i');
         
-        results = chartData.filter(entry => searchRegex.test(entry.album));
+        debug('Using album regex', searchRegex);
+        results = chartData.filter(entry => {
+            const match = searchRegex.test(entry.album);
+            if (match && results.length < 5) {
+                debug('Album match found', entry);
+            }
+            return match;
+        });
     } 
     else if (searchType === 'artist') {
         const searchRegex = isExactMatch 
             ? new RegExp(`^${escapeRegExp(searchTerm)}$`, 'i') 
             : new RegExp(escapeRegExp(searchTerm), 'i');
         
-        results = chartData.filter(entry => searchRegex.test(entry.artist));
+        debug('Using artist regex', searchRegex);
+        results = chartData.filter(entry => {
+            const match = searchRegex.test(entry.artist);
+            if (match && results.length < 5) {
+                debug('Artist match found', entry);
+            }
+            return match;
+        });
     } 
     else if (searchType === 'date') {
-        results = chartData.filter(entry => entry.chart_date === searchTerm);
+        debug('Searching for date', searchTerm);
+        results = chartData.filter(entry => {
+            const match = entry.chart_date === searchTerm;
+            if (match && results.length < 5) {
+                debug('Date match found', entry);
+            }
+            return match;
+        });
     } 
     else if (searchType === 'position') {
-        results = chartData.filter(entry => parseInt(entry.position) === parseInt(searchTerm));
+        const searchPosition = parseInt(searchTerm);
+        debug('Searching for position', searchPosition);
+        results = chartData.filter(entry => {
+            const match = parseInt(entry.position) === searchPosition;
+            if (match && results.length < 5) {
+                debug('Position match found', entry);
+            }
+            return match;
+        });
     }
     
     // Log results for debugging
-    console.log(`Found ${results.length} results`);
+    debug(`Found ${results.length} results`, { 
+        firstFew: results.slice(0, 3) 
+    });
     
     // Sort results by chart date and position
     results.sort((a, b) => {
@@ -587,4 +640,62 @@ function convertJsonToChartFormat(jsonData) {
     // Error fallback - create minimal dataset if format is unknown
     console.log('Unknown JSON format, creating minimal dataset');
     return [];
+}
+
+// Add resetForm function
+function resetForm() {
+    console.log('Resetting form');
+    if (searchForm) searchForm.reset();
+    toggleSearchFields();
+    
+    // Hide statistics
+    if (statsContainer) statsContainer.style.display = 'none';
+    
+    // Clear results
+    if (resultsContainer) resultsContainer.style.display = 'none';
+    if (resultsBody) resultsBody.innerHTML = '';
+    if (resultCount) resultCount.textContent = '0';
+}
+
+// Add dedupeResults function
+function dedupeResults() {
+    console.log('Deduping results');
+    if (currentResults.length === 0) {
+        return; // Nothing to dedupe
+    }
+    
+    // Create a map to hold unique album-artist combinations
+    const uniqueMap = new Map();
+    
+    // Group by album-artist
+    currentResults.forEach(item => {
+        const key = `${item.album.toLowerCase()}-${item.artist.toLowerCase()}`;
+        
+        if (!uniqueMap.has(key)) {
+            uniqueMap.set(key, item);
+        } else {
+            const existingItem = uniqueMap.get(key);
+            
+            // Choose the better record based on criteria:
+            // 1. Better position (lower number is better)
+            // 2. If same position, longer chart run
+            const existingPos = parseInt(existingItem.position, 10);
+            const currentPos = parseInt(item.position, 10);
+            const existingWeeks = parseInt(existingItem.weeks_on_chart, 10) || 0;
+            const currentWeeks = parseInt(item.weeks_on_chart, 10) || 0;
+            
+            if (currentPos < existingPos || 
+                (currentPos === existingPos && currentWeeks > existingWeeks)) {
+                uniqueMap.set(key, item);
+            }
+        }
+    });
+    
+    // Get the deduplicated array and display
+    const dedupedResults = Array.from(uniqueMap.values());
+    
+    // Show deduplicated results
+    displayResults(dedupedResults);
+    calculateStatistics(dedupedResults, searchTypeSelect.value);
+    if (resultCount) resultCount.textContent = `${dedupedResults.length} (deduplicated from ${currentResults.length})`;
 } 

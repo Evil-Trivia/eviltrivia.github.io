@@ -36,9 +36,9 @@ const minWeeksInput = document.getElementById('minWeeks');
 
 // Stats elements
 const totalOccurrences = document.getElementById('totalOccurrences');
-const bestPosition = document.getElementById('bestPosition');
-const longestRun = document.getElementById('longestRun');
 const uniqueSongs = document.getElementById('uniqueSongs');
+const avgPosition = document.getElementById('avgPosition');
+const numberOne = document.getElementById('numberOne');
 const topSongsList = document.getElementById('topSongsList');
 const firstAppearance = document.getElementById('firstAppearance');
 const lastAppearance = document.getElementById('lastAppearance');
@@ -107,29 +107,38 @@ function init() {
 }
 
 function toggleSearchFields() {
+    if (!searchTypeSelect) return;
+    
     const searchType = searchTypeSelect.value;
+    console.log('Changing search type to:', searchType);
     
     // Hide all search inputs first
-    textSearch.style.display = 'none';
-    dateSearch.style.display = 'none';
-    positionSearch.style.display = 'none';
-    durationSearch.style.display = 'none';
+    if (textSearch) textSearch.style.display = 'none';
+    if (dateSearch) dateSearch.style.display = 'none';
+    if (positionSearch) positionSearch.style.display = 'none';
+    if (durationSearch) durationSearch.style.display = 'none';
     
     // Show relevant search input based on selection
     if (searchType === 'title' || searchType === 'artist') {
-        textSearch.style.display = 'block';
+        if (textSearch) textSearch.style.display = 'block';
     } else if (searchType === 'date') {
-        dateSearch.style.display = 'block';
+        if (dateSearch) dateSearch.style.display = 'block';
     } else if (searchType === 'position') {
-        positionSearch.style.display = 'block';
+        if (positionSearch) positionSearch.style.display = 'block';
     } else if (searchType === 'duration') {
-        durationSearch.style.display = 'block';
+        if (durationSearch) durationSearch.style.display = 'block';
     }
+}
+
+// Add debugging function
+function debug(message, data) {
+    console.log(`[DEBUG] ${message}`, data || '');
 }
 
 async function fetchChartData() {
     try {
         console.log('Fetching chart data from primary source...');
+        debug('Starting chart data fetch');
         
         // Try the primary data source first
         const response = await fetch(dataUrl);
@@ -151,6 +160,11 @@ async function fetchChartData() {
         
         if (chartData.length === 0) {
             throw new Error('No chart data parsed from CSV');
+        }
+        
+        // Log some sample records for debugging
+        if (chartData.length > 0) {
+            debug('Sample record', chartData[0]);
         }
         
         return chartData;
@@ -176,6 +190,11 @@ async function fetchChartData() {
             
             if (chartData.length === 0) {
                 throw new Error('No chart data converted from JSON');
+            }
+            
+            // Log some sample records for debugging
+            if (chartData.length > 0) {
+                debug('Sample record from fallback', chartData[0]);
             }
             
             // Clear the error since we succeeded with the fallback
@@ -335,7 +354,10 @@ function handleSearch(event) {
     }
     
     // Log data state for debugging
-    console.log(`Searching for "${searchTerm}" in ${searchType}, data length: ${chartData.length}`);
+    debug(`Searching for "${searchTerm}" in ${searchType}`, {
+        dataLength: chartData.length,
+        exactMatch: isExactMatch
+    });
     
     // Search chart data
     let results = [];
@@ -345,23 +367,53 @@ function handleSearch(event) {
             ? new RegExp(`^${escapeRegExp(searchTerm)}$`, 'i') 
             : new RegExp(escapeRegExp(searchTerm), 'i');
         
-        results = chartData.filter(entry => searchRegex.test(entry.song));
+        debug('Using title regex', searchRegex);
+        results = chartData.filter(entry => {
+            const match = searchRegex.test(entry.song);
+            if (match && results.length < 5) {
+                debug('Title match found', entry);
+            }
+            return match;
+        });
     } 
     else if (searchType === 'artist') {
         const searchRegex = isExactMatch 
             ? new RegExp(`^${escapeRegExp(searchTerm)}$`, 'i') 
             : new RegExp(escapeRegExp(searchTerm), 'i');
         
-        results = chartData.filter(entry => searchRegex.test(entry.artist));
+        debug('Using artist regex', searchRegex);
+        results = chartData.filter(entry => {
+            const match = searchRegex.test(entry.artist);
+            if (match && results.length < 5) {
+                debug('Artist match found', entry);
+            }
+            return match;
+        });
     } 
     else if (searchType === 'date') {
-        results = chartData.filter(entry => entry.chart_date === searchTerm);
+        debug('Searching for date', searchTerm);
+        results = chartData.filter(entry => {
+            const match = entry.chart_date === searchTerm;
+            if (match && results.length < 5) {
+                debug('Date match found', entry);
+            }
+            return match;
+        });
     } 
     else if (searchType === 'position') {
-        results = chartData.filter(entry => parseInt(entry.position) === parseInt(searchTerm));
+        const searchPosition = parseInt(searchTerm);
+        debug('Searching for position', searchPosition);
+        results = chartData.filter(entry => {
+            const match = parseInt(entry.position) === searchPosition;
+            if (match && results.length < 5) {
+                debug('Position match found', entry);
+            }
+            return match;
+        });
     } 
     else if (searchType === 'duration') {
         // Group by song-artist to find entries with minimum weeks
+        debug('Searching for duration', searchTerm);
         const songMap = new Map();
         
         chartData.forEach(entry => {
@@ -372,17 +424,25 @@ function handleSearch(event) {
             songMap.get(key).push(entry);
         });
         
+        debug('Song groups created', { mapSize: songMap.size });
+        
         // Filter for songs that appeared at least the specified number of weeks
         songMap.forEach((entries, key) => {
             if (entries.length >= parseInt(searchTerm)) {
                 // Add all entries for this song
                 results = results.concat(entries);
+                debug(`Duration match found: ${key}`, { 
+                    weeks: entries.length,
+                    firstEntry: entries[0]
+                });
             }
         });
     }
     
     // Log results for debugging
-    console.log(`Found ${results.length} results`);
+    debug(`Found ${results.length} results`, { 
+        firstFew: results.slice(0, 3) 
+    });
     
     // Sort results by chart date and position
     results.sort((a, b) => {
@@ -475,44 +535,54 @@ function calculateStatistics(results, searchType) {
     // Total occurrences
     if (totalOccurrences) totalOccurrences.textContent = results.length;
     
-    // Calculate unique songs/artists
-    let uniqueItems = new Set();
+    // Count unique songs
+    const uniqueSet = new Set();
     results.forEach(item => {
-        uniqueItems.add(`${item.song.toLowerCase()}-${item.artist.toLowerCase()}`);
+        uniqueSet.add(`${item.song.toLowerCase()}-${item.artist.toLowerCase()}`);
     });
-    if (uniqueSongs) uniqueSongs.textContent = uniqueItems.size;
+    if (uniqueSongs) uniqueSongs.textContent = uniqueSet.size;
     
     // Calculate average position
-    const totalPosition = results.reduce((sum, entry) => sum + parseInt(entry.position), 0);
-    const avgPos = (totalPosition / results.length).toFixed(1);
-    if (avgPosition) avgPosition.textContent = avgPos;
+    const totalPos = results.reduce((sum, entry) => sum + parseInt(entry.position, 10), 0);
+    const average = (totalPos / results.length).toFixed(1);
+    if (avgPosition) avgPosition.textContent = average;
     
     // Count number of #1s
     const numberOnes = results.filter(entry => entry.position === '1').length;
     if (numberOne) numberOne.textContent = numberOnes;
     
-    // Display top songs (by weeks on chart or peak position)
-    displayTopSongs(results, searchType);
+    // If we have top songs list element, display it
+    if (topSongsList) {
+        displayTopSongs(results, searchType);
+    }
     
     // Display timeline information if the elements exist
-    const chartDates = results.map(item => new Date(item.chart_date));
-    const firstDate = new Date(Math.min(...chartDates));
-    const lastDate = new Date(Math.max(...chartDates));
-    
-    if (firstAppearance) firstAppearance.textContent = formatDate(firstDate);
-    if (lastAppearance) lastAppearance.textContent = formatDate(lastDate);
-    
-    // Calculate timeline percentage (what percentage of the entire Hot 100 history this spans)
-    const hot100Start = new Date('1958-08-04'); // Approximate start of Hot 100
-    const today = new Date();
-    const totalTimespan = today - hot100Start;
-    const resultTimespan = lastDate - firstDate;
-    const percentage = Math.min(100, Math.round((resultTimespan / totalTimespan) * 100));
-    
-    if (chartTimeline) chartTimeline.style.width = `${percentage}%`;
+    if (firstAppearance || lastAppearance || chartTimeline) {
+        try {
+            const chartDates = results.map(item => new Date(item.chart_date));
+            const firstDate = new Date(Math.min(...chartDates));
+            const lastDate = new Date(Math.max(...chartDates));
+            
+            if (firstAppearance) firstAppearance.textContent = formatDate(firstDate);
+            if (lastAppearance) lastAppearance.textContent = formatDate(lastDate);
+            
+            // Calculate timeline percentage (what percentage of the entire Hot 100 history this spans)
+            const hot100Start = new Date('1958-08-04'); // Approximate start of Hot 100
+            const today = new Date();
+            const totalTimespan = today - hot100Start;
+            const resultTimespan = lastDate - firstDate;
+            const percentage = Math.min(100, Math.round((resultTimespan / totalTimespan) * 100));
+            
+            if (chartTimeline) chartTimeline.style.width = `${percentage}%`;
+        } catch (e) {
+            console.error('Error calculating timeline stats:', e);
+        }
+    }
 }
 
 function displayTopSongs(results, searchType) {
+    if (!topSongsList) return;
+    
     topSongsList.innerHTML = '';
     
     let topItems = [];
@@ -528,13 +598,13 @@ function displayTopSongs(results, searchType) {
                     title: item.song,
                     artist: item.artist,
                     position: parseInt(item.position, 10),
-                    weeks: parseInt(item.position, 10) || 0
+                    weeks: parseInt(item.weeks_on_chart, 10) || 0
                 };
             } else {
                 // Update position if better
                 songGroups[title].position = Math.min(songGroups[title].position, parseInt(item.position, 10));
                 // Update weeks if higher
-                songGroups[title].weeks = Math.max(songGroups[title].weeks, parseInt(item.position, 10) || 0);
+                songGroups[title].weeks = Math.max(songGroups[title].weeks, parseInt(item.weeks_on_chart, 10) || 0);
             }
         });
         
@@ -543,7 +613,7 @@ function displayTopSongs(results, searchType) {
         // Sort by position
         topItems.sort((a, b) => a.position - b.position);
         
-    } else if (searchType === 'song') {
+    } else if (searchType === 'title') {
         // For song searches, we might have multiple versions/artists
         const artistGroups = {};
         
@@ -554,13 +624,13 @@ function displayTopSongs(results, searchType) {
                     title: item.song,
                     artist: item.artist,
                     position: parseInt(item.position, 10),
-                    weeks: parseInt(item.position, 10) || 0
+                    weeks: parseInt(item.weeks_on_chart, 10) || 0
                 };
             } else {
                 // Update position if better
                 artistGroups[performer].position = Math.min(artistGroups[performer].position, parseInt(item.position, 10));
                 // Update weeks if higher
-                artistGroups[performer].weeks = Math.max(artistGroups[performer].weeks, parseInt(item.position, 10) || 0);
+                artistGroups[performer].weeks = Math.max(artistGroups[performer].weeks, parseInt(item.weeks_on_chart, 10) || 0);
             }
         });
         
@@ -580,13 +650,13 @@ function displayTopSongs(results, searchType) {
                     title: item.song,
                     artist: item.artist,
                     position: parseInt(item.position, 10),
-                    weeks: parseInt(item.position, 10) || 0
+                    weeks: parseInt(item.weeks_on_chart, 10) || 0
                 };
             } else {
                 // Update position if better
                 itemGroups[key].position = Math.min(itemGroups[key].position, parseInt(item.position, 10));
                 // Update weeks if higher
-                itemGroups[key].weeks = Math.max(itemGroups[key].weeks, parseInt(item.position, 10) || 0);
+                itemGroups[key].weeks = Math.max(itemGroups[key].weeks, parseInt(item.weeks_on_chart, 10) || 0);
             }
         });
         
@@ -625,27 +695,21 @@ function escapeHtml(text) {
 }
 
 function resetForm() {
-    searchForm.reset();
+    console.log('Resetting form');
+    if (searchForm) searchForm.reset();
     toggleSearchFields();
     
-    // Reset date inputs
-    const today = new Date().toISOString().split('T')[0];
-    endDateInput.value = today;
-    
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-    startDateInput.value = oneMonthAgo.toISOString().split('T')[0];
-    
     // Hide statistics
-    statsContainer.style.display = 'none';
+    if (statsContainer) statsContainer.style.display = 'none';
     
-    // Show recent results
-    currentResults = chartData.slice(0, 25);
-    displayResults(currentResults);
-    resultCount.textContent = '25';
+    // Clear results
+    if (resultsContainer) resultsContainer.style.display = 'none';
+    if (resultsBody) resultsBody.innerHTML = '';
+    if (resultCount) resultCount.textContent = '0';
 }
 
 function dedupeResults() {
+    console.log('Deduping results');
     if (currentResults.length === 0) {
         return; // Nothing to dedupe
     }
@@ -667,8 +731,8 @@ function dedupeResults() {
             // 2. If same position, longer chart run
             const existingPos = parseInt(existingItem.position, 10);
             const currentPos = parseInt(item.position, 10);
-            const existingWeeks = parseInt(existingItem.position, 10) || 0;
-            const currentWeeks = parseInt(item.position, 10) || 0;
+            const existingWeeks = parseInt(existingItem.weeks_on_chart, 10) || 0;
+            const currentWeeks = parseInt(item.weeks_on_chart, 10) || 0;
             
             if (currentPos < existingPos || 
                 (currentPos === existingPos && currentWeeks > existingWeeks)) {
@@ -683,7 +747,7 @@ function dedupeResults() {
     // Show deduplicated results
     displayResults(dedupedResults);
     calculateStatistics(dedupedResults, searchTypeSelect.value);
-    resultCount.textContent = `${dedupedResults.length} (deduplicated from ${currentResults.length})`;
+    if (resultCount) resultCount.textContent = `${dedupedResults.length} (deduplicated from ${currentResults.length})`;
 }
 
 // Clipboard management functions
