@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evil Trivia - Free Drinkle</title>
+  <script src="/js/components/autoload-banner.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #FFCC00;
+      margin-top: 60px;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 30px;
+    }
+
+    .game-card {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+    
+    .question {
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    
+    .answer-form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+      margin-top: 30px;
+    }
+    
+    .answer-input-container {
+      display: flex;
+      width: 100%;
+      max-width: 300px;
+      position: relative;
+    }
+    
+    .answer-input {
+      flex: 1;
+      padding: 12px;
+      font-size: 16px;
+      border: 2px solid #ddd;
+      border-radius: 4px;
+      text-align: center;
+    }
+    
+    .unit-label {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #666;
+      font-weight: bold;
+    }
+    
+    .submit-btn {
+      padding: 12px 30px;
+      background-color: #000;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    
+    .submit-btn:hover {
+      background-color: #333;
+    }
+    
+    .result {
+      margin-top: 30px;
+      text-align: center;
+      font-size: 18px;
+      display: none;
+    }
+    
+    .percentile {
+      font-weight: bold;
+      font-size: 24px;
+      color: #000;
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 30px;
+      font-size: 18px;
+    }
+    
+    .no-question {
+      text-align: center;
+      padding: 30px;
+      font-size: 18px;
+      color: #666;
+    }
+    
+    .emoji {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Free Drinkle</h1>
+    
+    <div class="game-card" id="gameContainer">
+      <div id="loadingMessage" class="loading">
+        Loading question...
+      </div>
+      
+      <div id="noQuestionMessage" class="no-question" style="display: none;">
+        <div class="emoji">🍹</div>
+        <p>There's no active Free Drinkle question at the moment. Please check back later!</p>
+      </div>
+      
+      <div id="questionContainer" style="display: none;">
+        <div id="questionText" class="question"></div>
+        
+        <form id="answerForm" class="answer-form">
+          <div class="answer-input-container">
+            <input type="number" id="answerInput" class="answer-input" required step="any" min="0">
+            <span id="unitLabel" class="unit-label"></span>
+          </div>
+          <button type="submit" class="submit-btn">Submit Answer</button>
+        </form>
+        
+        <div id="resultContainer" class="result">
+          <div class="emoji" id="resultEmoji">🎉</div>
+          <p>Your answer places you in the <span id="percentileValue" class="percentile">0th</span> percentile of all guesses!</p>
+          <p id="resultMessage"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module">
+    // Import Firebase modules
+    import { getApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getDatabase, ref, get, set, push, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+    
+    // Get Firebase instances
+    const app = getApp();
+    const db = getDatabase(app);
+    const auth = getAuth(app);
+    
+    // DOM elements
+    const loadingMessage = document.getElementById('loadingMessage');
+    const noQuestionMessage = document.getElementById('noQuestionMessage');
+    const questionContainer = document.getElementById('questionContainer');
+    const questionText = document.getElementById('questionText');
+    const answerForm = document.getElementById('answerForm');
+    const answerInput = document.getElementById('answerInput');
+    const unitLabel = document.getElementById('unitLabel');
+    const resultContainer = document.getElementById('resultContainer');
+    const percentileValue = document.getElementById('percentileValue');
+    const resultMessage = document.getElementById('resultMessage');
+    const resultEmoji = document.getElementById('resultEmoji');
+    
+    // Game state
+    let currentQuestion = null;
+    let currentUserId = null;
+    let hasAnswered = false;
+    
+    // Check if user is logged in
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        currentUserId = user.uid;
+      } else {
+        currentUserId = null;
+      }
+      
+      // Load the active question
+      loadActiveQuestion();
+    });
+    
+    // Load the active question from Firebase
+    async function loadActiveQuestion() {
+      try {
+        const activeQuestionRef = ref(db, 'games/drinkle/activeQuestion');
+        
+        onValue(activeQuestionRef, async (snapshot) => {
+          const activeQuestionId = snapshot.val();
+          
+          if (!activeQuestionId) {
+            // No active question
+            loadingMessage.style.display = 'none';
+            noQuestionMessage.style.display = 'block';
+            questionContainer.style.display = 'none';
+            return;
+          }
+          
+          // Get the question details
+          const questionRef = ref(db, `games/drinkle/questions/${activeQuestionId}`);
+          const questionSnapshot = await get(questionRef);
+          currentQuestion = questionSnapshot.val();
+          
+          if (!currentQuestion) {
+            // Question not found
+            loadingMessage.style.display = 'none';
+            noQuestionMessage.style.display = 'block';
+            questionContainer.style.display = 'none';
+            return;
+          }
+          
+          // Display the question
+          questionText.textContent = currentQuestion.question;
+          unitLabel.textContent = currentQuestion.unit;
+          
+          // Check if user has already answered
+          if (currentUserId) {
+            const answersRef = ref(db, `games/drinkle/answers/${activeQuestionId}`);
+            const answersSnapshot = await get(answersRef);
+            const answers = answersSnapshot.val() || {};
+            
+            // Check if this user has already answered
+            if (Object.values(answers).some(answer => answer.userId === currentUserId)) {
+              hasAnswered = true;
+              
+              // Get their answer and show result
+              for (const key in answers) {
+                if (answers[key].userId === currentUserId) {
+                  showPercentileResult(parseFloat(answers[key].answer), answers);
+                  break;
+                }
+              }
+            } else {
+              hasAnswered = false;
+              resultContainer.style.display = 'none';
+            }
+          }
+          
+          // Show question and hide loading
+          loadingMessage.style.display = 'none';
+          noQuestionMessage.style.display = 'none';
+          questionContainer.style.display = 'block';
+        });
+      } catch (error) {
+        console.error("Error loading question:", error);
+        loadingMessage.style.display = 'none';
+        noQuestionMessage.style.display = 'block';
+        noQuestionMessage.innerHTML = `
+          <div class="emoji">😞</div>
+          <p>Error loading question. Please try again later.</p>
+        `;
+      }
+    }
+    
+    // Handle form submission
+    answerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      if (hasAnswered) {
+        alert("You've already submitted an answer for this question!");
+        return;
+      }
+      
+      const answer = parseFloat(answerInput.value);
+      
+      if (isNaN(answer) || answer < 0) {
+        alert("Please enter a valid number");
+        return;
+      }
+      
+      try {
+        // Get current answers
+        const activeQuestionId = currentQuestion.id;
+        const answersRef = ref(db, `games/drinkle/answers/${activeQuestionId}`);
+        const answersSnapshot = await get(answersRef);
+        const answers = answersSnapshot.val() || {};
+        
+        // Add new answer
+        const newAnswerRef = push(answersRef);
+        await set(newAnswerRef, {
+          userId: currentUserId || 'anonymous',
+          answer: answer,
+          timestamp: Date.now()
+        });
+        
+        // Update answers with the new one
+        answers[newAnswerRef.key] = {
+          userId: currentUserId || 'anonymous',
+          answer: answer
+        };
+        
+        // Show the percentile
+        showPercentileResult(answer, answers);
+        
+        // Mark as answered
+        hasAnswered = true;
+      } catch (error) {
+        console.error("Error submitting answer:", error);
+        alert("Error submitting your answer. Please try again.");
+      }
+    });
+    
+    // Show percentile result
+    function showPercentileResult(userAnswer, allAnswers) {
+      const answers = Object.values(allAnswers);
+      const sortedAnswers = answers.map(a => parseFloat(a.answer)).sort((a, b) => a - b);
+      
+      // Find position of user's answer
+      const correctAnswer = parseFloat(currentQuestion.answer);
+      const userIndex = sortedAnswers.findIndex(a => a === userAnswer);
+      
+      // Calculate percentile (0-100)
+      const percentile = Math.round((userIndex / (sortedAnswers.length - 1)) * 100);
+      
+      // Calculate how close to the correct answer
+      const percentDifference = Math.abs((userAnswer - correctAnswer) / correctAnswer * 100);
+      
+      // Show result
+      percentileValue.textContent = `${percentile}th`;
+      
+      // Determine emoji and message based on accuracy
+      if (percentDifference <= 5) {
+        resultEmoji.textContent = '🎯';
+        resultMessage.textContent = "Amazing! Your answer is extremely close to the correct answer!";
+      } else if (percentDifference <= 15) {
+        resultEmoji.textContent = '🔥';
+        resultMessage.textContent = "Great job! Your answer is very close to the correct value!";
+      } else if (percentDifference <= 30) {
+        resultEmoji.textContent = '👍';
+        resultMessage.textContent = "Not bad! You're in the ballpark of the correct answer.";
+      } else if (percentDifference <= 50) {
+        resultEmoji.textContent = '🤔';
+        resultMessage.textContent = "Your guess is somewhat off from the correct answer.";
+      } else {
+        resultEmoji.textContent = '😅';
+        resultMessage.textContent = "Your guess is quite far from the correct answer. Better luck next time!";
+      }
+      
+      // Show result
+      resultContainer.style.display = 'block';
+      
+      // Disable form
+      answerInput.disabled = true;
+      answerForm.querySelector('button').disabled = true;
+    }
+  </script>
+</body>
+</html> 
