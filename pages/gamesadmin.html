@@ -302,12 +302,6 @@
             
             <h3>Create New Question</h3>
             <form id="newQuestionForm" onsubmit="return false;">
-                <div style="margin-bottom: 15px; padding: 10px; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
-                    <p style="margin: 0; color: #721c24; font-weight: bold;">⚠️ Having trouble saving questions?</p>
-                    <p style="margin: 5px 0 0 0; color: #721c24;">Try the test save button below to check if you have write access to the database.</p>
-                    <button type="button" id="testSaveBtn" style="margin-top: 10px; background-color: #6c757d;">Test Database Write Access</button>
-                    <div id="testSaveResult" style="margin-top: 10px; display: none; padding: 8px; font-size: 14px;"></div>
-                </div>
                 <div class="form-group">
                     <label for="titleInput">Title (optional):</label>
                     <input type="text" id="titleInput" placeholder="Enter a title for this question (displayed prominently)">
@@ -523,8 +517,16 @@
         
         const questionsTable = document.getElementById('questionsTable').getElementsByTagName('tbody')[0];
         
-        // Comment out the auto date setting
-        // dateInput.valueAsDate = new Date();
+        // Set today's date as default
+        dateInput.valueAsDate = new Date();
+        
+        // Verify that dateInput was properly initialized
+        console.log("Date input initialized with:", dateInput.value);
+        // Make sure format select has a default value
+        if (!formatSelect.value) {
+            formatSelect.value = 'decimal';
+            console.log("Format select defaulted to 'decimal'");
+        }
         
         // Variable to store current active question
         let currentActiveQuestion = null;
@@ -1105,9 +1107,6 @@
         document.getElementById('saveQuestionBtn').addEventListener('click', async function(e) {
             console.log("Save button clicked");
             
-            // Make debug console visible to help troubleshoot
-            debugConsole.style.display = 'block';
-            
             try {
                 const title = titleInput.value.trim();
                 const question = questionInput.value.trim();
@@ -1190,25 +1189,20 @@
                 }, 3000);
             } catch (error) {
                 console.error("Error saving question:", error);
-                saveError.textContent = `Error saving question: ${error.message}`;
+                let errorMsg = "Error saving question: " + error.message;
+                
+                // Add specific guidance for common errors
+                if (error.code === "PERMISSION_DENIED") {
+                    errorMsg += ". You may not have write permission to the database. Please contact an administrator.";
+                } else if (error.message.includes("network")) {
+                    errorMsg += ". Check your internet connection.";
+                }
+                
+                saveError.textContent = errorMsg;
                 saveError.style.display = 'block';
                 setTimeout(() => {
                     saveError.style.display = 'none';
                 }, 5000);
-                
-                // Ensure debug console is visible when there's an error
-                debugConsole.style.display = 'block';
-                
-                // Add a more detailed error message to the debug console
-                const errorDetails = document.createElement('div');
-                errorDetails.style.color = '#f44336';
-                errorDetails.style.fontWeight = 'bold';
-                errorDetails.textContent = `SAVE ERROR DETAILS: ${error.name}: ${error.message}`;
-                if (error.stack) {
-                    errorDetails.textContent += `\nStack trace: ${error.stack}`;
-                }
-                debugMessages.appendChild(errorDetails);
-                debugMessages.scrollTop = debugMessages.scrollHeight;
             }
         });
         
@@ -1611,53 +1605,6 @@
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.shiftKey && e.key === 'D') {
                 debugConsole.style.display = debugConsole.style.display === 'none' ? 'block' : 'none';
-            }
-        });
-
-        // Add right after the saveError variable declaration
-        const testSaveBtn = document.getElementById('testSaveBtn');
-        const testSaveResult = document.getElementById('testSaveResult');
-        
-        // Test Firebase write access
-        testSaveBtn.addEventListener('click', async function() {
-            testSaveResult.style.display = 'block';
-            testSaveResult.textContent = 'Testing database access...';
-            testSaveResult.style.backgroundColor = '#ffe8a1';
-            testSaveResult.style.color = '#856404';
-            
-            try {
-                // Try writing to a test location
-                const testRef = ref(db, 'test/write_access');
-                await set(testRef, {
-                    timestamp: Date.now(),
-                    message: 'Test write access'
-                });
-                
-                // Success
-                testSaveResult.textContent = '✅ Database write successful! You should be able to save questions.';
-                testSaveResult.style.backgroundColor = '#d4edda';
-                testSaveResult.style.color = '#155724';
-                
-                // Check permissions for questions path specifically
-                try {
-                    const testQuestionRef = ref(db, 'games/drinkle/questions/test');
-                    await set(testQuestionRef, {
-                        test: true,
-                        timestamp: Date.now()
-                    });
-                    await remove(testQuestionRef); // Clean up after test
-                    
-                    testSaveResult.textContent += ' Questions path is also writable.';
-                } catch (questionError) {
-                    testSaveResult.textContent += ' WARNING: Cannot write to questions path specifically. Error: ' + questionError.message;
-                }
-                
-            } catch (error) {
-                // Error
-                console.error('Database write test failed:', error);
-                testSaveResult.textContent = '❌ Database write failed: ' + error.message + '. You may not have permission to save questions.';
-                testSaveResult.style.backgroundColor = '#f8d7da';
-                testSaveResult.style.color = '#721c24';
             }
         });
     </script>
