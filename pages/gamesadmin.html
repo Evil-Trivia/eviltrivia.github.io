@@ -436,9 +436,18 @@
         const currentActiveQuestionInfo = document.getElementById('currentActiveQuestionInfo');
         const activeSuccess = document.getElementById('activeSuccess');
         
+        // Important for editing functionality - verify all these elements exist
         const editActiveQuestionBtn = document.getElementById('editActiveQuestionBtn');
+        if (!editActiveQuestionBtn) {
+            console.error("Edit Active Question button not found in DOM!");
+        }
+        
         const viewResponsesBtn = document.getElementById('viewResponsesBtn');
         const editActiveQuestionSection = document.getElementById('editActiveQuestionSection');
+        if (!editActiveQuestionSection) {
+            console.error("Edit Active Question section not found in DOM!");
+        }
+        
         const editQuestionForm = document.getElementById('editQuestionForm');
         const editTitleInput = document.getElementById('editTitleInput');
         const editQuestionInput = document.getElementById('editQuestionInput');
@@ -452,6 +461,25 @@
         const cancelEditBtn = document.getElementById('cancelEditBtn');
         const editSuccess = document.getElementById('editSuccess');
         const editError = document.getElementById('editError');
+        
+        // Verify critical elements and provide console errors if missing
+        [
+            { name: 'editQuestionForm', element: editQuestionForm },
+            { name: 'editTitleInput', element: editTitleInput },
+            { name: 'editQuestionInput', element: editQuestionInput },
+            { name: 'editAnswerInput', element: editAnswerInput },
+            { name: 'editUnitInput', element: editUnitInput },
+            { name: 'editFormatSelect', element: editFormatSelect },
+            { name: 'editDateInput', element: editDateInput },
+            { name: 'editNotesInput', element: editNotesInput },
+            { name: 'editCustomMessagesContainer', element: editCustomMessagesContainer },
+            { name: 'editAddMessageBtn', element: editAddMessageBtn },
+            { name: 'cancelEditBtn', element: cancelEditBtn }
+        ].forEach(item => {
+            if (!item.element) {
+                console.error(`Critical DOM element not found: ${item.name}`);
+            }
+        });
         
         const responsesSection = document.getElementById('responsesSection');
         const responsesTable = document.getElementById('responsesTable').getElementsByTagName('tbody')[0];
@@ -593,17 +621,225 @@
             
             // Make sure the edit and view buttons have event listeners
             if (editActiveQuestionBtn && viewResponsesBtn) {
-                console.log("Admin buttons found and initialized");
+                console.log("Admin buttons found");
+                
+                // Re-attach event listener to make sure it's working
+                editActiveQuestionBtn.addEventListener('click', function() {
+                    console.log("Edit button clicked via direct event handler");
+                    handleEditActiveQuestion();
+                });
                 
                 // Ensure buttons are visible when appropriate
                 if (currentActiveQuestion) {
                     editActiveQuestionBtn.style.display = 'inline-block';
                     viewResponsesBtn.style.display = 'inline-block';
+                    console.log("Admin buttons set to visible");
                 }
             } else {
                 console.error("Admin buttons not found in the DOM");
             }
         }
+        
+        // Separate function for handling edit active question click
+        function handleEditActiveQuestion() {
+            console.log("Edit active question handler called");
+            
+            if (!currentActiveQuestion) {
+                console.error("No active question object available");
+                alert("No active question selected");
+                return;
+            }
+            
+            console.log("Current active question data available:", currentActiveQuestion);
+            
+            // Make sure we have the DOM elements
+            const editTitleInput = document.getElementById('editTitleInput');
+            const editQuestionInput = document.getElementById('editQuestionInput');
+            const editAnswerInput = document.getElementById('editAnswerInput');
+            const editUnitInput = document.getElementById('editUnitInput');
+            const editFormatSelect = document.getElementById('editFormatSelect');
+            const editDateInput = document.getElementById('editDateInput');
+            const editActiveQuestionSection = document.getElementById('editActiveQuestionSection');
+            const editCustomMessagesContainer = document.getElementById('editCustomMessagesContainer');
+            
+            if (!editTitleInput || !editQuestionInput || !editAnswerInput || 
+                !editUnitInput || !editFormatSelect || !editDateInput || !editActiveQuestionSection) {
+                console.error("One or more edit form elements not found in DOM");
+                alert("Error: Form elements not found. Please refresh the page and try again.");
+                return;
+            }
+            
+            // Populate the edit form
+            console.log("Populating form fields:", {
+                title: currentActiveQuestion.title || '',
+                question: currentActiveQuestion.question || '',
+                answer: currentActiveQuestion.answer || '',
+                unit: currentActiveQuestion.unit || '',
+                format: currentActiveQuestion.format || 'decimal',
+                date: currentActiveQuestion.date || ''
+            });
+            
+            editTitleInput.value = currentActiveQuestion.title || '';
+            editQuestionInput.value = currentActiveQuestion.question || '';
+            editAnswerInput.value = currentActiveQuestion.answer || '';
+            editUnitInput.value = currentActiveQuestion.unit || '';
+            editFormatSelect.value = currentActiveQuestion.format || 'decimal';
+            editDateInput.value = currentActiveQuestion.date || '';
+            
+            // Set the notes field using TinyMCE but ensure it's initialized first
+            waitForTinyMCE('editNotesInput', (editor) => {
+                console.log("Setting TinyMCE content:", currentActiveQuestion.notes || '');
+                editor.setContent(currentActiveQuestion.notes || '');
+            });
+            
+            // Clear existing custom messages
+            editCustomMessagesContainer.innerHTML = '';
+            
+            // Add custom messages if they exist
+            if (currentActiveQuestion.customMessages && Array.isArray(currentActiveQuestion.customMessages)) {
+                currentActiveQuestion.customMessages.forEach(message => {
+                    addCustomMessageRow(message.threshold, message.text, editCustomMessagesContainer);
+                });
+            }
+            
+            // Add at least one empty message row if none exist
+            if (editCustomMessagesContainer.children.length === 0) {
+                addCustomMessageRow('', '', editCustomMessagesContainer);
+            }
+            
+            // Show the edit section
+            editActiveQuestionSection.style.display = 'block';
+            console.log("Edit section display style set to:", editActiveQuestionSection.style.display);
+            
+            // Additional check to ensure the section is visible after a short delay
+            setTimeout(() => {
+                // Check if element is visible in the DOM
+                const isVisible = editActiveQuestionSection.offsetParent !== null;
+                console.log("Edit section visible check:", isVisible);
+                
+                if (editActiveQuestionSection.style.display !== 'block' || !isVisible) {
+                    console.warn("Edit section still not visible after timeout, forcing display");
+                    editActiveQuestionSection.style.display = 'block';
+                    // Force a reflow
+                    void editActiveQuestionSection.offsetHeight;
+                }
+            }, 100);
+        }
+        
+        // Edit active question button click
+        editActiveQuestionBtn.addEventListener('click', function() {
+            console.log("Edit active question button clicked (from original handler)");
+            handleEditActiveQuestion();
+        });
+        
+        // Cancel edit button click
+        cancelEditBtn.addEventListener('click', () => {
+            editActiveQuestionSection.style.display = 'none';
+        });
+        
+        // Edit question form submission
+        editQuestionForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!currentActiveQuestion) {
+                alert("No active question to edit");
+                return;
+            }
+            
+            const title = editTitleInput.value.trim();
+            const question = editQuestionInput.value;
+            const answer = editAnswerInput.value;
+            const unit = editUnitInput.value;
+            const format = editFormatSelect.value;
+            const date = editDateInput.value;
+            
+            // Ensure we get notes content safely
+            let notes = '';
+            const notesEditor = tinymce.get('editNotesInput');
+            if (notesEditor && notesEditor.initialized) {
+                notes = notesEditor.getContent();
+                console.log("Saving notes content:", notes);
+            } else {
+                console.warn("TinyMCE editor not initialized, attempting to get content directly");
+                // Fallback to get content from textarea
+                const notesTextarea = document.getElementById('editNotesInput');
+                if (notesTextarea) {
+                    notes = notesTextarea.value;
+                }
+            }
+            
+            if (!question || !answer || !unit || !date) {
+                editError.style.display = 'block';
+                setTimeout(() => {
+                    editError.style.display = 'none';
+                }, 3000);
+                return;
+            }
+            
+            // Collect custom messages
+            const customMessages = [];
+            const messageRows = editCustomMessagesContainer.querySelectorAll('.custom-message-row');
+            
+            messageRows.forEach(row => {
+                const threshold = parseInt(row.querySelector('.threshold-input').value);
+                const message = row.querySelector('.message-input').value.trim();
+                
+                if (!isNaN(threshold) && threshold >= 0 && threshold <= 100 && message) {
+                    customMessages.push({
+                        threshold,
+                        text: message
+                    });
+                }
+            });
+            
+            try {
+                const questionRef = ref(db, `games/drinkle/questions/${currentActiveQuestion.id}`);
+                
+                const questionData = {
+                    question,
+                    answer: parseFloat(answer),
+                    unit,
+                    date,
+                    format,
+                    id: currentActiveQuestion.id
+                };
+                
+                // Add optional fields if they exist
+                if (title) {
+                    questionData.title = title;
+                }
+                
+                // Always include notes field, even if empty
+                questionData.notes = notes;
+                
+                if (customMessages.length > 0) {
+                    questionData.customMessages = customMessages;
+                }
+                
+                console.log("Saving question data:", questionData);
+                await set(questionRef, questionData);
+                
+                // Hide the edit section
+                editActiveQuestionSection.style.display = 'none';
+                
+                // Show success message
+                editSuccess.style.display = 'block';
+                setTimeout(() => {
+                    editSuccess.style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                console.error("Error updating question:", error);
+                editError.style.display = 'block';
+                setTimeout(() => {
+                    editError.style.display = 'none';
+                }, 3000);
+            }
+        });
+        
+        // Edit Add Message button
+        editAddMessageBtn.addEventListener('click', () => {
+            addCustomMessageRow('', '', editCustomMessagesContainer);
+        });
         
         // Login handler
         loginButton.addEventListener('click', async () => {
@@ -993,157 +1229,6 @@
             } catch (error) {
                 debugResult.textContent = `Error checking roles: ${error.message}\n${error.stack}`;
             }
-        });
-        
-        // Edit active question button click
-        editActiveQuestionBtn.addEventListener('click', () => {
-            console.log("Edit active question button clicked");
-            
-            if (!currentActiveQuestion) {
-                alert("No active question selected");
-                return;
-            }
-            
-            // Populate the edit form
-            editTitleInput.value = currentActiveQuestion.title || '';
-            editQuestionInput.value = currentActiveQuestion.question || '';
-            editAnswerInput.value = currentActiveQuestion.answer || '';
-            editUnitInput.value = currentActiveQuestion.unit || '';
-            editFormatSelect.value = currentActiveQuestion.format || 'decimal';
-            editDateInput.value = currentActiveQuestion.date || '';
-            
-            // Set the notes field using TinyMCE but ensure it's initialized first
-            waitForTinyMCE('editNotesInput', (editor) => {
-                console.log("Setting TinyMCE content:", currentActiveQuestion.notes || '');
-                editor.setContent(currentActiveQuestion.notes || '');
-            });
-            
-            // Clear existing custom messages
-            editCustomMessagesContainer.innerHTML = '';
-            
-            // Add custom messages if they exist
-            if (currentActiveQuestion.customMessages && Array.isArray(currentActiveQuestion.customMessages)) {
-                currentActiveQuestion.customMessages.forEach(message => {
-                    addCustomMessageRow(message.threshold, message.text, editCustomMessagesContainer);
-                });
-            }
-            
-            // Add at least one empty message row if none exist
-            if (editCustomMessagesContainer.children.length === 0) {
-                addCustomMessageRow('', '', editCustomMessagesContainer);
-            }
-            
-            // Show the edit section
-            editActiveQuestionSection.style.display = 'block';
-        });
-        
-        // Cancel edit button click
-        cancelEditBtn.addEventListener('click', () => {
-            editActiveQuestionSection.style.display = 'none';
-        });
-        
-        // Edit question form submission
-        editQuestionForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            if (!currentActiveQuestion) {
-                alert("No active question to edit");
-                return;
-            }
-            
-            const title = editTitleInput.value.trim();
-            const question = editQuestionInput.value;
-            const answer = editAnswerInput.value;
-            const unit = editUnitInput.value;
-            const format = editFormatSelect.value;
-            const date = editDateInput.value;
-            
-            // Ensure we get notes content safely
-            let notes = '';
-            const notesEditor = tinymce.get('editNotesInput');
-            if (notesEditor && notesEditor.initialized) {
-                notes = notesEditor.getContent();
-                console.log("Saving notes content:", notes);
-            } else {
-                console.warn("TinyMCE editor not initialized, attempting to get content directly");
-                // Fallback to get content from textarea
-                const notesTextarea = document.getElementById('editNotesInput');
-                if (notesTextarea) {
-                    notes = notesTextarea.value;
-                }
-            }
-            
-            if (!question || !answer || !unit || !date) {
-                editError.style.display = 'block';
-                setTimeout(() => {
-                    editError.style.display = 'none';
-                }, 3000);
-                return;
-            }
-            
-            // Collect custom messages
-            const customMessages = [];
-            const messageRows = editCustomMessagesContainer.querySelectorAll('.custom-message-row');
-            
-            messageRows.forEach(row => {
-                const threshold = parseInt(row.querySelector('.threshold-input').value);
-                const message = row.querySelector('.message-input').value.trim();
-                
-                if (!isNaN(threshold) && threshold >= 0 && threshold <= 100 && message) {
-                    customMessages.push({
-                        threshold,
-                        text: message
-                    });
-                }
-            });
-            
-            try {
-                const questionRef = ref(db, `games/drinkle/questions/${currentActiveQuestion.id}`);
-                
-                const questionData = {
-                    question,
-                    answer: parseFloat(answer),
-                    unit,
-                    date,
-                    format,
-                    id: currentActiveQuestion.id
-                };
-                
-                // Add optional fields if they exist
-                if (title) {
-                    questionData.title = title;
-                }
-                
-                // Always include notes field, even if empty
-                questionData.notes = notes;
-                
-                if (customMessages.length > 0) {
-                    questionData.customMessages = customMessages;
-                }
-                
-                console.log("Saving question data:", questionData);
-                await set(questionRef, questionData);
-                
-                // Hide the edit section
-                editActiveQuestionSection.style.display = 'none';
-                
-                // Show success message
-                editSuccess.style.display = 'block';
-                setTimeout(() => {
-                    editSuccess.style.display = 'none';
-                }, 3000);
-            } catch (error) {
-                console.error("Error updating question:", error);
-                editError.style.display = 'block';
-                setTimeout(() => {
-                    editError.style.display = 'none';
-                }, 3000);
-            }
-        });
-        
-        // Edit Add Message button
-        editAddMessageBtn.addEventListener('click', () => {
-            addCustomMessageRow('', '', editCustomMessagesContainer);
         });
         
         // View responses button click
