@@ -149,9 +149,32 @@
       transition: all 0.2s;
     }
     
-    .copy-button:hover {
-      background-color: #ddd;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    .share-button {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background-color: #4267B2; /* Facebook blue, distinctive sharing color */
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    
+    .share-button:hover {
+      background-color: #365899;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    
+    .share-button svg {
+      width: 14px;
+      height: 14px;
+      fill: white;
     }
     
     .question-title {
@@ -290,6 +313,40 @@
     .close-button:hover {
       background-color: #e0e0e0;
     }
+
+    /* Add navigation buttons styles */
+    .navigation-buttons {
+      display: flex;
+      justify-content: space-between;
+      margin: 15px 0;
+    }
+
+    .nav-button {
+      padding: 8px 15px;
+      background-color: #000;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .nav-button:hover {
+      background-color: #333;
+    }
+
+    .nav-button:disabled {
+      background-color: #999;
+      cursor: not-allowed;
+    }
+
+    .question-date {
+      text-align: center;
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
@@ -323,6 +380,11 @@
       </div>
       
       <div id="questionContainer" style="display: none;">
+        <div class="navigation-buttons">
+          <button id="prevButton" class="nav-button" disabled>Previous</button>
+          <button id="nextButton" class="nav-button" disabled>Next</button>
+        </div>
+        <div id="questionDate" class="question-date"></div>
         <div id="questionTitle" class="question-title"></div>
         <div id="questionText" class="question"></div>
         
@@ -335,8 +397,7 @@
         </form>
         
         <div id="resultContainer" class="result">
-          <div class="emoji" id="resultEmoji">🎉</div>
-          <p>Your answer places you in the <span id="percentileValue" class="percentile">0</span> percentile of all guesses!</p>
+          <div class="emoji" id="resultEmoji">��</div>
           <p id="resultMessage"></p>
           
           <div class="emoji-boxes" style="margin: 15px 0; text-align: center; font-size: 20px;">
@@ -360,7 +421,12 @@
           </div>
           
           <div class="copyable-result" id="copyableResult">
-            <button class="copy-button" id="copyButton">Copy</button>
+            <button class="share-button" id="shareButton">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
+              </svg>
+              Share
+            </button>
             <div id="copyText"></div>
           </div>
           <p id="comeBackMessage" style="margin-top: 20px; font-style: italic; color: #666;"></p>
@@ -450,36 +516,66 @@
     const answerInput = document.getElementById('answerInput');
     const unitLabel = document.getElementById('unitLabel');
     const resultContainer = document.getElementById('resultContainer');
-    const percentileValue = document.getElementById('percentileValue');
+    const percentileValue = document.getElementById('percentileValue') || document.createElement('span'); // May not exist in DOM anymore
     const percentOffValue = document.getElementById('percentOffValue') || document.createElement('span'); // May not exist in DOM anymore
     const resultMessage = document.getElementById('resultMessage');
     const resultEmoji = document.getElementById('resultEmoji');
-    const copyButton = document.getElementById('copyButton');
+    const shareButton = document.getElementById('shareButton');
     const copyText = document.getElementById('copyText');
     const comeBackMessage = document.getElementById('comeBackMessage');
     const accuracyBoxesDisplay = document.getElementById('accuracyBoxesDisplay');
     const percentileBoxesDisplay = document.getElementById('percentileBoxesDisplay');
     const notesSection = document.getElementById('notesSection');
     const notesContent = document.getElementById('notesContent');
+    const prevButton = document.getElementById('prevButton');
+    const nextButton = document.getElementById('nextButton');
+    const questionDate = document.getElementById('questionDate');
     
     // Game state
     let currentQuestion = null;
     let currentUserId = null;
     let hasAnswered = false;
+    let questionHistory = [];
+    let currentQuestionIndex = -1;
     
-    // Copy functionality
-    copyButton.addEventListener('click', () => {
-      const textToCopy = copyText.innerText;
-      navigator.clipboard.writeText(textToCopy)
-        .then(() => {
-          copyButton.textContent = 'Copied!';
-          setTimeout(() => {
-            copyButton.textContent = 'Copy';
-          }, 2000);
+    // Share functionality
+    shareButton.addEventListener('click', () => {
+      const textToShare = copyText.innerText;
+      
+      if (navigator.share) {
+        navigator.share({
+          text: textToShare,
         })
-        .catch(err => {
-          console.error('Failed to copy text: ', err);
+        .then(() => {
+          console.log('Successfully shared');
+        })
+        .catch((error) => {
+          console.error('Error sharing:', error);
+          // Fallback to copy if sharing fails
+          navigator.clipboard.writeText(textToShare)
+            .then(() => {
+              shareButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg> Copied!';
+              setTimeout(() => {
+                shareButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg> Share';
+              }, 2000);
+            })
+            .catch(err => {
+              console.error('Failed to copy text: ', err);
+            });
         });
+      } else {
+        // Fallback for browsers that don't support the Web Share API
+        navigator.clipboard.writeText(textToShare)
+          .then(() => {
+            shareButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg> Copied!';
+            setTimeout(() => {
+              shareButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg> Share';
+            }, 2000);
+          })
+          .catch(err => {
+            console.error('Failed to copy text: ', err);
+          });
+      }
     });
     
     // Check if user is logged in
@@ -589,17 +685,11 @@
             // Ensure ID is set on the question object
             currentQuestion.id = activeQuestionId;
             
-            // Display the question
-            questionText.textContent = currentQuestion.question;
-            unitLabel.textContent = currentQuestion.unit;
+            // Load question history
+            await loadQuestionHistory();
             
-            // Display the title if available
-            if (currentQuestion.title) {
-              questionTitle.textContent = currentQuestion.title;
-              questionTitle.style.display = 'block';
-            } else {
-              questionTitle.style.display = 'none';
-            }
+            // Display the question
+            displayQuestion(currentQuestion);
             
             // Check if user has already answered
             await checkPreviousAnswer(activeQuestionId);
@@ -637,6 +727,101 @@
           <p>Error loading question: ${error.message}</p>
           <p>Please try refreshing the page or contact support if the issue persists.</p>
         `;
+      }
+    }
+    
+    // Load question history
+    async function loadQuestionHistory() {
+      try {
+        const questionsRef = ref(db, 'games/drinkle/questions');
+        const questionsSnapshot = await get(questionsRef);
+        const questions = questionsSnapshot.val() || {};
+        
+        // Convert to array and add IDs
+        questionHistory = Object.entries(questions).map(([id, question]) => {
+          return { ...question, id };
+        });
+        
+        // Sort by date (newest first)
+        questionHistory.sort((a, b) => {
+          const dateA = a.date ? new Date(a.date) : new Date(0);
+          const dateB = b.date ? new Date(b.date) : new Date(0);
+          return dateB - dateA;
+        });
+        
+        // Find current question index
+        currentQuestionIndex = questionHistory.findIndex(q => q.id === currentQuestion.id);
+        
+        // Update navigation buttons
+        updateNavigationButtons();
+      } catch (error) {
+        console.error("Error loading question history:", error);
+      }
+    }
+    
+    // Update navigation buttons
+    function updateNavigationButtons() {
+      prevButton.disabled = currentQuestionIndex <= 0;
+      nextButton.disabled = currentQuestionIndex >= questionHistory.length - 1;
+      
+      // Add event listeners
+      prevButton.onclick = () => {
+        if (currentQuestionIndex > 0) {
+          navigateToQuestion(currentQuestionIndex - 1);
+        }
+      };
+      
+      nextButton.onclick = () => {
+        if (currentQuestionIndex < questionHistory.length - 1) {
+          navigateToQuestion(currentQuestionIndex + 1);
+        }
+      };
+    }
+    
+    // Navigate to a question by index
+    async function navigateToQuestion(index) {
+      if (index < 0 || index >= questionHistory.length) {
+        return;
+      }
+      
+      currentQuestionIndex = index;
+      currentQuestion = questionHistory[index];
+      
+      // Reset answer state
+      hasAnswered = false;
+      resultContainer.style.display = 'none';
+      answerForm.style.display = 'flex';
+      
+      // Display the question
+      displayQuestion(currentQuestion);
+      
+      // Check if user has already answered
+      await checkPreviousAnswer(currentQuestion.id);
+      
+      // Update navigation buttons
+      updateNavigationButtons();
+    }
+    
+    // Display a question
+    function displayQuestion(question) {
+      questionText.textContent = question.question;
+      unitLabel.textContent = question.unit;
+      
+      // Display the title if available
+      if (question.title) {
+        questionTitle.textContent = question.title;
+        questionTitle.style.display = 'block';
+      } else {
+        questionTitle.style.display = 'none';
+      }
+      
+      // Display the date if available
+      if (question.date) {
+        const date = new Date(question.date);
+        questionDate.textContent = date.toLocaleDateString();
+        questionDate.style.display = 'block';
+      } else {
+        questionDate.style.display = 'none';
       }
     }
     
@@ -906,6 +1091,9 @@
         percentileBoxes = generateEmojiBoxes(100 - percentile, 100);
       }
       
+      // Check if user got the exact right answer (allowing for tiny floating point differences)
+      const isExactMatch = userPercentDifference < 0.001;
+      
       // Display notes if available
       if (currentQuestion.notes) {
         notesContent.innerHTML = currentQuestion.notes;
@@ -930,14 +1118,21 @@
       // Add result message
       copyTextContent += `${resultMessage.textContent}\n\n`;
       
-      // Add accuracy and percentile information with emoji boxes
-      if (isFirstGuess) {
+      // Add accuracy and percentile information with emoji boxes (or "Nailed It" for exact match)
+      if (isExactMatch) {
+        // Create a circle of lemons around "Nailed It."
+        copyTextContent += `  🍋 🍋\n`;
+        copyTextContent += `🍋      🍋\n`;
+        copyTextContent += `🍋  Nailed It.  🍋\n`;
+        copyTextContent += `🍋      🍋\n`;
+        copyTextContent += `  🍋 🍋\n\n`;
+      } else if (isFirstGuess) {
         copyTextContent += `My answer was ${percentOff}% off from the correct answer.\n`;
-        copyTextContent += `Accuracy: ${accuracyBoxes}\n\n`;
+        copyTextContent += `${accuracyBoxes}\n\n`;
         copyTextContent += `I'm the first person to answer this question! ${percentileBoxes}\n`;
       } else {
         copyTextContent += `My answer was ${percentOff}% off from the correct answer.\n`;
-        copyTextContent += `Accuracy: ${accuracyBoxes}\n\n`;
+        copyTextContent += `${accuracyBoxes}\n\n`;
         copyTextContent += `That places me in the ${percentileText} percentile of guessers.\n`;
         copyTextContent += `${percentileBoxes}\n`;
       }
@@ -954,9 +1149,24 @@
       // Hide form entirely (not just disable)
       answerForm.style.display = 'none';
       
-      // Update emoji-boxes display
-      accuracyBoxesDisplay.textContent = accuracyBoxes;
-      percentileBoxesDisplay.textContent = percentileBoxes;
+      // Update emoji-boxes display - also handle "Nailed It" case
+      if (isExactMatch) {
+        // Create a visual display for the UI showing "Nailed It." with lemons
+        accuracyBoxesDisplay.innerHTML = `<div style="text-align: center; margin: 10px 0;">
+          <div>  🍋 🍋  </div>
+          <div>🍋      🍋</div>
+          <div>🍋  Nailed It.  🍋</div>
+          <div>🍋      🍋</div>
+          <div>  🍋 🍋  </div>
+        </div>`;
+        
+        // Hide percentile boxes display for this special case
+        percentileBoxesDisplay.parentElement.style.display = 'none';
+      } else {
+        accuracyBoxesDisplay.textContent = accuracyBoxes;
+        percentileBoxesDisplay.textContent = percentileBoxes;
+        percentileBoxesDisplay.parentElement.style.display = 'block';
+      }
       
       // Update user answer display
       const userAnswerDisplay = document.getElementById('userAnswerDisplay');
