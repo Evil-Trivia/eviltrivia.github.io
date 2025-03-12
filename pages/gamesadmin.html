@@ -301,7 +301,7 @@
             </div>
             
             <h3>Create New Question</h3>
-            <form id="newQuestionForm">
+            <form id="newQuestionForm" onsubmit="return false;">
                 <div class="form-group">
                     <label for="titleInput">Title (optional):</label>
                     <input type="text" id="titleInput" placeholder="Enter a title for this question (displayed prominently)">
@@ -375,7 +375,7 @@
                     <button type="button" id="addMessageBtn" style="margin-top: 10px; background-color: #5cb85c;">+ Add Message</button>
                 </div>
                 
-                <button type="submit">Save Question</button>
+                <button type="button" id="saveQuestionBtn">Save Question</button>
                 <div id="saveSuccess" class="success-message">Question saved successfully!</div>
                 <div id="saveError" class="error-message">Error saving question. Please try again.</div>
             </form>
@@ -402,6 +402,15 @@
         </div>
     </div>
     
+    <div id="debugConsole" style="position: fixed; bottom: 0; left: 0; right: 0; background: #f0f0f0; padding: 10px; max-height: 200px; overflow: auto; border-top: 1px solid #ccc; font-family: monospace; font-size: 12px; display: none;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+            <h4 style="margin: 0;">Debug Console</h4>
+            <button id="clearDebugBtn" style="background: #f44336; color: white; border: none; padding: 2px 8px; cursor: pointer;">Clear</button>
+            <button id="closeDebugBtn" style="background: #333; color: white; border: none; padding: 2px 8px; cursor: pointer;">Close</button>
+        </div>
+        <div id="debugMessages"></div>
+    </div>
+
     <script type="module">
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
@@ -1098,57 +1107,62 @@
             }
         });
         
-        // Save new question
-        newQuestionForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const title = titleInput.value.trim();
-            const question = questionInput.value;
-            const answer = answerInput.value;
-            const unit = unitInput.value;
-            const format = formatSelect.value;
-            const date = dateInput.value;
-            
-            // Safely get notes content
-            let notes = '';
-            const notesEditor = tinymce.get('notesInput');
-            if (notesEditor && notesEditor.initialized) {
-                notes = notesEditor.getContent();
-                console.log("Saving new question notes content:", notes);
-            } else {
-                console.warn("TinyMCE editor not initialized for new question, attempting to get content directly");
-                // Fallback to get content from textarea
-                const notesTextarea = document.getElementById('notesInput');
-                if (notesTextarea) {
-                    notes = notesTextarea.value;
-                }
-            }
-            
-            if (!question || !answer || !unit || !date) {
-                saveError.style.display = 'block';
-                setTimeout(() => {
-                    saveError.style.display = 'none';
-                }, 3000);
-                return;
-            }
-            
-            // Collect custom messages
-            const customMessages = [];
-            const messageRows = customMessagesContainer.querySelectorAll('.custom-message-row');
-            
-            messageRows.forEach(row => {
-                const threshold = parseInt(row.querySelector('.threshold-input').value);
-                const message = row.querySelector('.message-input').value.trim();
-                
-                if (!isNaN(threshold) && threshold >= 0 && threshold <= 100 && message) {
-                    customMessages.push({
-                        threshold,
-                        text: message
-                    });
-                }
-            });
+        // Save new question using button click instead of form submission
+        document.getElementById('saveQuestionBtn').addEventListener('click', async function(e) {
+            console.log("Save button clicked");
             
             try {
+                const title = titleInput.value.trim();
+                const question = questionInput.value.trim();
+                const answer = answerInput.value.trim();
+                const unit = unitInput.value.trim();
+                const format = formatSelect.value;
+                const date = dateInput.value;
+                
+                console.log("Form data collected:", { title, question, answer, unit, format, date });
+                
+                // Validate required fields
+                if (!question || !answer || !unit || !date) {
+                    saveError.textContent = "Please fill in all required fields";
+                    saveError.style.display = 'block';
+                    setTimeout(() => {
+                        saveError.style.display = 'none';
+                    }, 3000);
+                    return;
+                }
+                
+                // Safely get notes content
+                let notes = '';
+                const notesEditor = tinymce.get('notesInput');
+                if (notesEditor && notesEditor.initialized) {
+                    notes = notesEditor.getContent();
+                    console.log("Saving new question notes content:", notes);
+                } else {
+                    console.warn("TinyMCE editor not initialized for new question, attempting to get content directly");
+                    // Fallback to get content from textarea
+                    const notesTextarea = document.getElementById('notesInput');
+                    if (notesTextarea) {
+                        notes = notesTextarea.value;
+                    }
+                }
+                
+                // Collect custom messages
+                const customMessages = [];
+                const messageRows = customMessagesContainer.querySelectorAll('.custom-message-row');
+                
+                messageRows.forEach(row => {
+                    const threshold = parseInt(row.querySelector('.threshold-input').value);
+                    const message = row.querySelector('.message-input').value.trim();
+                    
+                    if (!isNaN(threshold) && threshold >= 0 && threshold <= 100 && message) {
+                        customMessages.push({
+                            threshold,
+                            text: message
+                        });
+                    }
+                });
+                
+                // Create a new question reference
                 const questionsRef = ref(db, 'games/drinkle/questions');
                 const newQuestionRef = push(questionsRef);
                 
@@ -1172,12 +1186,13 @@
                 }
                 
                 console.log("Saving new question data:", questionData);
+                
+                // Save the question to Firebase
                 await set(newQuestionRef, questionData);
+                console.log("Question saved successfully");
                 
                 // Clear the form
                 newQuestionForm.reset();
-                // Do not automatically set date
-                // dateInput.valueAsDate = new Date();
                 customMessagesContainer.innerHTML = '';
                 addCustomMessageRow(); // Add one empty row
                 
@@ -1199,6 +1214,13 @@
                     saveError.style.display = 'none';
                 }, 5000);
             }
+        });
+        
+        // Keep the original form submission handler as a backup, but we're using the button click now
+        newQuestionForm.addEventListener('submit', function(e) {
+            e.preventDefault(); // Prevent the default form submission
+            console.log("Form submission prevented");
+            return false;
         });
         
         // Delete question
@@ -1572,6 +1594,74 @@
             
             checkEditor();
         }
+
+        // Debug console functionality
+        const debugConsole = document.getElementById('debugConsole');
+        const debugMessages = document.getElementById('debugMessages');
+        const clearDebugBtn = document.getElementById('clearDebugBtn');
+        const closeDebugBtn = document.getElementById('closeDebugBtn');
+        
+        // Override console.log and console.error
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        
+        console.log = function() {
+            // Call the original console.log
+            originalConsoleLog.apply(console, arguments);
+            
+            // Add to our debug console
+            const message = Array.from(arguments).map(arg => {
+                if (typeof arg === 'object') {
+                    return JSON.stringify(arg, null, 2);
+                }
+                return String(arg);
+            }).join(' ');
+            
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[LOG] ${message}`;
+            debugMessages.appendChild(logEntry);
+            debugConsole.style.display = 'block';
+            debugMessages.scrollTop = debugMessages.scrollHeight;
+        };
+        
+        console.error = function() {
+            // Call the original console.error
+            originalConsoleError.apply(console, arguments);
+            
+            // Add to our debug console
+            const message = Array.from(arguments).map(arg => {
+                if (typeof arg === 'object' && arg instanceof Error) {
+                    return `${arg.name}: ${arg.message}\n${arg.stack}`;
+                } else if (typeof arg === 'object') {
+                    return JSON.stringify(arg, null, 2);
+                }
+                return String(arg);
+            }).join(' ');
+            
+            const logEntry = document.createElement('div');
+            logEntry.style.color = '#f44336';
+            logEntry.textContent = `[ERROR] ${message}`;
+            debugMessages.appendChild(logEntry);
+            debugConsole.style.display = 'block';
+            debugMessages.scrollTop = debugMessages.scrollHeight;
+        };
+        
+        // Clear button
+        clearDebugBtn.addEventListener('click', () => {
+            debugMessages.innerHTML = '';
+        });
+        
+        // Close button
+        closeDebugBtn.addEventListener('click', () => {
+            debugConsole.style.display = 'none';
+        });
+        
+        // Show debug console on error key combo (Ctrl+Shift+D)
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                debugConsole.style.display = debugConsole.style.display === 'none' ? 'block' : 'none';
+            }
+        });
     </script>
 </body>
 </html> 
