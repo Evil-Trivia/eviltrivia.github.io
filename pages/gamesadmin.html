@@ -237,14 +237,26 @@
     
     <script type="module">
         // Import Firebase modules
-        import { getApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
         import { getDatabase, ref, get, set, push, onValue, remove } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
         import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
         
-        // Get Firebase instances
-        const app = getApp();
-        const db = getDatabase(app);
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebaseapp.com",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
+        const db = getDatabase(app);
         
         // DOM elements
         const loginPrompt = document.getElementById('loginPrompt');
@@ -274,9 +286,68 @@
         // Set today's date as default
         dateInput.valueAsDate = new Date();
         
-        // Handle login
+        // Check auth state (This is the main difference - simpler auth check like in admin.html)
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                // User is signed in
+                console.log("User is signed in");
+                
+                try {
+                    // Check if user has admin role
+                    const userRef = ref(db, `users/${user.uid}`);
+                    const userSnapshot = await get(userRef);
+                    const userData = userSnapshot.val();
+                    
+                    if (!userData) {
+                        console.error("No user data found for this user");
+                        loginStatus.textContent = "User account exists but no data found. Please contact an administrator.";
+                        loginStatus.style.display = "block";
+                        return;
+                    }
+                    
+                    // Check roles - both legacy and new format
+                    let isAdmin = false;
+                    
+                    // Check new roles format (array)
+                    if (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) {
+                        isAdmin = true;
+                    }
+                    // Check legacy role format (string)
+                    else if (userData.role === 'admin') {
+                        isAdmin = true;
+                    }
+                    
+                    if (isAdmin) {
+                        // User is admin, show admin UI
+                        loginPrompt.classList.add('hidden');
+                        adminUI.classList.remove('hidden');
+                        
+                        // Load questions and active question
+                        loadQuestions();
+                        loadActiveQuestion();
+                    } else {
+                        // Not admin, show error
+                        loginStatus.textContent = "You need admin privileges to access this page";
+                        loginStatus.style.display = "block";
+                        loginPrompt.classList.remove('hidden');
+                        adminUI.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error("Error checking user role:", error);
+                    loginStatus.textContent = "Error checking permissions: " + error.message;
+                    loginStatus.style.display = "block";
+                }
+            } else {
+                // User is signed out
+                console.log("User is signed out");
+                loginPrompt.classList.remove('hidden');
+                adminUI.classList.add('hidden');
+            }
+        });
+        
+        // Login handler
         loginButton.addEventListener('click', async () => {
-            const email = emailInput.value;
+            const email = emailInput.value.trim();
             const password = passwordInput.value;
             
             if (!email || !password) {
@@ -286,64 +357,21 @@
             }
             
             try {
+                loginStatus.style.display = 'none';
                 await signInWithEmailAndPassword(auth, email, password);
-                // Auth state change will handle UI update
+                // Auth state change listener will handle UI updates
             } catch (error) {
                 console.error("Login error:", error);
-                loginStatus.textContent = "Invalid login credentials";
+                loginStatus.textContent = "Login failed: " + error.message;
                 loginStatus.style.display = "block";
             }
         });
         
-        // Check authentication state
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                console.log("GameAdmin: User is logged in", user.uid);
-                
-                // Check if user has admin role
-                const userRef = ref(db, `users/${user.uid}`);
-                const userSnapshot = await get(userRef);
-                const userData = userSnapshot.val();
-                
-                console.log("GameAdmin: User data retrieved:", userData);
-                
-                // Check for admin role in both new array format and legacy string format
-                let isAdmin = false;
-                let userRoles = [];
-                
-                if (userData?.roles && Array.isArray(userData.roles)) {
-                    userRoles = userData.roles;
-                    console.log("GameAdmin: Found roles array:", userRoles);
-                } else if (userData?.role && typeof userData.role === 'string') {
-                    userRoles = [userData.role];
-                    console.log("GameAdmin: Found legacy role:", userData.role);
-                }
-                
-                isAdmin = userRoles.includes('admin');
-                console.log("GameAdmin: Is user admin?", isAdmin);
-                
-                if (isAdmin) {
-                    // User is admin, show admin UI
-                    loginPrompt.classList.add('hidden');
-                    adminUI.classList.remove('hidden');
-                    
-                    // Load questions and active question
-                    loadQuestions();
-                    loadActiveQuestion();
-                } else {
-                    // Not admin, show error
-                    loginStatus.textContent = "You need admin privileges to access this page";
-                    loginStatus.style.display = "block";
-                    
-                    // Still allow login form to be visible
-                    loginPrompt.classList.remove('hidden');
-                    adminUI.classList.add('hidden');
-                }
-            } else {
-                console.log("GameAdmin: User is not logged in");
-                // Not logged in, show login
-                loginPrompt.classList.remove('hidden');
-                adminUI.classList.add('hidden');
+        // Add enter key handler for password field
+        passwordInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                loginButton.click();
             }
         });
         
