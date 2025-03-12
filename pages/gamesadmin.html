@@ -5,8 +5,8 @@
     <title>Evil Trivia - Games Admin</title>
     <script src="/js/components/autoload-banner.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- TinyMCE for rich text editing -->
-    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+    <!-- Remove TinyMCE -->
+    <!-- <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script> -->
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -302,6 +302,12 @@
             
             <h3>Create New Question</h3>
             <form id="newQuestionForm" onsubmit="return false;">
+                <div style="margin-bottom: 15px; padding: 10px; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
+                    <p style="margin: 0; color: #721c24; font-weight: bold;">⚠️ Having trouble saving questions?</p>
+                    <p style="margin: 5px 0 0 0; color: #721c24;">Try the test save button below to check if you have write access to the database.</p>
+                    <button type="button" id="testSaveBtn" style="margin-top: 10px; background-color: #6c757d;">Test Database Write Access</button>
+                    <div id="testSaveResult" style="margin-top: 10px; display: none; padding: 8px; font-size: 14px;"></div>
+                </div>
                 <div class="form-group">
                     <label for="titleInput">Title (optional):</label>
                     <input type="text" id="titleInput" placeholder="Enter a title for this question (displayed prominently)">
@@ -659,7 +665,7 @@
             }
         }
         
-        // Separate function for handling edit active question click
+        // Function for handling edit active question click
         function handleEditActiveQuestion() {
             console.log("Edit active question handler called");
             
@@ -680,6 +686,7 @@
             const editDateInput = document.getElementById('editDateInput');
             const editActiveQuestionSection = document.getElementById('editActiveQuestionSection');
             const editCustomMessagesContainer = document.getElementById('editCustomMessagesContainer');
+            const editNotesInput = document.getElementById('editNotesInput');
             
             if (!editTitleInput || !editQuestionInput || !editAnswerInput || 
                 !editUnitInput || !editFormatSelect || !editDateInput || !editActiveQuestionSection) {
@@ -705,11 +712,9 @@
             editFormatSelect.value = currentActiveQuestion.format || 'decimal';
             editDateInput.value = currentActiveQuestion.date || '';
             
-            // Set the notes field using TinyMCE but ensure it's initialized first
-            waitForTinyMCE('editNotesInput', (editor) => {
-                console.log("Setting TinyMCE content:", currentActiveQuestion.notes || '');
-                editor.setContent(currentActiveQuestion.notes || '');
-            });
+            // Set notes directly
+            editNotesInput.value = currentActiveQuestion.notes || '';
+            console.log("Setting notes content:", currentActiveQuestion.notes || '');
             
             // Clear existing custom messages
             editCustomMessagesContainer.innerHTML = '';
@@ -772,20 +777,9 @@
             const format = editFormatSelect.value;
             const date = editDateInput.value;
             
-            // Ensure we get notes content safely
-            let notes = '';
-            const notesEditor = tinymce.get('editNotesInput');
-            if (notesEditor && notesEditor.initialized) {
-                notes = notesEditor.getContent();
-                console.log("Saving notes content:", notes);
-            } else {
-                console.warn("TinyMCE editor not initialized, attempting to get content directly");
-                // Fallback to get content from textarea
-                const notesTextarea = document.getElementById('editNotesInput');
-                if (notesTextarea) {
-                    notes = notesTextarea.value;
-                }
-            }
+            // Get notes directly from textarea
+            const notes = document.getElementById('editNotesInput').value;
+            console.log("Saving edited notes content:", notes);
             
             if (!question || !answer || !unit || !date) {
                 editError.style.display = 'block';
@@ -1111,6 +1105,9 @@
         document.getElementById('saveQuestionBtn').addEventListener('click', async function(e) {
             console.log("Save button clicked");
             
+            // Make debug console visible to help troubleshoot
+            debugConsole.style.display = 'block';
+            
             try {
                 const title = titleInput.value.trim();
                 const question = questionInput.value.trim();
@@ -1131,20 +1128,9 @@
                     return;
                 }
                 
-                // Safely get notes content
-                let notes = '';
-                const notesEditor = tinymce.get('notesInput');
-                if (notesEditor && notesEditor.initialized) {
-                    notes = notesEditor.getContent();
-                    console.log("Saving new question notes content:", notes);
-                } else {
-                    console.warn("TinyMCE editor not initialized for new question, attempting to get content directly");
-                    // Fallback to get content from textarea
-                    const notesTextarea = document.getElementById('notesInput');
-                    if (notesTextarea) {
-                        notes = notesTextarea.value;
-                    }
-                }
+                // Get notes directly from textarea
+                const notes = document.getElementById('notesInput').value;
+                console.log("Notes content:", notes);
                 
                 // Collect custom messages
                 const customMessages = [];
@@ -1173,7 +1159,7 @@
                     date,
                     format,
                     id: newQuestionRef.key,
-                    notes: notes // Always include notes field, even if empty
+                    notes: notes // Use notes directly from textarea
                 };
                 
                 // Add optional fields if they exist
@@ -1188,6 +1174,7 @@
                 console.log("Saving new question data:", questionData);
                 
                 // Save the question to Firebase
+                console.log("Attempting to save to Firebase...");
                 await set(newQuestionRef, questionData);
                 console.log("Question saved successfully");
                 
@@ -1195,11 +1182,6 @@
                 newQuestionForm.reset();
                 customMessagesContainer.innerHTML = '';
                 addCustomMessageRow(); // Add one empty row
-                
-                // Clear the TinyMCE editor
-                if (notesEditor && notesEditor.initialized) {
-                    notesEditor.setContent('');
-                }
                 
                 // Show success message
                 saveSuccess.style.display = 'block';
@@ -1213,6 +1195,20 @@
                 setTimeout(() => {
                     saveError.style.display = 'none';
                 }, 5000);
+                
+                // Ensure debug console is visible when there's an error
+                debugConsole.style.display = 'block';
+                
+                // Add a more detailed error message to the debug console
+                const errorDetails = document.createElement('div');
+                errorDetails.style.color = '#f44336';
+                errorDetails.style.fontWeight = 'bold';
+                errorDetails.textContent = `SAVE ERROR DETAILS: ${error.name}: ${error.message}`;
+                if (error.stack) {
+                    errorDetails.textContent += `\nStack trace: ${error.stack}`;
+                }
+                debugMessages.appendChild(errorDetails);
+                debugMessages.scrollTop = debugMessages.scrollHeight;
             }
         });
         
@@ -1550,51 +1546,6 @@
             }
         }
         
-        // Initialize TinyMCE editor for rich text notes fields
-        tinymce.init({
-            selector: '#notesInput, #editNotesInput',
-            height: 300,
-            menubar: false,
-            plugins: [
-                'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
-                'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
-                'insertdatetime', 'media', 'table', 'help', 'wordcount'
-            ],
-            toolbar: 'undo redo | formatselect | ' +
-                'bold italic backcolor | alignleft aligncenter ' +
-                'alignright alignjustify | bullist numlist outdent indent | ' +
-                'removeformat | link | help',
-            content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, San Francisco, Segoe UI, Roboto, Helvetica Neue, sans-serif; font-size: 14px; }',
-            setup: function(editor) {
-                // Make sure the editor is properly initialized
-                editor.on('init', function() {
-                    console.log('TinyMCE initialized for:', editor.id);
-                });
-            }
-        });
-        
-        // Make sure TinyMCE is initialized before trying to use it
-        function waitForTinyMCE(editorId, callback, maxAttempts = 10) {
-            let attempts = 0;
-            
-            const checkEditor = () => {
-                attempts++;
-                const editor = tinymce.get(editorId);
-                
-                if (editor && editor.initialized) {
-                    console.log(`TinyMCE editor ${editorId} is ready after ${attempts} attempts`);
-                    callback(editor);
-                } else if (attempts < maxAttempts) {
-                    console.log(`Waiting for TinyMCE editor ${editorId}... Attempt ${attempts}`);
-                    setTimeout(checkEditor, 200);
-                } else {
-                    console.error(`TinyMCE editor ${editorId} not initialized after ${maxAttempts} attempts`);
-                }
-            };
-            
-            checkEditor();
-        }
-
         // Debug console functionality
         const debugConsole = document.getElementById('debugConsole');
         const debugMessages = document.getElementById('debugMessages');
@@ -1660,6 +1611,53 @@
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.shiftKey && e.key === 'D') {
                 debugConsole.style.display = debugConsole.style.display === 'none' ? 'block' : 'none';
+            }
+        });
+
+        // Add right after the saveError variable declaration
+        const testSaveBtn = document.getElementById('testSaveBtn');
+        const testSaveResult = document.getElementById('testSaveResult');
+        
+        // Test Firebase write access
+        testSaveBtn.addEventListener('click', async function() {
+            testSaveResult.style.display = 'block';
+            testSaveResult.textContent = 'Testing database access...';
+            testSaveResult.style.backgroundColor = '#ffe8a1';
+            testSaveResult.style.color = '#856404';
+            
+            try {
+                // Try writing to a test location
+                const testRef = ref(db, 'test/write_access');
+                await set(testRef, {
+                    timestamp: Date.now(),
+                    message: 'Test write access'
+                });
+                
+                // Success
+                testSaveResult.textContent = '✅ Database write successful! You should be able to save questions.';
+                testSaveResult.style.backgroundColor = '#d4edda';
+                testSaveResult.style.color = '#155724';
+                
+                // Check permissions for questions path specifically
+                try {
+                    const testQuestionRef = ref(db, 'games/drinkle/questions/test');
+                    await set(testQuestionRef, {
+                        test: true,
+                        timestamp: Date.now()
+                    });
+                    await remove(testQuestionRef); // Clean up after test
+                    
+                    testSaveResult.textContent += ' Questions path is also writable.';
+                } catch (questionError) {
+                    testSaveResult.textContent += ' WARNING: Cannot write to questions path specifically. Error: ' + questionError.message;
+                }
+                
+            } catch (error) {
+                // Error
+                console.error('Database write test failed:', error);
+                testSaveResult.textContent = '❌ Database write failed: ' + error.message + '. You may not have permission to save questions.';
+                testSaveResult.style.backgroundColor = '#f8d7da';
+                testSaveResult.style.color = '#721c24';
             }
         });
     </script>
