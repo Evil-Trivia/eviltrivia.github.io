@@ -737,7 +737,8 @@
                     // Store ID for reference
                     currentActiveQuestion.id = activeQuestionId;
                     
-                    console.log("Active question data:", currentActiveQuestion);
+                    // Log complete object for debugging
+                    console.log("Active question data:", JSON.stringify(currentActiveQuestion, null, 2));
                     
                     // Show active question details
                     let infoHTML = '';
@@ -768,8 +769,12 @@
                         infoHTML += `<p><strong>Custom Messages:</strong> ${currentActiveQuestion.customMessages.length} defined</p>`;
                     }
                     
+                    // Show if notes are present
                     if (currentActiveQuestion.notes) {
-                        infoHTML += `<p><strong>Notes:</strong> <span style="color: #28a745;">✓</span> Notes will be shown after submission</p>`;
+                        const notesLength = currentActiveQuestion.notes.length;
+                        infoHTML += `<p><strong>Notes:</strong> <span style="color: #28a745;">✓</span> Notes (${notesLength} characters) will be shown after submission</p>`;
+                    } else {
+                        infoHTML += `<p><strong>Notes:</strong> <span style="color: #dc3545;">✗</span> No notes defined</p>`;
                     }
                     
                     currentActiveQuestionInfo.innerHTML = infoHTML;
@@ -817,7 +822,21 @@
             const unit = unitInput.value;
             const format = formatSelect.value;
             const date = dateInput.value;
-            const notes = tinymce.get('notesInput').getContent();
+            
+            // Safely get notes content
+            let notes = '';
+            const notesEditor = tinymce.get('notesInput');
+            if (notesEditor && notesEditor.initialized) {
+                notes = notesEditor.getContent();
+                console.log("Saving new question notes content:", notes);
+            } else {
+                console.warn("TinyMCE editor not initialized for new question, attempting to get content directly");
+                // Fallback to get content from textarea
+                const notesTextarea = document.getElementById('notesInput');
+                if (notesTextarea) {
+                    notes = notesTextarea.value;
+                }
+            }
             
             if (!question || !answer || !unit || !date) {
                 saveError.style.display = 'block';
@@ -853,7 +872,8 @@
                     unit,
                     date,
                     format,
-                    id: newQuestionRef.key
+                    id: newQuestionRef.key,
+                    notes: notes // Always include notes field, even if empty
                 };
                 
                 // Add optional fields if they exist
@@ -861,14 +881,11 @@
                     questionData.title = title;
                 }
                 
-                if (notes) {
-                    questionData.notes = notes;
-                }
-                
                 if (customMessages.length > 0) {
                     questionData.customMessages = customMessages;
                 }
                 
+                console.log("Saving new question data:", questionData);
                 await set(newQuestionRef, questionData);
                 
                 // Clear the form
@@ -878,7 +895,9 @@
                 addCustomMessageRow(); // Add one empty row
                 
                 // Clear the TinyMCE editor
-                tinymce.get('notesInput').setContent('');
+                if (notesEditor && notesEditor.initialized) {
+                    notesEditor.setContent('');
+                }
                 
                 // Show success message
                 saveSuccess.style.display = 'block';
@@ -993,8 +1012,11 @@
             editFormatSelect.value = currentActiveQuestion.format || 'decimal';
             editDateInput.value = currentActiveQuestion.date || '';
             
-            // Set the notes field using TinyMCE
-            tinymce.get('editNotesInput').setContent(currentActiveQuestion.notes || '');
+            // Set the notes field using TinyMCE but ensure it's initialized first
+            waitForTinyMCE('editNotesInput', (editor) => {
+                console.log("Setting TinyMCE content:", currentActiveQuestion.notes || '');
+                editor.setContent(currentActiveQuestion.notes || '');
+            });
             
             // Clear existing custom messages
             editCustomMessagesContainer.innerHTML = '';
@@ -1035,7 +1057,21 @@
             const unit = editUnitInput.value;
             const format = editFormatSelect.value;
             const date = editDateInput.value;
-            const notes = tinymce.get('editNotesInput').getContent();
+            
+            // Ensure we get notes content safely
+            let notes = '';
+            const notesEditor = tinymce.get('editNotesInput');
+            if (notesEditor && notesEditor.initialized) {
+                notes = notesEditor.getContent();
+                console.log("Saving notes content:", notes);
+            } else {
+                console.warn("TinyMCE editor not initialized, attempting to get content directly");
+                // Fallback to get content from textarea
+                const notesTextarea = document.getElementById('editNotesInput');
+                if (notesTextarea) {
+                    notes = notesTextarea.value;
+                }
+            }
             
             if (!question || !answer || !unit || !date) {
                 editError.style.display = 'block';
@@ -1070,8 +1106,7 @@
                     unit,
                     date,
                     format,
-                    id: currentActiveQuestion.id,
-                    notes
+                    id: currentActiveQuestion.id
                 };
                 
                 // Add optional fields if they exist
@@ -1079,10 +1114,14 @@
                     questionData.title = title;
                 }
                 
+                // Always include notes field, even if empty
+                questionData.notes = notes;
+                
                 if (customMessages.length > 0) {
                     questionData.customMessages = customMessages;
                 }
                 
+                console.log("Saving question data:", questionData);
                 await set(questionRef, questionData);
                 
                 // Hide the edit section
@@ -1360,8 +1399,36 @@
                 'bold italic backcolor | alignleft aligncenter ' +
                 'alignright alignjustify | bullist numlist outdent indent | ' +
                 'removeformat | link | help',
-            content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, San Francisco, Segoe UI, Roboto, Helvetica Neue, sans-serif; font-size: 14px; }'
+            content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, San Francisco, Segoe UI, Roboto, Helvetica Neue, sans-serif; font-size: 14px; }',
+            setup: function(editor) {
+                // Make sure the editor is properly initialized
+                editor.on('init', function() {
+                    console.log('TinyMCE initialized for:', editor.id);
+                });
+            }
         });
+        
+        // Make sure TinyMCE is initialized before trying to use it
+        function waitForTinyMCE(editorId, callback, maxAttempts = 10) {
+            let attempts = 0;
+            
+            const checkEditor = () => {
+                attempts++;
+                const editor = tinymce.get(editorId);
+                
+                if (editor && editor.initialized) {
+                    console.log(`TinyMCE editor ${editorId} is ready after ${attempts} attempts`);
+                    callback(editor);
+                } else if (attempts < maxAttempts) {
+                    console.log(`Waiting for TinyMCE editor ${editorId}... Attempt ${attempts}`);
+                    setTimeout(checkEditor, 200);
+                } else {
+                    console.error(`TinyMCE editor ${editorId} not initialized after ${maxAttempts} attempts`);
+                }
+            };
+            
+            checkEditor();
+        }
     </script>
 </body>
 </html> 
