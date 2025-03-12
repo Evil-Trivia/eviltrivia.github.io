@@ -179,10 +179,104 @@
                     <div id="currentActiveQuestionInfo">
                         <p>No active question set</p>
                     </div>
+                    
+                    <button id="editActiveQuestionBtn" style="margin-top: 10px; display: none;">Edit Active Question</button>
+                    <button id="viewResponsesBtn" style="margin-top: 10px; display: none;">View All Responses</button>
                 </div>
             </div>
             
             <hr style="margin: 30px 0;">
+            
+            <!-- Edit Active Question Form (Hidden by default) -->
+            <div id="editActiveQuestionSection" style="display: none;">
+                <h3>Edit Active Question</h3>
+                <form id="editQuestionForm">
+                    <div class="form-group">
+                        <label for="editTitleInput">Title (optional):</label>
+                        <input type="text" id="editTitleInput" placeholder="Enter a title for this question (displayed prominently)">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="editQuestionInput">Question:</label>
+                        <textarea id="editQuestionInput" placeholder="Enter the question" required></textarea>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="editAnswerInput">Correct Answer (number):</label>
+                            <input type="number" id="editAnswerInput" placeholder="e.g. 42" step="any" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="editUnitInput">Unit:</label>
+                            <input type="text" id="editUnitInput" placeholder="e.g. miles, years, etc." required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="editFormatSelect">Number Format:</label>
+                        <select id="editFormatSelect" required>
+                            <option value="decimal">Decimal (e.g., 1,234.56)</option>
+                            <option value="integer">Integer (e.g., 1,234)</option>
+                            <option value="year">Year (e.g., 1999)</option>
+                            <option value="percentage">Percentage (e.g., 75%)</option>
+                            <option value="plain">Plain Number (e.g., 1234.56)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="editDateInput">Date:</label>
+                        <input type="date" id="editDateInput" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Custom Result Messages (optional):</label>
+                        <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
+                            Add custom messages for different percentile ranges. Messages will be shown based on the highest threshold the user's percentile reaches.
+                        </p>
+                        
+                        <div id="editCustomMessagesContainer">
+                            <!-- Custom messages will be added here -->
+                        </div>
+                        
+                        <button type="button" id="editAddMessageBtn" style="margin-top: 10px; background-color: #5cb85c;">+ Add Message</button>
+                    </div>
+                    
+                    <button type="submit">Save Changes</button>
+                    <button type="button" id="cancelEditBtn" style="background-color: #d9534f; margin-left: 10px;">Cancel</button>
+                    <div id="editSuccess" class="success-message">Question updated successfully!</div>
+                    <div id="editError" class="error-message">Error updating question. Please try again.</div>
+                </form>
+            </div>
+
+            <!-- User Responses Section (Hidden by default) -->
+            <div id="responsesSection" style="display: none;">
+                <h3>User Responses</h3>
+                <div class="table-container">
+                    <table id="responsesTable">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Answer</th>
+                                <th>% Off</th>
+                                <th>Percentile</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Responses will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="responseStats" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 8px;">
+                    <h4>Response Statistics</h4>
+                    <p><strong>Total Responses:</strong> <span id="totalResponses">0</span></p>
+                    <p><strong>Average Answer:</strong> <span id="avgAnswer">0</span></p>
+                    <p><strong>Average % Off:</strong> <span id="avgPercentOff">0%</span></p>
+                </div>
+                <button id="closeResponsesBtn" style="margin-top: 15px; background-color: #6c757d;">Close</button>
+                <button id="exportResponsesBtn" style="margin-top: 15px; margin-left: 10px; background-color: #28a745;">Export CSV</button>
+            </div>
             
             <h3>Create New Question</h3>
             <form id="newQuestionForm">
@@ -315,6 +409,30 @@
         const currentActiveQuestionInfo = document.getElementById('currentActiveQuestionInfo');
         const activeSuccess = document.getElementById('activeSuccess');
         
+        const editActiveQuestionBtn = document.getElementById('editActiveQuestionBtn');
+        const viewResponsesBtn = document.getElementById('viewResponsesBtn');
+        const editActiveQuestionSection = document.getElementById('editActiveQuestionSection');
+        const editQuestionForm = document.getElementById('editQuestionForm');
+        const editTitleInput = document.getElementById('editTitleInput');
+        const editQuestionInput = document.getElementById('editQuestionInput');
+        const editAnswerInput = document.getElementById('editAnswerInput');
+        const editUnitInput = document.getElementById('editUnitInput');
+        const editFormatSelect = document.getElementById('editFormatSelect');
+        const editDateInput = document.getElementById('editDateInput');
+        const editCustomMessagesContainer = document.getElementById('editCustomMessagesContainer');
+        const editAddMessageBtn = document.getElementById('editAddMessageBtn');
+        const cancelEditBtn = document.getElementById('cancelEditBtn');
+        const editSuccess = document.getElementById('editSuccess');
+        const editError = document.getElementById('editError');
+        
+        const responsesSection = document.getElementById('responsesSection');
+        const responsesTable = document.getElementById('responsesTable').getElementsByTagName('tbody')[0];
+        const closeResponsesBtn = document.getElementById('closeResponsesBtn');
+        const exportResponsesBtn = document.getElementById('exportResponsesBtn');
+        const totalResponses = document.getElementById('totalResponses');
+        const avgAnswer = document.getElementById('avgAnswer');
+        const avgPercentOff = document.getElementById('avgPercentOff');
+        
         const newQuestionForm = document.getElementById('newQuestionForm');
         const titleInput = document.getElementById('titleInput');
         const questionInput = document.getElementById('questionInput');
@@ -332,9 +450,12 @@
         // Set today's date as default
         dateInput.valueAsDate = new Date();
         
+        // Variable to store current active question
+        let currentActiveQuestion = null;
+        
         // Add event listener for adding new custom message rows
         addMessageBtn.addEventListener('click', () => {
-            addCustomMessageRow();
+            addCustomMessageRow('', '', customMessagesContainer);
         });
         
         // Add event delegation for remove buttons
@@ -344,8 +465,15 @@
             }
         });
         
+        // Add event delegation for edit form remove buttons
+        editCustomMessagesContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-message-btn')) {
+                e.target.closest('.custom-message-row').remove();
+            }
+        });
+        
         // Function to add a new custom message row
-        function addCustomMessageRow(threshold = '', message = '') {
+        function addCustomMessageRow(threshold = '', message = '', container = customMessagesContainer) {
             const row = document.createElement('div');
             row.className = 'custom-message-row';
             row.style = 'display: flex; gap: 10px; margin-bottom: 10px;';
@@ -362,7 +490,7 @@
                 </div>
             `;
             
-            customMessagesContainer.appendChild(row);
+            container.appendChild(row);
         }
         
         // Check auth state (This is the main difference - simpler auth check like in admin.html)
@@ -540,6 +668,8 @@
                 if (!activeQuestionId) {
                     activeQuestionSelect.value = '';
                     currentActiveQuestionInfo.innerHTML = '<p>No active question set</p>';
+                    editActiveQuestionBtn.style.display = 'none';
+                    viewResponsesBtn.style.display = 'none';
                     return;
                 }
                 
@@ -549,24 +679,27 @@
                 // Get the question details
                 const questionRef = ref(db, `games/drinkle/questions/${activeQuestionId}`);
                 const questionSnapshot = await get(questionRef);
-                const question = questionSnapshot.val();
+                currentActiveQuestion = questionSnapshot.val();
                 
-                if (question) {
+                if (currentActiveQuestion) {
+                    // Store ID for reference
+                    currentActiveQuestion.id = activeQuestionId;
+                    
                     // Show active question details
                     let infoHTML = '';
                     
-                    if (question.title) {
-                        infoHTML += `<p><strong>Title:</strong> ${question.title}</p>`;
+                    if (currentActiveQuestion.title) {
+                        infoHTML += `<p><strong>Title:</strong> ${currentActiveQuestion.title}</p>`;
                     }
                     
                     infoHTML += `
-                        <p><strong>Question:</strong> ${question.question}</p>
-                        <p><strong>Answer:</strong> ${question.answer} ${question.unit}</p>
-                        <p><strong>Date:</strong> ${new Date(question.date).toLocaleDateString()}</p>
+                        <p><strong>Question:</strong> ${currentActiveQuestion.question}</p>
+                        <p><strong>Answer:</strong> ${currentActiveQuestion.answer} ${currentActiveQuestion.unit}</p>
+                        <p><strong>Date:</strong> ${new Date(currentActiveQuestion.date).toLocaleDateString()}</p>
                     `;
                     
                     // Add format info if available
-                    if (question.format) {
+                    if (currentActiveQuestion.format) {
                         const formatLabels = {
                             'decimal': 'Decimal (e.g., 1,234.56)',
                             'integer': 'Integer (e.g., 1,234)',
@@ -574,16 +707,22 @@
                             'percentage': 'Percentage (e.g., 75%)',
                             'plain': 'Plain Number (e.g., 1234.56)'
                         };
-                        infoHTML += `<p><strong>Number Format:</strong> ${formatLabels[question.format] || question.format}</p>`;
+                        infoHTML += `<p><strong>Number Format:</strong> ${formatLabels[currentActiveQuestion.format] || currentActiveQuestion.format}</p>`;
                     }
                     
-                    if (question.customMessages && question.customMessages.length > 0) {
-                        infoHTML += `<p><strong>Custom Messages:</strong> ${question.customMessages.length} defined</p>`;
+                    if (currentActiveQuestion.customMessages && currentActiveQuestion.customMessages.length > 0) {
+                        infoHTML += `<p><strong>Custom Messages:</strong> ${currentActiveQuestion.customMessages.length} defined</p>`;
                     }
                     
                     currentActiveQuestionInfo.innerHTML = infoHTML;
+                    
+                    // Show edit and view responses buttons
+                    editActiveQuestionBtn.style.display = 'inline-block';
+                    viewResponsesBtn.style.display = 'inline-block';
                 } else {
                     currentActiveQuestionInfo.innerHTML = '<p>Error: Selected question not found</p>';
+                    editActiveQuestionBtn.style.display = 'none';
+                    viewResponsesBtn.style.display = 'none';
                 }
             });
         }
@@ -767,6 +906,322 @@
                 debugResult.textContent = `Error checking roles: ${error.message}\n${error.stack}`;
             }
         });
+        
+        // Edit active question button click
+        editActiveQuestionBtn.addEventListener('click', () => {
+            if (!currentActiveQuestion) {
+                alert("No active question selected");
+                return;
+            }
+            
+            // Populate the edit form
+            editTitleInput.value = currentActiveQuestion.title || '';
+            editQuestionInput.value = currentActiveQuestion.question || '';
+            editAnswerInput.value = currentActiveQuestion.answer || '';
+            editUnitInput.value = currentActiveQuestion.unit || '';
+            editFormatSelect.value = currentActiveQuestion.format || 'decimal';
+            editDateInput.value = currentActiveQuestion.date || '';
+            
+            // Clear existing custom messages
+            editCustomMessagesContainer.innerHTML = '';
+            
+            // Add custom messages if they exist
+            if (currentActiveQuestion.customMessages && Array.isArray(currentActiveQuestion.customMessages)) {
+                currentActiveQuestion.customMessages.forEach(message => {
+                    addCustomMessageRow(message.threshold, message.text, editCustomMessagesContainer);
+                });
+            }
+            
+            // Add at least one empty message row if none exist
+            if (editCustomMessagesContainer.children.length === 0) {
+                addCustomMessageRow('', '', editCustomMessagesContainer);
+            }
+            
+            // Show the edit section
+            editActiveQuestionSection.style.display = 'block';
+        });
+        
+        // Cancel edit button click
+        cancelEditBtn.addEventListener('click', () => {
+            editActiveQuestionSection.style.display = 'none';
+        });
+        
+        // Edit question form submission
+        editQuestionForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!currentActiveQuestion) {
+                alert("No active question to edit");
+                return;
+            }
+            
+            const title = editTitleInput.value.trim();
+            const question = editQuestionInput.value;
+            const answer = editAnswerInput.value;
+            const unit = editUnitInput.value;
+            const format = editFormatSelect.value;
+            const date = editDateInput.value;
+            
+            if (!question || !answer || !unit || !date) {
+                editError.style.display = 'block';
+                setTimeout(() => {
+                    editError.style.display = 'none';
+                }, 3000);
+                return;
+            }
+            
+            // Collect custom messages
+            const customMessages = [];
+            const messageRows = editCustomMessagesContainer.querySelectorAll('.custom-message-row');
+            
+            messageRows.forEach(row => {
+                const threshold = parseInt(row.querySelector('.threshold-input').value);
+                const message = row.querySelector('.message-input').value.trim();
+                
+                if (!isNaN(threshold) && threshold >= 0 && threshold <= 100 && message) {
+                    customMessages.push({
+                        threshold,
+                        text: message
+                    });
+                }
+            });
+            
+            try {
+                const questionRef = ref(db, `games/drinkle/questions/${currentActiveQuestion.id}`);
+                
+                const questionData = {
+                    question,
+                    answer: parseFloat(answer),
+                    unit,
+                    date,
+                    format,
+                    id: currentActiveQuestion.id
+                };
+                
+                // Add optional fields if they exist
+                if (title) {
+                    questionData.title = title;
+                }
+                
+                if (customMessages.length > 0) {
+                    questionData.customMessages = customMessages;
+                }
+                
+                await set(questionRef, questionData);
+                
+                // Hide the edit section
+                editActiveQuestionSection.style.display = 'none';
+                
+                // Show success message
+                editSuccess.style.display = 'block';
+                setTimeout(() => {
+                    editSuccess.style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                console.error("Error updating question:", error);
+                editError.style.display = 'block';
+                setTimeout(() => {
+                    editError.style.display = 'none';
+                }, 3000);
+            }
+        });
+        
+        // Edit Add Message button
+        editAddMessageBtn.addEventListener('click', () => {
+            addCustomMessageRow('', '', editCustomMessagesContainer);
+        });
+        
+        // View responses button click
+        viewResponsesBtn.addEventListener('click', async () => {
+            if (!currentActiveQuestion) {
+                alert("No active question selected");
+                return;
+            }
+            
+            try {
+                // Get responses
+                const answersRef = ref(db, `games/drinkle/answers/${currentActiveQuestion.id}`);
+                const answersSnapshot = await get(answersRef);
+                const answers = answersSnapshot.val() || {};
+                
+                // Also check publicAnswers path
+                const publicAnswersRef = ref(db, `publicAnswers/drinkle/${currentActiveQuestion.id}`);
+                const publicAnswersSnapshot = await get(publicAnswersRef);
+                const publicAnswers = publicAnswersSnapshot.val() || {};
+                
+                // Combine answers
+                const allAnswers = {...answers, ...publicAnswers};
+                
+                // Clear the table
+                responsesTable.innerHTML = '';
+                
+                if (Object.keys(allAnswers).length === 0) {
+                    // No responses
+                    responsesTable.innerHTML = '<tr><td colspan="5" style="text-align: center;">No responses yet</td></tr>';
+                    totalResponses.textContent = '0';
+                    avgAnswer.textContent = 'N/A';
+                    avgPercentOff.textContent = 'N/A';
+                } else {
+                    // Convert to array and sort by timestamp (newest first)
+                    const answersList = Object.entries(allAnswers)
+                        .map(([id, answer]) => ({
+                            id,
+                            userId: answer.userId,
+                            answer: parseFloat(answer.answer),
+                            timestamp: answer.timestamp || Date.now()
+                        }))
+                        .sort((a, b) => b.timestamp - a.timestamp);
+                    
+                    // Calculate additional stats
+                    const correctAnswer = parseFloat(currentActiveQuestion.answer);
+                    
+                    const answersWithStats = answersList.map(answer => {
+                        const percentDiff = Math.abs((answer.answer - correctAnswer) / correctAnswer * 100);
+                        return {
+                            ...answer,
+                            percentOff: percentDiff
+                        };
+                    });
+                    
+                    // Sort by accuracy for percentile calculation
+                    const sortedByAccuracy = [...answersWithStats].sort((a, b) => a.percentOff - b.percentOff);
+                    
+                    // Calculate percentiles and add to answers
+                    answersWithStats.forEach(answer => {
+                        const index = sortedByAccuracy.findIndex(a => a.id === answer.id);
+                        answer.percentile = Math.round(100 - (index / (sortedByAccuracy.length - 1) * 100));
+                    });
+                    
+                    // Calculate average answer and percent off
+                    const sum = answersWithStats.reduce((acc, curr) => acc + curr.answer, 0);
+                    const sumPercentOff = answersWithStats.reduce((acc, curr) => acc + curr.percentOff, 0);
+                    const avgAnswerValue = sum / answersWithStats.length;
+                    const avgPercentOffValue = sumPercentOff / answersWithStats.length;
+                    
+                    // Format the average answer according to the question's format
+                    const formattedAvgAnswer = formatNumber(avgAnswerValue, currentActiveQuestion.format);
+                    
+                    // Update stats display
+                    totalResponses.textContent = answersWithStats.length;
+                    avgAnswer.textContent = `${formattedAvgAnswer} ${currentActiveQuestion.unit}`;
+                    avgPercentOff.textContent = `${avgPercentOffValue.toFixed(1)}%`;
+                    
+                    // Add to table
+                    answersWithStats.forEach(answer => {
+                        const row = responsesTable.insertRow();
+                        
+                        // User column
+                        const userCell = row.insertCell(0);
+                        
+                        if (answer.userId.startsWith('anonymous_') || answer.userId.startsWith('anon_')) {
+                            userCell.textContent = 'Anonymous';
+                        } else {
+                            userCell.textContent = answer.userId.substring(0, 8) + '...'; // Just show part of the ID
+                        }
+                        
+                        // Answer column
+                        const answerCell = row.insertCell(1);
+                        answerCell.textContent = `${formatNumber(answer.answer, currentActiveQuestion.format)} ${currentActiveQuestion.unit}`;
+                        
+                        // Percent off column
+                        const percentOffCell = row.insertCell(2);
+                        percentOffCell.textContent = `${answer.percentOff.toFixed(1)}%`;
+                        
+                        // Percentile column
+                        const percentileCell = row.insertCell(3);
+                        percentileCell.textContent = `${answer.percentile}th`;
+                        
+                        // Time column
+                        const timeCell = row.insertCell(4);
+                        timeCell.textContent = new Date(answer.timestamp).toLocaleString();
+                    });
+                }
+                
+                // Show the responses section
+                responsesSection.style.display = 'block';
+            } catch (error) {
+                console.error("Error loading responses:", error);
+                alert("Error loading responses. Please try again.");
+            }
+        });
+        
+        // Close responses button click
+        closeResponsesBtn.addEventListener('click', () => {
+            responsesSection.style.display = 'none';
+        });
+        
+        // Export responses as CSV
+        exportResponsesBtn.addEventListener('click', () => {
+            if (responsesTable.rows.length === 0) {
+                alert("No data to export");
+                return;
+            }
+            
+            let csvContent = "data:text/csv;charset=utf-8,";
+            
+            // Add headers
+            csvContent += "User,Answer,% Off,Percentile,Time\n";
+            
+            // Add rows
+            for (let i = 0; i < responsesTable.rows.length; i++) {
+                const row = responsesTable.rows[i];
+                const rowData = [];
+                
+                for (let j = 0; j < row.cells.length; j++) {
+                    // Wrap cells in quotes to handle commas
+                    rowData.push(`"${row.cells[j].textContent}"`);
+                }
+                
+                csvContent += rowData.join(",") + "\n";
+            }
+            
+            // Create download link
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `drinkle_responses_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            
+            // Download
+            link.click();
+            
+            // Cleanup
+            document.body.removeChild(link);
+        });
+        
+        // Function to format numbers according to the specified format
+        function formatNumber(number, formatType = 'decimal') {
+            const num = parseFloat(number);
+            
+            if (isNaN(num)) return "N/A";
+            
+            switch(formatType) {
+                case 'integer':
+                    return new Intl.NumberFormat('en-US', { 
+                        style: 'decimal',
+                        maximumFractionDigits: 0
+                    }).format(num);
+                    
+                case 'year':
+                    return Math.round(num).toString();
+                    
+                case 'percentage':
+                    return new Intl.NumberFormat('en-US', { 
+                        style: 'percent', 
+                        maximumFractionDigits: 2 
+                    }).format(num/100);
+                    
+                case 'plain':
+                    return num.toString();
+                    
+                case 'decimal':
+                default:
+                    return new Intl.NumberFormat('en-US', { 
+                        style: 'decimal',
+                        maximumFractionDigits: 2
+                    }).format(num);
+            }
+        }
     </script>
 </body>
 </html> 
