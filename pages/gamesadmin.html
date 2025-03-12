@@ -138,7 +138,6 @@
 </head>
 <body>
     <h1>Evil Trivia Games Admin</h1>
-    <button id="forceReloadBtn" style="margin-bottom: 15px; background-color: #17a2b8; padding: 8px 16px;">Force Reload Page</button>
 
     <div id="loginPrompt" class="section">
         <h2>Admin Login</h2>
@@ -403,24 +402,8 @@
             </div>
         </div>
     </div>
-    
-    <div id="debugConsole" style="position: fixed; bottom: 0; left: 0; right: 0; background: #f0f0f0; padding: 10px; max-height: 300px; overflow: auto; border-top: 1px solid #ccc; font-family: monospace; font-size: 12px; z-index: 1000; display: block;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-            <h4 style="margin: 0;">Debug Console</h4>
-            <button id="clearDebugBtn" style="background: #f44336; color: white; border: none; padding: 2px 8px; cursor: pointer;">Clear</button>
-            <button id="closeDebugBtn" style="background: #333; color: white; border: none; padding: 2px 8px; cursor: pointer;">Close</button>
-        </div>
-        <div id="debugMessages"></div>
-    </div>
 
     <script type="module">
-        // Add debugging info before import to catch any early errors
-        console.log("Page loading...");
-        window.onerror = function(message, source, lineno, colno, error) {
-            console.error("Global error:", message, "at", source, lineno, colno, error);
-            return false;
-        };
-        
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
         import { getDatabase, ref, get, set, push, onValue, remove } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
@@ -548,12 +531,9 @@
         // Set today's date as default
         dateInput.valueAsDate = new Date();
         
-        // Verify that dateInput was properly initialized
-        console.log("Date input initialized with:", dateInput.value);
         // Make sure format select has a default value
         if (!formatSelect.value) {
             formatSelect.value = 'decimal';
-            console.log("Format select defaulted to 'decimal'");
         }
         
         // Variable to store current active question
@@ -1144,15 +1124,11 @@
         // Add safe references to all buttons before attaching event listeners
         const saveQuestionBtn = document.getElementById('saveQuestionBtn');
         const checkPermissionsBtn = document.getElementById('checkPermissionsBtn');
-        const clearDebugBtn = document.getElementById('clearDebugBtn');
-        const closeDebugBtn = document.getElementById('closeDebugBtn');
         
         // Verify buttons are available
         [
             { name: 'saveQuestionBtn', element: saveQuestionBtn },
-            { name: 'checkPermissionsBtn', element: checkPermissionsBtn },
-            { name: 'clearDebugBtn', element: clearDebugBtn },
-            { name: 'closeDebugBtn', element: closeDebugBtn }
+            { name: 'checkPermissionsBtn', element: checkPermissionsBtn }
         ].forEach(item => {
             if (!item.element) {
                 console.error(`Button not found: ${item.name}`);
@@ -1161,13 +1137,7 @@
 
         // Function to try alternative save methods if the main one fails
         async function tryBackupSave(questionData, errorDetails) {
-            console.log("Attempting backup save method...");
-            document.getElementById('debugConsole').style.display = 'block';
-            
             try {
-                // Create a temporary database path for testing
-                saveError.textContent = "Trying alternative save method...";
-                
                 // Attempt to save to a test location first
                 const testRef = ref(db, 'test/write_access');
                 await set(testRef, {
@@ -1175,32 +1145,22 @@
                     message: 'Testing write access'
                 });
                 
-                console.log("Test write successful, attempting to save question to main path...");
-                
                 // Now try saving to the questions path directly
                 const fullPath = 'games/drinkle/questions/' + questionData.id;
                 const directRef = ref(db, fullPath);
                 
-                // Log the full details for debugging
-                console.log("Using direct path:", fullPath);
-                console.log("Question data:", JSON.stringify(questionData, null, 2));
-                
                 // Attempt the save
                 await set(directRef, questionData);
-                console.log("Backup save method successful!");
-                
                 return true;
             } catch (backupError) {
-                console.error("Backup save method also failed:", backupError);
-                saveError.textContent = `Primary save failed: ${errorDetails}\n\nBackup save also failed: ${backupError.message}`;
+                console.error("Backup save failed:", backupError);
+                if (saveError) saveError.textContent = `Primary save failed. Backup also failed. Please try again.`;
                 return false;
             }
         }
 
         // Alternative direct save function
         async function directSave(questionData) {
-            console.log("Attempting direct save with simpler approach...");
-            
             try {
                 // First try writing to a simple test location
                 const testRef = ref(db, 'test_write');
@@ -1216,7 +1176,6 @@
                 };
                 
                 // Use a direct path with the key
-                console.log("Using minimal data:", minimumQuestionData);
                 const directRef = ref(db, `games/drinkle/questions/${questionData.id}`);
                 await set(directRef, minimumQuestionData);
                 return true;
@@ -1229,11 +1188,6 @@
         // Save new question using button click instead of form submission
         if (saveQuestionBtn) {
             saveQuestionBtn.addEventListener('click', async function(e) {
-                console.log("Save button clicked");
-                
-                // Always show debug console for troubleshooting
-                if (debugConsole) debugConsole.style.display = 'block';
-                
                 // Show a persistent status message
                 if (saveSuccess) saveSuccess.style.display = 'none';
                 if (saveError) {
@@ -1249,8 +1203,6 @@
                     const format = formatSelect.value;
                     const date = dateInput.value;
                     
-                    console.log("Form data collected:", { title, question, answer, unit, format, date });
-                    
                     // Validate required fields
                     if (!question || !answer || !unit || !date) {
                         if (saveError) saveError.textContent = "Please fill in all required fields";
@@ -1259,7 +1211,6 @@
                     
                     // Get notes directly from textarea
                     const notes = document.getElementById('notesInput')?.value || '';
-                    console.log("Notes content:", notes);
                     
                     // Collect custom messages
                     const customMessages = [];
@@ -1291,8 +1242,6 @@
                     const newQuestionRef = push(questionsRef);
                     const newKey = newQuestionRef.key;
                     
-                    console.log("Generated new question key:", newKey);
-                    
                     // Create a minimal valid question structure
                     const questionData = {
                         question: question,
@@ -1314,43 +1263,35 @@
                         questionData.customMessages = customMessages;
                     }
                     
-                    console.log("Saving new question data:", questionData);
-                    
-                    if (saveError) saveError.textContent = "Trying all save methods...";
+                    if (saveError) saveError.textContent = "Saving to database...";
                     
                     // Try all save methods in sequence until one works
                     let saveSucceeded = false;
                     
                     try {
                         // Method 1: Standard push+set
-                        console.log("Trying Method 1: Standard push+set");
                         await set(ref(db, `games/drinkle/questions/${newKey}`), questionData);
-                        console.log("Method 1 succeeded!");
                         saveSucceeded = true;
                     } catch (err1) {
-                        console.error("Method 1 failed:", err1);
+                        console.error("Standard save failed:", err1);
                         
                         try {
                             // Method 2: Direct save with minimal data
-                            console.log("Trying Method 2: Direct save with minimal data");
                             const success = await directSave(questionData);
                             if (success) {
-                                console.log("Method 2 succeeded!");
                                 saveSucceeded = true;
                             }
                         } catch (err2) {
-                            console.error("Method 2 failed:", err2);
+                            console.error("Direct save failed:", err2);
                             
                             try {
                                 // Method 3: Try backup save method
-                                console.log("Trying Method 3: Backup save");
                                 const success = await tryBackupSave(questionData, "Previous methods failed");
                                 if (success) {
-                                    console.log("Method 3 succeeded!");
                                     saveSucceeded = true;
                                 }
                             } catch (err3) {
-                                console.error("Method 3 failed:", err3);
+                                console.error("Backup save failed:", err3);
                                 throw new Error("All save methods failed");
                             }
                         }
@@ -1359,8 +1300,6 @@
                     if (!saveSucceeded) {
                         throw new Error("Failed to save question after trying all methods");
                     }
-                    
-                    console.log("Question saved successfully");
                     
                     // Clear the form
                     if (newQuestionForm) newQuestionForm.reset();
@@ -1376,7 +1315,7 @@
                     if (saveError) saveError.style.display = 'none';
                     if (saveSuccess) {
                         saveSuccess.style.display = 'block';
-                        saveSuccess.textContent = "Question saved successfully! ID: " + newKey;
+                        saveSuccess.textContent = "Question saved successfully!";
                     }
                 } catch (error) {
                     console.error("Error saving question:", error);
@@ -1388,9 +1327,6 @@
                     } else if (error.message && error.message.includes("network")) {
                         errorMsg += ". Check your internet connection.";
                     }
-                    
-                    // Show full error details including code
-                    errorMsg += "\n\nError Code: " + (error.code || "unknown");
                     
                     if (saveError) {
                         saveError.textContent = errorMsg;
@@ -1739,76 +1675,6 @@
                     }).format(num);
             }
         }
-        
-        // Debug console functionality
-        const debugConsole = document.getElementById('debugConsole');
-        const debugMessages = document.getElementById('debugMessages');
-        
-        // Override console.log and console.error
-        const originalConsoleLog = console.log;
-        const originalConsoleError = console.error;
-        
-        console.log = function() {
-            // Call the original console.log
-            originalConsoleLog.apply(console, arguments);
-            
-            // Add to our debug console
-            const message = Array.from(arguments).map(arg => {
-                if (typeof arg === 'object') {
-                    return JSON.stringify(arg, null, 2);
-                }
-                return String(arg);
-            }).join(' ');
-            
-            const logEntry = document.createElement('div');
-            logEntry.textContent = `[LOG] ${message}`;
-            debugMessages.appendChild(logEntry);
-            debugConsole.style.display = 'block';
-            debugMessages.scrollTop = debugMessages.scrollHeight;
-        };
-        
-        console.error = function() {
-            // Call the original console.error
-            originalConsoleError.apply(console, arguments);
-            
-            // Add to our debug console
-            const message = Array.from(arguments).map(arg => {
-                if (typeof arg === 'object' && arg instanceof Error) {
-                    return `${arg.name}: ${arg.message}\n${arg.stack}`;
-                } else if (typeof arg === 'object') {
-                    return JSON.stringify(arg, null, 2);
-                }
-                return String(arg);
-            }).join(' ');
-            
-            const logEntry = document.createElement('div');
-            logEntry.style.color = '#f44336';
-            logEntry.textContent = `[ERROR] ${message}`;
-            debugMessages.appendChild(logEntry);
-            debugConsole.style.display = 'block';
-            debugMessages.scrollTop = debugMessages.scrollHeight;
-        };
-        
-        // Clear button
-        if (clearDebugBtn) {
-            clearDebugBtn.addEventListener('click', () => {
-                if (debugMessages) debugMessages.innerHTML = '';
-            });
-        }
-        
-        // Close button
-        if (closeDebugBtn) {
-            closeDebugBtn.addEventListener('click', () => {
-                if (debugConsole) debugConsole.style.display = 'none';
-            });
-        }
-        
-        // Show debug console on error key combo (Ctrl+Shift+D)
-        document.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-                debugConsole.style.display = debugConsole.style.display === 'none' ? 'block' : 'none';
-            }
-        });
 
         // Add permissions check button functionality
         if (checkPermissionsBtn) {
@@ -1818,23 +1684,16 @@
                 saveError.textContent = "Checking database permissions...";
                 
                 try {
-                    // Show debug console
-                    document.getElementById('debugConsole').style.display = 'block';
-                    
-                    console.log("Checking database permissions...");
-                    
                     // Try writing to test path
                     const testRef = ref(db, 'test/permission_check');
                     await set(testRef, {
                         timestamp: Date.now(),
                         message: 'Permission check'
                     });
-                    console.log("✅ Basic write permission: OK");
                     
                     // Try reading questions
                     const questionsRef = ref(db, 'games/drinkle/questions');
-                    const snapshot = await get(questionsRef);
-                    console.log("✅ Questions read permission: OK");
+                    await get(questionsRef);
                     
                     // Try writing to questions path
                     const testQuestionRef = ref(db, 'games/drinkle/questions/test_permission');
@@ -1842,7 +1701,6 @@
                         test: true,
                         timestamp: Date.now()
                     });
-                    console.log("✅ Questions write permission: OK");
                     await remove(testQuestionRef); // Clean up
                     
                     saveError.textContent = "All permissions OK! You should be able to save questions.";
@@ -1850,7 +1708,7 @@
                     saveError.style.color = "#155724";
                 } catch (error) {
                     console.error("Permission check failed:", error);
-                    saveError.textContent = "❌ Permission denied: " + error.message;
+                    saveError.textContent = "Permission denied: " + error.message;
                     saveError.style.backgroundColor = "#f8d7da";
                     saveError.style.color = "#721c24";
                 }
@@ -1858,15 +1716,6 @@
         } else {
             console.error("Check permissions button not found!");
         }
-
-        // Add force reload button functionality
-        document.getElementById('forceReloadBtn')?.addEventListener('click', function() {
-            console.log("Force reloading page...");
-            // Clear any cached data
-            window.localStorage.removeItem('drinkle_cache');
-            // Hard reload the page
-            window.location.reload(true);
-        });
     </script>
 </body>
 </html> 
