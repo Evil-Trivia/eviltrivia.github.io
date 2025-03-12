@@ -381,8 +381,8 @@
       
       <div id="questionContainer" style="display: none;">
         <div class="navigation-buttons">
-          <button id="prevButton" class="nav-button" disabled>Previous</button>
-          <button id="nextButton" class="nav-button" disabled>Next</button>
+          <button id="prevButton" class="nav-button" disabled>← Older Question</button>
+          <button id="nextButton" class="nav-button" disabled>Newer Question →</button>
         </div>
         <div id="questionDate" class="question-date"></div>
         <div id="questionTitle" class="question-title"></div>
@@ -680,6 +680,19 @@
               return;
             }
             
+            // Check if question is marked as unavailable
+            if (currentQuestion.available === false) {
+              console.log("Active question is marked as unavailable:", activeQuestionId);
+              loadingMessage.style.display = 'none';
+              noQuestionMessage.style.display = 'block';
+              noQuestionMessage.innerHTML = `
+                <div class="emoji">🍋</div>
+                <p>The current question is temporarily unavailable. Please check back later!</p>
+              `;
+              questionContainer.style.display = 'none';
+              return;
+            }
+            
             console.log("Question details loaded:", currentQuestion.title || currentQuestion.question.substring(0, 30));
             
             // Ensure ID is set on the question object
@@ -742,11 +755,14 @@
           return { ...question, id };
         });
         
-        // Sort by date (newest first)
+        // Filter to only include available questions or questions without an availability flag
+        questionHistory = questionHistory.filter(q => q.available === undefined || q.available === true);
+        
+        // Sort by date (oldest first so previous means older)
         questionHistory.sort((a, b) => {
           const dateA = a.date ? new Date(a.date) : new Date(0);
           const dateB = b.date ? new Date(b.date) : new Date(0);
-          return dateB - dateA;
+          return dateA - dateB; // Oldest first, so previous = older question
         });
         
         // Find current question index
@@ -761,7 +777,9 @@
     
     // Update navigation buttons
     function updateNavigationButtons() {
+      // Previous means older question (going back in time)
       prevButton.disabled = currentQuestionIndex <= 0;
+      // Next means newer question (going forward in time)
       nextButton.disabled = currentQuestionIndex >= questionHistory.length - 1;
       
       // Add event listeners
@@ -786,6 +804,8 @@
       
       currentQuestionIndex = index;
       currentQuestion = questionHistory[index];
+      
+      console.log(`Navigating to ${currentQuestion.date ? new Date(currentQuestion.date).toLocaleDateString() : 'undated'} question: ${currentQuestion.title || currentQuestion.question.substring(0, 30)}`);
       
       // Reset answer state
       hasAnswered = false;
@@ -818,7 +838,17 @@
       // Display the date if available
       if (question.date) {
         const date = new Date(question.date);
-        questionDate.textContent = date.toLocaleDateString();
+        const options = { year: 'numeric', month: 'long', day: 'numeric' };
+        const formattedDate = date.toLocaleDateString(undefined, options);
+        
+        // Add position in question history
+        if (questionHistory.length > 0) {
+          const position = currentQuestionIndex + 1;
+          const total = questionHistory.length;
+          questionDate.textContent = `${formattedDate} (Question ${position} of ${total})`;
+        } else {
+          questionDate.textContent = formattedDate;
+        }
         questionDate.style.display = 'block';
       } else {
         questionDate.style.display = 'none';
