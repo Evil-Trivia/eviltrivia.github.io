@@ -139,14 +139,19 @@
 
     <div id="loginPrompt" class="section">
         <h2>Admin Login</h2>
-        <div style="margin-bottom: 10px;">
-            <input type="email" id="emailInput" placeholder="Email" />
-        </div>
-        <div style="margin-bottom: 10px;">
-            <input type="password" id="passwordInput" placeholder="Password" />
-        </div>
-        <button id="btnLogin">Login</button>
-        <p id="loginStatus" style="color: red; display: none;"></p>
+        <form id="loginForm" class="login-form" style="display: none; margin-bottom: 30px;">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" required>
+            </div>
+            <button type="button" id="loginButton" class="btn btn-primary">Login</button>
+            <p id="loginStatus" style="display: none; margin-top: 10px; color: #d50000;"></p>
+            <button type="button" id="checkRolesButton" class="btn btn-secondary" style="margin-top: 10px;">Check My Roles</button>
+        </form>
         
         <div class="debug-section">
             <h3>Troubleshooting</h3>
@@ -1072,24 +1077,48 @@
                 return;
             }
             
+            // Clear previous data
+            responsesTable.innerHTML = '';
+            // Show loading indicator
+            responsesTable.innerHTML = '<tr><td colspan="5" style="text-align: center;">Loading responses...</td></tr>';
+            
             try {
-                // Get responses
-                const answersRef = ref(db, `games/drinkle/answers/${currentActiveQuestion.id}`);
-                const answersSnapshot = await get(answersRef);
-                const answers = answersSnapshot.val() || {};
+                let combinedAnswers = {};
+                let loadingError = null;
+                
+                // Try to get answers from the main path
+                try {
+                    const answersRef = ref(db, `games/drinkle/answers/${currentActiveQuestion.id}`);
+                    const answersSnapshot = await get(answersRef);
+                    const answers = answersSnapshot.val() || {};
+                    combinedAnswers = {...combinedAnswers, ...answers};
+                    console.log("Successfully loaded answers from main path:", Object.keys(answers).length);
+                } catch (error) {
+                    console.error("Error loading answers from main path:", error);
+                    loadingError = error;
+                }
                 
                 // Also check publicAnswers path
-                const publicAnswersRef = ref(db, `publicAnswers/drinkle/${currentActiveQuestion.id}`);
-                const publicAnswersSnapshot = await get(publicAnswersRef);
-                const publicAnswers = publicAnswersSnapshot.val() || {};
+                try {
+                    const publicAnswersRef = ref(db, `publicAnswers/drinkle/${currentActiveQuestion.id}`);
+                    const publicAnswersSnapshot = await get(publicAnswersRef);
+                    const publicAnswers = publicAnswersSnapshot.val() || {};
+                    combinedAnswers = {...combinedAnswers, ...publicAnswers};
+                    console.log("Successfully loaded answers from public path:", Object.keys(publicAnswers).length);
+                } catch (error) {
+                    console.error("Error loading answers from public path:", error);
+                    if (!loadingError) loadingError = error;
+                }
                 
-                // Combine answers
-                const allAnswers = {...answers, ...publicAnswers};
+                // If we couldn't get any answers and had errors, throw the main error
+                if (Object.keys(combinedAnswers).length === 0 && loadingError) {
+                    throw new Error(`Permission denied: Unable to access both answer paths. Please check your admin privileges. Error: ${loadingError.message}`);
+                }
                 
                 // Clear the table
                 responsesTable.innerHTML = '';
                 
-                if (Object.keys(allAnswers).length === 0) {
+                if (Object.keys(combinedAnswers).length === 0) {
                     // No responses
                     responsesTable.innerHTML = '<tr><td colspan="5" style="text-align: center;">No responses yet</td></tr>';
                     totalResponses.textContent = '0';
@@ -1097,7 +1126,7 @@
                     avgPercentOff.textContent = 'N/A';
                 } else {
                     // Convert to array and sort by timestamp (newest first)
-                    const answersList = Object.entries(allAnswers)
+                    const answersList = Object.entries(combinedAnswers)
                         .map(([id, answer]) => ({
                             id,
                             userId: answer.userId,
@@ -1175,7 +1204,28 @@
                 responsesSection.style.display = 'block';
             } catch (error) {
                 console.error("Error loading responses:", error);
-                alert("Error loading responses. Please try again.");
+                
+                // More descriptive error message
+                let errorMessage = "Error loading responses. ";
+                
+                if (error.message.includes("Permission denied")) {
+                    errorMessage += "You don't have permission to access response data. Please check your admin privileges and ensure the Firebase rules allow admin users to read from 'games/drinkle/answers' and 'publicAnswers/drinkle'.";
+                } else if (error.code === "PERMISSION_DENIED") {
+                    errorMessage += "Permission denied. Please check your admin privileges and ensure the Firebase rules allow admin users to read from 'games/drinkle/answers' and 'publicAnswers/drinkle'.";
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                // Clear the table and show the error
+                responsesTable.innerHTML = `<tr><td colspan="5" style="text-align: center; color: red;">Error: ${errorMessage}</td></tr>`;
+                
+                // Also update stats display
+                totalResponses.textContent = 'Error';
+                avgAnswer.textContent = 'Error';
+                avgPercentOff.textContent = 'Error';
+                
+                // Still show the section so the user can see the error
+                responsesSection.style.display = 'block';
             }
         });
         
