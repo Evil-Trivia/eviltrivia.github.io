@@ -5,6 +5,8 @@
     <title>Evil Trivia - Games Admin</title>
     <script src="/js/components/autoload-banner.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- TinyMCE for rich text editing -->
+    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -237,6 +239,15 @@
                     </div>
                     
                     <div class="form-group">
+                        <label for="editNotesInput">Notes (Optional - shown after user submits answer):</label>
+                        <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
+                            Add additional context, explanations, or links that will be shown after the user submits their answer.
+                            HTML formatting is supported (e.g., <code>&lt;a href="..."&gt;link&lt;/a&gt;</code>).
+                        </p>
+                        <textarea id="editNotesInput" placeholder="Additional notes, context, or links to be shown after answer submission" style="min-height: 120px;"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
                         <label>Custom Result Messages (optional):</label>
                         <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
                             Add custom messages for different percentile ranges. Messages will be shown based on the highest threshold the user's percentile reaches.
@@ -326,6 +337,15 @@
                 <div class="form-group">
                     <label for="dateInput">Date:</label>
                     <input type="date" id="dateInput" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="notesInput">Notes (Optional - shown after user submits answer):</label>
+                    <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
+                        Add additional context, explanations, or links that will be shown after the user submits their answer.
+                        HTML formatting is supported (e.g., <code>&lt;a href="..."&gt;link&lt;/a&gt;</code>).
+                    </p>
+                    <textarea id="notesInput" placeholder="Additional notes, context, or links to be shown after answer submission" style="min-height: 120px;"></textarea>
                 </div>
                 
                 <div class="form-group">
@@ -426,6 +446,7 @@
         const editUnitInput = document.getElementById('editUnitInput');
         const editFormatSelect = document.getElementById('editFormatSelect');
         const editDateInput = document.getElementById('editDateInput');
+        const editNotesInput = document.getElementById('editNotesInput');
         const editCustomMessagesContainer = document.getElementById('editCustomMessagesContainer');
         const editAddMessageBtn = document.getElementById('editAddMessageBtn');
         const cancelEditBtn = document.getElementById('cancelEditBtn');
@@ -447,6 +468,7 @@
         const unitInput = document.getElementById('unitInput');
         const formatSelect = document.getElementById('formatSelect');
         const dateInput = document.getElementById('dateInput');
+        const notesInput = document.getElementById('notesInput');
         const customMessagesContainer = document.getElementById('customMessagesContainer');
         const addMessageBtn = document.getElementById('addMessageBtn');
         const saveSuccess = document.getElementById('saveSuccess');
@@ -746,6 +768,10 @@
                         infoHTML += `<p><strong>Custom Messages:</strong> ${currentActiveQuestion.customMessages.length} defined</p>`;
                     }
                     
+                    if (currentActiveQuestion.notes) {
+                        infoHTML += `<p><strong>Notes:</strong> <span style="color: #28a745;">✓</span> Notes will be shown after submission</p>`;
+                    }
+                    
                     currentActiveQuestionInfo.innerHTML = infoHTML;
                     
                     // Show edit and view responses buttons
@@ -791,6 +817,7 @@
             const unit = unitInput.value;
             const format = formatSelect.value;
             const date = dateInput.value;
+            const notes = tinymce.get('notesInput').getContent();
             
             if (!question || !answer || !unit || !date) {
                 saveError.style.display = 'block';
@@ -834,6 +861,10 @@
                     questionData.title = title;
                 }
                 
+                if (notes) {
+                    questionData.notes = notes;
+                }
+                
                 if (customMessages.length > 0) {
                     questionData.customMessages = customMessages;
                 }
@@ -845,6 +876,9 @@
                 dateInput.valueAsDate = new Date();
                 customMessagesContainer.innerHTML = '';
                 addCustomMessageRow(); // Add one empty row
+                
+                // Clear the TinyMCE editor
+                tinymce.get('notesInput').setContent('');
                 
                 // Show success message
                 saveSuccess.style.display = 'block';
@@ -959,6 +993,9 @@
             editFormatSelect.value = currentActiveQuestion.format || 'decimal';
             editDateInput.value = currentActiveQuestion.date || '';
             
+            // Set the notes field using TinyMCE
+            tinymce.get('editNotesInput').setContent(currentActiveQuestion.notes || '');
+            
             // Clear existing custom messages
             editCustomMessagesContainer.innerHTML = '';
             
@@ -998,6 +1035,7 @@
             const unit = editUnitInput.value;
             const format = editFormatSelect.value;
             const date = editDateInput.value;
+            const notes = tinymce.get('editNotesInput').getContent();
             
             if (!question || !answer || !unit || !date) {
                 editError.style.display = 'block';
@@ -1032,7 +1070,8 @@
                     unit,
                     date,
                     format,
-                    id: currentActiveQuestion.id
+                    id: currentActiveQuestion.id,
+                    notes
                 };
                 
                 // Add optional fields if they exist
@@ -1306,6 +1345,23 @@
                     }).format(num);
             }
         }
+        
+        // Initialize TinyMCE editor for rich text notes fields
+        tinymce.init({
+            selector: '#notesInput, #editNotesInput',
+            height: 300,
+            menubar: false,
+            plugins: [
+                'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
+                'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
+                'insertdatetime', 'media', 'table', 'help', 'wordcount'
+            ],
+            toolbar: 'undo redo | formatselect | ' +
+                'bold italic backcolor | alignleft aligncenter ' +
+                'alignright alignjustify | bullist numlist outdent indent | ' +
+                'removeformat | link | help',
+            content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, San Francisco, Segoe UI, Roboto, Helvetica Neue, sans-serif; font-size: 14px; }'
+        });
     </script>
 </body>
 </html> 
