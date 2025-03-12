@@ -187,6 +187,11 @@
             <h3>Create New Question</h3>
             <form id="newQuestionForm">
                 <div class="form-group">
+                    <label for="titleInput">Title (optional):</label>
+                    <input type="text" id="titleInput" placeholder="Enter a title for this question (displayed prominently)">
+                </div>
+                
+                <div class="form-group">
                     <label for="questionInput">Question:</label>
                     <textarea id="questionInput" placeholder="Enter the question" required></textarea>
                 </div>
@@ -206,6 +211,29 @@
                 <div class="form-group">
                     <label for="dateInput">Date:</label>
                     <input type="date" id="dateInput" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Custom Result Messages (optional):</label>
+                    <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
+                        Add custom messages for different percentile ranges. Messages will be shown based on the highest threshold the user's percentile reaches.
+                    </p>
+                    
+                    <div id="customMessagesContainer">
+                        <div class="custom-message-row" style="display: flex; gap: 10px; margin-bottom: 10px;">
+                            <div style="flex: 0 0 100px;">
+                                <input type="number" class="threshold-input" min="0" max="100" placeholder="Percentile" style="width: 100%;">
+                            </div>
+                            <div style="flex: 1;">
+                                <input type="text" class="message-input" placeholder="Custom message for this percentile or higher" style="width: 100%;">
+                            </div>
+                            <div>
+                                <button type="button" class="remove-message-btn" style="background-color: #d9534f;">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="button" id="addMessageBtn" style="margin-top: 10px; background-color: #5cb85c;">+ Add Message</button>
                 </div>
                 
                 <button type="submit">Save Question</button>
@@ -274,10 +302,13 @@
         const activeSuccess = document.getElementById('activeSuccess');
         
         const newQuestionForm = document.getElementById('newQuestionForm');
+        const titleInput = document.getElementById('titleInput');
         const questionInput = document.getElementById('questionInput');
         const answerInput = document.getElementById('answerInput');
         const unitInput = document.getElementById('unitInput');
         const dateInput = document.getElementById('dateInput');
+        const customMessagesContainer = document.getElementById('customMessagesContainer');
+        const addMessageBtn = document.getElementById('addMessageBtn');
         const saveSuccess = document.getElementById('saveSuccess');
         const saveError = document.getElementById('saveError');
         
@@ -285,6 +316,39 @@
         
         // Set today's date as default
         dateInput.valueAsDate = new Date();
+        
+        // Add event listener for adding new custom message rows
+        addMessageBtn.addEventListener('click', () => {
+            addCustomMessageRow();
+        });
+        
+        // Add event delegation for remove buttons
+        customMessagesContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-message-btn')) {
+                e.target.closest('.custom-message-row').remove();
+            }
+        });
+        
+        // Function to add a new custom message row
+        function addCustomMessageRow(threshold = '', message = '') {
+            const row = document.createElement('div');
+            row.className = 'custom-message-row';
+            row.style = 'display: flex; gap: 10px; margin-bottom: 10px;';
+            
+            row.innerHTML = `
+                <div style="flex: 0 0 100px;">
+                    <input type="number" class="threshold-input" min="0" max="100" placeholder="Percentile" style="width: 100%;" value="${threshold}">
+                </div>
+                <div style="flex: 1;">
+                    <input type="text" class="message-input" placeholder="Custom message for this percentile or higher" style="width: 100%;" value="${message}">
+                </div>
+                <div>
+                    <button type="button" class="remove-message-btn" style="background-color: #d9534f;">✕</button>
+                </div>
+            `;
+            
+            customMessagesContainer.appendChild(row);
+        }
         
         // Check auth state (This is the main difference - simpler auth check like in admin.html)
         onAuthStateChanged(auth, async (user) => {
@@ -343,6 +407,9 @@
                 loginPrompt.classList.remove('hidden');
                 adminUI.classList.add('hidden');
             }
+            
+            // Add one empty custom message row on page load
+            addCustomMessageRow();
         });
         
         // Login handler
@@ -404,7 +471,13 @@
                     dateCell.textContent = new Date(question.date).toLocaleDateString();
                     
                     const questionCell = row.insertCell(1);
-                    questionCell.textContent = question.question.length > 50 
+                    
+                    // Show title in the table if available
+                    if (question.title) {
+                        questionCell.innerHTML = `<strong>${question.title}</strong><br>`;
+                    }
+                    
+                    questionCell.innerHTML += question.question.length > 50 
                         ? question.question.substring(0, 50) + '...' 
                         : question.question;
                     
@@ -425,11 +498,18 @@
                     // Add to select
                     const option = document.createElement('option');
                     option.value = question.id;
-                    option.textContent = `${new Date(question.date).toLocaleDateString()} - ${
-                        question.question.length > 30 
-                            ? question.question.substring(0, 30) + '...' 
-                            : question.question
-                    }`;
+                    
+                    // Include title in option text if available
+                    if (question.title) {
+                        option.textContent = `${new Date(question.date).toLocaleDateString()} - ${question.title}`;
+                    } else {
+                        option.textContent = `${new Date(question.date).toLocaleDateString()} - ${
+                            question.question.length > 30 
+                                ? question.question.substring(0, 30) + '...' 
+                                : question.question
+                        }`;
+                    }
+                    
                     activeQuestionSelect.appendChild(option);
                 });
             });
@@ -458,11 +538,23 @@
                 
                 if (question) {
                     // Show active question details
-                    currentActiveQuestionInfo.innerHTML = `
+                    let infoHTML = '';
+                    
+                    if (question.title) {
+                        infoHTML += `<p><strong>Title:</strong> ${question.title}</p>`;
+                    }
+                    
+                    infoHTML += `
                         <p><strong>Question:</strong> ${question.question}</p>
                         <p><strong>Answer:</strong> ${question.answer} ${question.unit}</p>
                         <p><strong>Date:</strong> ${new Date(question.date).toLocaleDateString()}</p>
                     `;
+                    
+                    if (question.customMessages && question.customMessages.length > 0) {
+                        infoHTML += `<p><strong>Custom Messages:</strong> ${question.customMessages.length} defined</p>`;
+                    }
+                    
+                    currentActiveQuestionInfo.innerHTML = infoHTML;
                 } else {
                     currentActiveQuestionInfo.innerHTML = '<p>Error: Selected question not found</p>';
                 }
@@ -492,6 +584,7 @@
         newQuestionForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            const title = titleInput.value.trim();
             const question = questionInput.value;
             const answer = answerInput.value;
             const unit = unitInput.value;
@@ -505,21 +598,50 @@
                 return;
             }
             
+            // Collect custom messages
+            const customMessages = [];
+            const messageRows = customMessagesContainer.querySelectorAll('.custom-message-row');
+            
+            messageRows.forEach(row => {
+                const threshold = parseInt(row.querySelector('.threshold-input').value);
+                const message = row.querySelector('.message-input').value.trim();
+                
+                if (!isNaN(threshold) && threshold >= 0 && threshold <= 100 && message) {
+                    customMessages.push({
+                        threshold,
+                        text: message
+                    });
+                }
+            });
+            
             try {
                 const questionsRef = ref(db, 'games/drinkle/questions');
                 const newQuestionRef = push(questionsRef);
                 
-                await set(newQuestionRef, {
+                const questionData = {
                     question,
                     answer: parseFloat(answer),
                     unit,
                     date,
                     id: newQuestionRef.key
-                });
+                };
+                
+                // Add optional fields if they exist
+                if (title) {
+                    questionData.title = title;
+                }
+                
+                if (customMessages.length > 0) {
+                    questionData.customMessages = customMessages;
+                }
+                
+                await set(newQuestionRef, questionData);
                 
                 // Clear the form
                 newQuestionForm.reset();
                 dateInput.valueAsDate = new Date();
+                customMessagesContainer.innerHTML = '';
+                addCustomMessageRow(); // Add one empty row
                 
                 // Show success message
                 saveSuccess.style.display = 'block';
