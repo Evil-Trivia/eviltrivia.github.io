@@ -499,19 +499,30 @@
     // Show percentile result
     function showPercentileResult(userAnswer, allAnswers, isReturnVisit = false) {
       const answers = Object.values(allAnswers);
-      const sortedAnswers = answers.map(a => parseFloat(a.answer)).sort((a, b) => a - b);
       
       // Find position of user's answer
       const correctAnswer = parseFloat(currentQuestion.answer);
-      const userIndex = sortedAnswers.findIndex(a => a === userAnswer);
       
-      // Calculate percentage off from the correct answer
-      const percentDifference = Math.abs((userAnswer - correctAnswer) / correctAnswer * 100);
-      const percentOff = percentDifference.toFixed(1);
+      // Calculate percentage off from the correct answer for the user
+      const userPercentDifference = Math.abs((userAnswer - correctAnswer) / correctAnswer * 100);
+      const percentOff = userPercentDifference.toFixed(1);
       percentOffValue.textContent = `${percentOff}%`;
       
+      // Calculate accuracy for all answers and sort from most accurate to least accurate
+      const accuracyRankedAnswers = answers.map(a => {
+        const value = parseFloat(a.answer);
+        const diff = Math.abs((value - correctAnswer) / correctAnswer * 100);
+        return { value, diff, userId: a.userId };
+      }).sort((a, b) => a.diff - b.diff); // Sort by accuracy (smallest difference first)
+      
+      // Find position of user's answer in the accuracy-ranked list
+      const userRankIndex = accuracyRankedAnswers.findIndex(a => 
+        a.value === userAnswer && 
+        (a.userId === currentUserId || (!currentUserId && a.userId.startsWith('anonymous_')))
+      );
+      
       // Handle first guess scenario
-      const isFirstGuess = sortedAnswers.length <= 1;
+      const isFirstGuess = accuracyRankedAnswers.length <= 1;
       let percentile, percentileText;
       
       if (isFirstGuess) {
@@ -519,8 +530,10 @@
         percentileText = "first";
         percentileValue.textContent = "first";
       } else {
-        // Calculate percentile (0-100)
-        percentile = Math.round((userIndex / (sortedAnswers.length - 1)) * 100);
+        // Calculate percentile (0-100) based on accuracy ranking
+        // If you're first (most accurate), you get 100th percentile
+        // If you're last (least accurate), you get 0th percentile
+        percentile = Math.round(100 - (userRankIndex / (accuracyRankedAnswers.length - 1) * 100));
         percentileText = `${percentile}th`;
         percentileValue.textContent = percentileText;
       }
@@ -557,16 +570,16 @@
         resultMessage.textContent = "Congratulations! You're the first person to answer this question!";
       } else {
         // Determine emoji and message based on accuracy
-        if (percentDifference <= 5) {
+        if (userPercentDifference <= 5) {
           resultEmoji.textContent = '🎯';
           resultMessage.textContent = "Amazing! Your answer is extremely close to the correct answer!";
-        } else if (percentDifference <= 15) {
+        } else if (userPercentDifference <= 15) {
           resultEmoji.textContent = '🔥';
           resultMessage.textContent = "Great job! Your answer is very close to the correct value!";
-        } else if (percentDifference <= 30) {
+        } else if (userPercentDifference <= 30) {
           resultEmoji.textContent = '👍';
           resultMessage.textContent = "Not bad! You're in the ballpark of the correct answer.";
-        } else if (percentDifference <= 50) {
+        } else if (userPercentDifference <= 50) {
           resultEmoji.textContent = '🤔';
           resultMessage.textContent = "Your guess is somewhat off from the correct answer.";
         } else {
@@ -585,7 +598,7 @@
       }
       
       // Generate accuracy boxes (green for accuracy, max 100% off)
-      const accuracyBoxes = generateEmojiBoxes(percentDifference, 100);
+      const accuracyBoxes = generateEmojiBoxes(userPercentDifference, 100);
       
       // Generate percentile boxes (green for higher percentile)
       let percentileBoxes;
@@ -620,6 +633,10 @@
         copyTextContent += `Percentile: ${percentileBoxes}\n`;
       }
       
+      // Add answer comparison (formatted according to the question's format)
+      copyTextContent += `\nMy answer: ${formatNumber(userAnswer, numberFormat)} ${currentQuestion.unit}`;
+      copyTextContent += `\nCorrect answer: ${formatNumber(correctAnswer, numberFormat)} ${currentQuestion.unit}\n`;
+      
       // Add link
       copyTextContent += `\nTry Free Drinkle at eviltrivia.com/games/drinkle`;
       
@@ -643,9 +660,44 @@
       const correctAnswerDisplay = document.getElementById('correctAnswerDisplay');
       const unitDisplay2 = document.getElementById('unitDisplay2');
       
-      userAnswerDisplay.textContent = userAnswer.toFixed(2);
+      // Format numbers according to the question's format setting
+      function formatNumber(number, formatType = 'decimal') {
+        const num = parseFloat(number);
+        
+        switch(formatType) {
+          case 'integer':
+            return new Intl.NumberFormat('en-US', { 
+              style: 'decimal',
+              maximumFractionDigits: 0
+            }).format(num);
+            
+          case 'year':
+            return Math.round(num).toString();
+            
+          case 'percentage':
+            return new Intl.NumberFormat('en-US', { 
+              style: 'percent', 
+              maximumFractionDigits: 2 
+            }).format(num/100);
+            
+          case 'plain':
+            return num.toString();
+            
+          case 'decimal':
+          default:
+            return new Intl.NumberFormat('en-US', { 
+              style: 'decimal',
+              maximumFractionDigits: 2
+            }).format(num);
+        }
+      }
+      
+      // Use the question's format if available, or default to decimal
+      const numberFormat = currentQuestion.format || 'decimal';
+      
+      userAnswerDisplay.textContent = formatNumber(userAnswer, numberFormat);
       unitDisplay.textContent = currentQuestion.unit;
-      correctAnswerDisplay.textContent = correctAnswer.toFixed(2);
+      correctAnswerDisplay.textContent = formatNumber(correctAnswer, numberFormat);
       unitDisplay2.textContent = currentQuestion.unit;
     }
   </script>
