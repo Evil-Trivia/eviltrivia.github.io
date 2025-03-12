@@ -243,6 +243,17 @@
                     </div>
                     
                     <div class="form-group">
+                        <label for="editAvailableCheckbox">Availability:</label>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <input type="checkbox" id="editAvailableCheckbox" style="transform: scale(1.2);">
+                            <label for="editAvailableCheckbox">Mark this question as available in the dropdown</label>
+                        </div>
+                        <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
+                            Unavailable questions cannot be selected as active questions.
+                        </p>
+                    </div>
+                    
+                    <div class="form-group">
                         <label for="editNotesInput">Notes (Optional - shown after user submits answer):</label>
                         <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
                             Add additional context, explanations, or links that will be shown after the user submits their answer.
@@ -344,6 +355,17 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="availableCheckbox">Availability:</label>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="availableCheckbox" style="transform: scale(1.2);" checked>
+                        <label for="availableCheckbox">Mark this question as available in the dropdown</label>
+                    </div>
+                    <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
+                        Unavailable questions cannot be selected as active questions.
+                    </p>
+                </div>
+                
+                <div class="form-group">
                     <label for="notesInput">Notes (Optional - shown after user submits answer):</label>
                     <p class="helper-text" style="font-size: 12px; color: #666; margin-top: 5px;">
                         Add additional context, explanations, or links that will be shown after the user submits their answer.
@@ -392,6 +414,7 @@
                             <th>Question</th>
                             <th>Answer</th>
                             <th>Unit</th>
+                            <th>Available</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -485,6 +508,7 @@
         const cancelEditBtn = document.getElementById('cancelEditBtn');
         const editSuccess = document.getElementById('editSuccess');
         const editError = document.getElementById('editError');
+        const editAvailableCheckbox = document.getElementById('editAvailableCheckbox');
         
         // Verify critical elements and provide console errors if missing
         [
@@ -498,7 +522,8 @@
             { name: 'editNotesInput', element: editNotesInput },
             { name: 'editCustomMessagesContainer', element: editCustomMessagesContainer },
             { name: 'editAddMessageBtn', element: editAddMessageBtn },
-            { name: 'cancelEditBtn', element: cancelEditBtn }
+            { name: 'cancelEditBtn', element: cancelEditBtn },
+            { name: 'editAvailableCheckbox', element: editAvailableCheckbox }
         ].forEach(item => {
             if (!item.element) {
                 console.error(`Critical DOM element not found: ${item.name}`);
@@ -525,6 +550,7 @@
         const addMessageBtn = document.getElementById('addMessageBtn');
         const saveSuccess = document.getElementById('saveSuccess');
         const saveError = document.getElementById('saveError');
+        const availableCheckbox = document.getElementById('availableCheckbox');
         
         const questionsTable = document.getElementById('questionsTable').getElementsByTagName('tbody')[0];
         
@@ -697,6 +723,7 @@
             const editActiveQuestionSection = document.getElementById('editActiveQuestionSection');
             const editCustomMessagesContainer = document.getElementById('editCustomMessagesContainer');
             const editNotesInput = document.getElementById('editNotesInput');
+            const editAvailableCheckbox = document.getElementById('editAvailableCheckbox');
             
             if (!editTitleInput || !editQuestionInput || !editAnswerInput || 
                 !editUnitInput || !editFormatSelect || !editDateInput || !editActiveQuestionSection) {
@@ -721,6 +748,11 @@
             editUnitInput.value = currentActiveQuestion.unit || '';
             editFormatSelect.value = currentActiveQuestion.format || 'decimal';
             editDateInput.value = currentActiveQuestion.date || '';
+            
+            // Set availability checkbox
+            if (editAvailableCheckbox) {
+                editAvailableCheckbox.checked = currentActiveQuestion.available !== false;
+            }
             
             // Set notes directly
             editNotesInput.value = currentActiveQuestion.notes || '';
@@ -830,6 +862,11 @@
                 // Add optional fields if they exist
                 if (title) {
                     questionData.title = title;
+                }
+                
+                // Add availability status
+                if (editAvailableCheckbox) {
+                    questionData.available = editAvailableCheckbox.checked;
                 }
                 
                 // Always include notes field, even if empty
@@ -949,7 +986,27 @@
                     const unitCell = row.insertCell(3);
                     unitCell.textContent = question.unit;
                     
-                    const actionsCell = row.insertCell(4);
+                    // Add availability toggle
+                    const availableCell = row.insertCell(4);
+                    const isAvailable = question.available !== false; // Default to true if not set
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = isAvailable;
+                    checkbox.style.transform = 'scale(1.5)';
+                    checkbox.setAttribute('data-question-id', question.id);
+                    checkbox.addEventListener('change', toggleQuestionAvailability);
+                    
+                    const label = document.createElement('label');
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(' Available'));
+                    label.style.display = 'flex';
+                    label.style.alignItems = 'center';
+                    label.style.gap = '5px';
+                    
+                    availableCell.appendChild(label);
+                    
+                    const actionsCell = row.insertCell(5);
                     
                     const deleteBtn = document.createElement('button');
                     deleteBtn.textContent = 'Delete';
@@ -957,24 +1014,77 @@
                     deleteBtn.onclick = () => deleteQuestion(question.id);
                     actionsCell.appendChild(deleteBtn);
                     
-                    // Add to select
-                    const option = document.createElement('option');
-                    option.value = question.id;
-                    
-                    // Include title in option text if available
-                    if (question.title) {
-                        option.textContent = `${new Date(question.date).toLocaleDateString()} - ${question.title}`;
-                    } else {
-                        option.textContent = `${new Date(question.date).toLocaleDateString()} - ${
-                            question.question.length > 30 
-                                ? question.question.substring(0, 30) + '...' 
-                                : question.question
-                        }`;
+                    // Add to select - only if available
+                    if (isAvailable) {
+                        const option = document.createElement('option');
+                        option.value = question.id;
+                        
+                        // Include title in option text if available
+                        if (question.title) {
+                            option.textContent = `${new Date(question.date).toLocaleDateString()} - ${question.title}`;
+                        } else {
+                            option.textContent = `${new Date(question.date).toLocaleDateString()} - ${
+                                question.question.length > 30 
+                                    ? question.question.substring(0, 30) + '...' 
+                                    : question.question
+                            }`;
+                        }
+                        
+                        activeQuestionSelect.appendChild(option);
                     }
-                    
-                    activeQuestionSelect.appendChild(option);
                 });
             });
+        }
+        
+        // Function to toggle question availability
+        async function toggleQuestionAvailability(event) {
+            const checkbox = event.target;
+            const questionId = checkbox.getAttribute('data-question-id');
+            const isAvailable = checkbox.checked;
+            
+            try {
+                // Update the availability in Firebase
+                const questionRef = ref(db, `games/drinkle/questions/${questionId}`);
+                
+                // Get current question data
+                const snapshot = await get(questionRef);
+                const questionData = snapshot.val();
+                
+                if (questionData) {
+                    // Update the available property
+                    questionData.available = isAvailable;
+                    
+                    // Save back to Firebase
+                    await set(questionRef, questionData);
+                    
+                    // If setting to unavailable and this is the active question, confirm with user
+                    if (!isAvailable) {
+                        const activeQuestionRef = ref(db, 'games/drinkle/activeQuestion');
+                        const activeSnapshot = await get(activeQuestionRef);
+                        const activeQuestionId = activeSnapshot.val();
+                        
+                        if (activeQuestionId === questionId) {
+                            if (confirm("This is the currently active question. Making it unavailable will prevent it from being selected. Continue?")) {
+                                // No need to unset the active question, just let user know
+                                alert("The question will remain active until you select a different one.");
+                            } else {
+                                // User changed their mind, revert the checkbox
+                                checkbox.checked = true;
+                                questionData.available = true;
+                                await set(questionRef, questionData);
+                            }
+                        }
+                    }
+                    
+                    // Refresh the question list to reflect changes in the dropdown
+                    loadQuestions();
+                }
+            } catch (error) {
+                console.error("Error updating question availability:", error);
+                alert("Error updating availability. Please try again.");
+                // Revert the checkbox state
+                checkbox.checked = !isAvailable;
+            }
         }
         
         // Load active question
@@ -993,11 +1103,6 @@
                     return;
                 }
                 
-                console.log("Active question ID:", activeQuestionId);
-                
-                // Set the select value
-                activeQuestionSelect.value = activeQuestionId;
-                
                 // Get the question details
                 const questionRef = ref(db, `games/drinkle/questions/${activeQuestionId}`);
                 const questionSnapshot = await get(questionRef);
@@ -1007,11 +1112,16 @@
                     // Store ID for reference
                     currentActiveQuestion.id = activeQuestionId;
                     
-                    // Log complete object for debugging
-                    console.log("Active question data:", JSON.stringify(currentActiveQuestion, null, 2));
-                    
                     // Show active question details
                     let infoHTML = '';
+                    
+                    // Add availability warning if needed
+                    if (currentActiveQuestion.available === false) {
+                        infoHTML += `<p style="background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 4px; border: 1px solid #ffeeba;">
+                            <strong>⚠️ Warning:</strong> This question is currently marked as unavailable but is still active. 
+                            Users can still answer it until you set a different active question.
+                        </p>`;
+                    }
                     
                     if (currentActiveQuestion.title) {
                         infoHTML += `<p><strong>Title:</strong> ${currentActiveQuestion.title}</p>`;
@@ -1022,6 +1132,15 @@
                         <p><strong>Answer:</strong> ${currentActiveQuestion.answer} ${currentActiveQuestion.unit}</p>
                         <p><strong>Date:</strong> ${new Date(currentActiveQuestion.date).toLocaleDateString()}</p>
                     `;
+                    
+                    // Set the select value if this question is available
+                    // Otherwise leave it unselected with a warning
+                    if (currentActiveQuestion.available !== false) {
+                        activeQuestionSelect.value = activeQuestionId;
+                    } else {
+                        // Leave as unselected
+                        activeQuestionSelect.value = '';
+                    }
                     
                     // Add format info if available
                     if (currentActiveQuestion.format) {
@@ -1055,9 +1174,6 @@
                     // Show edit and view responses buttons
                     editActiveQuestionBtn.style.display = 'inline-block';
                     viewResponsesBtn.style.display = 'inline-block';
-                    
-                    console.log("Edit button display:", editActiveQuestionBtn.style.display);
-                    console.log("View responses button display:", viewResponsesBtn.style.display);
                 } else {
                     currentActiveQuestionInfo.innerHTML = '<p>Error: Selected question not found</p>';
                     document.getElementById('responseCountSection').style.display = 'none';
@@ -1107,14 +1223,44 @@
             const questionId = activeQuestionSelect.value;
             
             try {
-                const activeQuestionRef = ref(db, 'games/drinkle/activeQuestion');
-                await set(activeQuestionRef, questionId);
+                // If no question is selected, clear the active question
+                if (!questionId) {
+                    const activeQuestionRef = ref(db, 'games/drinkle/activeQuestion');
+                    await set(activeQuestionRef, '');
+                    
+                    // Show success message
+                    activeSuccess.style.display = 'block';
+                    activeSuccess.textContent = "Free Drinkle has been disabled";
+                    setTimeout(() => {
+                        activeSuccess.style.display = 'none';
+                    }, 3000);
+                    return;
+                }
                 
-                // Show success message
-                activeSuccess.style.display = 'block';
-                setTimeout(() => {
-                    activeSuccess.style.display = 'none';
-                }, 3000);
+                // Check if the question is available before setting it as active
+                const questionRef = ref(db, `games/drinkle/questions/${questionId}`);
+                const snapshot = await get(questionRef);
+                const questionData = snapshot.val();
+                
+                if (questionData && questionData.available !== false) {
+                    // Set as active question
+                    const activeQuestionRef = ref(db, 'games/drinkle/activeQuestion');
+                    await set(activeQuestionRef, questionId);
+                    
+                    // Show success message
+                    activeSuccess.style.display = 'block';
+                    activeSuccess.textContent = "Active question updated successfully!";
+                    setTimeout(() => {
+                        activeSuccess.style.display = 'none';
+                    }, 3000);
+                } else {
+                    // Question is unavailable or doesn't exist
+                    alert("This question is marked as unavailable and cannot be set as active.");
+                    
+                    // Refresh the dropdown
+                    loadQuestions();
+                    loadActiveQuestion();
+                }
             } catch (error) {
                 console.error("Error setting active question:", error);
                 alert("Error setting active question. Please try again.");
@@ -1172,7 +1318,8 @@
                     answer: questionData.answer,
                     unit: questionData.unit,
                     id: questionData.id,
-                    date: new Date().toISOString().split('T')[0]
+                    date: new Date().toISOString().split('T')[0],
+                    available: questionData.available
                 };
                 
                 // Use a direct path with the key
@@ -1251,7 +1398,8 @@
                         format: format || 'decimal',
                         id: newKey,
                         notes: notes || '',
-                        timestamp: Date.now()
+                        timestamp: Date.now(),
+                        available: availableCheckbox ? availableCheckbox.checked : true
                     };
                     
                     // Add optional fields if they exist
