@@ -92,6 +92,23 @@
         th {
             background-color: #f5f5f5;
         }
+        .location-field {
+            width: 95%;
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .description-field {
+            width: 95%;
+            min-width: 150px;
+        }
+        .save-location {
+            margin-right: 5px;
+            background-color: #4CAF50;
+        }
+        .delete-location {
+            background-color: #f44336;
+        }
     </style>
 </head>
 <body>
@@ -168,15 +185,57 @@
             </div>
         </div>
 
-        <div class="section">
+        <div class="section full-width">
             <h2>Location Management</h2>
             <div class="input-row">
-                <label>Add New Location:</label><br>
-                <input type="text" id="newLocation" placeholder="e.g., Seattle" />
-                <button id="addLocation">Add</button>
+                <h3>Add New Location</h3>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Address</th>
+                                <th>Time</th>
+                                <th>Description</th>
+                                <th>Venue Link</th>
+                                <th>Suppress</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><input type="text" id="newLocation" placeholder="e.g., Seattle" /></td>
+                                <td><input type="text" id="newAddress" placeholder="Full address" /></td>
+                                <td><input type="text" id="newTime" placeholder="e.g., 8:00pm" /></td>
+                                <td><textarea id="newDescription" placeholder="Brief description" rows="3" class="location-field description-field"></textarea></td>
+                                <td><input type="text" id="newVenueLink" placeholder="https://..." /></td>
+                                <td><input type="checkbox" id="newSuppress" /></td>
+                                <td><button id="addLocation">Add Location</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            <div id="locationsList" style="margin-top: 15px;">
-                <!-- Locations will be listed here -->
+            <div class="input-row" style="margin-top: 20px;">
+                <h3>Existing Locations</h3>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Address</th>
+                                <th>Time</th>
+                                <th>Description</th>
+                                <th>Venue Link</th>
+                                <th>Suppress</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="locationsList">
+                            <!-- Locations will be listed here -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -447,16 +506,36 @@
                 if (locationsSnap.exists()) {
                     const locations = locationsSnap.val();
                     Object.entries(locations).forEach(([id, location]) => {
-                        const div = document.createElement('div');
-                        div.style.margin = '5px 0';
-                        div.innerHTML = `
-                            <span>${location.name}</span>
-                            <button onclick="deleteLocation('${id}')" 
-                                    style="margin-left: 10px; padding: 4px 8px;">
-                                Delete
-                            </button>
+                        const tr = document.createElement('tr');
+                        tr.setAttribute('data-id', id);
+                        tr.innerHTML = `
+                            <td><input type="text" class="location-field" data-field="name" value="${location.name || ''}" /></td>
+                            <td><input type="text" class="location-field" data-field="address" value="${location.address || ''}" placeholder="Full address" /></td>
+                            <td><input type="text" class="location-field" data-field="time" value="${location.time || ''}" placeholder="e.g., 8:00pm" /></td>
+                            <td><textarea class="location-field description-field" data-field="description" rows="3" placeholder="Brief description">${location.description || ''}</textarea></td>
+                            <td><input type="text" class="location-field" data-field="venueLink" value="${location.venueLink || ''}" placeholder="https://..." /></td>
+                            <td><input type="checkbox" class="location-field" data-field="suppress" ${location.suppress ? 'checked' : ''} /></td>
+                            <td>
+                                <button class="save-location" data-id="${id}">Save</button>
+                                <button class="delete-location" data-id="${id}">Delete</button>
+                            </td>
                         `;
-                        locationsList.appendChild(div);
+                        locationsList.appendChild(tr);
+                    });
+                    
+                    // Add event listeners for save and delete buttons
+                    document.querySelectorAll('.save-location').forEach(button => {
+                        button.addEventListener('click', function() {
+                            const locationId = this.getAttribute('data-id');
+                            saveLocation(locationId, this);
+                        });
+                    });
+                    
+                    document.querySelectorAll('.delete-location').forEach(button => {
+                        button.addEventListener('click', function() {
+                            const locationId = this.getAttribute('data-id');
+                            deleteLocation(locationId);
+                        });
                     });
                 }
             } catch (error) {
@@ -687,10 +766,22 @@
                     const locationId = Date.now().toString();
                     await set(ref(db, `adminSettings/locations/${locationId}`), {
                         name: locationName,
+                        address: document.getElementById('newAddress').value.trim(),
+                        time: document.getElementById('newTime').value.trim(),
+                        description: document.getElementById('newDescription').value.trim(),
+                        venueLink: document.getElementById('newVenueLink').value.trim(),
+                        suppress: document.getElementById('newSuppress').checked,
                         createdAt: new Date().toISOString()
                     });
                     
+                    // Clear all input fields
                     locationInput.value = '';
+                    document.getElementById('newAddress').value = '';
+                    document.getElementById('newTime').value = '';
+                    document.getElementById('newDescription').value = '';
+                    document.getElementById('newVenueLink').value = '';
+                    document.getElementById('newSuppress').checked = false;
+                    
                     await loadLocations();
                     alert('Location added successfully!');
                 } catch (error) {
@@ -794,6 +885,49 @@
             } catch (error) {
                 console.error("Error loading rounds:", error);
                 alert("Error loading rounds. Please try again.");
+            }
+        }
+
+        // Save location function
+        async function saveLocation(locationId, button) {
+            const row = document.querySelector(`tr[data-id="${locationId}"]`);
+            
+            if (!row) {
+                alert("Could not find the location row. Please refresh the page.");
+                return;
+            }
+            
+            try {
+                // Collect all field values
+                const locationData = {};
+                row.querySelectorAll('.location-field').forEach(input => {
+                    const field = input.getAttribute('data-field');
+                    // Handle checkbox differently
+                    if (input.type === 'checkbox') {
+                        locationData[field] = input.checked;
+                    } else {
+                        locationData[field] = input.value.trim();
+                    }
+                });
+                
+                // Make sure name is not empty
+                if (!locationData.name) {
+                    alert("Location name cannot be empty");
+                    return;
+                }
+                
+                // Save to Firebase
+                await update(ref(db, `adminSettings/locations/${locationId}`), locationData);
+                
+                // Visual confirmation
+                button.textContent = "Saved!";
+                setTimeout(() => {
+                    button.textContent = "Save";
+                }, 2000);
+                
+            } catch (error) {
+                console.error("Error saving location:", error);
+                alert("Error saving location. Please try again.");
             }
         }
 
