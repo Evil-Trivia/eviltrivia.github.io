@@ -190,9 +190,11 @@
             <button class="copy-button" id="copyButton">Copy</button>
             <div id="copyText">
               Your answer was <span id="percentOffValue">0%</span> off from the actual answer.<br><br>
-              That places you in the <span id="percentileValueCopy">0th</span> percentile of guessers today!
+              That places you in the <span id="percentileValueCopy">0th</span> percentile of guessers today!<br><br>
+              Try Free Drinkle at eviltrivia.com/games/drinkle
             </div>
           </div>
+          <p id="comeBackMessage" style="margin-top: 20px; font-style: italic; color: #666;"></p>
         </div>
       </div>
     </div>
@@ -238,6 +240,7 @@
     const resultEmoji = document.getElementById('resultEmoji');
     const copyButton = document.getElementById('copyButton');
     const copyText = document.getElementById('copyText');
+    const comeBackMessage = document.getElementById('comeBackMessage');
     
     // Game state
     let currentQuestion = null;
@@ -270,6 +273,52 @@
       // Load the active question
       loadActiveQuestion();
     });
+    
+    // Check if user has already answered
+    async function checkPreviousAnswer(activeQuestionId) {
+      // First check for logged-in users
+      if (currentUserId) {
+        const answersRef = ref(db, `games/drinkle/answers/${activeQuestionId}`);
+        const answersSnapshot = await get(answersRef);
+        const answers = answersSnapshot.val() || {};
+        
+        // Check if this user has already answered
+        if (Object.values(answers).some(answer => answer.userId === currentUserId)) {
+          hasAnswered = true;
+          
+          // Get their answer and show result with all current answers (for updated percentile)
+          for (const key in answers) {
+            if (answers[key].userId === currentUserId) {
+              showPercentileResult(parseFloat(answers[key].answer), answers, true);
+              break;
+            }
+          }
+          return true;
+        }
+      }
+      
+      // Then check localStorage for anonymous users
+      const hasAnsweredLocally = localStorage.getItem(`drinkle_answered_${activeQuestionId}`) === 'true';
+      if (hasAnsweredLocally) {
+        const storedAnswer = localStorage.getItem(`drinkle_answer_${activeQuestionId}`);
+        if (storedAnswer) {
+          hasAnswered = true;
+          
+          // Get all current answers to calculate updated percentile
+          const answersRef = ref(db, `games/drinkle/answers/${activeQuestionId}`);
+          const answersSnapshot = await get(answersRef);
+          const answers = answersSnapshot.val() || {};
+          
+          // Show result with the stored answer and all current answers
+          showPercentileResult(parseFloat(storedAnswer), answers, true);
+          return true;
+        }
+      }
+      
+      hasAnswered = false;
+      resultContainer.style.display = 'none';
+      return false;
+    }
     
     // Load the active question from Firebase
     async function loadActiveQuestion() {
@@ -313,27 +362,7 @@
           }
           
           // Check if user has already answered
-          if (currentUserId) {
-            const answersRef = ref(db, `games/drinkle/answers/${activeQuestionId}`);
-            const answersSnapshot = await get(answersRef);
-            const answers = answersSnapshot.val() || {};
-            
-            // Check if this user has already answered
-            if (Object.values(answers).some(answer => answer.userId === currentUserId)) {
-              hasAnswered = true;
-              
-              // Get their answer and show result
-              for (const key in answers) {
-                if (answers[key].userId === currentUserId) {
-                  showPercentileResult(parseFloat(answers[key].answer), answers);
-                  break;
-                }
-              }
-            } else {
-              hasAnswered = false;
-              resultContainer.style.display = 'none';
-            }
-          }
+          await checkPreviousAnswer(activeQuestionId);
           
           // Show question and hide loading
           loadingMessage.style.display = 'none';
@@ -398,8 +427,9 @@
         // Mark as answered
         hasAnswered = true;
         
-        // Store in localStorage to prevent multiple submissions
+        // Store in localStorage to prevent multiple submissions and store the user's answer
         localStorage.setItem(`drinkle_answered_${activeQuestionId}`, 'true');
+        localStorage.setItem(`drinkle_answer_${activeQuestionId}`, answer.toString());
       } catch (error) {
         console.error("Error submitting answer:", error);
         
@@ -438,8 +468,9 @@
             // Mark as answered
             hasAnswered = true;
             
-            // Store in localStorage to prevent multiple submissions
+            // Store in localStorage to prevent multiple submissions and store the user's answer
             localStorage.setItem(`drinkle_answered_${activeQuestionId}`, 'true');
+            localStorage.setItem(`drinkle_answer_${activeQuestionId}`, answer.toString());
           } catch (secondError) {
             console.error("Second error submitting answer:", secondError);
             alert("Error submitting your answer. Please try again or contact support.");
@@ -451,7 +482,7 @@
     });
     
     // Show percentile result
-    function showPercentileResult(userAnswer, allAnswers) {
+    function showPercentileResult(userAnswer, allAnswers, isReturnVisit = false) {
       const answers = Object.values(allAnswers);
       const sortedAnswers = answers.map(a => parseFloat(a.answer)).sort((a, b) => a - b);
       
@@ -459,22 +490,37 @@
       const correctAnswer = parseFloat(currentQuestion.answer);
       const userIndex = sortedAnswers.findIndex(a => a === userAnswer);
       
-      // Calculate percentile (0-100)
-      const percentile = Math.round((userIndex / (sortedAnswers.length - 1)) * 100);
-      
-      // Calculate how close to the correct answer
+      // Calculate percentage off from the correct answer
       const percentDifference = Math.abs((userAnswer - correctAnswer) / correctAnswer * 100);
       const percentOff = percentDifference.toFixed(1);
-      
-      // Show result
-      percentileValue.textContent = `${percentile}th`;
-      percentileValueCopy.textContent = `${percentile}th`;
       percentOffValue.textContent = `${percentOff}%`;
+      
+      // Handle first guess scenario
+      const isFirstGuess = sortedAnswers.length <= 1;
+      let percentile, percentileText;
+      
+      if (isFirstGuess) {
+        percentile = null;
+        percentileText = "first";
+        percentileValue.textContent = "first";
+        percentileValueCopy.textContent = "first";
+        
+        // Modify copyText for first guess
+        copyText.innerHTML = `Your answer was ${percentOff}% off from the actual answer.<br><br>` +
+                            `You're the first person to answer this question!<br><br>` +
+                            `Try Free Drinkle at eviltrivia.com/games/drinkle`;
+      } else {
+        // Calculate percentile (0-100)
+        percentile = Math.round((userIndex / (sortedAnswers.length - 1)) * 100);
+        percentileText = `${percentile}th`;
+        percentileValue.textContent = percentileText;
+        percentileValueCopy.textContent = percentileText;
+      }
       
       // Get custom message based on percentile if available, or use default messages
       let customMessage = "";
       
-      if (currentQuestion.customMessages && Array.isArray(currentQuestion.customMessages)) {
+      if (!isFirstGuess && currentQuestion.customMessages && Array.isArray(currentQuestion.customMessages)) {
         // Sort messages by threshold (highest first)
         const sortedMessages = [...currentQuestion.customMessages].sort((a, b) => b.threshold - a.threshold);
         
@@ -487,9 +533,20 @@
         }
       }
       
+      // Add "come back tomorrow" message if this is a return visit
+      if (isReturnVisit) {
+        comeBackMessage.textContent = "Check back tomorrow for a new Free Drinkle question!";
+        comeBackMessage.style.display = "block";
+      } else {
+        comeBackMessage.style.display = "none";
+      }
+      
       // Use custom message if available, otherwise use default messages
       if (customMessage) {
         resultMessage.textContent = customMessage;
+      } else if (isFirstGuess) {
+        resultEmoji.textContent = '🏆';
+        resultMessage.textContent = "Congratulations! You're the first person to answer this question!";
       } else {
         // Determine emoji and message based on accuracy
         if (percentDifference <= 5) {
