@@ -118,6 +118,20 @@
             margin-top: 10px;
             display: none;
         }
+        .debug-section {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+        }
+        .debug-result {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 <body>
@@ -133,6 +147,13 @@
         </div>
         <button id="btnLogin">Login</button>
         <p id="loginStatus" style="color: red; display: none;"></p>
+        
+        <div class="debug-section">
+            <h3>Troubleshooting</h3>
+            <p>If you're having trouble accessing this page despite being logged in:</p>
+            <button id="btnCheckRoles">Check My Roles</button>
+            <div id="debugResult" class="debug-result" style="display: none;"></div>
+        </div>
     </div>
 
     <div id="adminUI" class="hidden">
@@ -232,6 +253,8 @@
         const passwordInput = document.getElementById('passwordInput');
         const loginButton = document.getElementById('btnLogin');
         const loginStatus = document.getElementById('loginStatus');
+        const checkRolesButton = document.getElementById('btnCheckRoles');
+        const debugResult = document.getElementById('debugResult');
         
         const activeQuestionSelect = document.getElementById('activeQuestionSelect');
         const saveActiveButton = document.getElementById('saveActiveQuestion');
@@ -275,18 +298,29 @@
         // Check authentication state
         onAuthStateChanged(auth, async (user) => {
             if (user) {
+                console.log("GameAdmin: User is logged in", user.uid);
+                
                 // Check if user has admin role
                 const userRef = ref(db, `users/${user.uid}`);
                 const userSnapshot = await get(userRef);
                 const userData = userSnapshot.val();
                 
+                console.log("GameAdmin: User data retrieved:", userData);
+                
                 // Check for admin role in both new array format and legacy string format
                 let isAdmin = false;
+                let userRoles = [];
+                
                 if (userData?.roles && Array.isArray(userData.roles)) {
-                    isAdmin = userData.roles.includes('admin');
-                } else if (userData?.role === 'admin') {
-                    isAdmin = true;
+                    userRoles = userData.roles;
+                    console.log("GameAdmin: Found roles array:", userRoles);
+                } else if (userData?.role && typeof userData.role === 'string') {
+                    userRoles = [userData.role];
+                    console.log("GameAdmin: Found legacy role:", userData.role);
                 }
+                
+                isAdmin = userRoles.includes('admin');
+                console.log("GameAdmin: Is user admin?", isAdmin);
                 
                 if (isAdmin) {
                     // User is admin, show admin UI
@@ -300,8 +334,13 @@
                     // Not admin, show error
                     loginStatus.textContent = "You need admin privileges to access this page";
                     loginStatus.style.display = "block";
+                    
+                    // Still allow login form to be visible
+                    loginPrompt.classList.remove('hidden');
+                    adminUI.classList.add('hidden');
                 }
             } else {
+                console.log("GameAdmin: User is not logged in");
                 // Not logged in, show login
                 loginPrompt.classList.remove('hidden');
                 adminUI.classList.add('hidden');
@@ -503,6 +542,52 @@
                 alert("Error deleting question. Please try again.");
             }
         }
+        
+        // Add event listener for the check roles button
+        checkRolesButton.addEventListener('click', async () => {
+            const user = auth.currentUser;
+            debugResult.style.display = 'block';
+            
+            if (!user) {
+                debugResult.textContent = 'You are not logged in. Please log in first.';
+                return;
+            }
+            
+            try {
+                // Check user data
+                const userRef = ref(db, `users/${user.uid}`);
+                const userSnapshot = await get(userRef);
+                const userData = userSnapshot.val();
+                
+                if (!userData) {
+                    debugResult.textContent = `You are logged in with email ${user.email}, but no user data found in database.`;
+                    return;
+                }
+                
+                // Format user data for display
+                let output = `User: ${user.email}\nUID: ${user.uid}\n\n`;
+                
+                // Check roles
+                if (userData.roles && Array.isArray(userData.roles)) {
+                    output += `Roles (array): ${userData.roles.join(', ')}\n`;
+                } else {
+                    output += `Roles (array): Not found\n`;
+                }
+                
+                if (userData.role && typeof userData.role === 'string') {
+                    output += `Role (legacy): ${userData.role}\n`;
+                } else {
+                    output += `Role (legacy): Not found\n`;
+                }
+                
+                // Add other useful data
+                output += `\nFull user data:\n${JSON.stringify(userData, null, 2)}`;
+                
+                debugResult.textContent = output;
+            } catch (error) {
+                debugResult.textContent = `Error checking roles: ${error.message}\n${error.stack}`;
+            }
+        });
     </script>
 </body>
 </html> 
