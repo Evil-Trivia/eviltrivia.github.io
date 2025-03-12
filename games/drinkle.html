@@ -105,28 +105,34 @@
     .copyable-result {
       margin: 20px auto;
       max-width: 400px;
-      padding: 15px;
-      background-color: #f5f5f5;
+      padding: 20px;
+      background-color: #f8f8f8;
       border: 1px solid #ddd;
-      border-radius: 4px;
-      text-align: center;
+      border-radius: 8px;
+      text-align: left;
       position: relative;
+      font-family: monospace;
+      white-space: pre-wrap;
+      font-size: 14px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     }
     
     .copy-button {
       position: absolute;
-      top: 5px;
-      right: 5px;
+      top: 10px;
+      right: 10px;
       background-color: #eee;
       border: 1px solid #ccc;
-      border-radius: 3px;
-      padding: 3px 8px;
+      border-radius: 4px;
+      padding: 4px 10px;
       font-size: 12px;
       cursor: pointer;
+      transition: all 0.2s;
     }
     
     .copy-button:hover {
       background-color: #ddd;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     
     .question-title {
@@ -186,13 +192,14 @@
           <p>Your answer places you in the <span id="percentileValue" class="percentile">0th</span> percentile of all guesses!</p>
           <p id="resultMessage"></p>
           
+          <div class="emoji-boxes" style="margin: 15px 0; text-align: center; font-size: 20px;">
+            <div style="margin-bottom: 5px;">Accuracy: <span id="accuracyBoxesDisplay">⬜⬜⬜⬜⬜</span></div>
+            <div>Percentile: <span id="percentileBoxesDisplay">⬜⬜⬜⬜⬜</span></div>
+          </div>
+          
           <div class="copyable-result" id="copyableResult">
             <button class="copy-button" id="copyButton">Copy</button>
-            <div id="copyText">
-              Your answer was <span id="percentOffValue">0%</span> off from the actual answer.<br><br>
-              That places you in the <span id="percentileValueCopy">0th</span> percentile of guessers today!<br><br>
-              Try Free Drinkle at eviltrivia.com/games/drinkle
-            </div>
+            <div id="copyText"></div>
           </div>
           <p id="comeBackMessage" style="margin-top: 20px; font-style: italic; color: #666;"></p>
         </div>
@@ -234,13 +241,14 @@
     const unitLabel = document.getElementById('unitLabel');
     const resultContainer = document.getElementById('resultContainer');
     const percentileValue = document.getElementById('percentileValue');
-    const percentileValueCopy = document.getElementById('percentileValueCopy');
-    const percentOffValue = document.getElementById('percentOffValue');
+    const percentOffValue = document.getElementById('percentOffValue') || document.createElement('span'); // May not exist in DOM anymore
     const resultMessage = document.getElementById('resultMessage');
     const resultEmoji = document.getElementById('resultEmoji');
     const copyButton = document.getElementById('copyButton');
     const copyText = document.getElementById('copyText');
     const comeBackMessage = document.getElementById('comeBackMessage');
+    const accuracyBoxesDisplay = document.getElementById('accuracyBoxesDisplay');
+    const percentileBoxesDisplay = document.getElementById('percentileBoxesDisplay');
     
     // Game state
     let currentQuestion = null;
@@ -503,18 +511,11 @@
         percentile = null;
         percentileText = "first";
         percentileValue.textContent = "first";
-        percentileValueCopy.textContent = "first";
-        
-        // Modify copyText for first guess
-        copyText.innerHTML = `Your answer was ${percentOff}% off from the actual answer.<br><br>` +
-                            `You're the first person to answer this question!<br><br>` +
-                            `Try Free Drinkle at eviltrivia.com/games/drinkle`;
       } else {
         // Calculate percentile (0-100)
         percentile = Math.round((userIndex / (sortedAnswers.length - 1)) * 100);
         percentileText = `${percentile}th`;
         percentileValue.textContent = percentileText;
-        percentileValueCopy.textContent = percentileText;
       }
       
       // Get custom message based on percentile if available, or use default messages
@@ -567,12 +568,67 @@
         }
       }
       
+      // Generate emoji boxes for accuracy (like Wordle)
+      function generateEmojiBoxes(value, max, count = 5, greenEmoji = '🟩', whiteEmoji = '⬜') {
+        // Calculate how many green boxes to show (0 to count)
+        const greenCount = Math.round((1 - Math.min(value / max, 1)) * count);
+        const whiteCount = count - greenCount;
+        
+        return greenEmoji.repeat(greenCount) + whiteEmoji.repeat(whiteCount);
+      }
+      
+      // Generate accuracy boxes (green for accuracy, max 100% off)
+      const accuracyBoxes = generateEmojiBoxes(percentDifference, 100);
+      
+      // Generate percentile boxes (green for higher percentile)
+      let percentileBoxes;
+      if (isFirstGuess) {
+        percentileBoxes = '🏆'; // Trophy for first guess
+      } else {
+        percentileBoxes = generateEmojiBoxes(100 - percentile, 100);
+      }
+      
+      // Create copy text with title, message, and emoji boxes
+      let copyTextContent = '';
+      
+      // Add title if available
+      if (currentQuestion.title) {
+        copyTextContent += `Free Drinkle: ${currentQuestion.title}\n\n`;
+      } else {
+        copyTextContent += `Free Drinkle\n\n`;
+      }
+      
+      // Add result message
+      copyTextContent += `${resultMessage.textContent}\n\n`;
+      
+      // Add accuracy and percentile information with emoji boxes
+      if (isFirstGuess) {
+        copyTextContent += `My answer was ${percentOff}% off from the correct answer.\n`;
+        copyTextContent += `Accuracy: ${accuracyBoxes}\n\n`;
+        copyTextContent += `I'm the first person to answer this question! ${percentileBoxes}\n`;
+      } else {
+        copyTextContent += `My answer was ${percentOff}% off from the correct answer.\n`;
+        copyTextContent += `Accuracy: ${accuracyBoxes}\n\n`;
+        copyTextContent += `That places me in the ${percentileText} percentile of guessers.\n`;
+        copyTextContent += `Percentile: ${percentileBoxes}\n`;
+      }
+      
+      // Add link
+      copyTextContent += `\nTry Free Drinkle at eviltrivia.com/games/drinkle`;
+      
+      // Set the copyable text
+      copyText.innerText = copyTextContent;
+      
       // Show result
       resultContainer.style.display = 'block';
       
       // Disable form
       answerInput.disabled = true;
       answerForm.querySelector('button').disabled = true;
+      
+      // Update emoji-boxes display
+      accuracyBoxesDisplay.textContent = accuracyBoxes;
+      percentileBoxesDisplay.textContent = percentileBoxes;
     }
   </script>
 </body>
