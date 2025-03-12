@@ -376,6 +376,7 @@
                 </div>
                 
                 <button type="button" id="saveQuestionBtn">Save Question</button>
+                <button type="button" id="checkPermissionsBtn" style="margin-left: 10px; background-color: #6c757d;">Check DB Permissions</button>
                 <div id="saveSuccess" class="success-message">Question saved successfully!</div>
                 <div id="saveError" class="error-message">Error saving question. Please try again.</div>
             </form>
@@ -402,7 +403,7 @@
         </div>
     </div>
     
-    <div id="debugConsole" style="position: fixed; bottom: 0; left: 0; right: 0; background: #f0f0f0; padding: 10px; max-height: 200px; overflow: auto; border-top: 1px solid #ccc; font-family: monospace; font-size: 12px; display: none;">
+    <div id="debugConsole" style="position: fixed; bottom: 0; left: 0; right: 0; background: #f0f0f0; padding: 10px; max-height: 300px; overflow: auto; border-top: 1px solid #ccc; font-family: monospace; font-size: 12px; z-index: 1000;">
         <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
             <h4 style="margin: 0;">Debug Console</h4>
             <button id="clearDebugBtn" style="background: #f44336; color: white; border: none; padding: 2px 8px; cursor: pointer;">Clear</button>
@@ -412,6 +413,13 @@
     </div>
 
     <script type="module">
+        // Add debugging info before import to catch any early errors
+        console.log("Page loading...");
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error("Global error:", message, "at", source, lineno, colno, error);
+            return false;
+        };
+        
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
         import { getDatabase, ref, get, set, push, onValue, remove } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
@@ -1103,9 +1111,52 @@
             }
         });
         
+        // Function to try alternative save methods if the main one fails
+        async function tryBackupSave(questionData, errorDetails) {
+            console.log("Attempting backup save method...");
+            document.getElementById('debugConsole').style.display = 'block';
+            
+            try {
+                // Create a temporary database path for testing
+                saveError.textContent = "Trying alternative save method...";
+                
+                // Attempt to save to a test location first
+                const testRef = ref(db, 'test/write_access');
+                await set(testRef, {
+                    timestamp: Date.now(),
+                    message: 'Testing write access'
+                });
+                
+                console.log("Test write successful, attempting to save question to main path...");
+                
+                // Now try saving to the questions path directly
+                const fullPath = 'games/drinkle/questions/' + questionData.id;
+                const directRef = ref(db, fullPath);
+                
+                // Log the full details for debugging
+                console.log("Using direct path:", fullPath);
+                console.log("Question data:", JSON.stringify(questionData, null, 2));
+                
+                // Attempt the save
+                await set(directRef, questionData);
+                console.log("Backup save method successful!");
+                
+                return true;
+            } catch (backupError) {
+                console.error("Backup save method also failed:", backupError);
+                saveError.textContent = `Primary save failed: ${errorDetails}\n\nBackup save also failed: ${backupError.message}`;
+                return false;
+            }
+        }
+
         // Save new question using button click instead of form submission
         document.getElementById('saveQuestionBtn').addEventListener('click', async function(e) {
             console.log("Save button clicked");
+            
+            // Show a persistent status message
+            saveSuccess.style.display = 'none';
+            saveError.style.display = 'block';
+            saveError.textContent = "Saving question... Please wait.";
             
             try {
                 const title = titleInput.value.trim();
@@ -1120,11 +1171,7 @@
                 // Validate required fields
                 if (!question || !answer || !unit || !date) {
                     saveError.textContent = "Please fill in all required fields";
-                    saveError.style.display = 'block';
-                    setTimeout(() => {
-                        saveError.style.display = 'none';
-                    }, 3000);
-                    return;
+                    return; // Keep the error visible
                 }
                 
                 // Get notes directly from textarea
@@ -1147,18 +1194,22 @@
                     }
                 });
                 
+                saveError.textContent = "Creating question reference...";
+                
                 // Create a new question reference
                 const questionsRef = ref(db, 'games/drinkle/questions');
                 const newQuestionRef = push(questionsRef);
                 
+                // Create a minimal valid question structure
                 const questionData = {
-                    question,
+                    question: question,
                     answer: parseFloat(answer),
-                    unit,
-                    date,
-                    format,
+                    unit: unit,
+                    date: date,
+                    format: format || 'decimal',
                     id: newQuestionRef.key,
-                    notes: notes // Use notes directly from textarea
+                    notes: notes || '', // Use empty string if null
+                    timestamp: Date.now() // Add a timestamp
                 };
                 
                 // Add optional fields if they exist
@@ -1172,9 +1223,31 @@
                 
                 console.log("Saving new question data:", questionData);
                 
+                // Show the debug console to help troubleshoot
+                document.getElementById('debugConsole').style.display = 'block';
+                
                 // Save the question to Firebase
-                console.log("Attempting to save to Firebase...");
-                await set(newQuestionRef, questionData);
+                saveError.textContent = "Saving to Firebase...";
+                console.log("Attempting to save to Firebase with key:", newQuestionRef.key);
+                console.log("Database path:", `games/drinkle/questions/${newQuestionRef.key}`);
+                
+                try {
+                    // Try direct path first
+                    const directRef = ref(db, `games/drinkle/questions/${newQuestionRef.key}`);
+                    await set(directRef, questionData);
+                    console.log("Primary save method successful!");
+                } catch (primaryError) {
+                    console.error("Primary save method failed:", primaryError);
+                    
+                    // Try backup save method
+                    saveError.textContent = "Primary save failed. Trying backup method...";
+                    const backupSuccess = await tryBackupSave(questionData, primaryError.message);
+                    
+                    if (!backupSuccess) {
+                        throw primaryError; // Re-throw if backup also failed
+                    }
+                }
+                
                 console.log("Question saved successfully");
                 
                 // Clear the form
@@ -1182,11 +1255,13 @@
                 customMessagesContainer.innerHTML = '';
                 addCustomMessageRow(); // Add one empty row
                 
+                // Reset date input with today's date
+                dateInput.valueAsDate = new Date();
+                
                 // Show success message
+                saveError.style.display = 'none';
                 saveSuccess.style.display = 'block';
-                setTimeout(() => {
-                    saveSuccess.style.display = 'none';
-                }, 3000);
+                saveSuccess.textContent = "Question saved successfully! ID: " + newQuestionRef.key;
             } catch (error) {
                 console.error("Error saving question:", error);
                 let errorMsg = "Error saving question: " + error.message;
@@ -1198,11 +1273,14 @@
                     errorMsg += ". Check your internet connection.";
                 }
                 
+                // Show full error details including code
+                errorMsg += "\n\nError Code: " + (error.code || "unknown");
+                
                 saveError.textContent = errorMsg;
                 saveError.style.display = 'block';
-                setTimeout(() => {
-                    saveError.style.display = 'none';
-                }, 5000);
+                
+                // Keep the debug console visible
+                document.getElementById('debugConsole').style.display = 'block';
             }
         });
         
@@ -1605,6 +1683,51 @@
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.shiftKey && e.key === 'D') {
                 debugConsole.style.display = debugConsole.style.display === 'none' ? 'block' : 'none';
+            }
+        });
+
+        // Add permissions check button functionality
+        document.getElementById('checkPermissionsBtn').addEventListener('click', async function() {
+            const saveError = document.getElementById('saveError');
+            saveError.style.display = 'block';
+            saveError.textContent = "Checking database permissions...";
+            
+            try {
+                // Show debug console
+                document.getElementById('debugConsole').style.display = 'block';
+                
+                console.log("Checking database permissions...");
+                
+                // Try writing to test path
+                const testRef = ref(db, 'test/permission_check');
+                await set(testRef, {
+                    timestamp: Date.now(),
+                    message: 'Permission check'
+                });
+                console.log("✅ Basic write permission: OK");
+                
+                // Try reading questions
+                const questionsRef = ref(db, 'games/drinkle/questions');
+                const snapshot = await get(questionsRef);
+                console.log("✅ Questions read permission: OK");
+                
+                // Try writing to questions path
+                const testQuestionRef = ref(db, 'games/drinkle/questions/test_permission');
+                await set(testQuestionRef, {
+                    test: true,
+                    timestamp: Date.now()
+                });
+                console.log("✅ Questions write permission: OK");
+                await remove(testQuestionRef); // Clean up
+                
+                saveError.textContent = "All permissions OK! You should be able to save questions.";
+                saveError.style.backgroundColor = "#d4edda";
+                saveError.style.color = "#155724";
+            } catch (error) {
+                console.error("Permission check failed:", error);
+                saveError.textContent = "❌ Permission denied: " + error.message;
+                saveError.style.backgroundColor = "#f8d7da";
+                saveError.style.color = "#721c24";
             }
         });
     </script>
