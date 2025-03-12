@@ -294,17 +294,20 @@
         const answersSnapshot = await get(answersRef);
         const answers = answersSnapshot.val() || {};
         
+        // Generate a unique ID if user is not logged in
+        const userId = currentUserId || ('anonymous_' + Date.now() + '_' + Math.floor(Math.random() * 10000));
+        
         // Add new answer
         const newAnswerRef = push(answersRef);
         await set(newAnswerRef, {
-          userId: currentUserId || 'anonymous',
+          userId: userId,
           answer: answer,
           timestamp: Date.now()
         });
         
         // Update answers with the new one
         answers[newAnswerRef.key] = {
-          userId: currentUserId || 'anonymous',
+          userId: userId,
           answer: answer
         };
         
@@ -313,9 +316,56 @@
         
         // Mark as answered
         hasAnswered = true;
+        
+        // Store in localStorage to prevent multiple submissions
+        localStorage.setItem(`drinkle_answered_${activeQuestionId}`, 'true');
       } catch (error) {
         console.error("Error submitting answer:", error);
-        alert("Error submitting your answer. Please try again.");
+        
+        // Try submitting to a public path if we get a permission error
+        if (error.message && error.message.includes("permission_denied")) {
+          try {
+            // Try using a different path that allows anonymous writes
+            const activeQuestionId = currentQuestion.id;
+            const publicAnswersRef = ref(db, `publicAnswers/drinkle/${activeQuestionId}`);
+            
+            // Generate a unique anonymous ID
+            const anonymousId = 'anon_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+            
+            // Add new answer to public path
+            const newAnswerRef = push(publicAnswersRef);
+            await set(newAnswerRef, {
+              userId: anonymousId,
+              answer: answer,
+              timestamp: Date.now()
+            });
+            
+            // Get all answers to calculate percentile
+            const answersRef = ref(db, `games/drinkle/answers/${activeQuestionId}`);
+            const answersSnapshot = await get(answersRef);
+            let answers = answersSnapshot.val() || {};
+            
+            // Add our new answer to the local calculation
+            answers[newAnswerRef.key] = {
+              userId: anonymousId,
+              answer: answer
+            };
+            
+            // Show the percentile
+            showPercentileResult(answer, answers);
+            
+            // Mark as answered
+            hasAnswered = true;
+            
+            // Store in localStorage to prevent multiple submissions
+            localStorage.setItem(`drinkle_answered_${activeQuestionId}`, 'true');
+          } catch (secondError) {
+            console.error("Second error submitting answer:", secondError);
+            alert("Error submitting your answer. Please try again or contact support.");
+          }
+        } else {
+          alert("Error submitting your answer. Please try again.");
+        }
       }
     });
     
