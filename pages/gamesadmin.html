@@ -187,6 +187,10 @@
                         <p>No active question set</p>
                     </div>
                     
+                    <div id="responseCountSection" style="margin-top: 10px; display: none;">
+                        <p><strong>Total Responses:</strong> <span id="topResponseCount">0</span></p>
+                    </div>
+                    
                     <div style="margin-top: 15px;">
                         <button id="editActiveQuestionBtn" style="margin-right: 10px; background-color: #28a745; display: none;" title="Edit the current active question">✏️ Edit Active Question</button>
                         <button id="viewResponsesBtn" style="background-color: #17a2b8; display: none;" title="View all user submissions for this question">👥 View All Responses</button>
@@ -504,8 +508,8 @@
         
         const questionsTable = document.getElementById('questionsTable').getElementsByTagName('tbody')[0];
         
-        // Set today's date as default
-        dateInput.valueAsDate = new Date();
+        // Comment out the auto date setting
+        // dateInput.valueAsDate = new Date();
         
         // Variable to store current active question
         let currentActiveQuestion = null;
@@ -960,6 +964,7 @@
                 if (!activeQuestionId) {
                     activeQuestionSelect.value = '';
                     currentActiveQuestionInfo.innerHTML = '<p>No active question set</p>';
+                    document.getElementById('responseCountSection').style.display = 'none';
                     editActiveQuestionBtn.style.display = 'none';
                     viewResponsesBtn.style.display = 'none';
                     return;
@@ -1021,6 +1026,9 @@
                     
                     currentActiveQuestionInfo.innerHTML = infoHTML;
                     
+                    // Fetch and display response count
+                    fetchResponseCount(activeQuestionId);
+                    
                     // Show edit and view responses buttons
                     editActiveQuestionBtn.style.display = 'inline-block';
                     viewResponsesBtn.style.display = 'inline-block';
@@ -1029,10 +1037,46 @@
                     console.log("View responses button display:", viewResponsesBtn.style.display);
                 } else {
                     currentActiveQuestionInfo.innerHTML = '<p>Error: Selected question not found</p>';
+                    document.getElementById('responseCountSection').style.display = 'none';
                     editActiveQuestionBtn.style.display = 'none';
                     viewResponsesBtn.style.display = 'none';
                 }
             });
+        }
+        
+        // Function to fetch and display response count
+        async function fetchResponseCount(questionId) {
+            const responseCountSection = document.getElementById('responseCountSection');
+            const topResponseCount = document.getElementById('topResponseCount');
+            let totalCount = 0;
+            
+            try {
+                // Try to get response count from both paths
+                try {
+                    const answersRef = ref(db, `games/drinkle/answers/${questionId}`);
+                    const answersSnapshot = await get(answersRef);
+                    const answers = answersSnapshot.val() || {};
+                    totalCount += Object.keys(answers).length;
+                } catch (error) {
+                    console.error("Error loading answers from main path:", error);
+                }
+                
+                try {
+                    const publicAnswersRef = ref(db, `publicAnswers/drinkle/${questionId}`);
+                    const publicAnswersSnapshot = await get(publicAnswersRef);
+                    const publicAnswers = publicAnswersSnapshot.val() || {};
+                    totalCount += Object.keys(publicAnswers).length;
+                } catch (error) {
+                    console.error("Error loading answers from public path:", error);
+                }
+                
+                // Display the response count
+                topResponseCount.textContent = totalCount;
+                responseCountSection.style.display = 'block';
+            } catch (error) {
+                console.error("Error fetching response count:", error);
+                responseCountSection.style.display = 'none';
+            }
         }
         
         // Save active question
@@ -1132,7 +1176,8 @@
                 
                 // Clear the form
                 newQuestionForm.reset();
-                dateInput.valueAsDate = new Date();
+                // Do not automatically set date
+                // dateInput.valueAsDate = new Date();
                 customMessagesContainer.innerHTML = '';
                 addCustomMessageRow(); // Add one empty row
                 
@@ -1148,10 +1193,11 @@
                 }, 3000);
             } catch (error) {
                 console.error("Error saving question:", error);
+                saveError.textContent = `Error saving question: ${error.message}`;
                 saveError.style.display = 'block';
                 setTimeout(() => {
                     saveError.style.display = 'none';
-                }, 3000);
+                }, 5000);
             }
         });
         
