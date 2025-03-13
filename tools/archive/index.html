@@ -492,7 +492,11 @@
         // Helper function to escape HTML
         function escapeHTML(str) {
             if (!str) return '';
-            return str
+            
+            // Convert to string first to ensure we're working with a string
+            const strValue = String(str);
+            
+            return strValue
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
@@ -572,7 +576,12 @@
         
         // Create a trivia card
         function createTriviaCard(triviaNumber, triviaData) {
-            const triviaDate = triviaData.metadata?.date || '';
+            // Get date from metadata, ensuring it's a string or default to empty string
+            const triviaDate = triviaData.metadata && triviaData.metadata.date ? 
+                (typeof triviaData.metadata.date === 'string' ? 
+                    triviaData.metadata.date : 
+                    String(triviaData.metadata.date)) 
+                : '';
             
             // Create the card container
             const card = document.createElement('div');
@@ -681,7 +690,11 @@
                 // Add any other metadata fields that might exist
                 for (const [key, value] of Object.entries(metadata)) {
                     if (key !== 'Round Name' && key !== 'Round Type' && key !== 'Round Instruction') {
-                        metadataHTML += `<div class="metadata-item"><span class="metadata-label">${escapeHTML(key)}:</span> ${escapeHTML(value)}</div>`;
+                        // Convert value to string representation even if it's not a string
+                        const stringValue = typeof value === 'object' && value !== null 
+                            ? JSON.stringify(value) 
+                            : String(value);
+                        metadataHTML += `<div class="metadata-item"><span class="metadata-label">${escapeHTML(key)}:</span> ${escapeHTML(stringValue)}</div>`;
                     }
                 }
                 
@@ -727,7 +740,8 @@
             
             // Check if format has a "Round Type" field that should be used instead
             if (formatData['Round Type']) {
-                formatDisplayName = formatData['Round Type'];
+                const roundType = formatData['Round Type'];
+                formatDisplayName = typeof roundType === 'string' ? roundType : String(roundType);
             }
             
             // Create the format header
@@ -746,7 +760,11 @@
             if (formatData['Round Instruction']) {
                 const instruction = document.createElement('div');
                 instruction.className = 'round-instruction';
-                instruction.textContent = formatData['Round Instruction'];
+                // Convert to string if not already a string
+                const instructionText = typeof formatData['Round Instruction'] === 'string' 
+                    ? formatData['Round Instruction'] 
+                    : String(formatData['Round Instruction']);
+                instruction.textContent = instructionText;
                 formatContent.appendChild(instruction);
             }
             
@@ -784,6 +802,11 @@
             const questionElement = document.createElement('div');
             questionElement.className = 'question';
             
+            // Create question header
+            const questionHeader = document.createElement('div');
+            questionHeader.className = 'question-header';
+            questionHeader.textContent = `Question ${questionNumber}`;
+            
             // Extract common fields
             const question = questionData.Question || questionData.question || '';
             const answer = questionData.Answer || questionData.answer || '';
@@ -791,26 +814,28 @@
             const answerImageLink = questionData['Answer Image Link'] || questionData.answer_image_link || '';
             const musicClipLink = questionData['Music Clip Link'] || questionData.music_clip_link || '';
             
-            // Create question header
-            const questionHeader = document.createElement('div');
-            questionHeader.className = 'question-header';
-            questionHeader.textContent = `Question ${questionNumber}`;
+            // Ensure all values are strings
+            const questionStr = typeof question === 'string' ? question : String(question);
+            const answerStr = typeof answer === 'string' ? answer : String(answer);
+            const imageLinkStr = typeof imageLink === 'string' ? imageLink : String(imageLink);
+            const answerImageLinkStr = typeof answerImageLink === 'string' ? answerImageLink : String(answerImageLink);
+            const musicClipLinkStr = typeof musicClipLink === 'string' ? musicClipLink : String(musicClipLink);
             
             // Create question content
             let questionHTML = `
-                <div class="question-content">${escapeHTML(question)}</div>
+                <div class="question-content">${escapeHTML(questionStr)}</div>
             `;
             
             // Add music player if there's a music clip
-            if (musicClipLink) {
-                questionHTML += createMusicPlayer(musicClipLink);
+            if (musicClipLinkStr) {
+                questionHTML += createMusicPlayer(musicClipLinkStr);
             }
             
             // Add question image if available
-            if (imageLink) {
+            if (imageLinkStr) {
                 questionHTML += `
                     <div class="media-container">
-                        ${createImagePreview(imageLink, 'Question Image')}
+                        ${createImagePreview(imageLinkStr, 'Question Image')}
                     </div>
                 `;
             }
@@ -819,10 +844,10 @@
             questionHTML += `
                 <div class="answer">
                     <div class="question-header">Answer</div>
-                    <div class="question-content">${escapeHTML(answer)}</div>
-                    ${answerImageLink ? `
+                    <div class="question-content">${escapeHTML(answerStr)}</div>
+                    ${answerImageLinkStr ? `
                         <div class="media-container">
-                            ${createImagePreview(answerImageLink, 'Answer Image')}
+                            ${createImagePreview(answerImageLinkStr, 'Answer Image')}
                         </div>
                     ` : ''}
                 </div>
@@ -848,8 +873,13 @@
                 questionHTML += `<div class="question-meta">`;
                 
                 metadataFields.forEach(([key, value]) => {
-                    if (value && typeof value === 'string') {
-                        questionHTML += `<span class="tag">${escapeHTML(key)}: ${escapeHTML(value)}</span>`;
+                    // Check if value exists and convert non-string values to appropriate string representation
+                    if (value !== null && value !== undefined) {
+                        // Convert value to string representation based on its type
+                        const stringValue = typeof value === 'object' && value !== null 
+                            ? JSON.stringify(value) 
+                            : String(value);
+                        questionHTML += `<span class="tag">${escapeHTML(key)}: ${escapeHTML(stringValue)}</span>`;
                     }
                 });
                 
