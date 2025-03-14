@@ -475,23 +475,25 @@
     onAuthStateChanged(auth, (user) => {
       if (user) {
         currentUserId = user.uid;
+        console.log("User logged in with UID:", user.uid);
         
-        // Check if admin (may be needed for advanced features)
-        const userEmail = user.email;
-        const adminEmailsRef = ref(db, 'adminEmails');
-        
-        get(adminEmailsRef).then((snapshot) => {
-          const adminEmails = snapshot.val() || {};
-          const isAdmin = Object.values(adminEmails).includes(userEmail);
-          
-          // Store admin status if needed for any functionality
+        // Check admin status using the proper Firebase pattern
+        const userRef = ref(db, `users/${user.uid}`);
+        get(userRef).then((snapshot) => {
+          const userData = snapshot.val() || {};
+          const isAdmin = userData.admin === true;
           window.isAdmin = isAdmin;
+          
+          if (isAdmin) {
+            console.log("User has admin privileges");
+          }
           
           // Load the active word ladder
           loadActiveWordLadder();
         }).catch((error) => {
           console.error("Error checking admin status:", error);
           // Still load the game even if admin check fails
+          window.isAdmin = false;
           loadActiveWordLadder();
         });
       } else {
