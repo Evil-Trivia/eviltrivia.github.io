@@ -129,6 +129,8 @@
             position: absolute;
             right: 15px;
             top: 15px;
+            display: flex;
+            gap: 5px;
         }
         .preview-ladder {
             margin-top: 10px;
@@ -389,8 +391,11 @@
                         ).join('') : 'No ladder data'}
                     </div>
                     <div class="action-buttons">
-                        <button class="setActiveBtn" data-id="${puzzle.id}">
+                        <button class="setActiveBtn" data-id="${puzzle.id}" ${puzzle.id === activePuzzleId ? 'disabled' : ''}>
                             ${puzzle.id === activePuzzleId ? 'Active' : 'Set Active'}
+                        </button>
+                        <button class="toggleAvailabilityBtn" data-id="${puzzle.id}" data-available="${puzzle.available !== false}">
+                            ${puzzle.available !== false ? 'Disable' : 'Enable'}
                         </button>
                         <button class="deleteBtn" data-id="${puzzle.id}">Delete</button>
                     </div>
@@ -404,6 +409,14 @@
                 btn.addEventListener('click', () => {
                     const puzzleId = btn.getAttribute('data-id');
                     setActivePuzzle(puzzleId);
+                });
+            });
+            
+            document.querySelectorAll('.toggleAvailabilityBtn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const puzzleId = btn.getAttribute('data-id');
+                    const isCurrentlyAvailable = btn.getAttribute('data-available') === 'true';
+                    togglePuzzleAvailability(puzzleId, !isCurrentlyAvailable);
                 });
             });
             
@@ -458,6 +471,44 @@
                     console.error("Error deleting puzzle:", error);
                     alert(`Error deleting puzzle: ${error.message}`);
                 });
+        }
+        
+        // Toggle puzzle availability
+        function togglePuzzleAvailability(puzzleId, makeAvailable) {
+            const puzzleRef = ref(db, `games/vine/puzzles/${puzzleId}`);
+            
+            // Get the current puzzle data first
+            get(puzzleRef).then((snapshot) => {
+                const puzzleData = snapshot.val();
+                if (!puzzleData) {
+                    console.error("Puzzle not found:", puzzleId);
+                    return;
+                }
+                
+                // Update only the availability flag
+                set(ref(db, `games/vine/puzzles/${puzzleId}/available`), makeAvailable)
+                    .then(() => {
+                        console.log(`Puzzle ${puzzleId} is now ${makeAvailable ? 'enabled' : 'disabled'}`);
+                        
+                        // If disabling the active puzzle, warn the user
+                        if (!makeAvailable && puzzleId === activePuzzleId) {
+                            if (confirm('Warning: You are disabling the active puzzle. This will cause the game to show "No puzzle available" for users. Do you want to select a different active puzzle?')) {
+                                // Show a message to prompt selecting a new active puzzle
+                                showStatus('Please select a new active puzzle from the list below.', 'error');
+                            }
+                        }
+                        
+                        // Refresh the puzzles list
+                        loadPuzzles();
+                    })
+                    .catch((error) => {
+                        console.error("Error updating puzzle availability:", error);
+                        showStatus(`Error updating puzzle: ${error.message}`, 'error');
+                    });
+            }).catch((error) => {
+                console.error("Error fetching puzzle:", error);
+                showStatus(`Error fetching puzzle: ${error.message}`, 'error');
+            });
         }
         
         // Add a new ladder entry to the UI
@@ -596,6 +647,7 @@
                 name,
                 date,
                 ladder,
+                available: true,
                 created: new Date().toISOString()
             };
             
