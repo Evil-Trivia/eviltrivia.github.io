@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evil Trivia - Vine Admin</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #2E7D32;
+            margin: 0;
+            padding: 0;
+            margin-top: 60px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .panel {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            max-width: 800px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .input-row {
+            margin: 15px 0;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 14px;
+            background-color: #2E7D32;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #1B5E20;
+        }
+        input[type="text"], 
+        input[type="number"],
+        textarea,
+        select {
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .ladder-entry {
+            background-color: #f8f8f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .remove-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            line-height: 24px;
+            text-align: center;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .ladder-entries-container {
+            margin-top: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .word-hint-pair {
+            display: flex;
+            gap: 10px;
+        }
+        .word-hint-pair input {
+            flex: 1;
+        }
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #C8E6C9;
+            color: #2E7D32;
+        }
+        .error {
+            background-color: #FFCDD2;
+            color: #C62828;
+        }
+        .puzzle-list-item {
+            padding: 15px;
+            background-color: #f8f8f8;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            position: relative;
+        }
+        .puzzle-list-item.active {
+            background-color: #C8E6C9;
+            border-left: 4px solid #2E7D32;
+        }
+        .action-buttons {
+            position: absolute;
+            right: 15px;
+            top: 15px;
+        }
+        .preview-ladder {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .preview-ladder-item {
+            margin: 5px 0;
+            font-family: monospace;
+        }
+        .bold {
+            font-weight: bold;
+        }
+        .flex-container {
+            display: flex;
+            gap: 10px;
+        }
+        .flex-container input,
+        .flex-container button {
+            height: 36px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="panel">
+            <h2>Vine Word Ladder Admin</h2>
+            <p>Create and manage word ladder puzzles for the Vine game.</p>
+            
+            <div id="authMessage">
+                You need to be logged in to manage word ladders.
+            </div>
+            
+            <div id="adminPanel" style="display: none;">
+                <!-- Create New Puzzle Form -->
+                <div class="form-group">
+                    <h3>Create New Word Ladder</h3>
+                    
+                    <div class="form-group">
+                        <label for="puzzleName">Puzzle Name (optional)</label>
+                        <input type="text" id="puzzleName" placeholder="Give your puzzle a name">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="puzzleDate">Puzzle Date</label>
+                        <input type="date" id="puzzleDate">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Word Ladder</label>
+                        <p><small>Add words and hints for each step of the ladder. The first word is the starting word.</small></p>
+                        
+                        <div id="ladderEntries" class="ladder-entries-container">
+                            <!-- Ladder entries will be added here -->
+                        </div>
+                        
+                        <div class="form-group">
+                            <div class="word-hint-pair">
+                                <input type="text" id="newWord" placeholder="Word" style="text-transform: uppercase;">
+                                <input type="text" id="newHint" placeholder="Hint (optional for first word)">
+                                <button id="addWordBtn">Add</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="createPuzzleStatus" class="status-message" style="display: none;"></div>
+                    
+                    <button id="savePuzzleBtn">Save Puzzle</button>
+                </div>
+                
+                <hr style="margin: 30px 0;">
+                
+                <!-- Puzzle List -->
+                <div class="form-group">
+                    <h3>Existing Puzzles</h3>
+                    <div id="puzzleList">
+                        <!-- Puzzles will be listed here -->
+                        <p>Loading puzzles...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getDatabase, ref, set, push, get, remove, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+        
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.appspot.com",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const auth = getAuth(app);
+        
+        // DOM elements
+        const authMessage = document.getElementById('authMessage');
+        const adminPanel = document.getElementById('adminPanel');
+        const puzzleName = document.getElementById('puzzleName');
+        const puzzleDate = document.getElementById('puzzleDate');
+        const ladderEntries = document.getElementById('ladderEntries');
+        const newWord = document.getElementById('newWord');
+        const newHint = document.getElementById('newHint');
+        const addWordBtn = document.getElementById('addWordBtn');
+        const savePuzzleBtn = document.getElementById('savePuzzleBtn');
+        const createPuzzleStatus = document.getElementById('createPuzzleStatus');
+        const puzzleList = document.getElementById('puzzleList');
+        
+        // Set today's date as default
+        const today = new Date();
+        const formattedDate = today.toISOString().split('T')[0];
+        puzzleDate.value = formattedDate;
+        
+        // Keep track of active puzzle ID
+        let activePuzzleId = null;
+        
+        // Check if user is logged in
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // Check if admin
+                const adminRef = ref(db, `admins/${user.uid}`);
+                get(adminRef).then((snapshot) => {
+                    if (snapshot.exists()) {
+                        // User is admin
+                        authMessage.style.display = 'none';
+                        adminPanel.style.display = 'block';
+                        
+                        // Load existing puzzles
+                        loadPuzzles();
+                        
+                        // Get active puzzle
+                        getActivePuzzle();
+                    } else {
+                        // Not admin
+                        authMessage.innerHTML = 'You do not have admin privileges.';
+                    }
+                }).catch((error) => {
+                    console.error("Error checking admin status:", error);
+                    authMessage.innerHTML = `Error checking admin status: ${error.message}`;
+                });
+            } else {
+                // Not logged in
+                authMessage.innerHTML = 'You need to be logged in to manage word ladders. Please log in on the <a href="/admin.html">admin page</a>.';
+                adminPanel.style.display = 'none';
+            }
+        });
+        
+        // Get active puzzle ID
+        function getActivePuzzle() {
+            const activeRef = ref(db, 'games/vine/activePuzzle');
+            onValue(activeRef, (snapshot) => {
+                activePuzzleId = snapshot.val();
+                console.log("Active puzzle ID:", activePuzzleId);
+                
+                // Update UI to highlight the active puzzle
+                updatePuzzleList();
+            });
+        }
+        
+        // Load existing puzzles
+        function loadPuzzles() {
+            const puzzlesRef = ref(db, 'games/vine/puzzles');
+            onValue(puzzlesRef, (snapshot) => {
+                const puzzles = snapshot.val() || {};
+                
+                // Update the puzzles list
+                updatePuzzleList(puzzles);
+            });
+        }
+        
+        // Update the puzzle list UI
+        function updatePuzzleList(puzzles = null) {
+            // If puzzles not provided, get them
+            if (!puzzles) {
+                const puzzlesRef = ref(db, 'games/vine/puzzles');
+                get(puzzlesRef).then((snapshot) => {
+                    const puzzles = snapshot.val() || {};
+                    updatePuzzleList(puzzles);
+                });
+                return;
+            }
+            
+            // Clear the list
+            puzzleList.innerHTML = '';
+            
+            // Convert to array and sort by date (newest first)
+            const puzzleArray = Object.entries(puzzles).map(([id, puzzle]) => {
+                return { id, ...puzzle };
+            });
+            
+            // Sort by date
+            puzzleArray.sort((a, b) => {
+                const dateA = a.date ? new Date(a.date) : new Date(0);
+                const dateB = b.date ? new Date(b.date) : new Date(0);
+                return dateB - dateA; // Newest first
+            });
+            
+            if (puzzleArray.length === 0) {
+                puzzleList.innerHTML = '<p>No puzzles found.</p>';
+                return;
+            }
+            
+            // Add each puzzle to the list
+            puzzleArray.forEach(puzzle => {
+                const puzzleItem = document.createElement('div');
+                puzzleItem.className = 'puzzle-list-item';
+                
+                // Add active class if this is the active puzzle
+                if (puzzle.id === activePuzzleId) {
+                    puzzleItem.classList.add('active');
+                }
+                
+                // Format date if available
+                let dateStr = 'No date';
+                if (puzzle.date) {
+                    const date = new Date(puzzle.date);
+                    dateStr = date.toLocaleDateString();
+                }
+                
+                // Get ladder details
+                const wordCount = puzzle.ladder ? puzzle.ladder.length : 0;
+                const firstWord = wordCount > 0 ? puzzle.ladder[0].word : 'N/A';
+                const lastWord = wordCount > 0 ? puzzle.ladder[wordCount - 1].word : 'N/A';
+                
+                // Puzzle content
+                puzzleItem.innerHTML = `
+                    <div><span class="bold">${puzzle.name || 'Unnamed Puzzle'}</span> (${dateStr})</div>
+                    <div>Words: ${wordCount} | Path: ${firstWord} → ${lastWord}</div>
+                    <div class="preview-ladder">
+                        ${puzzle.ladder ? puzzle.ladder.map((item, index) => 
+                            `<div class="preview-ladder-item">${index + 1}. ${item.word} ${item.hint ? '- ' + item.hint : ''}</div>`
+                        ).join('') : 'No ladder data'}
+                    </div>
+                    <div class="action-buttons">
+                        <button class="setActiveBtn" data-id="${puzzle.id}">
+                            ${puzzle.id === activePuzzleId ? 'Active' : 'Set Active'}
+                        </button>
+                        <button class="deleteBtn" data-id="${puzzle.id}">Delete</button>
+                    </div>
+                `;
+                
+                puzzleList.appendChild(puzzleItem);
+            });
+            
+            // Add event listeners to buttons
+            document.querySelectorAll('.setActiveBtn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const puzzleId = btn.getAttribute('data-id');
+                    setActivePuzzle(puzzleId);
+                });
+            });
+            
+            document.querySelectorAll('.deleteBtn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const puzzleId = btn.getAttribute('data-id');
+                    deletePuzzle(puzzleId);
+                });
+            });
+        }
+        
+        // Set a puzzle as active
+        function setActivePuzzle(puzzleId) {
+            const activeRef = ref(db, 'games/vine/activePuzzle');
+            set(activeRef, puzzleId)
+                .then(() => {
+                    console.log("Set active puzzle:", puzzleId);
+                    activePuzzleId = puzzleId;
+                    updatePuzzleList();
+                })
+                .catch((error) => {
+                    console.error("Error setting active puzzle:", error);
+                    alert(`Error setting active puzzle: ${error.message}`);
+                });
+        }
+        
+        // Delete a puzzle
+        function deletePuzzle(puzzleId) {
+            if (!confirm('Are you sure you want to delete this puzzle?')) {
+                return;
+            }
+            
+            // Check if this is the active puzzle
+            if (puzzleId === activePuzzleId) {
+                if (!confirm('This is the active puzzle. Deleting it will cause issues. Are you REALLY sure?')) {
+                    return;
+                }
+            }
+            
+            const puzzleRef = ref(db, `games/vine/puzzles/${puzzleId}`);
+            remove(puzzleRef)
+                .then(() => {
+                    console.log("Deleted puzzle:", puzzleId);
+                    
+                    // If this was the active puzzle, clear the active puzzle
+                    if (puzzleId === activePuzzleId) {
+                        const activeRef = ref(db, 'games/vine/activePuzzle');
+                        set(activeRef, null);
+                    }
+                })
+                .catch((error) => {
+                    console.error("Error deleting puzzle:", error);
+                    alert(`Error deleting puzzle: ${error.message}`);
+                });
+        }
+        
+        // Add a new ladder entry to the UI
+        function addLadderEntry(word = '', hint = '', isFirstEntry = false) {
+            const entryDiv = document.createElement('div');
+            entryDiv.className = 'ladder-entry';
+            
+            const entryNumber = ladderEntries.children.length + 1;
+            
+            entryDiv.innerHTML = `
+                <div class="word-hint-pair">
+                    <input type="text" class="ladder-word" value="${word}" placeholder="Word" style="text-transform: uppercase;">
+                    <input type="text" class="ladder-hint" value="${hint}" placeholder="${isFirstEntry ? 'Hint (optional for first word)' : 'Hint'}">
+                </div>
+                <div style="margin-top: 5px;">Position: ${entryNumber}</div>
+                ${!isFirstEntry ? '<button class="remove-btn">×</button>' : ''}
+            `;
+            
+            // Add remove button functionality
+            const removeBtn = entryDiv.querySelector('.remove-btn');
+            if (removeBtn) {
+                removeBtn.addEventListener('click', () => {
+                    entryDiv.remove();
+                    // Update entry numbers
+                    updateEntryNumbers();
+                });
+            }
+            
+            ladderEntries.appendChild(entryDiv);
+        }
+        
+        // Update the entry numbers when entries are added/removed
+        function updateEntryNumbers() {
+            const entries = ladderEntries.querySelectorAll('.ladder-entry');
+            entries.forEach((entry, index) => {
+                const positionText = entry.querySelector('div[style="margin-top: 5px;"]');
+                if (positionText) {
+                    positionText.textContent = `Position: ${index + 1}`;
+                }
+            });
+        }
+        
+        // Add a new word to the ladder
+        addWordBtn.addEventListener('click', () => {
+            const word = newWord.value.trim().toUpperCase();
+            const hint = newHint.value.trim();
+            
+            if (!word) {
+                alert('Please enter a word');
+                return;
+            }
+            
+            // For first entry, hint is optional
+            const isFirstEntry = ladderEntries.children.length === 0;
+            
+            // For subsequent entries, hint is required
+            if (!isFirstEntry && !hint) {
+                alert('Please enter a hint for this word');
+                return;
+            }
+            
+            // Check for valid word ladder - each word should differ by exactly one letter
+            if (ladderEntries.children.length > 0) {
+                const lastWordInput = ladderEntries.lastElementChild.querySelector('.ladder-word');
+                const lastWord = lastWordInput.value.trim().toUpperCase();
+                
+                if (lastWord.length !== word.length) {
+                    alert('All words in the ladder must have the same length');
+                    return;
+                }
+                
+                // Check if exactly one letter is different
+                let diffCount = 0;
+                for (let i = 0; i < word.length; i++) {
+                    if (word[i] !== lastWord[i]) {
+                        diffCount++;
+                    }
+                }
+                
+                if (diffCount !== 1) {
+                    alert('Each word must differ from the previous word by exactly one letter');
+                    return;
+                }
+            }
+            
+            // Add to ladder
+            addLadderEntry(word, hint, isFirstEntry);
+            
+            // Clear inputs
+            newWord.value = '';
+            newHint.value = '';
+            newWord.focus();
+        });
+        
+        // Save puzzle to Firebase
+        savePuzzleBtn.addEventListener('click', () => {
+            // Get puzzle name and date
+            const name = puzzleName.value.trim();
+            const date = puzzleDate.value;
+            
+            // Get ladder entries
+            const entries = ladderEntries.querySelectorAll('.ladder-entry');
+            if (entries.length < 2) {
+                showStatus('A word ladder must have at least 2 words', 'error');
+                return;
+            }
+            
+            // Create ladder array
+            const ladder = [];
+            let isValid = true;
+            
+            entries.forEach((entry, index) => {
+                const wordInput = entry.querySelector('.ladder-word');
+                const hintInput = entry.querySelector('.ladder-hint');
+                
+                const word = wordInput.value.trim().toUpperCase();
+                const hint = hintInput.value.trim();
+                
+                // First word doesn't need a hint
+                if (index > 0 && !hint) {
+                    showStatus('All words except the first must have a hint', 'error');
+                    isValid = false;
+                    return;
+                }
+                
+                ladder.push({
+                    word,
+                    hint
+                });
+            });
+            
+            if (!isValid) return;
+            
+            // Create puzzle object
+            const puzzle = {
+                name,
+                date,
+                ladder,
+                created: new Date().toISOString()
+            };
+            
+            // Save to Firebase
+            const puzzlesRef = ref(db, 'games/vine/puzzles');
+            const newPuzzleRef = push(puzzlesRef);
+            
+            set(newPuzzleRef, puzzle)
+                .then(() => {
+                    console.log("Puzzle saved:", newPuzzleRef.key);
+                    showStatus('Puzzle saved successfully!', 'success');
+                    
+                    // Clear form
+                    puzzleName.value = '';
+                    ladderEntries.innerHTML = '';
+                    
+                    // Ask if they want to set this as the active puzzle
+                    if (confirm('Do you want to set this as the active puzzle?')) {
+                        setActivePuzzle(newPuzzleRef.key);
+                    }
+                })
+                .catch((error) => {
+                    console.error("Error saving puzzle:", error);
+                    showStatus(`Error saving puzzle: ${error.message}`, 'error');
+                });
+        });
+        
+        // Show status message
+        function showStatus(message, type) {
+            createPuzzleStatus.textContent = message;
+            createPuzzleStatus.className = `status-message ${type}`;
+            createPuzzleStatus.style.display = 'block';
+            
+            // Hide after 5 seconds
+            setTimeout(() => {
+                createPuzzleStatus.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html> 
