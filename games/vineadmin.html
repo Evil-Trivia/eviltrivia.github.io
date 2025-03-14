@@ -397,6 +397,7 @@
                         <button class="toggleAvailabilityBtn" data-id="${puzzle.id}" data-available="${puzzle.available !== false}">
                             ${puzzle.available !== false ? 'Disable' : 'Enable'}
                         </button>
+                        <button class="editBtn" data-id="${puzzle.id}">Edit</button>
                         <button class="deleteBtn" data-id="${puzzle.id}">Delete</button>
                     </div>
                 `;
@@ -417,6 +418,13 @@
                     const puzzleId = btn.getAttribute('data-id');
                     const isCurrentlyAvailable = btn.getAttribute('data-available') === 'true';
                     togglePuzzleAvailability(puzzleId, !isCurrentlyAvailable);
+                });
+            });
+            
+            document.querySelectorAll('.editBtn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const puzzleId = btn.getAttribute('data-id');
+                    editPuzzle(puzzleId);
                 });
             });
             
@@ -603,7 +611,83 @@
             newWord.focus();
         });
         
-        // Save puzzle to Firebase
+        // Variables to track edit state
+        let isEditMode = false;
+        let currentEditPuzzleId = null;
+        
+        // Edit a puzzle
+        function editPuzzle(puzzleId) {
+            currentEditPuzzleId = puzzleId;
+            isEditMode = true;
+            
+            // Get the puzzle data
+            const puzzleRef = ref(db, `games/vine/puzzles/${puzzleId}`);
+            get(puzzleRef).then((snapshot) => {
+                const puzzle = snapshot.val();
+                if (!puzzle) {
+                    console.error("Puzzle not found:", puzzleId);
+                    return;
+                }
+                
+                // Populate the form with puzzle data
+                puzzleName.value = puzzle.name || '';
+                puzzleDate.value = puzzle.date || '';
+                
+                // Clear existing ladder entries
+                ladderEntries.innerHTML = '';
+                
+                // Add each ladder entry
+                puzzle.ladder.forEach((item, index) => {
+                    addLadderEntry(item.word, item.hint, index === 0);
+                });
+                
+                // Change button text and add cancel button
+                savePuzzleBtn.textContent = 'Update Puzzle';
+                
+                // Add cancel button if it doesn't exist
+                if (!document.getElementById('cancelEditBtn')) {
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.id = 'cancelEditBtn';
+                    cancelBtn.textContent = 'Cancel Edit';
+                    cancelBtn.style.marginLeft = '10px';
+                    cancelBtn.addEventListener('click', cancelEdit);
+                    savePuzzleBtn.parentNode.insertBefore(cancelBtn, savePuzzleBtn.nextSibling);
+                }
+                
+                // Scroll to the top of the form
+                document.querySelector('h3').scrollIntoView({ behavior: 'smooth' });
+                
+                // Show status
+                showStatus('Editing puzzle: ' + (puzzle.name || 'Unnamed Puzzle'), 'success');
+            }).catch((error) => {
+                console.error("Error loading puzzle for editing:", error);
+                showStatus(`Error loading puzzle: ${error.message}`, 'error');
+            });
+        }
+        
+        // Cancel editing
+        function cancelEdit() {
+            isEditMode = false;
+            currentEditPuzzleId = null;
+            
+            // Reset form
+            puzzleName.value = '';
+            puzzleDate.value = formattedDate; // Reset to today
+            ladderEntries.innerHTML = '';
+            
+            // Reset button text
+            savePuzzleBtn.textContent = 'Save Puzzle';
+            
+            // Remove cancel button
+            const cancelBtn = document.getElementById('cancelEditBtn');
+            if (cancelBtn) {
+                cancelBtn.remove();
+            }
+            
+            showStatus('Edit canceled', 'success');
+        }
+        
+        // Modify the save puzzle function to handle both new and edit
         savePuzzleBtn.addEventListener('click', () => {
             // Get puzzle name and date
             const name = puzzleName.value.trim();
@@ -648,25 +732,54 @@
                 date,
                 ladder,
                 available: true,
-                created: new Date().toISOString()
+                modified: new Date().toISOString()
             };
             
-            // Save to Firebase
-            const puzzlesRef = ref(db, 'games/vine/puzzles');
-            const newPuzzleRef = push(puzzlesRef);
+            // If it's a new puzzle, add created timestamp
+            if (!isEditMode) {
+                puzzle.created = new Date().toISOString();
+            }
             
-            set(newPuzzleRef, puzzle)
+            let puzzleRef;
+            let successMessage;
+            
+            if (isEditMode) {
+                // Update existing puzzle
+                puzzleRef = ref(db, `games/vine/puzzles/${currentEditPuzzleId}`);
+                successMessage = 'Puzzle updated successfully!';
+            } else {
+                // Create new puzzle
+                puzzleRef = push(ref(db, 'games/vine/puzzles'));
+                successMessage = 'Puzzle saved successfully!';
+            }
+            
+            // Save to Firebase
+            set(puzzleRef, puzzle)
                 .then(() => {
-                    console.log("Puzzle saved:", newPuzzleRef.key);
-                    showStatus('Puzzle saved successfully!', 'success');
+                    console.log(isEditMode ? "Puzzle updated:" : "Puzzle saved:", isEditMode ? currentEditPuzzleId : puzzleRef.key);
+                    showStatus(successMessage, 'success');
                     
-                    // Clear form
+                    // Reset form
                     puzzleName.value = '';
+                    puzzleDate.value = formattedDate; // Reset to today
                     ladderEntries.innerHTML = '';
                     
-                    // Ask if they want to set this as the active puzzle
-                    if (confirm('Do you want to set this as the active puzzle?')) {
-                        setActivePuzzle(newPuzzleRef.key);
+                    // Reset edit mode
+                    if (isEditMode) {
+                        isEditMode = false;
+                        currentEditPuzzleId = null;
+                        savePuzzleBtn.textContent = 'Save Puzzle';
+                        
+                        // Remove cancel button
+                        const cancelBtn = document.getElementById('cancelEditBtn');
+                        if (cancelBtn) {
+                            cancelBtn.remove();
+                        }
+                    } else {
+                        // Ask if they want to set this as the active puzzle
+                        if (confirm('Do you want to set this as the active puzzle?')) {
+                            setActivePuzzle(puzzleRef.key);
+                        }
                     }
                 })
                 .catch((error) => {
