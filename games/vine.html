@@ -315,6 +315,34 @@
         font-size: 16px;
       }
     }
+    
+    /* Navigation buttons */
+    .navigation-buttons {
+      display: flex;
+      justify-content: space-between;
+      margin: 15px 0;
+    }
+    
+    .nav-button {
+      padding: 8px 15px;
+      background-color: #2E7D32;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    
+    .nav-button:hover:not(:disabled) {
+      background-color: #1B5E20;
+    }
+    
+    .nav-button:disabled {
+      background-color: #A5D6A7;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
   </style>
 </head>
 <body>
@@ -354,6 +382,11 @@
       
       <div id="puzzleContainer" style="display: none;">
         <div id="dateDisplay" class="date-display"></div>
+        
+        <div class="navigation-buttons">
+          <button id="prevButton" class="nav-button" disabled>← Previous</button>
+          <button id="nextButton" class="nav-button" disabled>Next →</button>
+        </div>
         
         <div id="wordLadder" class="word-ladder">
           <!-- Word ladder rungs will be generated here -->
@@ -462,6 +495,8 @@
     const finalScore = document.getElementById('finalScore');
     const completionMessage = document.getElementById('completionMessage');
     const shareButton = document.getElementById('shareButton');
+    const prevButton = document.getElementById('prevButton');
+    const nextButton = document.getElementById('nextButton');
     
     // Game state
     let currentPuzzle = null;
@@ -470,6 +505,11 @@
     let currentScore = 10; // Start with 10 points
     let solvedPositions = new Set();
     let hasCompleted = false;
+    let startTime = null;
+    let endTime = null;
+    let mistakeCount = 0;
+    let puzzleHistory = [];
+    let currentPuzzleIndex = -1;
     
     // Check if user is logged in
     onAuthStateChanged(auth, (user) => {
@@ -549,8 +589,25 @@
               return;
             }
             
+            // Check if puzzle is available
+            if (currentPuzzle.available === false) {
+              // Puzzle is explicitly marked as unavailable
+              console.log("Active puzzle is unavailable");
+              loadingMessage.style.display = 'none';
+              noPuzzleMessage.style.display = 'block';
+              noPuzzleMessage.innerHTML = `
+                <div class="emoji">🌿</div>
+                <p>Today's word ladder is not available right now. Please check back later!</p>
+              `;
+              puzzleContainer.style.display = 'none';
+              return;
+            }
+            
             // Ensure ID is set on the puzzle object
             currentPuzzle.id = activePuzzleId;
+            
+            // Load puzzle history for navigation
+            await loadPuzzleHistory();
             
             // Initialize user progress
             initializeUserProgress();
@@ -605,12 +662,107 @@
       }
     }
     
+    // Load puzzle history
+    async function loadPuzzleHistory() {
+      try {
+        // Get all puzzles
+        const puzzlesRef = ref(db, 'games/vine/puzzles');
+        const puzzlesSnapshot = await get(puzzlesRef);
+        const puzzles = puzzlesSnapshot.val() || {};
+        
+        // Convert to array and add IDs
+        puzzleHistory = Object.entries(puzzles).map(([id, puzzle]) => {
+          return { ...puzzle, id };
+        });
+        
+        // Filter to only include available puzzles or the active one
+        puzzleHistory = puzzleHistory.filter(puzzle => 
+          puzzle.id === currentPuzzle.id || puzzle.available !== false
+        );
+        
+        // Sort by date (oldest first so previous means older)
+        puzzleHistory.sort((a, b) => {
+          const dateA = a.date ? new Date(a.date) : new Date(0);
+          const dateB = b.date ? new Date(b.date) : new Date(0);
+          return dateA - dateB; // Oldest first
+        });
+        
+        // Find current puzzle index
+        currentPuzzleIndex = puzzleHistory.findIndex(p => p.id === currentPuzzle.id);
+        
+        // Update navigation buttons
+        updateNavigationButtons();
+      } catch (error) {
+        console.error("Error loading puzzle history:", error);
+      }
+    }
+    
+    // Update navigation buttons
+    function updateNavigationButtons() {
+      // Enable/disable previous button (older puzzles)
+      prevButton.disabled = currentPuzzleIndex <= 0;
+      
+      // Enable/disable next button (newer puzzles)
+      nextButton.disabled = currentPuzzleIndex >= puzzleHistory.length - 1;
+      
+      // Set up click handlers
+      prevButton.onclick = () => {
+        if (currentPuzzleIndex > 0) {
+          navigateToPuzzle(currentPuzzleIndex - 1);
+        }
+      };
+      
+      nextButton.onclick = () => {
+        if (currentPuzzleIndex < puzzleHistory.length - 1) {
+          navigateToPuzzle(currentPuzzleIndex + 1);
+        }
+      };
+    }
+    
+    // Navigate to a puzzle by index
+    function navigateToPuzzle(index) {
+      if (index < 0 || index >= puzzleHistory.length) {
+        return;
+      }
+      
+      // Save current index and puzzle
+      currentPuzzleIndex = index;
+      currentPuzzle = puzzleHistory[index];
+      
+      // Reset game state
+      hasCompleted = false;
+      completionMessage.style.display = 'none';
+      answerForm.style.display = 'flex';
+      
+      // Initialize user progress for the new puzzle
+      initializeUserProgress();
+      
+      // Update date display
+      if (currentPuzzle.date) {
+        const date = new Date(currentPuzzle.date);
+        const options = { year: 'numeric', month: 'long', day: 'numeric' };
+        const formattedDate = date.toLocaleDateString(undefined, options);
+        dateDisplay.textContent = formattedDate;
+        dateDisplay.style.display = 'block';
+      } else {
+        dateDisplay.style.display = 'none';
+      }
+      
+      // Update the display
+      displayWordLadder();
+      
+      // Update navigation buttons
+      updateNavigationButtons();
+    }
+    
     // Initialize user progress from localStorage or Firebase
     async function initializeUserProgress() {
       // Reset game state
       userProgress = Array(currentPuzzle.ladder.length).fill(null);
       solvedPositions = new Set();
       hasCompleted = false;
+      startTime = Date.now();
+      mistakeCount = 0;
       
       // Start with first word already filled
       userProgress[0] = currentPuzzle.ladder[0].word;
@@ -621,6 +773,7 @@
       const savedProgress = localStorage.getItem(storageKey);
       const savedScore = localStorage.getItem(`vine_score_${currentPuzzle.id}`);
       const savedCompleted = localStorage.getItem(`vine_completed_${currentPuzzle.id}`);
+      const savedMistakes = localStorage.getItem(`vine_mistakes_${currentPuzzle.id}`);
       
       if (savedProgress) {
         // Restore progress from localStorage
@@ -637,9 +790,15 @@
           currentScore = parseInt(savedScore, 10);
         }
         
+        // Restore mistake count
+        if (savedMistakes) {
+          mistakeCount = parseInt(savedMistakes, 10);
+        }
+        
         // Check if already completed
         if (savedCompleted === 'true') {
           hasCompleted = true;
+          endTime = Date.now(); // Just a placeholder since we don't have the actual end time
           showCompletionMessage();
         }
       }
@@ -753,6 +912,7 @@
         
         // Check if all words are solved
         if (solvedPositions.size === currentPuzzle.ladder.length) {
+          endTime = Date.now();
           hasCompleted = true;
           localStorage.setItem(`vine_completed_${currentPuzzle.id}`, 'true');
           showCompletionMessage();
@@ -760,10 +920,12 @@
       } else {
         // Deduct point for incorrect answer
         currentScore = Math.max(0, currentScore - 1);
+        mistakeCount++;
         scoreDisplay.textContent = currentScore;
         
         // Save score
         localStorage.setItem(`vine_score_${currentPuzzle.id}`, currentScore.toString());
+        localStorage.setItem(`vine_mistakes_${currentPuzzle.id}`, mistakeCount.toString());
         
         // Show error message
         showStatus('Incorrect! Try again. (-1 point)', 'incorrect');
@@ -795,16 +957,50 @@
       answerForm.style.display = 'none';
       finalScore.textContent = currentScore;
       
+      // Calculate time taken
+      const timeTaken = endTime - startTime;
+      const seconds = Math.floor(timeTaken / 1000);
+      
+      // Add time and mistakes to the completion message
+      const statsElement = document.createElement('p');
+      statsElement.innerHTML = `You solved this puzzle with <strong>${mistakeCount}</strong> mistakes in <strong>${formatTime(seconds)}</strong>`;
+      
+      // Insert after the first paragraph in the completion message
+      const firstParagraph = completionMessage.querySelector('p');
+      if (firstParagraph && firstParagraph.nextSibling) {
+        completionMessage.insertBefore(statsElement, firstParagraph.nextSibling);
+      } else {
+        completionMessage.appendChild(statsElement);
+      }
+      
       // Set up share functionality
       setupShareButton();
+      
+      // Update localStorage with the completion data
+      localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
+    }
+    
+    // Format time in minutes and seconds
+    function formatTime(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${minutes}m ${seconds}s`;
     }
     
     // Set up share button
     function setupShareButton() {
-      shareButton.addEventListener('click', () => {
-        // Create shareable text
-        const shareText = createShareText();
-        
+      // Create share text
+      const shareText = createShareText();
+      
+      // Create a stylized copyable element
+      const { container, shareBtn, textElement } = createCopyableResult(shareText);
+      
+      // Replace the existing share button
+      shareButton.innerHTML = '';
+      shareButton.appendChild(container);
+      
+      // Set up click handler on the new share button
+      shareBtn.addEventListener('click', () => {
         // On mobile, use the native share functionality if available
         if (navigator.share && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
           navigator.share({
@@ -816,11 +1012,11 @@
           .catch((error) => {
             console.error('Error sharing:', error);
             // Fallback to copy
-            copyToClipboard(shareText);
+            copyToClipboard(shareText, shareBtn);
           });
         } else {
           // On desktop, just copy to clipboard
-          copyToClipboard(shareText);
+          copyToClipboard(shareText, shareBtn);
         }
       });
     }
@@ -834,53 +1030,133 @@
         dateStr = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
       }
       
+      // Get time taken
+      const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
+      const timeTaken = savedTimeStr ? parseInt(savedTimeStr, 10) : 0;
+      
       // Create emoji representation of the word ladder
       const ladderEmoji = currentPuzzle.ladder.map((rung, index) => {
         return solvedPositions.has(index) ? '🟩' : '⬜';
       }).join('');
       
-      return `Vine Word Ladder ${dateStr}\n\nI completed today's word ladder with a score of ${currentScore}!\n\n${ladderEmoji}\n\neviltrivia.com/games/vine`;
+      // Build the share text
+      let shareText = `🌿 Word Vine 🌿\n`;
+      if (currentPuzzle.name) {
+        shareText += `${currentPuzzle.name}\n\n`;
+      } else {
+        shareText += `\n`;
+      }
+      
+      shareText += `I solved this word ladder with ${mistakeCount} mistakes in ${formatTime(timeTaken)}!\n\n`;
+      
+      // Add emoji boxes
+      shareText += `${ladderEmoji}\n\n`;
+      
+      // Add URL
+      shareText += `eviltrivia.com/games/vine`;
+      
+      return shareText;
+    }
+    
+    // Create a stylized copyable element
+    function createCopyableResult(shareText) {
+      const resultContainer = document.createElement('div');
+      resultContainer.className = 'copyable-result';
+      resultContainer.style.cssText = `
+        margin: 20px auto;
+        max-width: 400px;
+        padding: 20px;
+        background-color: #f8f8f8;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        text-align: left;
+        position: relative;
+        font-family: monospace;
+        white-space: pre-wrap;
+        font-size: 14px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+      `;
+      
+      // Add the share button
+      const shareBtn = document.createElement('button');
+      shareBtn.className = 'share-button';
+      shareBtn.style.cssText = `
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background-color: #2E7D32;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 6px 10px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        font-size: 12px;
+        opacity: 0.9;
+        transition: all 0.2s;
+      `;
+      shareBtn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+          <polyline points="16 6 12 2 8 6"></polyline>
+          <line x1="12" y1="2" x2="12" y2="15"></line>
+        </svg>
+        <span>Share</span>
+      `;
+      
+      // Add the text content
+      const textElement = document.createElement('div');
+      textElement.innerText = shareText;
+      
+      // Assemble
+      resultContainer.appendChild(shareBtn);
+      resultContainer.appendChild(textElement);
+      
+      return { container: resultContainer, shareBtn, textElement };
     }
     
     // Copy text to clipboard and show feedback
-    function copyToClipboard(text) {
+    function copyToClipboard(text, button) {
       navigator.clipboard.writeText(text)
         .then(() => {
-          shareButton.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          button.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20 6L9 17l-5-5"/>
             </svg>
-            Copied!
+            <span>Copied!</span>
           `;
           setTimeout(() => {
-            shareButton.innerHTML = `
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            button.innerHTML = `
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
                 <polyline points="16 6 12 2 8 6"></polyline>
                 <line x1="12" y1="2" x2="12" y2="15"></line>
               </svg>
-              Share Results
+              <span>Share</span>
             `;
           }, 2000);
         })
         .catch(err => {
           console.error('Failed to copy text: ', err);
-          shareButton.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          button.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"></circle>
               <line x1="12" y1="8" x2="12" y2="12"></line>
               <line x1="12" y1="16" x2="12.01" y2="16"></line>
             </svg>
-            Error
+            <span>Error</span>
           `;
           setTimeout(() => {
-            shareButton.innerHTML = `
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            button.innerHTML = `
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
                 <polyline points="16 6 12 2 8 6"></polyline>
                 <line x1="12" y1="2" x2="12" y2="15"></line>
               </svg>
-              Share Results
+              <span>Share</span>
             `;
           }, 2000);
         });
