@@ -261,15 +261,15 @@
         // Check if user is logged in
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                // Check if admin
-                const userEmail = user.email;
-                const adminEmailsRef = ref(db, 'adminEmails');
+                console.log("User logged in with UID:", user.uid);
                 
-                get(adminEmailsRef).then((snapshot) => {
-                    const adminEmails = snapshot.val() || {};
+                // Check admin status the same way other admin pages do
+                const userRef = ref(db, `users/${user.uid}`);
+                get(userRef).then((snapshot) => {
+                    const userData = snapshot.val() || {};
                     
-                    // Check if user's email is in the admin list
-                    if (Object.values(adminEmails).includes(userEmail)) {
+                    if (userData.admin === true) {
+                        console.log("Admin access granted via user record");
                         // User is admin
                         authMessage.style.display = 'none';
                         adminPanel.style.display = 'block';
@@ -280,6 +280,7 @@
                         // Get active puzzle
                         getActivePuzzle();
                     } else {
+                        console.log("User is not an admin");
                         // Not admin
                         authMessage.innerHTML = 'You do not have admin privileges.';
                     }
@@ -303,6 +304,9 @@
                 
                 // Update UI to highlight the active puzzle
                 updatePuzzleList();
+            }, (error) => {
+                console.error("Error getting active puzzle:", error);
+                authMessage.innerHTML = `Error accessing database: ${error.message}`;
             });
         }
         
@@ -311,9 +315,13 @@
             const puzzlesRef = ref(db, 'games/vine/puzzles');
             onValue(puzzlesRef, (snapshot) => {
                 const puzzles = snapshot.val() || {};
+                console.log("Puzzles loaded successfully");
                 
                 // Update the puzzles list
                 updatePuzzleList(puzzles);
+            }, (error) => {
+                console.error("Error loading puzzles:", error);
+                authMessage.innerHTML = `Error loading puzzles: ${error.message}`;
             });
         }
         
