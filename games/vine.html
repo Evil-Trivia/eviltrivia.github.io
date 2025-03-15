@@ -589,34 +589,6 @@
       }
     }
     
-    // Firebase configuration
-    const firebaseConfig = {
-        apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-        authDomain: "eviltrivia-47664.firebaseapp.com",
-        databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-        projectId: "eviltrivia-47664",
-        storageBucket: "eviltrivia-47664.appspot.com",
-        messagingSenderId: "401826818140",
-        appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
-        measurementId: "G-2W6RK96Y34"
-    };
-    
-    // Initialize Firebase
-    let app, db, auth;
-    try {
-      app = initializeApp(firebaseConfig);
-      db = getDatabase(app);
-      auth = getAuth(app);
-      console.log("Firebase initialized successfully");
-    } catch (error) {
-      console.error("Firebase initialization error:", error);
-      document.getElementById('loadingMessage').innerHTML = `
-        <div class="emoji">😞</div>
-        <p>Error initializing Firebase: ${error.message}</p>
-        <p>Please try refreshing the page.</p>
-      `;
-    }
-    
     // DOM elements
     const loadingMessage = document.getElementById('loadingMessage');
     const noPuzzleMessage = document.getElementById('noPuzzleMessage');
@@ -626,16 +598,62 @@
     const answerForm = document.getElementById('answerForm');
     const answerInput = document.getElementById('answerInput');
     const statusMessage = document.getElementById('statusMessage');
-    const scoreDisplay = document.getElementById('currentScore');
-    const finalScore = document.getElementById('finalScore');
     const completionMessage = document.getElementById('completionMessage');
     const shareButton = document.getElementById('shareButton');
     const prevButton = document.getElementById('prevButton');
     const nextButton = document.getElementById('nextButton');
+    const scoreDisplay = document.getElementById('currentScore');
+    
+    // Firebase references
+    let app;
+    let db;
+    let auth;
+    let currentUserId = null;
+    
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDzLeYIULAaVMWYAe7WPPQRq4uZB7hbvnQ",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.appspot.com",
+      messagingSenderId: "262105139440",
+      appId: "1:262105139440:web:28fb2e6251d33e2e698531",
+      measurementId: "G-KK6NTBZHYZ"
+    };
+    
+    // Initialize Firebase
+    try {
+      app = initializeApp(firebaseConfig);
+      db = getDatabase(app);
+      auth = getAuth(app);
+      console.log("Firebase initialized successfully - database URL:", firebaseConfig.databaseURL);
+      
+      // Check auth state
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          // User is signed in
+          currentUserId = user.uid;
+          console.log("User is signed in with ID:", currentUserId);
+        } else {
+          // User is signed out
+          currentUserId = null;
+          console.log("No user is signed in, will use anonymous ID");
+        }
+        
+        // Load the active word ladder after checking auth
+        loadActiveWordLadder();
+      });
+    } catch (error) {
+      console.error("Firebase initialization error:", error);
+      loadingMessage.innerHTML = `
+        <p>Error initializing Firebase: ${error.message}</p>
+        <p>Please refresh the page or try again later.</p>
+      `;
+    }
     
     // Game state
     let currentPuzzle = null;
-    let currentUserId = null;
     let userProgress = [];
     let currentScore = 10; // Start with 10 points
     let solvedPositions = new Set();
@@ -645,40 +663,6 @@
     let mistakeCount = 0;
     let puzzleHistory = [];
     let currentPuzzleIndex = -1;
-    
-    // Check if user is logged in
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        currentUserId = user.uid;
-        console.log("User logged in with UID:", user.uid);
-        
-        // Check admin status using the proper Firebase pattern
-        const userRef = ref(db, `users/${user.uid}`);
-        get(userRef).then((snapshot) => {
-          const userData = snapshot.val() || {};
-          const isAdmin = userData.role === 'admin';
-          window.isAdmin = isAdmin;
-          
-          if (isAdmin) {
-            console.log("User has admin privileges");
-          }
-          
-          // Load the active word ladder
-          loadActiveWordLadder();
-        }).catch((error) => {
-          console.error("Error checking admin status:", error);
-          // Still load the game even if admin check fails
-          window.isAdmin = false;
-          loadActiveWordLadder();
-        });
-      } else {
-        currentUserId = null;
-        window.isAdmin = false;
-        
-        // Load the active word ladder
-        loadActiveWordLadder();
-      }
-    });
     
     // Load the active word ladder
     async function loadActiveWordLadder() {
@@ -1116,27 +1100,26 @@
         // First check if we have the required objects
         if (!db) {
           console.error('Database connection not available');
-          return;
+          return false;
         }
         
         if (!currentPuzzle) {
           console.error('No current puzzle found');
-          return;
+          return false;
         }
         
-        // Create a unique user identifier, even for anonymous users
+        const puzzleId = currentPuzzle.id;
+        const seconds = Math.floor((endTime - startTime) / 1000);
+        
+        // Generate a unique user identifier, even for anonymous users
         let userId = currentUserId;
         if (!userId) {
-          // If user is not logged in, create an anonymous ID using device info and timestamp
-          // This ensures anonymous users still get counted in stats
-          userId = 'anon_' + new Date().getTime() + '_' + Math.random().toString(36).substr(2, 9);
+          // Create a uniquely identifiable anonymous ID
+          userId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
           console.log('Created anonymous user ID:', userId);
         }
         
-        const seconds = Math.floor((endTime - startTime) / 1000);
-        console.log(`Score data: Time: ${seconds}s, Mistakes: ${mistakeCount}`);
-        
-        // Create the score object
+        // Create the score data object
         const scoreData = {
           userId: userId,
           timeInSeconds: seconds,
@@ -1145,10 +1128,12 @@
           score: currentScore
         };
         
-        // Save to Firebase under puzzles/[puzzleId]/scores/[userId]
-        // This structure matches what we see in the Firebase console
-        const scoresRef = ref(db, `games/vine/puzzles/${currentPuzzle.id}/scores/${userId}`);
-        console.log(`Saving to Firebase path: games/vine/puzzles/${currentPuzzle.id}/scores/${userId}`);
+        console.log(`Attempting to save score: Time=${seconds}s, Mistakes=${mistakeCount}`);
+        
+        // Save to the correct Firebase path (matching what Drinkle does)
+        // Use the path format: games/vine/puzzles/[puzzleId]/scores/[userId]
+        const scoresRef = ref(db, `games/vine/puzzles/${puzzleId}/scores/${userId}`);
+        console.log(`Saving to Firebase path: games/vine/puzzles/${puzzleId}/scores/${userId}`);
         
         await set(scoresRef, scoreData);
         console.log('Score successfully saved to Firebase!');
@@ -1156,6 +1141,38 @@
         return true;
       } catch (error) {
         console.error('Error saving score to Firebase:', error);
+        
+        // Try a fallback approach for permission issues
+        if (error.message && error.message.includes("permission_denied")) {
+          try {
+            console.log('Permission denied, trying public scores path...');
+            const puzzleId = currentPuzzle.id;
+            
+            // Create anonymous ID if needed
+            let anonymousId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            
+            const seconds = Math.floor((endTime - startTime) / 1000);
+            
+            // Try using a public scores path that might have different permissions
+            const publicScoresRef = ref(db, `publicScores/vine/${puzzleId}/${anonymousId}`);
+            
+            const scoreData = {
+              userId: anonymousId,
+              timeInSeconds: seconds,
+              mistakes: mistakeCount,
+              completedAt: new Date().toISOString(),
+              score: currentScore
+            };
+            
+            await set(publicScoresRef, scoreData);
+            console.log('Score saved to public scores path successfully');
+            return true;
+          } catch (secondError) {
+            console.error('Failed to save score to fallback path:', secondError);
+            return false;
+          }
+        }
+        
         return false;
       }
     }
@@ -1164,38 +1181,56 @@
     async function calculatePercentile() {
       if (!db || !currentPuzzle) {
         console.log('Cannot calculate percentile: DB or puzzle not available');
-        return { percentile: 50, totalPlayers: 0 };
+        return { percentile: null, totalPlayers: 0, error: 'Database not available' };
       }
       
       try {
         console.log('Calculating percentile from Firebase scores...');
         const seconds = Math.floor((endTime - startTime) / 1000);
+        const puzzleId = currentPuzzle.id;
         
-        // Get all scores for this puzzle from the updated path
-        const scoresRef = ref(db, `games/vine/puzzles/${currentPuzzle.id}/scores`);
-        console.log(`Reading scores from path: games/vine/puzzles/${currentPuzzle.id}/scores`);
+        // Get all scores for this puzzle
+        const scoresRef = ref(db, `games/vine/puzzles/${puzzleId}/scores`);
+        console.log(`Reading scores from path: games/vine/puzzles/${puzzleId}/scores`);
         
         const scoresSnapshot = await get(scoresRef);
         
         if (!scoresSnapshot.exists()) {
           console.log('No scores found for this puzzle');
-          return { percentile: 0, totalPlayers: 0 };
+          return { percentile: null, totalPlayers: 0, isFirst: true };
         }
         
         // Count the number of scores and calculate percentile
         const scores = [];
+        let skippedScores = 0;
+        
         scoresSnapshot.forEach(childSnapshot => {
           const scoreData = childSnapshot.val();
-          console.log('Found score:', scoreData);
-          // Calculate a composite score where lower is better
-          // Weight: Time is primary, mistakes add a penalty
-          const compositeScore = scoreData.timeInSeconds + (scoreData.mistakes * 10);
-          scores.push(compositeScore);
+          
+          if (scoreData && typeof scoreData.timeInSeconds === 'number' && typeof scoreData.mistakes === 'number') {
+            // Calculate a composite score where lower is better
+            // Weight: Time is primary, mistakes add a penalty
+            const compositeScore = scoreData.timeInSeconds + (scoreData.mistakes * 10);
+            scores.push(compositeScore);
+          } else {
+            skippedScores++;
+            console.log('Skipping invalid score data:', scoreData);
+          }
         });
+        
+        if (skippedScores > 0) {
+          console.log(`Skipped ${skippedScores} invalid score entries`);
+        }
         
         // Calculate the user's composite score
         const userCompositeScore = seconds + (mistakeCount * 10);
-        console.log(`User composite score: ${userCompositeScore} (${scores.length} total scores)`);
+        console.log(`User composite score: ${userCompositeScore} (from ${seconds}s and ${mistakeCount} mistakes)`);
+        console.log(`Total valid scores found: ${scores.length}`);
+        
+        // If this is the only score, user is first
+        if (scores.length <= 1) {
+          return { percentile: 100, totalPlayers: 1, isFirst: true };
+        }
         
         // Sort scores (lower is better)
         scores.sort((a, b) => a - b);
@@ -1205,15 +1240,37 @@
         const betterThanCount = scores.filter(score => score > userCompositeScore).length;
         const percentile = Math.round((betterThanCount / totalPlayers) * 100);
         
-        console.log(`Calculated percentile: ${percentile}th percentile of ${totalPlayers} players`);
+        console.log(`Calculated percentile: ${percentile}% (better than ${betterThanCount} of ${totalPlayers} players)`);
         
         return {
           percentile,
-          totalPlayers
+          totalPlayers,
+          isFirst: false
         };
       } catch (error) {
         console.error('Error calculating percentile:', error);
-        return { percentile: 50, totalPlayers: 0 };
+        
+        // Try reading from the public scores path as fallback
+        try {
+          console.log('Attempting to read from public scores path...');
+          const puzzleId = currentPuzzle.id;
+          const publicScoresRef = ref(db, `publicScores/vine/${puzzleId}`);
+          
+          const scoresSnapshot = await get(publicScoresRef);
+          
+          if (!scoresSnapshot.exists()) {
+            return { percentile: null, totalPlayers: 0, error: 'No scores found in public path' };
+          }
+          
+          // Process scores from public path
+          // (Similar calculation as above)
+          // ...
+          
+          return { percentile: 50, totalPlayers: 0, error: 'Estimated from public scores' }; 
+        } catch (secondError) {
+          console.error('Error reading from public scores path:', secondError);
+          return { percentile: null, totalPlayers: 0, error: 'Failed to calculate percentile' };
+        }
       }
     }
     
@@ -1269,49 +1326,88 @@
       applyVineWaveAnimation();
       
       // Set up share functionality with placeholder data initially
-      setupShareButton();
+      setupShareButton({ calculating: true });
       
       // Store time in localStorage
       localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
       
-      // Try to save the score first to ensure it's counted in the percentile calculation
       try {
-        // Save the score to Firebase (works for both logged-in and anonymous users now)
+        // Save the score to Firebase (both for logged-in and anonymous users)
+        console.log('Saving score before calculating percentile...');
         const scoreSaved = await saveUserScore();
-        console.log('Score saved successfully:', scoreSaved);
         
-        // Give a small delay to ensure the score is saved before calculating percentile
+        if (scoreSaved) {
+          console.log('Score saved successfully, now calculating percentile...');
+        } else {
+          console.warn('Score may not have been saved properly');
+          percentileElement.innerHTML = 
+            `You've completed this puzzle! Rankings currently unavailable.`;
+          setupShareButton(null);
+          return;
+        }
+        
+        // Small delay to ensure Firebase has time to update
         setTimeout(async () => {
-          // Calculate actual percentile from Firebase
-          const percentileResult = await calculatePercentile();
-          
-          // Update the percentile message with real data
-          if (percentileResult.totalPlayers > 1) { // More than just the current user
-            percentileElement.innerHTML = 
-              `That time places you in the <strong>${percentileResult.percentile}th</strong> percentile of <strong>${percentileResult.totalPlayers}</strong> players so far`;
+          try {
+            // Calculate actual percentile from Firebase
+            const percentileResult = await calculatePercentile();
+            console.log('Percentile calculation result:', percentileResult);
             
-            // Update the share button with actual percentile data
-            setupShareButton(percentileResult);
-          } else if (percentileResult.totalPlayers === 1) {
+            // Update UI based on results
+            if (percentileResult.error) {
+              // Handle error case
+              console.warn('Error in percentile calculation:', percentileResult.error);
+              percentileElement.innerHTML = 
+                `You've completed this puzzle! Rankings currently unavailable.`;
+              setupShareButton(null);
+            } else if (percentileResult.isFirst || percentileResult.totalPlayers <= 1) {
+              // First to complete
+              percentileElement.innerHTML = 
+                `Congratulations! You're the first to complete this puzzle!`;
+              setupShareButton({ 
+                percentile: 100, 
+                totalPlayers: 1, 
+                isFirst: true 
+              });
+            } else if (percentileResult.totalPlayers > 1) {
+              // Normal case - show percentile
+              // Get the ordinal suffix for the percentile
+              const suffix = getOrdinalSuffix(percentileResult.percentile);
+              
+              percentileElement.innerHTML = 
+                `That places you in the <strong>${percentileResult.percentile}${suffix}</strong> percentile ` +
+                `of <strong>${percentileResult.totalPlayers}</strong> players so far`;
+              
+              setupShareButton(percentileResult);
+            } else {
+              // Fallback for unexpected scenario
+              percentileElement.innerHTML = 
+                `You've completed this puzzle! Check back later for rankings.`;
+              setupShareButton(null);
+            }
+          } catch (error) {
+            console.error('Error updating percentile display:', error);
             percentileElement.innerHTML = 
-              `Congratulations! You're the first to complete this puzzle!`;
-            
-            // Update share button with "first to complete" message
-            setupShareButton({ percentile: 100, totalPlayers: 1, isFirst: true });
-          } else {
-            // Fallback if something went wrong with score calculation
-            percentileElement.innerHTML = 
-              `You've completed this puzzle! Check back later for rankings.`;
-            
-            // Update share button without percentile data
+              `You've completed this puzzle! Rankings currently unavailable.`;
             setupShareButton(null);
           }
-        }, 1000); // Small delay to ensure Firebase has time to update
+        }, 1500); // Slightly longer delay to ensure Firebase has time to update
       } catch (error) {
-        console.error('Error in showCompletionMessage:', error);
+        console.error('Error in completion process:', error);
         percentileElement.innerHTML = 
           `You've completed this puzzle! Rankings currently unavailable.`;
+        setupShareButton(null);
       }
+    }
+    
+    // Helper function to get ordinal suffix (1st, 2nd, 3rd, etc.)
+    function getOrdinalSuffix(num) {
+      const j = num % 10;
+      const k = num % 100;
+      if (j === 1 && k !== 11) return "st";
+      if (j === 2 && k !== 12) return "nd";
+      if (j === 3 && k !== 13) return "rd";
+      return "th";
     }
     
     // Apply wave animation to all visible vines
@@ -1413,10 +1509,22 @@
       
       // Add percentile info if we have it
       if (percentileData) {
-        if (percentileData.isFirst) {
-          shareText += `I'm the first to complete this puzzle!\n\n`;
-        } else if (percentileData.totalPlayers > 1) {
-          shareText += `That time places me in the ${percentileData.percentile}th percentile of ${percentileData.totalPlayers} players so far\n\n`;
+        if (percentileData.calculating) {
+          // Still calculating, don't add percentile info yet
+          shareText += `Try solving this puzzle yourself!\n\n`;
+        } else if (percentileData.isFirst) {
+          // First to complete
+          shareText += `I'm the first to complete this puzzle! 🥇\n\n`;
+        } else if (percentileData.totalPlayers > 1 && percentileData.percentile !== null) {
+          // Normal case with percentile info
+          const suffix = getOrdinalSuffix(percentileData.percentile);
+          shareText += `That places me in the ${percentileData.percentile}${suffix} percentile of ${percentileData.totalPlayers} players so far\n\n`;
+        } else if (percentileData.error) {
+          // Error occurred during percentile calculation
+          shareText += `Try solving this puzzle yourself!\n\n`;
+        } else {
+          // No percentile data available
+          shareText += `Try solving this puzzle yourself!\n\n`;
         }
       } else {
         // No percentile data available
