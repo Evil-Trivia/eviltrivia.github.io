@@ -672,7 +672,7 @@
         }
         
         console.log("Starting to load active word ladder");
-        const activeWordLadderRef = ref(db, 'vine/activePuzzle');
+        const activeWordLadderRef = ref(db, 'games/vine/activePuzzle');
         
         onValue(activeWordLadderRef, async (snapshot) => {
           try {
@@ -691,7 +691,7 @@
             console.log("Active puzzle ID:", activePuzzleId);
             
             // Get the puzzle details
-            const puzzleRef = ref(db, `vine/puzzles/${activePuzzleId}`);
+            const puzzleRef = ref(db, `games/vine/puzzles/${activePuzzleId}`);
             const puzzleSnapshot = await get(puzzleRef);
             currentPuzzle = puzzleSnapshot.val();
             
@@ -785,7 +785,7 @@
     async function loadPuzzleHistory() {
       try {
         // Get all puzzles
-        const puzzlesRef = ref(db, 'vine/puzzles');
+        const puzzlesRef = ref(db, 'games/vine/puzzles');
         const puzzlesSnapshot = await get(puzzlesRef);
         const puzzles = puzzlesSnapshot.val() || {};
         
@@ -1448,6 +1448,18 @@
           debugHeading.style.fontSize = '14px';
           debugContainer.appendChild(debugHeading);
           
+          // Add Firebase rules info
+          const rulesInfo = document.createElement('div');
+          rulesInfo.innerHTML = `
+            <strong>Firebase Access:</strong>
+            <ul style="margin: 5px 0; padding-left: 20px; font-size: 11px;">
+              <li>READ access: games/vine/* (allowed for all users)</li>
+              <li>WRITE access: games/vine/answers/* (allowed for all users)</li>
+              <li>WRITE access: publicAnswers/* (allowed for all users)</li>
+            </ul>
+          `;
+          debugContainer.appendChild(rulesInfo);
+          
           // Add database path info
           const pathInfo = document.createElement('p');
           pathInfo.textContent = `Database Path: games/vine/answers/${currentPuzzle.id}/scores/${currentUserId || localStorage.getItem('vine_anon_user_id') || 'anonymous'}`;
@@ -1939,18 +1951,41 @@
       const timestamp = Date.now();
       const testData = { test: true, timestamp };
       
-      // Paths to test based on Firebase rules
-      const pathsToTest = [
-        `games/vine/answers/${puzzleId}/scores/${userId}_test`,
-        `publicAnswers/vine/${puzzleId}/scores/${userId}_test`,
-        `games/vine/answers/scores/${userId}_test`, // Alternative structures
-        `publicAnswers/${puzzleId}/scores/${userId}_test`,
-        `publicAnswers/scores/${userId}_test`
+      resultContainer.innerHTML += "TESTING READS:\n\n";
+      
+      // Test reading from the authorized paths
+      const readPaths = [
+        `games/vine/activePuzzle`,
+        `games/vine/puzzles/${puzzleId}`,
+        `publicAnswers`
       ];
       
-      for (const path of pathsToTest) {
+      for (const path of readPaths) {
         try {
-          resultContainer.innerHTML += `Testing path: ${path}\n`;
+          resultContainer.innerHTML += `Testing read from: ${path}\n`;
+          const testRef = ref(db, path);
+          const snapshot = await get(testRef);
+          if (snapshot.exists()) {
+            resultContainer.innerHTML += `✅ SUCCESS: Read from ${path}\n\n`;
+          } else {
+            resultContainer.innerHTML += `⚠️ Path exists but no data found at ${path}\n\n`;
+          }
+        } catch (error) {
+          resultContainer.innerHTML += `❌ ERROR reading ${path}: ${error.message}\n\n`;
+        }
+      }
+      
+      resultContainer.innerHTML += "TESTING WRITES:\n\n";
+      
+      // Paths to test based on Firebase rules
+      const writePaths = [
+        `games/vine/answers/${puzzleId}/scores/${userId}_test`,
+        `publicAnswers/vine/${puzzleId}/scores/${userId}_test`
+      ];
+      
+      for (const path of writePaths) {
+        try {
+          resultContainer.innerHTML += `Testing write to: ${path}\n`;
           const testRef = ref(db, path);
           await set(testRef, testData);
           resultContainer.innerHTML += `✅ SUCCESS: Write to ${path}\n\n`;
