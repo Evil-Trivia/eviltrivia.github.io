@@ -70,6 +70,7 @@
       display: flex;
       margin-bottom: 15px;
       align-items: center;
+      position: relative; /* Added for positioning vines */
     }
     
     .ladder-position {
@@ -102,6 +103,14 @@
     .filled {
       background-color: #C8E6C9;
       border-color: #81C784;
+      box-shadow: 0 0 8px rgba(46, 125, 50, 0.4); /* Added subtle glow effect */
+      animation: letterFill 0.5s ease-out; /* Added animation when letter appears */
+    }
+    
+    @keyframes letterFill {
+      0% { transform: scale(0.8); opacity: 0.5; }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); opacity: 1; }
     }
     
     .ladder-hint {
@@ -314,6 +323,10 @@
         height: 30px;
         font-size: 16px;
       }
+      
+      .vine-container {
+        display: none; /* Hide vines on small screens for simplicity */
+      }
     }
     
     /* Navigation buttons */
@@ -342,6 +355,53 @@
       background-color: #A5D6A7;
       cursor: not-allowed;
       opacity: 0.6;
+    }
+    
+    /* Vine Animation Styles */
+    .vine-container {
+      position: absolute;
+      left: 15px; /* Aligned with ladder position */
+      width: 20px;
+      height: 0; /* Initially 0 height */
+      overflow: hidden;
+      transition: height 1.2s ease-in-out;
+      z-index: 1;
+    }
+    
+    .vine-container.visible {
+      height: 60px; /* Height between rungs - adjust based on spacing */
+    }
+    
+    .vine-svg {
+      width: 100%;
+      height: 100%;
+    }
+    
+    .vine-svg path {
+      stroke-dasharray: 300;
+      stroke-dashoffset: 300;
+      transition: stroke-dashoffset 1.5s ease-in-out;
+    }
+    
+    .vine-container.animate .vine-svg path {
+      stroke-dashoffset: 0;
+    }
+    
+    /* Confetti effect for completion */
+    .confetti {
+      position: fixed;
+      width: 10px;
+      height: 10px;
+      background-color: #A5D6A7;
+      animation: confetti-fall linear forwards;
+      z-index: 100;
+      opacity: 0.8;
+    }
+    
+    @keyframes confetti-fall {
+      to {
+        transform: translateY(100vh) rotate(720deg);
+      }
     }
   </style>
 </head>
@@ -817,12 +877,39 @@
       currentPuzzle.ladder.forEach((rung, index) => {
         const ladderRung = document.createElement('div');
         ladderRung.className = 'ladder-rung';
+        ladderRung.setAttribute('data-position', index);
         
         // Position number
         const positionElement = document.createElement('div');
         positionElement.className = 'ladder-position';
         positionElement.textContent = (index + 1);
         ladderRung.appendChild(positionElement);
+        
+        // Add vine between rungs (except for the first rung)
+        if (index > 0) {
+          // Create vine container
+          const vineContainer = document.createElement('div');
+          vineContainer.className = 'vine-container';
+          vineContainer.id = `vine-${index-1}-${index}`;
+          vineContainer.style.top = `-35px`; // Position to connect with previous rung
+          
+          // Add the SVG
+          vineContainer.innerHTML = `
+            <img src="/images/vine_animation.svg" class="vine-svg" alt="Vine connecting words" />
+          `;
+          
+          // Check if this vine should be visible (if previous rung is solved)
+          if (solvedPositions.has(index) && solvedPositions.has(index-1)) {
+            setTimeout(() => {
+              vineContainer.classList.add('visible');
+              setTimeout(() => {
+                vineContainer.classList.add('animate');
+              }, 100);
+            }, 10);
+          }
+          
+          ladderRung.appendChild(vineContainer);
+        }
         
         // Word (as letter boxes)
         const wordElement = document.createElement('div');
@@ -910,12 +997,18 @@
         // Update display
         displayWordLadder();
         
+        // Animate vines for the newly solved position
+        animateVinesForPosition(correctPosition);
+        
         // Check if all words are solved
         if (solvedPositions.size === currentPuzzle.ladder.length) {
           endTime = Date.now();
           hasCompleted = true;
           localStorage.setItem(`vine_completed_${currentPuzzle.id}`, 'true');
           showCompletionMessage();
+          
+          // Create confetti for celebration
+          createConfetti();
         }
       } else {
         // Deduct point for incorrect answer
@@ -1160,6 +1253,66 @@
             `;
           }, 2000);
         });
+    }
+    
+    // Animate vines for a newly solved position
+    function animateVinesForPosition(position) {
+      // Check if vine should grow upward (to previous position)
+      if (position > 0 && solvedPositions.has(position - 1)) {
+        const vineId = `vine-${position-1}-${position}`;
+        const vineContainer = document.getElementById(vineId);
+        
+        if (vineContainer) {
+          setTimeout(() => {
+            vineContainer.classList.add('visible');
+            setTimeout(() => {
+              vineContainer.classList.add('animate');
+            }, 100);
+          }, 300); // Slight delay for visual effect
+        }
+      }
+      
+      // Check if vine should grow downward (to next position)
+      if (position < currentPuzzle.ladder.length - 1 && solvedPositions.has(position + 1)) {
+        const vineId = `vine-${position}-${position+1}`;
+        const vineContainer = document.getElementById(vineId);
+        
+        if (vineContainer) {
+          setTimeout(() => {
+            vineContainer.classList.add('visible');
+            setTimeout(() => {
+              vineContainer.classList.add('animate');
+            }, 100);
+          }, 300); // Slight delay for visual effect
+        }
+      }
+    }
+    
+    // Create confetti effect for completion
+    function createConfetti() {
+      const colors = ['#A5D6A7', '#81C784', '#66BB6A', '#4CAF50', '#43A047', '#388E3C', '#2E7D32'];
+      const confettiCount = 100;
+      
+      for (let i = 0; i < confettiCount; i++) {
+        setTimeout(() => {
+          const confetti = document.createElement('div');
+          confetti.className = 'confetti';
+          confetti.style.left = `${Math.random() * 100}vw`;
+          confetti.style.top = `-20px`;
+          confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+          confetti.style.transform = `rotate(${Math.random() * 360}deg)`;
+          confetti.style.width = `${5 + Math.random() * 10}px`;
+          confetti.style.height = `${5 + Math.random() * 10}px`;
+          confetti.style.animationDuration = `${3 + Math.random() * 4}s`;
+          
+          document.body.appendChild(confetti);
+          
+          // Remove after animation completes
+          setTimeout(() => {
+            confetti.remove();
+          }, 7000);
+        }, Math.random() * 1500); // Stagger the confetti appearance
+      }
     }
   </script>
 </body>
