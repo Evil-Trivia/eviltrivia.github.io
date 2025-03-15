@@ -1108,8 +1108,8 @@
     // Save user score to Firebase
     async function saveUserScore() {
       try {
-        // Log attempt to save score
-        console.log('Attempting to save score to Firebase...');
+        // Log attempt to save score with timestamp for debugging
+        console.log(`[${new Date().toISOString()}] SCORE SAVE ATTEMPT: Starting score save process...`);
         
         // First check if we have the required objects
         if (!db) {
@@ -1146,8 +1146,15 @@
         let userId = currentUserId;
         if (!userId) {
           // Create a uniquely identifiable anonymous ID
-          userId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-          console.log('Created anonymous user ID:', userId);
+          const storedAnonId = localStorage.getItem('vine_anon_user_id');
+          if (storedAnonId) {
+            userId = storedAnonId;
+            console.log('Using stored anonymous user ID:', userId);
+          } else {
+            userId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('vine_anon_user_id', userId);
+            console.log('Created new anonymous user ID:', userId);
+          }
         }
         console.log('User ID for Firebase:', userId);
         
@@ -1161,80 +1168,106 @@
         };
         
         console.log('Full score data object:', JSON.stringify(scoreData));
-        console.log(`Saving score data: Time=${seconds}s, Mistakes=${mistakeCount}`);
         
-        // Save to the correct Firebase path (RESTORE ORIGINAL PATH)
-        const scoresRef = ref(db, `games/vine/puzzles/${puzzleId}/scores/${userId}`);
-        console.log(`Saving to Firebase path: games/vine/puzzles/${puzzleId}/scores/${userId}`);
+        // DEBUG: Try multiple paths to see which one works
+        const paths = [
+          // Path 1: With games prefix (original)
+          `games/vine/puzzles/${puzzleId}/scores/${userId}`,
+          // Path 2: Without games prefix (as seen in Firebase)
+          `vine/puzzles/${puzzleId}/scores/${userId}`,
+          // Path 3: Alternate structure
+          `vine/puzzles/${puzzleId}/scores/${userId}`,
+          // Path 4: Public scores path
+          `games/publicScores/vine/${puzzleId}/${userId}`
+        ];
         
-        try {
-          await set(scoresRef, scoreData);
-          console.log('Score successfully saved to Firebase!');
-          
-          // Verify the data was saved by trying to read it back
-          setTimeout(async () => {
+        let savedToAnyPath = false;
+        
+        // Try each path in sequence
+        for (const path of paths) {
+          try {
+            console.log(`[${new Date().toISOString()}] ATTEMPTING TO SAVE TO PATH: ${path}`);
+            
+            const scoreRef = ref(db, path);
+            await set(scoreRef, scoreData);
+            
+            console.log(`[${new Date().toISOString()}] SUCCESS: Score saved to ${path}`);
+            savedToAnyPath = true;
+            
+            // Verify the save worked by reading it back
             try {
-              const verifyRef = ref(db, `games/vine/puzzles/${puzzleId}/scores/${userId}`);
+              const verifyRef = ref(db, path);
               const snapshot = await get(verifyRef);
+              
               if (snapshot.exists()) {
-                console.log('Verified score was saved:', snapshot.val());
+                console.log(`[${new Date().toISOString()}] VERIFIED: Data read back successfully from ${path}`, snapshot.val());
+                
+                // Store the successful path in localStorage for future use
+                localStorage.setItem('vine_successful_score_path', path);
+                
+                // Break out of the loop since we've found a working path
+                break;
               } else {
-                console.warn('Score was not found in Firebase after saving!');
+                console.warn(`[${new Date().toISOString()}] WARNING: Data was supposedly saved to ${path} but couldn't be read back`);
               }
             } catch (verifyError) {
-              console.error('Error verifying saved score:', verifyError);
+              console.error(`[${new Date().toISOString()}] ERROR: Failed to verify data at ${path}`, verifyError);
             }
-          }, 1000);
-          
-          return true;
-        } catch (saveError) {
-          console.error('Error during set() operation:', saveError);
-          throw saveError; // Re-throw to be caught by outer catch
-        }
-      } catch (error) {
-        console.error('Error saving score to Firebase:', error);
-        
-        // Try a fallback approach for permission issues
-        if (error.message && error.message.includes("permission_denied")) {
-          try {
-            console.log('Permission denied, trying public scores path...');
-            const puzzleId = currentPuzzle.id;
+          } catch (pathError) {
+            console.error(`[${new Date().toISOString()}] ERROR: Failed to save to ${path}`, pathError);
             
-            // Create anonymous ID if needed
-            let anonymousId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            
-            // Get the time in seconds
-            let seconds;
-            const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
-            
-            if (savedTimeStr) {
-              seconds = parseInt(savedTimeStr, 10);
-            } else {
-              seconds = Math.floor((endTime - startTime) / 1000);
-              localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
+            // Log specific error details
+            if (pathError.message) {
+              console.error(`Error message: ${pathError.message}`);
             }
-            
-            // Try using a public scores path that might have different permissions
-            const publicScoresRef = ref(db, `games/publicScores/vine/${puzzleId}/${anonymousId}`);
-            
-            const scoreData = {
-              userId: anonymousId,
-              timeInSeconds: seconds,
-              mistakes: mistakeCount,
-              completedAt: new Date().toISOString(),
-              score: currentScore
-            };
-            
-            await set(publicScoresRef, scoreData);
-            console.log('Score saved to public scores path successfully');
-            return true;
-          } catch (secondError) {
-            console.error('Failed to save score to fallback path:', secondError);
-            return false;
+            if (pathError.code) {
+              console.error(`Error code: ${pathError.code}`);
+            }
           }
         }
         
-        return false;
+        // If we couldn't save to any path, use a localStorage fallback
+        if (!savedToAnyPath) {
+          console.warn(`[${new Date().toISOString()}] WARNING: Couldn't save to any Firebase path, using localStorage fallback`);
+          
+          // Save score to localStorage as fallback
+          const localScores = JSON.parse(localStorage.getItem('vine_local_scores') || '{}');
+          localScores[`${puzzleId}_${userId}`] = scoreData;
+          localStorage.setItem('vine_local_scores', JSON.stringify(localScores));
+          
+          console.log(`[${new Date().toISOString()}] Score saved to localStorage fallback`);
+          return true; // Return true since we at least saved to localStorage
+        }
+        
+        return savedToAnyPath;
+      } catch (error) {
+        console.error(`[${new Date().toISOString()}] CRITICAL ERROR in saveUserScore:`, error);
+        
+        // Final fallback - save to localStorage
+        try {
+          const puzzleId = currentPuzzle?.id || 'unknown';
+          const userId = currentUserId || 'anon_fallback';
+          const seconds = parseInt(localStorage.getItem(`vine_time_${puzzleId}`), 10) || 0;
+          
+          const scoreData = {
+            userId: userId,
+            timeInSeconds: seconds,
+            mistakes: mistakeCount,
+            completedAt: new Date().toISOString(),
+            score: currentScore,
+            fallback: true
+          };
+          
+          const localScores = JSON.parse(localStorage.getItem('vine_local_scores') || '{}');
+          localScores[`${puzzleId}_${userId}`] = scoreData;
+          localStorage.setItem('vine_local_scores', JSON.stringify(localScores));
+          
+          console.log(`[${new Date().toISOString()}] ERROR RECOVERY: Score saved to localStorage after error`);
+          return true;
+        } catch (fallbackError) {
+          console.error(`[${new Date().toISOString()}] COMPLETE FAILURE: Couldn't save score anywhere`, fallbackError);
+          return false;
+        }
       }
     }
     
@@ -1246,7 +1279,7 @@
       }
       
       try {
-        console.log('Calculating percentile from Firebase scores...');
+        console.log(`[${new Date().toISOString()}] PERCENTILE: Beginning percentile calculation`);
         
         // Get the time in seconds from localStorage
         const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
@@ -1259,37 +1292,104 @@
         console.log(`Using time of ${seconds}s for percentile calculation`);
         const puzzleId = currentPuzzle.id;
         
-        // Get all scores for this puzzle (RESTORE ORIGINAL PATH)
-        const scoresRef = ref(db, `games/vine/puzzles/${puzzleId}/scores`);
-        console.log(`Reading scores from path: games/vine/puzzles/${puzzleId}/scores`);
+        // Get the previously successful path if available
+        const successfulPath = localStorage.getItem('vine_successful_score_path');
         
-        const scoresSnapshot = await get(scoresRef);
+        // Define the paths to try, prioritizing the previously successful path
+        const paths = [];
         
-        if (!scoresSnapshot.exists()) {
-          console.log('No scores found for this puzzle');
-          return { percentile: null, totalPlayers: 0, isFirst: true };
+        if (successfulPath) {
+          // Extract the base path from the successful path (remove the user ID part)
+          const parts = successfulPath.split('/');
+          parts.pop(); // Remove the userId
+          const basePath = parts.join('/');
+          paths.push(basePath);
         }
         
-        // Count the number of scores and calculate percentile
-        const scores = [];
-        let skippedScores = 0;
+        // Add all possible paths
+        paths.push(`games/vine/puzzles/${puzzleId}/scores`);
+        paths.push(`vine/puzzles/${puzzleId}/scores`);
+        paths.push(`games/publicScores/vine/${puzzleId}`);
         
-        scoresSnapshot.forEach(childSnapshot => {
-          const scoreData = childSnapshot.val();
-          
-          if (scoreData && typeof scoreData.timeInSeconds === 'number' && typeof scoreData.mistakes === 'number') {
-            // Calculate a composite score where lower is better
-            // Weight: Time is primary, mistakes add a penalty
-            const compositeScore = scoreData.timeInSeconds + (scoreData.mistakes * 10);
-            scores.push(compositeScore);
-          } else {
-            skippedScores++;
-            console.log('Skipping invalid score data:', scoreData);
+        console.log(`[${new Date().toISOString()}] PERCENTILE: Will try these paths for scores:`, paths);
+        
+        let scores = [];
+        let pathSucceeded = false;
+        
+        // Try each path in sequence
+        for (const path of paths) {
+          try {
+            console.log(`[${new Date().toISOString()}] PERCENTILE: Trying to read scores from ${path}`);
+            const scoresRef = ref(db, path);
+            const scoresSnapshot = await get(scoresRef);
+            
+            if (scoresSnapshot.exists()) {
+              console.log(`[${new Date().toISOString()}] PERCENTILE: Found scores at ${path}`);
+              
+              // Process the scores
+              scores = [];
+              let skippedScores = 0;
+              
+              scoresSnapshot.forEach(childSnapshot => {
+                const scoreData = childSnapshot.val();
+                
+                if (scoreData && typeof scoreData.timeInSeconds === 'number' && typeof scoreData.mistakes === 'number') {
+                  // Calculate a composite score where lower is better
+                  // Weight: Time is primary, mistakes add a penalty
+                  const compositeScore = scoreData.timeInSeconds + (scoreData.mistakes * 10);
+                  scores.push(compositeScore);
+                } else {
+                  skippedScores++;
+                }
+              });
+              
+              if (skippedScores > 0) {
+                console.log(`Skipped ${skippedScores} invalid score entries`);
+              }
+              
+              console.log(`[${new Date().toISOString()}] PERCENTILE: Processed ${scores.length} valid scores from ${path}`);
+              
+              if (scores.length > 0) {
+                pathSucceeded = true;
+                break; // We found valid scores, no need to try more paths
+              }
+            } else {
+              console.log(`[${new Date().toISOString()}] PERCENTILE: No scores found at ${path}`);
+            }
+          } catch (pathError) {
+            console.error(`[${new Date().toISOString()}] PERCENTILE: Error reading from ${path}:`, pathError);
           }
-        });
+        }
         
-        if (skippedScores > 0) {
-          console.log(`Skipped ${skippedScores} invalid score entries`);
+        // If no Firebase paths worked, try the localStorage fallback
+        if (!pathSucceeded) {
+          console.log(`[${new Date().toISOString()}] PERCENTILE: Trying localStorage fallback`);
+          
+          const localScores = JSON.parse(localStorage.getItem('vine_local_scores') || '{}');
+          scores = [];
+          
+          // Extract relevant scores for this puzzle
+          Object.entries(localScores).forEach(([key, scoreData]) => {
+            if (key.startsWith(`${puzzleId}_`) && 
+                typeof scoreData.timeInSeconds === 'number' && 
+                typeof scoreData.mistakes === 'number') {
+              const compositeScore = scoreData.timeInSeconds + (scoreData.mistakes * 10);
+              scores.push(compositeScore);
+            }
+          });
+          
+          if (scores.length > 0) {
+            console.log(`[${new Date().toISOString()}] PERCENTILE: Using ${scores.length} scores from localStorage`);
+            pathSucceeded = true;
+          } else {
+            console.log(`[${new Date().toISOString()}] PERCENTILE: No valid scores found in localStorage either`);
+          }
+        }
+        
+        // If we have no scores at all, return isFirst
+        if (scores.length === 0) {
+          console.log(`[${new Date().toISOString()}] PERCENTILE: No scores found anywhere, assuming user is first`);
+          return { percentile: 100, totalPlayers: 1, isFirst: true };
         }
         
         // Calculate the user's composite score
@@ -1310,7 +1410,7 @@
         const betterThanCount = scores.filter(score => score > userCompositeScore).length;
         const percentile = Math.round((betterThanCount / totalPlayers) * 100);
         
-        console.log(`Calculated percentile: ${percentile}% (better than ${betterThanCount} of ${totalPlayers} players)`);
+        console.log(`[${new Date().toISOString()}] PERCENTILE: Final result - ${percentile}% (better than ${betterThanCount} of ${totalPlayers} players)`);
         
         return {
           percentile,
@@ -1318,29 +1418,8 @@
           isFirst: false
         };
       } catch (error) {
-        console.error('Error calculating percentile:', error);
-        
-        // Try reading from the public scores path as fallback
-        try {
-          console.log('Attempting to read from public scores path...');
-          const puzzleId = currentPuzzle.id;
-          const publicScoresRef = ref(db, `games/publicScores/vine/${puzzleId}`);
-          
-          const scoresSnapshot = await get(publicScoresRef);
-          
-          if (!scoresSnapshot.exists()) {
-            return { percentile: null, totalPlayers: 0, error: 'No scores found in public path' };
-          }
-          
-          // Process scores from public path
-          // (Similar calculation as above)
-          // ...
-          
-          return { percentile: 50, totalPlayers: 0, error: 'Estimated from public scores' }; 
-        } catch (secondError) {
-          console.error('Error reading from public scores path:', secondError);
-          return { percentile: null, totalPlayers: 0, error: 'Failed to calculate percentile' };
-        }
+        console.error(`[${new Date().toISOString()}] PERCENTILE: Critical error in percentile calculation:`, error);
+        return { percentile: null, totalPlayers: 0, error: 'Failed to calculate percentile: ' + error.message };
       }
     }
     
@@ -1367,6 +1446,8 @@
     async function showCompletionMessage() {
       completionMessage.style.display = 'block';
       answerForm.style.display = 'none';
+      
+      console.log(`[${new Date().toISOString()}] COMPLETION: Showing completion message`);
       
       // Calculate time taken
       const timeTaken = endTime - startTime;
@@ -1418,30 +1499,155 @@
       
       try {
         // Save the score to Firebase (both for logged-in and anonymous users)
-        console.log('Saving score before calculating percentile...');
-        const scoreSaved = await saveUserScore();
+        console.log(`[${new Date().toISOString()}] COMPLETION: Attempting to save score...`);
         
-        if (scoreSaved) {
-          console.log('Score saved successfully, now calculating percentile...');
-        } else {
-          console.warn('Score may not have been saved properly');
-          percentileElement.innerHTML = 
-            `You've completed this puzzle! Rankings currently unavailable.`;
-          setupShareButton(null);
-          return;
+        // First try saving the score
+        const scoreSaved = await saveUserScore();
+        console.log(`[${new Date().toISOString()}] COMPLETION: Score save result: ${scoreSaved ? 'Success' : 'Failed'}`);
+        
+        // Add a debug button for admins
+        const isAdmin = window.location.href.includes('debug=true') || localStorage.getItem('vine_admin_debug') === 'true';
+        if (isAdmin) {
+          console.log(`[${new Date().toISOString()}] COMPLETION: Adding admin debug options`);
+          
+          // Add debug container
+          const debugContainer = document.createElement('div');
+          debugContainer.style.marginTop = '20px';
+          debugContainer.style.padding = '15px';
+          debugContainer.style.borderTop = '1px dashed #aaa';
+          debugContainer.style.fontSize = '12px';
+          debugContainer.style.color = '#666';
+          debugContainer.style.textAlign = 'left';
+          
+          // Add debug heading
+          const debugHeading = document.createElement('h4');
+          debugHeading.textContent = 'Debug Tools (Admin)';
+          debugHeading.style.margin = '0 0 10px 0';
+          debugHeading.style.fontSize = '14px';
+          debugContainer.appendChild(debugHeading);
+          
+          // Add user ID info
+          const userIdInfo = document.createElement('p');
+          userIdInfo.textContent = `User ID: ${currentUserId || 'Anonymous'}`;
+          userIdInfo.style.margin = '5px 0';
+          debugContainer.appendChild(userIdInfo);
+          
+          // Add puzzle ID info
+          const puzzleIdInfo = document.createElement('p');
+          puzzleIdInfo.textContent = `Puzzle ID: ${currentPuzzle.id}`;
+          puzzleIdInfo.style.margin = '5px 0';
+          debugContainer.appendChild(puzzleIdInfo);
+          
+          // Add test write button
+          const testButton = document.createElement('button');
+          testButton.textContent = 'Test Firebase Write';
+          testButton.style.marginTop = '10px';
+          testButton.style.padding = '5px 10px';
+          testButton.style.fontSize = '12px';
+          testButton.style.backgroundColor = '#555';
+          testButton.style.color = 'white';
+          testButton.style.border = 'none';
+          testButton.style.borderRadius = '4px';
+          testButton.style.cursor = 'pointer';
+          
+          // Add result container
+          const resultContainer = document.createElement('div');
+          resultContainer.style.marginTop = '10px';
+          resultContainer.style.padding = '10px';
+          resultContainer.style.backgroundColor = '#f5f5f5';
+          resultContainer.style.borderRadius = '4px';
+          resultContainer.style.maxHeight = '150px';
+          resultContainer.style.overflowY = 'auto';
+          resultContainer.style.fontSize = '11px';
+          resultContainer.style.fontFamily = 'monospace';
+          resultContainer.style.whiteSpace = 'pre-wrap';
+          resultContainer.style.display = 'none';
+          
+          // Handle test button click
+          testButton.addEventListener('click', async () => {
+            resultContainer.style.display = 'block';
+            resultContainer.innerHTML = 'Running tests...\n';
+            
+            // Generate test paths
+            const userId = currentUserId || `anon_test_${Date.now()}`;
+            const puzzleId = currentPuzzle.id;
+            const testPaths = [
+              `games/vine/puzzles/${puzzleId}/scores/${userId}_test`,
+              `vine/puzzles/${puzzleId}/scores/${userId}_test`,
+              `scores/vine/${puzzleId}/${userId}_test`,
+              `publicScores/vine/${puzzleId}/${userId}_test`
+            ];
+            
+            // Create test data
+            const testData = {
+              userId: userId,
+              timeInSeconds: 999,
+              mistakes: 0,
+              completedAt: new Date().toISOString(),
+              testData: true
+            };
+            
+            // Try each path
+            for (const path of testPaths) {
+              resultContainer.innerHTML += `Testing path: ${path}...\n`;
+              
+              try {
+                const testRef = ref(db, path);
+                await set(testRef, testData);
+                resultContainer.innerHTML += `✅ SUCCESS: Write successful to ${path}\n`;
+                
+                // Verify write
+                try {
+                  const verifyRef = ref(db, path);
+                  const snapshot = await get(verifyRef);
+                  
+                  if (snapshot.exists()) {
+                    resultContainer.innerHTML += `✅ VERIFIED: Data read back successfully from ${path}\n`;
+                  } else {
+                    resultContainer.innerHTML += `❌ VERIFY FAILED: Data was not found at ${path}\n`;
+                  }
+                } catch (verifyError) {
+                  resultContainer.innerHTML += `❌ VERIFY ERROR: ${verifyError.message}\n`;
+                }
+                
+                // Clean up test data
+                try {
+                  await set(ref(db, path), null);
+                  resultContainer.innerHTML += `🧹 Cleaned up test data from ${path}\n`;
+                } catch (cleanupError) {
+                  resultContainer.innerHTML += `⚠️ Clean up failed: ${cleanupError.message}\n`;
+                }
+              } catch (testError) {
+                resultContainer.innerHTML += `❌ ERROR: ${testError.message}\n`;
+              }
+              
+              resultContainer.innerHTML += '\n';
+            }
+            
+            resultContainer.innerHTML += 'Testing complete. Check console for more details.\n';
+          });
+          
+          debugContainer.appendChild(testButton);
+          debugContainer.appendChild(resultContainer);
+          
+          // Append to completion message
+          completionMessage.appendChild(debugContainer);
         }
         
-        // Small delay to ensure Firebase has time to update
+        // Regardless of save result, continue to calculate percentile after a delay
+        // This gives time for Firebase operations to complete and improves user experience
         setTimeout(async () => {
           try {
+            console.log(`[${new Date().toISOString()}] COMPLETION: Now calculating percentile...`);
+            
             // Calculate actual percentile from Firebase
             const percentileResult = await calculatePercentile();
-            console.log('Percentile calculation result:', percentileResult);
+            console.log(`[${new Date().toISOString()}] COMPLETION: Percentile calculation result:`, percentileResult);
             
             // Update UI based on results
             if (percentileResult.error) {
               // Handle error case
-              console.warn('Error in percentile calculation:', percentileResult.error);
+              console.warn(`[${new Date().toISOString()}] COMPLETION: Error in percentile calculation:`, percentileResult.error);
               percentileElement.innerHTML = 
                 `You've completed this puzzle! Rankings currently unavailable.`;
               setupShareButton(null);
@@ -1471,14 +1677,14 @@
               setupShareButton(null);
             }
           } catch (error) {
-            console.error('Error updating percentile display:', error);
+            console.error(`[${new Date().toISOString()}] COMPLETION: Error updating percentile display:`, error);
             percentileElement.innerHTML = 
               `You've completed this puzzle! Rankings currently unavailable.`;
             setupShareButton(null);
           }
-        }, 1500); // Slightly longer delay to ensure Firebase has time to update
+        }, 2000); // Increased delay to ensure Firebase operations complete
       } catch (error) {
-        console.error('Error in completion process:', error);
+        console.error(`[${new Date().toISOString()}] COMPLETION: Critical error in completion process:`, error);
         percentileElement.innerHTML = 
           `You've completed this puzzle! Rankings currently unavailable.`;
         setupShareButton(null);
