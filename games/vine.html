@@ -1110,48 +1110,83 @@
     // Save user score to Firebase
     async function saveUserScore() {
       try {
-        if (!db || !currentUserId || !currentPuzzle) return;
+        // Log attempt to save score
+        console.log('Attempting to save score to Firebase...');
+        
+        // First check if we have the required objects
+        if (!db) {
+          console.error('Database connection not available');
+          return;
+        }
+        
+        if (!currentPuzzle) {
+          console.error('No current puzzle found');
+          return;
+        }
+        
+        // Create a unique user identifier, even for anonymous users
+        let userId = currentUserId;
+        if (!userId) {
+          // If user is not logged in, create an anonymous ID using device info and timestamp
+          // This ensures anonymous users still get counted in stats
+          userId = 'anon_' + new Date().getTime() + '_' + Math.random().toString(36).substr(2, 9);
+          console.log('Created anonymous user ID:', userId);
+        }
         
         const seconds = Math.floor((endTime - startTime) / 1000);
+        console.log(`Score data: Time: ${seconds}s, Mistakes: ${mistakeCount}`);
         
         // Create the score object
         const scoreData = {
-          userId: currentUserId,
-          puzzleId: currentPuzzle.id,
-          mistakes: mistakeCount,
+          userId: userId,
           timeInSeconds: seconds,
+          mistakes: mistakeCount,
           completedAt: new Date().toISOString(),
           score: currentScore
         };
         
-        // Save to Firebase
-        const scoreRef = ref(db, `games/vine/scores/${currentPuzzle.id}/${currentUserId}`);
-        await set(scoreRef, scoreData);
+        // Save to Firebase under puzzles/[puzzleId]/scores/[userId]
+        // This structure matches what we see in the Firebase console
+        const scoresRef = ref(db, `games/vine/puzzles/${currentPuzzle.id}/scores/${userId}`);
+        console.log(`Saving to Firebase path: games/vine/puzzles/${currentPuzzle.id}/scores/${userId}`);
         
-        console.log('Score saved to Firebase');
+        await set(scoresRef, scoreData);
+        console.log('Score successfully saved to Firebase!');
+        
+        return true;
       } catch (error) {
         console.error('Error saving score to Firebase:', error);
+        return false;
       }
     }
     
     // Calculate user's percentile based on scores
     async function calculatePercentile() {
-      if (!db || !currentPuzzle) return { percentile: 50, totalPlayers: 0 };
+      if (!db || !currentPuzzle) {
+        console.log('Cannot calculate percentile: DB or puzzle not available');
+        return { percentile: 50, totalPlayers: 0 };
+      }
       
       try {
+        console.log('Calculating percentile from Firebase scores...');
         const seconds = Math.floor((endTime - startTime) / 1000);
         
-        // Get all scores for this puzzle
-        const scoresRef = ref(db, `games/vine/scores/${currentPuzzle.id}`);
+        // Get all scores for this puzzle from the updated path
+        const scoresRef = ref(db, `games/vine/puzzles/${currentPuzzle.id}/scores`);
+        console.log(`Reading scores from path: games/vine/puzzles/${currentPuzzle.id}/scores`);
+        
         const scoresSnapshot = await get(scoresRef);
         
         if (!scoresSnapshot.exists()) {
+          console.log('No scores found for this puzzle');
           return { percentile: 0, totalPlayers: 0 };
         }
         
+        // Count the number of scores and calculate percentile
         const scores = [];
         scoresSnapshot.forEach(childSnapshot => {
           const scoreData = childSnapshot.val();
+          console.log('Found score:', scoreData);
           // Calculate a composite score where lower is better
           // Weight: Time is primary, mistakes add a penalty
           const compositeScore = scoreData.timeInSeconds + (scoreData.mistakes * 10);
@@ -1160,14 +1195,17 @@
         
         // Calculate the user's composite score
         const userCompositeScore = seconds + (mistakeCount * 10);
+        console.log(`User composite score: ${userCompositeScore} (${scores.length} total scores)`);
         
         // Sort scores (lower is better)
         scores.sort((a, b) => a - b);
         
-        // Calculate percentile
+        // Calculate percentile (higher percentile means better performance)
         const totalPlayers = scores.length;
         const betterThanCount = scores.filter(score => score > userCompositeScore).length;
         const percentile = Math.round((betterThanCount / totalPlayers) * 100);
+        
+        console.log(`Calculated percentile: ${percentile}th percentile of ${totalPlayers} players`);
         
         return {
           percentile,
@@ -1230,25 +1268,49 @@
       // Apply vine animations
       applyVineWaveAnimation();
       
-      // Set up share functionality
+      // Set up share functionality with placeholder data initially
       setupShareButton();
       
       // Store time in localStorage
       localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
       
-      // Calculate actual percentile from Firebase
-      const percentileResult = await calculatePercentile();
-      
-      // Update the percentile message with real data
-      if (percentileResult.totalPlayers > 0) {
-        percentileElement.innerHTML = 
-          `That time places you in the <strong>${percentileResult.percentile}th</strong> percentile of <strong>${percentileResult.totalPlayers}</strong> players so far`;
+      // Try to save the score first to ensure it's counted in the percentile calculation
+      try {
+        // Save the score to Firebase (works for both logged-in and anonymous users now)
+        const scoreSaved = await saveUserScore();
+        console.log('Score saved successfully:', scoreSaved);
         
-        // Update the share button to use actual percentile
-        setupShareButton(percentileResult);
-      } else {
+        // Give a small delay to ensure the score is saved before calculating percentile
+        setTimeout(async () => {
+          // Calculate actual percentile from Firebase
+          const percentileResult = await calculatePercentile();
+          
+          // Update the percentile message with real data
+          if (percentileResult.totalPlayers > 1) { // More than just the current user
+            percentileElement.innerHTML = 
+              `That time places you in the <strong>${percentileResult.percentile}th</strong> percentile of <strong>${percentileResult.totalPlayers}</strong> players so far`;
+            
+            // Update the share button with actual percentile data
+            setupShareButton(percentileResult);
+          } else if (percentileResult.totalPlayers === 1) {
+            percentileElement.innerHTML = 
+              `Congratulations! You're the first to complete this puzzle!`;
+            
+            // Update share button with "first to complete" message
+            setupShareButton({ percentile: 100, totalPlayers: 1, isFirst: true });
+          } else {
+            // Fallback if something went wrong with score calculation
+            percentileElement.innerHTML = 
+              `You've completed this puzzle! Check back later for rankings.`;
+            
+            // Update share button without percentile data
+            setupShareButton(null);
+          }
+        }, 1000); // Small delay to ensure Firebase has time to update
+      } catch (error) {
+        console.error('Error in showCompletionMessage:', error);
         percentileElement.innerHTML = 
-          `You're one of the first to complete this puzzle!`;
+          `You've completed this puzzle! Rankings currently unavailable.`;
       }
     }
     
@@ -1350,10 +1412,15 @@
       shareText += `Solved with ${mistakeCount} mistake${mistakeCount !== 1 ? 's' : ''} in ${timeTaken}s!\n\n`;
       
       // Add percentile info if we have it
-      if (percentileData && percentileData.totalPlayers > 0) {
-        shareText += `That time places me in the ${percentileData.percentile}th percentile of ${percentileData.totalPlayers} players so far\n\n`;
+      if (percentileData) {
+        if (percentileData.isFirst) {
+          shareText += `I'm the first to complete this puzzle!\n\n`;
+        } else if (percentileData.totalPlayers > 1) {
+          shareText += `That time places me in the ${percentileData.percentile}th percentile of ${percentileData.totalPlayers} players so far\n\n`;
+        }
       } else {
-        shareText += `I'm one of the first to complete this puzzle!\n\n`;
+        // No percentile data available
+        shareText += `Try solving this puzzle yourself!\n\n`;
       }
       
       shareText += `${ladderEmoji}\n\n`;
