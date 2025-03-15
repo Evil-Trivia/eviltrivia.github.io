@@ -672,7 +672,7 @@
         }
         
         console.log("Starting to load active word ladder");
-        const activeWordLadderRef = ref(db, 'games/vine/activePuzzle');
+        const activeWordLadderRef = ref(db, 'vine/activePuzzle');
         
         onValue(activeWordLadderRef, async (snapshot) => {
           try {
@@ -691,7 +691,7 @@
             console.log("Active puzzle ID:", activePuzzleId);
             
             // Get the puzzle details
-            const puzzleRef = ref(db, `games/vine/puzzles/${activePuzzleId}`);
+            const puzzleRef = ref(db, `vine/puzzles/${activePuzzleId}`);
             const puzzleSnapshot = await get(puzzleRef);
             currentPuzzle = puzzleSnapshot.val();
             
@@ -785,7 +785,7 @@
     async function loadPuzzleHistory() {
       try {
         // Get all puzzles
-        const puzzlesRef = ref(db, 'games/vine/puzzles');
+        const puzzlesRef = ref(db, 'vine/puzzles');
         const puzzlesSnapshot = await get(puzzlesRef);
         const puzzles = puzzlesSnapshot.val() || {};
         
@@ -1108,7 +1108,7 @@
     // Save user score to Firebase - SIMPLIFIED
     async function saveUserScore() {
       try {
-        console.log("SIMPLE SCORE SAVING: Starting simple score save process");
+        console.log("SCORE SAVING: Starting score save process");
         
         // Basic validation
         if (!db || !currentPuzzle || !currentPuzzle.id) {
@@ -1137,33 +1137,29 @@
           timeInSeconds: seconds,
           mistakes: mistakeCount,
           completedAt: timestamp,
-          score: currentScore
+          score: currentScore,
+          puzzleId: currentPuzzle.id
         };
         
         // Log data for debugging
         console.log("Score data:", JSON.stringify(scoreData));
         console.log("Puzzle ID:", currentPuzzle.id);
         
-        // Create scores node if it doesn't exist
-        const puzzleRef = ref(db, `vine/puzzles/${currentPuzzle.id}`);
-        
-        // Create a child node for this score under the scores node
-        // We do this by first creating/getting the scores reference
-        const scoresRef = ref(db, `vine/puzzles/${currentPuzzle.id}/scores`);
-        
-        console.log(`Attempting direct write to: vine/puzzles/${currentPuzzle.id}/scores/${userId}`);
-        
-        // Then set this user's score
-        const userScoreRef = ref(db, `vine/puzzles/${currentPuzzle.id}/scores/${userId}`);
+        // Writing to the authorized path based on Firebase rules
+        const scoresRef = ref(db, `games/vine/answers/${currentPuzzle.id}/scores/${userId}`);
+        console.log(`Attempting to write score to: games/vine/answers/${currentPuzzle.id}/scores/${userId}`);
         
         try {
-          // Try to write directly to the user score path
-          await set(userScoreRef, scoreData);
+          // Try to write directly to the path
+          await set(scoresRef, scoreData);
           console.log("SUCCESS: Score saved successfully to Firebase");
+          
+          // Remember successful path for future use
+          localStorage.setItem('vine_successful_score_path', `games/vine/answers/${currentPuzzle.id}/scores/${userId}`);
           
           // Verify it was saved
           try {
-            const snapshot = await get(userScoreRef);
+            const snapshot = await get(scoresRef);
             if (snapshot.exists()) {
               console.log("VERIFIED: Score data read back successfully");
               return true;
@@ -1174,20 +1170,18 @@
             console.error("Error verifying saved score:", verifyError);
           }
         } catch (directWriteError) {
-          console.error("Error writing directly to user score:", directWriteError);
+          console.error("Error writing directly to scores path:", directWriteError);
           
-          // If direct write fails, try using push() to generate a unique key
+          // Try writing to publicAnswers as fallback
           try {
-            console.log("Trying alternative approach with push()");
-            const newScoreRef = push(scoresRef);
-            await set(newScoreRef, {
-              ...scoreData,
-              pushId: true
-            });
-            console.log("SUCCESS: Score saved using push() method");
+            console.log("Trying fallback path: publicAnswers/vine/puzzles");
+            const publicScoresRef = ref(db, `publicAnswers/vine/${currentPuzzle.id}/scores/${userId}`);
+            await set(publicScoresRef, scoreData);
+            console.log("SUCCESS: Score saved to publicAnswers path");
+            localStorage.setItem('vine_successful_score_path', `publicAnswers/vine/${currentPuzzle.id}/scores/${userId}`);
             return true;
-          } catch (pushError) {
-            console.error("Error saving score with push():", pushError);
+          } catch (fallbackError) {
+            console.error("Error with fallback path:", fallbackError);
           }
         }
         
@@ -1239,10 +1233,9 @@
           paths.push(basePath);
         }
         
-        // Add all possible paths
-        paths.push(`games/vine/puzzles/${puzzleId}/scores`);
-        paths.push(`vine/puzzles/${puzzleId}/scores`);
-        paths.push(`games/publicScores/vine/${puzzleId}`);
+        // Add paths that are allowed by Firebase rules
+        paths.push(`games/vine/answers/${puzzleId}/scores`);
+        paths.push(`publicAnswers/vine/${puzzleId}/scores`);
         
         console.log(`[${new Date().toISOString()}] PERCENTILE: Will try these paths for scores:`, paths);
         
@@ -1457,7 +1450,7 @@
           
           // Add database path info
           const pathInfo = document.createElement('p');
-          pathInfo.textContent = `Database Path: vine/puzzles/${currentPuzzle.id}/scores/${currentUserId || localStorage.getItem('vine_anon_user_id') || 'anonymous'}`;
+          pathInfo.textContent = `Database Path: games/vine/answers/${currentPuzzle.id}/scores/${currentUserId || localStorage.getItem('vine_anon_user_id') || 'anonymous'}`;
           pathInfo.style.margin = '5px 0';
           pathInfo.style.fontFamily = 'monospace';
           debugContainer.appendChild(pathInfo);
@@ -1481,9 +1474,9 @@
           dataInfo.style.fontSize = '11px';
           debugContainer.appendChild(dataInfo);
           
-          // Add a manual testing button
+          // Add a comprehensive testing button
           const testButton = document.createElement('button');
-          testButton.textContent = 'Test Direct Write';
+          testButton.textContent = 'Test All Firebase Paths';
           testButton.style.padding = '5px 10px';
           testButton.style.backgroundColor = '#555';
           testButton.style.color = 'white';
@@ -1495,31 +1488,13 @@
           // Add result container
           const resultContainer = document.createElement('div');
           resultContainer.style.marginTop = '10px';
-          resultContainer.style.padding = '8px';
-          resultContainer.style.backgroundColor = '#f5f5f5';
-          resultContainer.style.borderRadius = '4px';
-          resultContainer.style.fontSize = '11px';
-          resultContainer.style.fontFamily = 'monospace';
-          resultContainer.style.display = 'none';
+          resultContainer.innerHTML = 'Click the button to test write permissions to multiple Firebase paths';
           
           testButton.addEventListener('click', async () => {
-            resultContainer.style.display = 'block';
-            resultContainer.innerHTML = 'Testing direct write...';
-            
-            try {
-              // Try a direct write to the scores node
-              const testData = {
-                test: true,
-                timestamp: Date.now()
-              };
-              
-              // Try to write directly to the scores node
-              const testRef = ref(db, `vine/puzzles/${currentPuzzle.id}/scores/test_${Date.now()}`);
-              await set(testRef, testData);
-              resultContainer.innerHTML = '✅ Success! Score data written successfully.';
-            } catch (error) {
-              resultContainer.innerHTML = `❌ Error: ${error.message}`;
-            }
+            resultContainer.innerHTML = 'Testing paths, please wait...';
+            const testResults = await testDebugPaths();
+            resultContainer.innerHTML = '';
+            resultContainer.appendChild(testResults);
           });
           
           debugContainer.appendChild(testButton);
@@ -1534,6 +1509,8 @@
           clearButton.style.border = 'none';
           clearButton.style.borderRadius = '4px';
           clearButton.style.cursor = 'pointer';
+          clearButton.style.marginTop = '10px';
+          clearButton.style.display = 'block';
           
           clearButton.addEventListener('click', () => {
             localStorage.removeItem('vine_anon_user_id');
@@ -1554,12 +1531,12 @@
           // Append to completion message
           completionMessage.appendChild(debugContainer);
         }
-        
+          
         // Calculate percentile data
         setTimeout(async () => {
           try {
             // Use a simplified version of calculatePercentile that uses exact path
-            const scoresRef = ref(db, `vine/puzzles/${currentPuzzle.id}/scores`);
+            const scoresRef = ref(db, `games/vine/answers/${currentPuzzle.id}/scores`);
             const scoresSnapshot = await get(scoresRef);
             
             if (!scoresSnapshot.exists()) {
@@ -1939,6 +1916,70 @@
           }, 7000);
         }, Math.random() * 1500); // Stagger the confetti appearance
       }
+    }
+
+    // Function to test writing to multiple paths for debugging
+    async function testDebugPaths() {
+      const resultContainer = document.createElement('div');
+      resultContainer.style.margin = '10px 0';
+      resultContainer.style.padding = '10px';
+      resultContainer.style.backgroundColor = '#f5f5f5';
+      resultContainer.style.borderRadius = '4px';
+      resultContainer.style.maxHeight = '300px';
+      resultContainer.style.overflowY = 'auto';
+      resultContainer.style.fontSize = '11px';
+      resultContainer.style.fontFamily = 'monospace';
+      resultContainer.style.whiteSpace = 'pre-wrap';
+      resultContainer.style.color = '#333';
+      
+      resultContainer.innerHTML = "Testing writes to multiple Firebase paths...\n\n";
+      
+      const userId = currentUserId || localStorage.getItem('vine_anon_user_id') || 'anonymous';
+      const puzzleId = currentPuzzle.id;
+      const timestamp = Date.now();
+      const testData = { test: true, timestamp };
+      
+      // Paths to test based on Firebase rules
+      const pathsToTest = [
+        `games/vine/answers/${puzzleId}/scores/${userId}_test`,
+        `publicAnswers/vine/${puzzleId}/scores/${userId}_test`,
+        `games/vine/answers/scores/${userId}_test`, // Alternative structures
+        `publicAnswers/${puzzleId}/scores/${userId}_test`,
+        `publicAnswers/scores/${userId}_test`
+      ];
+      
+      for (const path of pathsToTest) {
+        try {
+          resultContainer.innerHTML += `Testing path: ${path}\n`;
+          const testRef = ref(db, path);
+          await set(testRef, testData);
+          resultContainer.innerHTML += `✅ SUCCESS: Write to ${path}\n\n`;
+          
+          // Try to verify by reading it back
+          try {
+            const snapshot = await get(testRef);
+            if (snapshot.exists()) {
+              resultContainer.innerHTML += `✓ Verified: Read back successful\n\n`;
+            } else {
+              resultContainer.innerHTML += `⚠️ Strange: Write succeeded but read failed\n\n`;
+            }
+          } catch (readError) {
+            resultContainer.innerHTML += `⚠️ Read verification failed: ${readError.message}\n\n`;
+          }
+          
+          // Try to clean up the test data
+          try {
+            await set(testRef, null);
+            resultContainer.innerHTML += `✓ Cleanup successful\n\n`;
+          } catch (cleanupError) {
+            resultContainer.innerHTML += `⚠️ Cleanup failed: ${cleanupError.message}\n\n`;
+          }
+        } catch (error) {
+          resultContainer.innerHTML += `❌ ERROR: ${error.message}\n\n`;
+        }
+      }
+      
+      return resultContainer;
     }
   </script>
 </body>
