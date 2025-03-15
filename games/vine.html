@@ -360,8 +360,8 @@
     /* Vine Animation Styles */
     .vine-container {
       position: absolute;
-      left: 15px; /* Aligned with ladder position */
-      width: 20px;
+      left: 12px; /* Adjusted for wider vine */
+      width: 30px; /* Increased from 20px */
       height: 0; /* Initially 0 height */
       overflow: hidden;
       transition: height 1.2s ease-in-out;
@@ -369,7 +369,7 @@
     }
     
     .vine-container.visible {
-      height: 60px; /* Height between rungs - adjust based on spacing */
+      height: 70px; /* Increased from 60px */
     }
     
     .vine-svg {
@@ -402,6 +402,71 @@
       to {
         transform: translateY(100vh) rotate(720deg);
       }
+    }
+    
+    /* Wave animation for completed vine */
+    .vine-wave {
+      animation: vine-wave 3s ease-in-out infinite;
+      transform-origin: center;
+    }
+    
+    @keyframes vine-wave {
+      0% {
+        transform: translateX(0) rotate(0deg);
+      }
+      25% {
+        transform: translateX(2px) rotate(1deg);
+      }
+      50% {
+        transform: translateX(-2px) rotate(-1deg);
+      }
+      75% {
+        transform: translateX(3px) rotate(1.5deg);
+      }
+      100% {
+        transform: translateX(0) rotate(0deg);
+      }
+    }
+    
+    /* Leaf wiggle animation for completed vine */
+    .leaf-wiggle .vine-leaf-1,
+    .leaf-wiggle .vine-leaf-2,
+    .leaf-wiggle .vine-leaf-3 {
+      animation: leaf-wiggle 2.5s ease-in-out infinite;
+      transform-origin: center;
+    }
+    
+    .leaf-wiggle .vine-leaf-2 {
+      animation-delay: 0.5s;
+    }
+    
+    .leaf-wiggle .vine-leaf-3 {
+      animation-delay: 1s;
+    }
+    
+    @keyframes leaf-wiggle {
+      0% {
+        transform: rotate(0deg) scale(1);
+      }
+      25% {
+        transform: rotate(3deg) scale(1.05);
+      }
+      50% {
+        transform: rotate(-2deg) scale(1);
+      }
+      75% {
+        transform: rotate(2deg) scale(1.02);
+      }
+      100% {
+        transform: rotate(0deg) scale(1);
+      }
+    }
+    
+    /* Make sure SVG is displayed properly inside containers */
+    .vine-container svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
     }
   </style>
 </head>
@@ -899,7 +964,7 @@
           `;
           
           // Check if this vine should be visible (if previous rung is solved)
-          if (solvedPositions.has(index) && solvedPositions.has(index-1)) {
+          if (solvedPositions.has(index) || solvedPositions.has(index-1)) {
             setTimeout(() => {
               vineContainer.classList.add('visible');
               setTimeout(() => {
@@ -1066,11 +1131,48 @@
         completionMessage.appendChild(statsElement);
       }
       
+      // Apply wave animation to all visible vines
+      applyVineWaveAnimation();
+      
       // Set up share functionality
       setupShareButton();
       
       // Update localStorage with the completion data
       localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
+    }
+    
+    // Apply wave animation to all visible vines
+    function applyVineWaveAnimation() {
+      // Get all vine containers
+      const vineContainers = document.querySelectorAll('.vine-container.visible');
+      
+      // Apply the animation with staggered delays
+      vineContainers.forEach((container, index) => {
+        setTimeout(() => {
+          // Add classes to the container for wave animation
+          container.classList.add('vine-wave');
+          
+          // For SVG leaf wiggling, we need to add the class to the SVG element
+          const img = container.querySelector('.vine-svg');
+          if (img) {
+            // Create a div wrapper with the animation class
+            const animationWrapper = document.createElement('div');
+            animationWrapper.className = 'leaf-wiggle';
+            
+            // Replace the img with a direct SVG inclusion for better animation control
+            fetch('/images/vine_animation.svg')
+              .then(response => response.text())
+              .then(svgContent => {
+                animationWrapper.innerHTML = svgContent;
+                // Replace the image with the actual SVG content
+                img.parentNode.replaceChild(animationWrapper, img);
+              })
+              .catch(error => {
+                console.error('Error fetching SVG:', error);
+              });
+          }
+        }, index * 200); // Stagger the animation starts
+      });
     }
     
     // Format time in minutes and seconds
@@ -1258,7 +1360,7 @@
     // Animate vines for a newly solved position
     function animateVinesForPosition(position) {
       // Check if vine should grow upward (to previous position)
-      if (position > 0 && solvedPositions.has(position - 1)) {
+      if (position > 0) {
         const vineId = `vine-${position-1}-${position}`;
         const vineContainer = document.getElementById(vineId);
         
@@ -1273,7 +1375,7 @@
       }
       
       // Check if vine should grow downward (to next position)
-      if (position < currentPuzzle.ladder.length - 1 && solvedPositions.has(position + 1)) {
+      if (position < currentPuzzle.ladder.length - 1) {
         const vineId = `vine-${position}-${position+1}`;
         const vineContainer = document.getElementById(vineId);
         
