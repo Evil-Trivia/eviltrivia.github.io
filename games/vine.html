@@ -540,7 +540,7 @@
         
         <div id="completionMessage" class="complete" style="display: none;">
           <h3>Congratulations!</h3>
-          <p>You've completed today's word ladder with a score of <span id="finalScore">0</span>!</p>
+          <p>You've completed today's word ladder!</p>
           
           <div class="share-section">
             <button id="shareButton" class="share-button">
@@ -1079,7 +1079,14 @@
         if (solvedPositions.size === currentPuzzle.ladder.length) {
           endTime = Date.now();
           hasCompleted = true;
+          
+          // Save completion data
           localStorage.setItem(`vine_completed_${currentPuzzle.id}`, 'true');
+          
+          // Save score to Firebase if user is logged in
+          saveUserScore();
+          
+          // Show completion message
           showCompletionMessage();
           
           // Create confetti for celebration
@@ -1097,6 +1104,78 @@
         
         // Show error message
         showStatus('Incorrect! Try again. (-1 point)', 'incorrect');
+      }
+    }
+    
+    // Save user score to Firebase
+    async function saveUserScore() {
+      try {
+        if (!db || !currentUserId || !currentPuzzle) return;
+        
+        const seconds = Math.floor((endTime - startTime) / 1000);
+        
+        // Create the score object
+        const scoreData = {
+          userId: currentUserId,
+          puzzleId: currentPuzzle.id,
+          mistakes: mistakeCount,
+          timeInSeconds: seconds,
+          completedAt: new Date().toISOString(),
+          score: currentScore
+        };
+        
+        // Save to Firebase
+        const scoreRef = ref(db, `games/vine/scores/${currentPuzzle.id}/${currentUserId}`);
+        await set(scoreRef, scoreData);
+        
+        console.log('Score saved to Firebase');
+      } catch (error) {
+        console.error('Error saving score to Firebase:', error);
+      }
+    }
+    
+    // Calculate user's percentile based on scores
+    async function calculatePercentile() {
+      if (!db || !currentPuzzle) return { percentile: 50, totalPlayers: 0 };
+      
+      try {
+        const seconds = Math.floor((endTime - startTime) / 1000);
+        
+        // Get all scores for this puzzle
+        const scoresRef = ref(db, `games/vine/scores/${currentPuzzle.id}`);
+        const scoresSnapshot = await get(scoresRef);
+        
+        if (!scoresSnapshot.exists()) {
+          return { percentile: 0, totalPlayers: 0 };
+        }
+        
+        const scores = [];
+        scoresSnapshot.forEach(childSnapshot => {
+          const scoreData = childSnapshot.val();
+          // Calculate a composite score where lower is better
+          // Weight: Time is primary, mistakes add a penalty
+          const compositeScore = scoreData.timeInSeconds + (scoreData.mistakes * 10);
+          scores.push(compositeScore);
+        });
+        
+        // Calculate the user's composite score
+        const userCompositeScore = seconds + (mistakeCount * 10);
+        
+        // Sort scores (lower is better)
+        scores.sort((a, b) => a - b);
+        
+        // Calculate percentile
+        const totalPlayers = scores.length;
+        const betterThanCount = scores.filter(score => score > userCompositeScore).length;
+        const percentile = Math.round((betterThanCount / totalPlayers) * 100);
+        
+        return {
+          percentile,
+          totalPlayers
+        };
+      } catch (error) {
+        console.error('Error calculating percentile:', error);
+        return { percentile: 50, totalPlayers: 0 };
       }
     }
     
@@ -1120,7 +1199,7 @@
     }
     
     // Show completion message
-    function showCompletionMessage() {
+    async function showCompletionMessage() {
       completionMessage.style.display = 'block';
       answerForm.style.display = 'none';
       
@@ -1128,14 +1207,11 @@
       const timeTaken = endTime - startTime;
       const seconds = Math.floor(timeTaken / 1000);
       
-      // Update the final score display
-      finalScore.textContent = currentScore;
-      
-      // Update the completion message with a more modern format
+      // Update the completion message with the time and mistakes
       const statsElement = document.createElement('p');
       statsElement.innerHTML = `You solved this puzzle with <strong>${mistakeCount}</strong> mistake${mistakeCount !== 1 ? 's' : ''} in <strong>${seconds}s</strong>`;
       
-      // Insert after the first paragraph in the completion message
+      // Insert after the first paragraph
       const firstParagraph = completionMessage.querySelector('p');
       if (firstParagraph && firstParagraph.nextSibling) {
         completionMessage.insertBefore(statsElement, firstParagraph.nextSibling);
@@ -1143,25 +1219,37 @@
         completionMessage.appendChild(statsElement);
       }
       
-      // Add mock percentile information (to be replaced with real data later)
-      const mockPercentile = Math.floor(Math.random() * 90) + 10; // Random percentile between 10-99
-      const mockPlayerCount = Math.floor(Math.random() * 50) + 5; // Random player count between 5-54
-      
+      // Create percentile message with loading state
       const percentileElement = document.createElement('p');
-      percentileElement.innerHTML = `That time places you in the <strong>${mockPercentile}th</strong> percentile of <strong>${mockPlayerCount}</strong> players so far`;
+      percentileElement.innerHTML = `Calculating your ranking...`;
       percentileElement.style.fontSize = '0.9em';
       percentileElement.style.color = '#43A047';
-      
+      percentileElement.id = 'percentileMessage';
       completionMessage.appendChild(percentileElement);
       
-      // Apply wave animation to all vine containers
+      // Apply vine animations
       applyVineWaveAnimation();
       
       // Set up share functionality
       setupShareButton();
       
-      // Update localStorage with the completion data
+      // Store time in localStorage
       localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
+      
+      // Calculate actual percentile from Firebase
+      const percentileResult = await calculatePercentile();
+      
+      // Update the percentile message with real data
+      if (percentileResult.totalPlayers > 0) {
+        percentileElement.innerHTML = 
+          `That time places you in the <strong>${percentileResult.percentile}th</strong> percentile of <strong>${percentileResult.totalPlayers}</strong> players so far`;
+        
+        // Update the share button to use actual percentile
+        setupShareButton(percentileResult);
+      } else {
+        percentileElement.innerHTML = 
+          `You're one of the first to complete this puzzle!`;
+      }
     }
     
     // Apply wave animation to all visible vines
@@ -1206,20 +1294,20 @@
     }
     
     // Set up share button
-    function setupShareButton() {
-      // Create share text
-      const shareText = createShareText();
+    function setupShareButton(percentileData) {
+      // Create share text with percentile data if available
+      const shareText = createShareText(percentileData);
       
-      // Create a stylized copyable element
+      // Create the copyable element
       const { container, shareBtn, textElement } = createCopyableResult(shareText);
       
-      // Replace the existing share button
+      // Replace existing button
       shareButton.innerHTML = '';
       shareButton.appendChild(container);
       
-      // Set up click handler on the new share button
+      // Set up click handler
       shareBtn.addEventListener('click', () => {
-        // On mobile, use the native share functionality if available
+        // On mobile, use native share if available
         if (navigator.share && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
           navigator.share({
             text: shareText,
@@ -1233,55 +1321,42 @@
             copyToClipboard(shareText, shareBtn);
           });
         } else {
-          // On desktop, just copy to clipboard
+          // On desktop, copy to clipboard
           copyToClipboard(shareText, shareBtn);
         }
       });
     }
     
     // Create share text
-    function createShareText() {
-      // Get date for share text
-      let dateStr = '';
-      if (currentPuzzle.date) {
-        const date = new Date(currentPuzzle.date);
-        dateStr = date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
-      }
+    function createShareText(percentileData) {
+      // Get puzzle title
+      const puzzleTitle = currentPuzzle.name || 'Daily Puzzle';
       
       // Get time taken
       const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
       const timeTaken = savedTimeStr ? parseInt(savedTimeStr, 10) : 0;
       
-      // Get puzzle title
-      const puzzleTitle = currentPuzzle.name || 'Daily Puzzle';
-      
       // Create emoji representation of the word ladder
       const totalRungs = currentPuzzle.ladder.length;
-      const solvedRungs = solvedPositions.size;
       
       // Build the emoji ladder - green squares for solved, white for unsolved
       const ladderEmoji = Array(totalRungs).fill('⬜️')
         .map((square, index) => solvedPositions.has(index) ? '🟩' : '⬜️')
         .join('');
       
-      // Mock percentile data (in real implementation, this would be fetched from the database)
-      // This is a placeholder until actual leaderboard functionality is implemented
-      // You'll need to implement actual player stats tracking to replace this
-      const mockPercentile = Math.floor(Math.random() * 90) + 10; // Random percentile between 10-99
-      const mockPlayerCount = Math.floor(Math.random() * 50) + 5; // Random player count between 5-54
-      
       // Build the share text
       let shareText = `🌿 Word Vine 🌿\n`;
       shareText += `[${puzzleTitle}]\n\n`;
       shareText += `Solved with ${mistakeCount} mistake${mistakeCount !== 1 ? 's' : ''} in ${timeTaken}s!\n\n`;
       
-      // Add percentile info
-      shareText += `That time places me in the ${mockPercentile}th percentile of ${mockPlayerCount} players so far\n\n`;
+      // Add percentile info if we have it
+      if (percentileData && percentileData.totalPlayers > 0) {
+        shareText += `That time places me in the ${percentileData.percentile}th percentile of ${percentileData.totalPlayers} players so far\n\n`;
+      } else {
+        shareText += `I'm one of the first to complete this puzzle!\n\n`;
+      }
       
-      // Add emoji boxes
       shareText += `${ladderEmoji}\n\n`;
-      
-      // Add URL
       shareText += `eviltrivia.com/games/vine`;
       
       return shareText;
