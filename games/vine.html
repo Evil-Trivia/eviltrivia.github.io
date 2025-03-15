@@ -672,7 +672,7 @@
         }
         
         console.log("Starting to load active word ladder");
-        const activeWordLadderRef = ref(db, 'games/vine/activePuzzle');
+        const activeWordLadderRef = ref(db, 'vine/activePuzzle');
         
         onValue(activeWordLadderRef, async (snapshot) => {
           try {
@@ -691,7 +691,7 @@
             console.log("Active puzzle ID:", activePuzzleId);
             
             // Get the puzzle details
-            const puzzleRef = ref(db, `games/vine/puzzles/${activePuzzleId}`);
+            const puzzleRef = ref(db, `vine/puzzles/${activePuzzleId}`);
             const puzzleSnapshot = await get(puzzleRef);
             currentPuzzle = puzzleSnapshot.val();
             
@@ -785,7 +785,7 @@
     async function loadPuzzleHistory() {
       try {
         // Get all puzzles
-        const puzzlesRef = ref(db, 'games/vine/puzzles');
+        const puzzlesRef = ref(db, 'vine/puzzles');
         const puzzlesSnapshot = await get(puzzlesRef);
         const puzzles = puzzlesSnapshot.val() || {};
         
@@ -893,6 +893,8 @@
       const savedScore = localStorage.getItem(`vine_score_${currentPuzzle.id}`);
       const savedCompleted = localStorage.getItem(`vine_completed_${currentPuzzle.id}`);
       const savedMistakes = localStorage.getItem(`vine_mistakes_${currentPuzzle.id}`);
+      const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
+      const savedTimeTaken = savedTimeStr ? parseInt(savedTimeStr, 10) : null;
       
       if (savedProgress) {
         // Restore progress from localStorage
@@ -917,11 +919,23 @@
         // Check if already completed
         if (savedCompleted === 'true') {
           hasCompleted = true;
-          endTime = Date.now(); // Just a placeholder since we don't have the actual end time
+          
+          // If we have a saved time, calculate a fake start time that would result in this time taken
+          if (savedTimeTaken) {
+            endTime = Date.now();
+            // Calculate a start time that would give us the saved time
+            startTime = endTime - (savedTimeTaken * 1000);
+            console.log(`Restored completed puzzle with time: ${savedTimeTaken}s`);
+          } else {
+            // Fallback if no time saved
+            endTime = Date.now();
+            startTime = endTime; // This will result in a time of 0, but it's better than a random time
+            console.log('Completed puzzle but no time was saved');
+          }
+          
           showCompletionMessage();
         }
       }
-      // TODO: Add Firebase sync for logged-in users
       
       // Update the score display
       scoreDisplay.textContent = currentScore;
@@ -1109,7 +1123,24 @@
         }
         
         const puzzleId = currentPuzzle.id;
-        const seconds = Math.floor((endTime - startTime) / 1000);
+        console.log('Puzzle ID:', puzzleId);
+        
+        // Get the time in seconds - either from localStorage or calculated
+        let seconds;
+        const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
+        
+        if (savedTimeStr) {
+          // Use saved time if available
+          seconds = parseInt(savedTimeStr, 10);
+          console.log(`Using saved time from localStorage: ${seconds}s`);
+        } else {
+          // Calculate time if not saved
+          seconds = Math.floor((endTime - startTime) / 1000);
+          console.log(`Calculated time: ${seconds}s`);
+          
+          // Save it to localStorage for future use
+          localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
+        }
         
         // Generate a unique user identifier, even for anonymous users
         let userId = currentUserId;
@@ -1118,6 +1149,7 @@
           userId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
           console.log('Created anonymous user ID:', userId);
         }
+        console.log('User ID for Firebase:', userId);
         
         // Create the score data object
         const scoreData = {
@@ -1128,17 +1160,37 @@
           score: currentScore
         };
         
-        console.log(`Attempting to save score: Time=${seconds}s, Mistakes=${mistakeCount}`);
+        console.log('Full score data object:', JSON.stringify(scoreData));
+        console.log(`Saving score data: Time=${seconds}s, Mistakes=${mistakeCount}`);
         
-        // Save to the correct Firebase path (matching what Drinkle does)
-        // Use the path format: games/vine/puzzles/[puzzleId]/scores/[userId]
-        const scoresRef = ref(db, `games/vine/puzzles/${puzzleId}/scores/${userId}`);
-        console.log(`Saving to Firebase path: games/vine/puzzles/${puzzleId}/scores/${userId}`);
+        // Save to the correct Firebase path (FIXED PATH)
+        const scoresRef = ref(db, `vine/puzzles/${puzzleId}/scores/${userId}`);
+        console.log(`Saving to Firebase path: vine/puzzles/${puzzleId}/scores/${userId}`);
         
-        await set(scoresRef, scoreData);
-        console.log('Score successfully saved to Firebase!');
-        
-        return true;
+        try {
+          await set(scoresRef, scoreData);
+          console.log('Score successfully saved to Firebase!');
+          
+          // Verify the data was saved by trying to read it back
+          setTimeout(async () => {
+            try {
+              const verifyRef = ref(db, `vine/puzzles/${puzzleId}/scores/${userId}`);
+              const snapshot = await get(verifyRef);
+              if (snapshot.exists()) {
+                console.log('Verified score was saved:', snapshot.val());
+              } else {
+                console.warn('Score was not found in Firebase after saving!');
+              }
+            } catch (verifyError) {
+              console.error('Error verifying saved score:', verifyError);
+            }
+          }, 1000);
+          
+          return true;
+        } catch (saveError) {
+          console.error('Error during set() operation:', saveError);
+          throw saveError; // Re-throw to be caught by outer catch
+        }
       } catch (error) {
         console.error('Error saving score to Firebase:', error);
         
@@ -1151,7 +1203,16 @@
             // Create anonymous ID if needed
             let anonymousId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             
-            const seconds = Math.floor((endTime - startTime) / 1000);
+            // Get the time in seconds
+            let seconds;
+            const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
+            
+            if (savedTimeStr) {
+              seconds = parseInt(savedTimeStr, 10);
+            } else {
+              seconds = Math.floor((endTime - startTime) / 1000);
+              localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
+            }
             
             // Try using a public scores path that might have different permissions
             const publicScoresRef = ref(db, `publicScores/vine/${puzzleId}/${anonymousId}`);
@@ -1186,12 +1247,21 @@
       
       try {
         console.log('Calculating percentile from Firebase scores...');
-        const seconds = Math.floor((endTime - startTime) / 1000);
+        
+        // Get the time in seconds from localStorage
+        const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
+        const seconds = savedTimeStr ? parseInt(savedTimeStr, 10) : Math.floor((endTime - startTime) / 1000);
+        
+        if (seconds <= 0) {
+          console.warn('Invalid time value for percentile calculation:', seconds);
+        }
+        
+        console.log(`Using time of ${seconds}s for percentile calculation`);
         const puzzleId = currentPuzzle.id;
         
-        // Get all scores for this puzzle
-        const scoresRef = ref(db, `games/vine/puzzles/${puzzleId}/scores`);
-        console.log(`Reading scores from path: games/vine/puzzles/${puzzleId}/scores`);
+        // Get all scores for this puzzle (FIXED PATH)
+        const scoresRef = ref(db, `vine/puzzles/${puzzleId}/scores`);
+        console.log(`Reading scores from path: vine/puzzles/${puzzleId}/scores`);
         
         const scoresSnapshot = await get(scoresRef);
         
@@ -1302,9 +1372,27 @@
       const timeTaken = endTime - startTime;
       const seconds = Math.floor(timeTaken / 1000);
       
+      // Store time in localStorage immediately to ensure it's saved
+      if (seconds > 0) {
+        console.log(`Saving completion time to localStorage: ${seconds}s`);
+        localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
+      } else {
+        // If time is 0 or negative, check if we have a saved time
+        const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
+        if (!savedTimeStr) {
+          // If no saved time, store a minimal time
+          console.log('Time calculation resulted in 0 or negative, setting to 1s');
+          localStorage.setItem(`vine_time_${currentPuzzle.id}`, '1');
+        }
+      }
+      
       // Update the completion message with the time and mistakes
       const statsElement = document.createElement('p');
-      statsElement.innerHTML = `You solved this puzzle with <strong>${mistakeCount}</strong> mistake${mistakeCount !== 1 ? 's' : ''} in <strong>${seconds}s</strong>`;
+      // Use the time from localStorage if available (more reliable)
+      const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
+      const displayTime = savedTimeStr ? parseInt(savedTimeStr, 10) : seconds;
+      
+      statsElement.innerHTML = `You solved this puzzle with <strong>${mistakeCount}</strong> mistake${mistakeCount !== 1 ? 's' : ''} in <strong>${displayTime}s</strong>`;
       
       // Insert after the first paragraph
       const firstParagraph = completionMessage.querySelector('p');
@@ -1327,9 +1415,6 @@
       
       // Set up share functionality with placeholder data initially
       setupShareButton({ calculating: true });
-      
-      // Store time in localStorage
-      localStorage.setItem(`vine_time_${currentPuzzle.id}`, seconds.toString());
       
       try {
         // Save the score to Firebase (both for logged-in and anonymous users)
@@ -1490,9 +1575,11 @@
       // Get puzzle title
       const puzzleTitle = currentPuzzle.name || 'Daily Puzzle';
       
-      // Get time taken
+      // Get time taken from localStorage
       const savedTimeStr = localStorage.getItem(`vine_time_${currentPuzzle.id}`);
       const timeTaken = savedTimeStr ? parseInt(savedTimeStr, 10) : 0;
+      
+      console.log(`Creating share text with time: ${timeTaken}s`);
       
       // Create emoji representation of the word ladder
       const totalRungs = currentPuzzle.ladder.length;
