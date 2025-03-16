@@ -153,6 +153,100 @@
         .flex-container button {
             height: 36px;
         }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 900px;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+        
+        .close-modal {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close-modal:hover {
+            color: black;
+        }
+        
+        .stats-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .stat-box {
+            background-color: #f8f8f8;
+            padding: 15px;
+            border-radius: 5px;
+            min-width: 150px;
+        }
+        
+        .stat-title {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2E7D32;
+        }
+        
+        .responses-table {
+            overflow-x: auto;
+        }
+        
+        .responses-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .responses-table th, .responses-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .responses-table th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+        }
+        
+        .responses-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .viewResponsesBtn {
+            background-color: #4285F4;
+        }
+        
+        .viewResponsesBtn:hover {
+            background-color: #3367D6;
+        }
     </style>
 </head>
 <body>
@@ -391,6 +485,7 @@
                         ).join('') : 'No ladder data'}
                     </div>
                     <div class="action-buttons">
+                        <button class="viewResponsesBtn" data-id="${puzzle.id}">View Responses</button>
                         <button class="setActiveBtn" data-id="${puzzle.id}" ${puzzle.id === activePuzzleId ? 'disabled' : ''}>
                             ${puzzle.id === activePuzzleId ? 'Active' : 'Set Active'}
                         </button>
@@ -406,6 +501,13 @@
             });
             
             // Add event listeners to buttons
+            document.querySelectorAll('.viewResponsesBtn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const puzzleId = btn.getAttribute('data-id');
+                    viewPuzzleResponses(puzzleId);
+                });
+            });
+            
             document.querySelectorAll('.setActiveBtn').forEach(btn => {
                 btn.addEventListener('click', () => {
                     const puzzleId = btn.getAttribute('data-id');
@@ -798,6 +900,337 @@
             setTimeout(() => {
                 createPuzzleStatus.style.display = 'none';
             }, 5000);
+        }
+
+        // Add the responses modal elements to the page - add this after the script tag opens
+        document.addEventListener('DOMContentLoaded', function() {
+            // Create the responses modal
+            const responsesModal = document.createElement('div');
+            responsesModal.id = 'responsesModal';
+            responsesModal.className = 'modal';
+            responsesModal.innerHTML = `
+                <div class="modal-content">
+                    <span class="close-modal">&times;</span>
+                    <h3 id="responsesTitle">Puzzle Responses</h3>
+                    <div id="responsesStats" class="stats-container"></div>
+                    <div id="responsesTable" class="responses-table"></div>
+                </div>
+            `;
+            document.body.appendChild(responsesModal);
+            
+            // Add event listener to close the modal
+            const closeModalBtn = responsesModal.querySelector('.close-modal');
+            closeModalBtn.addEventListener('click', () => {
+                responsesModal.style.display = 'none';
+            });
+            
+            // Close modal when clicking outside
+            window.addEventListener('click', (event) => {
+                if (event.target === responsesModal) {
+                    responsesModal.style.display = 'none';
+                }
+            });
+        });
+
+        // Add modal styling - add this to the <style> section in <head>
+        document.addEventListener('DOMContentLoaded', function() {
+            const styleElement = document.createElement('style');
+            styleElement.textContent = `
+                .modal {
+                    display: none;
+                    position: fixed;
+                    z-index: 1000;
+                    left: 0;
+                    top: 0;
+                    width: 100%;
+                    height: 100%;
+                    overflow: auto;
+                    background-color: rgba(0,0,0,0.4);
+                }
+                
+                .modal-content {
+                    background-color: white;
+                    margin: 10% auto;
+                    padding: 20px;
+                    border-radius: 8px;
+                    width: 80%;
+                    max-width: 900px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    position: relative;
+                }
+                
+                .close-modal {
+                    color: #aaa;
+                    float: right;
+                    font-size: 28px;
+                    font-weight: bold;
+                    cursor: pointer;
+                }
+                
+                .close-modal:hover {
+                    color: black;
+                }
+                
+                .stats-container {
+                    display: flex;
+                    gap: 20px;
+                    flex-wrap: wrap;
+                    margin-bottom: 20px;
+                }
+                
+                .stat-box {
+                    background-color: #f8f8f8;
+                    padding: 15px;
+                    border-radius: 5px;
+                    min-width: 150px;
+                }
+                
+                .stat-title {
+                    font-size: 14px;
+                    color: #666;
+                    margin-bottom: 5px;
+                }
+                
+                .stat-value {
+                    font-size: 24px;
+                    font-weight: bold;
+                    color: #2E7D32;
+                }
+                
+                .responses-table {
+                    overflow-x: auto;
+                }
+                
+                .responses-table table {
+                    width: 100%;
+                    border-collapse: collapse;
+                }
+                
+                .responses-table th, .responses-table td {
+                    padding: 8px 12px;
+                    text-align: left;
+                    border-bottom: 1px solid #ddd;
+                }
+                
+                .responses-table th {
+                    background-color: #f2f2f2;
+                    position: sticky;
+                    top: 0;
+                }
+                
+                .responses-table tr:hover {
+                    background-color: #f5f5f5;
+                }
+                
+                .viewResponsesBtn {
+                    background-color: #4285F4;
+                }
+                
+                .viewResponsesBtn:hover {
+                    background-color: #3367D6;
+                }
+            `;
+            document.head.appendChild(styleElement);
+        });
+
+        // Function to view responses for a particular puzzle
+        function viewPuzzleResponses(puzzleId) {
+            console.log("Viewing responses for puzzle:", puzzleId);
+            
+            // Clear previous responses
+            document.getElementById('responsesStats').innerHTML = '<p>Loading statistics...</p>';
+            document.getElementById('responsesTable').innerHTML = '<p>Loading responses...</p>';
+            
+            // Show the modal
+            document.getElementById('responsesModal').style.display = 'block';
+            
+            // Get the puzzle data first
+            const puzzleRef = ref(db, `games/vine/puzzles/${puzzleId}`);
+            get(puzzleRef).then((puzzleSnapshot) => {
+                const puzzleData = puzzleSnapshot.val();
+                if (!puzzleData) {
+                    document.getElementById('responsesTitle').textContent = 'Puzzle Not Found';
+                    document.getElementById('responsesStats').innerHTML = '<p>Error: Puzzle data not found.</p>';
+                    document.getElementById('responsesTable').innerHTML = '';
+                    return;
+                }
+                
+                // Update the title
+                document.getElementById('responsesTitle').textContent = 
+                    `Responses for: ${puzzleData.name || 'Unnamed Puzzle'} (${new Date(puzzleData.date).toLocaleDateString()})`;
+                
+                // Try to get responses from multiple possible paths
+                const paths = [
+                    `games/vine/answers/${puzzleId}/scores`,
+                    `publicAnswers/vine/${puzzleId}/scores`
+                ];
+                
+                let foundResponses = false;
+                let promises = [];
+                
+                // Try each path
+                paths.forEach(path => {
+                    const promise = get(ref(db, path))
+                        .then(snapshot => {
+                            if (snapshot.exists()) {
+                                foundResponses = true;
+                                return { path, data: snapshot.val() };
+                            }
+                            return null;
+                        })
+                        .catch(error => {
+                            console.error(`Error getting responses from ${path}:`, error);
+                            return null;
+                        });
+                    
+                    promises.push(promise);
+                });
+                
+                // Process all results
+                Promise.all(promises).then(results => {
+                    // Filter out null results and combine all responses
+                    const validResults = results.filter(result => result !== null);
+                    
+                    if (validResults.length === 0) {
+                        document.getElementById('responsesStats').innerHTML = '<p>No responses found for this puzzle.</p>';
+                        document.getElementById('responsesTable').innerHTML = '';
+                        return;
+                    }
+                    
+                    // Combine all responses from different paths
+                    let allResponses = {};
+                    validResults.forEach(result => {
+                        console.log(`Found responses in path: ${result.path}`);
+                        Object.assign(allResponses, result.data);
+                    });
+                    
+                    // Convert to array for easier processing
+                    const responsesArray = Object.entries(allResponses).map(([userId, data]) => {
+                        return { userId, ...data };
+                    });
+                    
+                    // Calculate statistics
+                    const totalResponses = responsesArray.length;
+                    
+                    // Time statistics
+                    const times = responsesArray.map(r => r.timeInSeconds).filter(t => typeof t === 'number');
+                    const avgTime = times.length > 0 ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
+                    const minTime = times.length > 0 ? Math.min(...times) : 0;
+                    const maxTime = times.length > 0 ? Math.max(...times) : 0;
+                    
+                    // Mistakes statistics
+                    const mistakes = responsesArray.map(r => r.mistakes).filter(m => typeof m === 'number');
+                    const avgMistakes = mistakes.length > 0 ? Math.round(mistakes.reduce((a, b) => a + b, 0) / mistakes.length * 10) / 10 : 0;
+                    const totalMistakes = mistakes.reduce((a, b) => a + b, 0);
+                    
+                    // Display statistics
+                    document.getElementById('responsesStats').innerHTML = `
+                        <div class="stat-box">
+                            <div class="stat-title">Total Players</div>
+                            <div class="stat-value">${totalResponses}</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-title">Average Time</div>
+                            <div class="stat-value">${formatTime(avgTime)}</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-title">Fastest Time</div>
+                            <div class="stat-value">${formatTime(minTime)}</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-title">Slowest Time</div>
+                            <div class="stat-value">${formatTime(maxTime)}</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-title">Avg Mistakes</div>
+                            <div class="stat-value">${avgMistakes}</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-title">Total Mistakes</div>
+                            <div class="stat-value">${totalMistakes}</div>
+                        </div>
+                    `;
+                    
+                    // Sort responses (fastest first)
+                    responsesArray.sort((a, b) => {
+                        // If we have both times, sort by time
+                        if (typeof a.timeInSeconds === 'number' && typeof b.timeInSeconds === 'number') {
+                            return a.timeInSeconds - b.timeInSeconds;
+                        }
+                        // If only one has time, put the one with time first
+                        if (typeof a.timeInSeconds === 'number') return -1;
+                        if (typeof b.timeInSeconds === 'number') return 1;
+                        // If neither has time, sort by completedAt timestamp
+                        if (a.completedAt && b.completedAt) {
+                            return new Date(b.completedAt) - new Date(a.completedAt);
+                        }
+                        return 0;
+                    });
+                    
+                    // Generate the table
+                    let tableHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>User ID</th>
+                                    <th>Time</th>
+                                    <th>Mistakes</th>
+                                    <th>Score</th>
+                                    <th>Completed At</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                    
+                    responsesArray.forEach((response, index) => {
+                        const userId = response.userId.substring(0, 8) + '...'; // Truncate long IDs
+                        const time = typeof response.timeInSeconds === 'number' ? formatTime(response.timeInSeconds) : 'N/A';
+                        const mistakes = typeof response.mistakes === 'number' ? response.mistakes : 'N/A';
+                        const score = typeof response.score === 'number' ? response.score : 'N/A';
+                        const completedAt = response.completedAt ? new Date(response.completedAt).toLocaleString() : 'N/A';
+                        
+                        tableHTML += `
+                            <tr>
+                                <td>${index + 1}</td>
+                                <td>${userId}</td>
+                                <td>${time}</td>
+                                <td>${mistakes}</td>
+                                <td>${score}</td>
+                                <td>${completedAt}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableHTML += `
+                            </tbody>
+                        </table>
+                    `;
+                    
+                    document.getElementById('responsesTable').innerHTML = tableHTML;
+                });
+            }).catch(error => {
+                console.error("Error fetching puzzle data:", error);
+                document.getElementById('responsesStats').innerHTML = `<p>Error fetching puzzle data: ${error.message}</p>`;
+                document.getElementById('responsesTable').innerHTML = '';
+            });
+        }
+
+        // Function to format time in minutes and seconds
+        function formatTime(totalSeconds) {
+            if (typeof totalSeconds !== 'number' || isNaN(totalSeconds)) {
+                return 'N/A';
+            }
+            
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            
+            if (minutes === 0) {
+                return `${seconds}s`;
+            } else {
+                return `${minutes}m ${seconds}s`;
+            }
         }
     </script>
 </body>
