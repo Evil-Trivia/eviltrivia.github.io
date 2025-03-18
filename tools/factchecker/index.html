@@ -137,7 +137,6 @@
             margin-top: 20px;
             background-color: #f9f9f9;
             white-space: pre-wrap;
-            display: none;
         }
         
         .loader {
@@ -179,7 +178,7 @@
         <p class="subtitle">AI-powered fact checking for trivia questions</p>
         
         <!-- Authentication Required Screen -->
-        <div id="auth-screen" class="auth-container hidden">
+        <div id="auth-screen" class="auth-container">
             <h2>Access Required</h2>
             <p>You need admin or tools privileges to access this page.</p>
             <a href="/account" class="auth-btn">Go to Account Page</a>
@@ -203,7 +202,7 @@
                 
                 <div id="loader" class="loader"></div>
                 
-                <div id="result-container" class="result-container">
+                <div id="result-container" class="result-container hidden">
                     <h3>Analysis Results:</h3>
                     <div id="result-content"></div>
                 </div>
@@ -237,8 +236,8 @@
         const auth = firebase.auth();
         const db = firebase.database();
         
-        // Initialize Functions correctly 
-        const functions = firebase.app().functions();
+        // Initialize Functions with the correct region
+        const functions = firebase.functions();
         
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
@@ -251,61 +250,65 @@
         const resultContainer = document.getElementById('result-container');
         const resultContent = document.getElementById('result-content');
         
-        console.log('DOM elements:', {
-            authScreen: !!authScreen,
-            factCheckerScreen: !!factCheckerScreen,
-            factCheckerTool: !!factCheckerTool
-        });
+        console.log('DOM elements initialized');
         
-        // Check user authentication and access
-        auth.onAuthStateChanged(async (user) => {
+        // Set up authentication state change listener
+        let authInitialized = false;
+        let currentUser = null;
+        
+        auth.onAuthStateChanged(function(user) {
             console.log('Auth state changed:', user ? 'logged in' : 'logged out');
+            currentUser = user;
+            authInitialized = true;
             
             if (user) {
-                try {
-                    // Get user data
-                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
-                    const userData = snapshot.val() || {};
-                    
-                    // Check for admin role - in both new roles array and old role field
-                    const isAdmin = 
-                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
-                        (userData.role === 'admin');
-                    
-                    // Check for tools role
-                    const hasToolsAccess =
-                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
-                        (userData.role === 'tools');
-                    
-                    console.log('User roles:', { isAdmin, hasToolsAccess });
-                    
-                    if (isAdmin || hasToolsAccess) {
-                        // User has appropriate access, show the tool interface
-                        authScreen.classList.add('hidden');
-                        factCheckerScreen.classList.remove('hidden');
-                        
-                        console.log('Showing fact checker screen');
-                    } else {
-                        // User does not have access
-                        authScreen.classList.remove('hidden');
-                        factCheckerScreen.classList.add('hidden');
-                        console.log('User does not have admin or tools access');
-                    }
-                } catch (error) {
-                    console.error('Error checking user role:', error);
-                    authScreen.classList.remove('hidden');
-                    factCheckerScreen.classList.add('hidden');
-                }
+                checkUserAccess(user);
             } else {
-                // User is not signed in
                 authScreen.classList.remove('hidden');
                 factCheckerScreen.classList.add('hidden');
-                console.log('User is not signed in');
             }
         });
         
-        // Check questions
-        checkButton.addEventListener('click', async () => {
+        // Check if user has access to the tool
+        async function checkUserAccess(user) {
+            console.log('Checking user access for:', user.uid);
+            
+            try {
+                // Get user data from Firebase
+                const snapshot = await db.ref(`users/${user.uid}`).once('value');
+                const userData = snapshot.val() || {};
+                
+                // Check for admin role or tools access
+                const isAdmin = 
+                    (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+                    (userData.role === 'admin');
+                
+                const hasToolsAccess =
+                    (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
+                    (userData.role === 'tools');
+                
+                console.log('User roles:', { isAdmin, hasToolsAccess, userData });
+                
+                if (isAdmin || hasToolsAccess) {
+                    // Show the fact checker interface
+                    authScreen.classList.add('hidden');
+                    factCheckerScreen.classList.remove('hidden');
+                    console.log('User has access, showing fact checker interface');
+                } else {
+                    // User does not have access
+                    authScreen.classList.remove('hidden');
+                    factCheckerScreen.classList.add('hidden');
+                    console.log('User does not have required permissions');
+                }
+            } catch (error) {
+                console.error('Error checking user access:', error);
+                authScreen.classList.remove('hidden');
+                factCheckerScreen.classList.add('hidden');
+            }
+        }
+        
+        // Handle check button click
+        checkButton.addEventListener('click', async function() {
             const text = questionInput.value.trim();
             
             if (!text) {
@@ -313,60 +316,66 @@
                 return;
             }
             
+            // Show loading state
+            checkButton.disabled = true;
+            loader.style.display = 'block';
+            resultContainer.classList.add('hidden');
+            
             try {
-                // Show loading state
-                checkButton.disabled = true;
-                loader.style.display = 'block';
-                resultContainer.style.display = 'none';
+                console.log('Starting fact check process...');
                 
-                console.log('Checking questions...');
-                
-                // Force refresh the token before calling the function
-                const user = auth.currentUser;
-                if (!user) {
-                    throw new Error("User not authenticated");
+                // Ensure authentication is complete
+                if (!authInitialized) {
+                    console.log('Waiting for auth to initialize...');
+                    await new Promise(resolve => {
+                        const checkAuth = () => {
+                            if (authInitialized) {
+                                resolve();
+                            } else {
+                                setTimeout(checkAuth, 100);
+                            }
+                        };
+                        checkAuth();
+                    });
                 }
                 
-                try {
-                    // Get a fresh token to ensure we're using the latest authentication
-                    await user.getIdToken(true);
-                } catch (tokenError) {
-                    console.error('Error refreshing token:', tokenError);
-                    throw tokenError;
+                // Verify user is logged in
+                if (!currentUser) {
+                    throw new Error('You must be logged in to use this feature.');
                 }
                 
-                try {
-                    // Call the fact checker function
-                    const factChecker = functions.httpsCallable('factChecker');
-                    const result = await factChecker({ text });
-                    
-                    console.log('Fact check result received');
-                    
-                    // Display the result
-                    resultContent.textContent = result.data.result;
-                    resultContainer.style.display = 'block';
-                } catch (functionError) {
-                    console.error('Error calling factChecker function:', functionError);
-                    throw functionError;
-                }
+                // Get a fresh token
+                console.log('Refreshing authentication token...');
+                await currentUser.getIdToken(true);
+                
+                // Call the function
+                console.log('Calling factChecker function...');
+                const factChecker = functions.httpsCallable('factChecker');
+                const result = await factChecker({ text });
+                
+                console.log('Received result from factChecker function');
+                
+                // Display the result
+                resultContent.textContent = result.data.result;
+                resultContainer.classList.remove('hidden');
             } catch (error) {
-                console.error('Error checking questions:', error);
-                resultContent.textContent = `Error: ${error.message}`;
-                resultContainer.style.display = 'block';
+                console.error('Error in fact checking process:', error);
+                resultContent.textContent = 'Error: ' + (error.message || 'Unknown error occurred.');
+                resultContainer.classList.remove('hidden');
             } finally {
-                // Hide loading state
+                // Reset UI
                 checkButton.disabled = false;
                 loader.style.display = 'none';
             }
         });
         
-        // Clear button
-        clearButton.addEventListener('click', () => {
+        // Handle clear button click
+        clearButton.addEventListener('click', function() {
             questionInput.value = '';
-            resultContainer.style.display = 'none';
+            resultContainer.classList.add('hidden');
         });
         
-        // Log initial state
+        // Log initial auth state
         console.log('Initial auth state:', auth.currentUser ? 'logged in' : 'not logged in');
     </script>
 </body>
