@@ -542,9 +542,20 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
       );
     }
 
-    // Create the OpenAI client with the user's API key
+    // Get API key from Firebase config
+    const apiKey = functions.config().openai?.apikey;
+    
+    if (!apiKey) {
+      console.error('[ERROR] OpenAI API key not configured in Firebase config');
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'OpenAI API key not configured on the server. Please contact the administrator.'
+      );
+    }
+
+    // Create the OpenAI client with the API key from Firebase config
     const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: apiKey
     });
 
     // The prompt template
