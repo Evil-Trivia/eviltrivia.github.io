@@ -232,7 +232,7 @@
             </div>
             
             <!-- Fact Checker Tool -->
-            <div id="fact-checker-tool" class="fact-checker-container hidden">
+            <div id="fact-checker-tool" class="fact-checker-container">
                 <h2>Question Analyzer</h2>
                 <p>Paste your trivia question(s) below to check for potential issues:</p>
                 
@@ -262,6 +262,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
     
     <script>
+        console.log('Script starting...');
+        
         // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -278,8 +280,10 @@
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.database();
-        const functions = firebase.functions('us-central1');
-
+        
+        // Initialize Functions correctly 
+        const functions = firebase.app().functions();
+        
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
         const factCheckerScreen = document.getElementById('fact-checker-screen');
@@ -297,8 +301,17 @@
         const resultContainer = document.getElementById('result-container');
         const resultContent = document.getElementById('result-content');
         
+        console.log('DOM elements:', {
+            authScreen: !!authScreen,
+            factCheckerScreen: !!factCheckerScreen,
+            apiKeySetup: !!apiKeySetup,
+            factCheckerTool: !!factCheckerTool
+        });
+        
         // Check user authentication and access
         auth.onAuthStateChanged(async (user) => {
+            console.log('Auth state changed:', user ? 'logged in' : 'logged out');
+            
             if (user) {
                 try {
                     // Get user data
@@ -315,17 +328,30 @@
                         (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
                         (userData.role === 'tools');
                     
+                    console.log('User roles:', { isAdmin, hasToolsAccess });
+                    
                     if (isAdmin || hasToolsAccess) {
                         // User has appropriate access, show the tool interface
                         authScreen.classList.add('hidden');
                         factCheckerScreen.classList.remove('hidden');
                         
+                        console.log('Showing fact checker screen');
+                        
+                        // By default show the fact checker tool
+                        apiKeySetup.classList.remove('hidden');
+                        factCheckerTool.classList.remove('hidden');
+                        
                         // Check if the user has an API key
-                        checkApiKeyStatus();
+                        try {
+                            checkApiKeyStatus();
+                        } catch (error) {
+                            console.error('Error in checkApiKeyStatus:', error);
+                        }
                     } else {
                         // User does not have access
                         authScreen.classList.remove('hidden');
                         factCheckerScreen.classList.add('hidden');
+                        console.log('User does not have admin or tools access');
                     }
                 } catch (error) {
                     console.error('Error checking user role:', error);
@@ -336,11 +362,14 @@
                 // User is not signed in
                 authScreen.classList.remove('hidden');
                 factCheckerScreen.classList.add('hidden');
+                console.log('User is not signed in');
             }
         });
         
         // Check if the user has an API key
         async function checkApiKeyStatus() {
+            console.log('Checking API key status...');
+            
             try {
                 apiKeyStatus.innerHTML = '<p>Checking API key status...</p>';
                 
@@ -350,29 +379,40 @@
                     throw new Error("User not authenticated");
                 }
                 
-                // Get a fresh token to ensure we're using the latest authentication
-                await user.getIdToken(true);
+                try {
+                    // Get a fresh token to ensure we're using the latest authentication
+                    await user.getIdToken(true);
+                    console.log('Token refreshed successfully');
+                } catch (tokenError) {
+                    console.error('Error refreshing token:', tokenError);
+                }
                 
-                // Set functions region to match where you deployed your functions
-                const verifyApiKey = functions.httpsCallable('verifyOpenAIApiKey');
-                const result = await verifyApiKey();
+                console.log('Calling verifyOpenAIApiKey function...');
                 
-                if (result.data.hasApiKey) {
-                    // User has an API key
-                    apiKeyStatus.innerHTML = '<p class="success-message">✓ API key is set up and ready to use.</p>';
-                    apiKeyInputContainer.classList.add('hidden');
-                    factCheckerTool.classList.remove('hidden');
-                } else {
-                    // User does not have an API key
-                    apiKeyStatus.innerHTML = '<p>Please set up your OpenAI API key to use this tool.</p>';
-                    apiKeyInputContainer.classList.remove('hidden');
-                    factCheckerTool.classList.add('hidden');
+                try {
+                    // Call the Firebase function
+                    const verifyApiKey = functions.httpsCallable('verifyOpenAIApiKey');
+                    const result = await verifyApiKey();
+                    
+                    console.log('API key verification result:', result.data);
+                    
+                    if (result.data.hasApiKey) {
+                        // User has an API key
+                        apiKeyStatus.innerHTML = '<p class="success-message">✓ API key is set up and ready to use.</p>';
+                        apiKeyInputContainer.style.display = 'none';
+                    } else {
+                        // User does not have an API key
+                        apiKeyStatus.innerHTML = '<p>Please set up your OpenAI API key to use this tool.</p>';
+                        apiKeyInputContainer.style.display = 'block';
+                    }
+                } catch (functionError) {
+                    console.error('Error calling verifyOpenAIApiKey function:', functionError);
+                    throw functionError;
                 }
             } catch (error) {
                 console.error('Error checking API key status:', error);
                 apiKeyStatus.innerHTML = `<p class="error-message">Error checking API key status: ${error.message}</p>`;
-                apiKeyInputContainer.classList.remove('hidden');
-                factCheckerTool.classList.add('hidden');
+                apiKeyInputContainer.style.display = 'block';
             }
         }
         
@@ -390,23 +430,37 @@
                 saveApiKeyButton.disabled = true;
                 saveApiKeyButton.textContent = 'Saving...';
                 
+                console.log('Saving API key...');
+                
                 // Force refresh the token before saving
                 const user = auth.currentUser;
                 if (!user) {
                     throw new Error("User not authenticated");
                 }
                 
-                // Get a fresh token to ensure we're using the latest authentication
-                await user.getIdToken(true);
+                try {
+                    // Get a fresh token to ensure we're using the latest authentication
+                    await user.getIdToken(true);
+                } catch (tokenError) {
+                    console.error('Error refreshing token:', tokenError);
+                    throw tokenError;
+                }
                 
-                // Set functions region to match where you deployed your functions
-                const setApiKey = functions.httpsCallable('setOpenAIApiKey');
-                await setApiKey({ apiKey });
-                
-                showApiKeyMessage('API key saved successfully!', 'success');
-                setTimeout(() => {
-                    checkApiKeyStatus();
-                }, 1500);
+                try {
+                    // Call the Firebase function to save the API key
+                    const setApiKey = functions.httpsCallable('setOpenAIApiKey');
+                    await setApiKey({ apiKey });
+                    
+                    console.log('API key saved successfully');
+                    showApiKeyMessage('API key saved successfully!', 'success');
+                    
+                    setTimeout(() => {
+                        checkApiKeyStatus();
+                    }, 1500);
+                } catch (functionError) {
+                    console.error('Error calling setOpenAIApiKey function:', functionError);
+                    throw functionError;
+                }
             } catch (error) {
                 console.error('Error saving API key:', error);
                 showApiKeyMessage(`Error saving API key: ${error.message}`, 'error');
@@ -438,22 +492,36 @@
                 loader.style.display = 'block';
                 resultContainer.style.display = 'none';
                 
+                console.log('Checking questions...');
+                
                 // Force refresh the token before calling the function
                 const user = auth.currentUser;
                 if (!user) {
                     throw new Error("User not authenticated");
                 }
                 
-                // Get a fresh token to ensure we're using the latest authentication
-                await user.getIdToken(true);
+                try {
+                    // Get a fresh token to ensure we're using the latest authentication
+                    await user.getIdToken(true);
+                } catch (tokenError) {
+                    console.error('Error refreshing token:', tokenError);
+                    throw tokenError;
+                }
                 
-                // Set functions region to match where you deployed your functions
-                const factChecker = functions.httpsCallable('factChecker');
-                const result = await factChecker({ text });
-                
-                // Display the result
-                resultContent.textContent = result.data.result;
-                resultContainer.style.display = 'block';
+                try {
+                    // Call the fact checker function
+                    const factChecker = functions.httpsCallable('factChecker');
+                    const result = await factChecker({ text });
+                    
+                    console.log('Fact check result received');
+                    
+                    // Display the result
+                    resultContent.textContent = result.data.result;
+                    resultContainer.style.display = 'block';
+                } catch (functionError) {
+                    console.error('Error calling factChecker function:', functionError);
+                    throw functionError;
+                }
             } catch (error) {
                 console.error('Error checking questions:', error);
                 resultContent.textContent = `Error: ${error.message}`;
@@ -470,13 +538,9 @@
             questionInput.value = '';
             resultContainer.style.display = 'none';
         });
-
-        // Initialize by checking if user is already signed in
-        if (auth.currentUser) {
-            console.log('User already signed in:', auth.currentUser.uid);
-        } else {
-            console.log('No user currently signed in');
-        }
+        
+        // Log initial state
+        console.log('Initial auth state:', auth.currentUser ? 'logged in' : 'not logged in');
     </script>
 </body>
 </html> 
