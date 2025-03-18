@@ -357,28 +357,45 @@
                     throw new Error('You must be logged in to use this feature.');
                 }
                 
-                // Get a fresh token and make sure it's properly used
+                // Get a fresh token
                 console.log('Refreshing authentication token...');
                 const idToken = await currentUser.getIdToken(true);
                 console.log('Token refreshed successfully');
                 
-                // Make direct call to the Firebase function with the token
-                console.log('Making direct call to factChecker function with auth token');
+                // DIRECT HTTP APPROACH INSTEAD OF FIREBASE SDK
+                console.log('Making direct HTTP request to the factCheckerHttp function...');
                 
-                // Option 1: Use Firebase Functions SDK with explicit token
-                const factChecker = firebase.app().functions('us-central1').httpsCallable('factChecker', {
-                    httpRequestOptions: {
-                        headers: {
-                            'Authorization': 'Bearer ' + idToken
-                        }
-                    }
+                // The direct URL to the HTTP Cloud Function
+                const functionUrl = 'https://us-central1-eviltrivia-47664.cloudfunctions.net/factCheckerHttp';
+                
+                // Make direct HTTP request with the token in Authorization header
+                const response = await fetch(functionUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + idToken
+                    },
+                    body: JSON.stringify({
+                        text: text  // Direct format for HTTP function
+                    })
                 });
                 
-                const result = await factChecker({ text });
-                console.log('Received result from factChecker function');
+                console.log('Response received:', response.status, response.statusText);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Error response text:', errorText);
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                const responseData = await response.json();
+                console.log('Response data:', responseData);
+                
+                // Extract result from the response
+                const result = responseData.result;
                 
                 // Display the result
-                resultContent.textContent = result.data.result;
+                resultContent.textContent = result;
                 resultContainer.classList.remove('hidden');
             } catch (error) {
                 console.error('Error in fact checking process:', error);
