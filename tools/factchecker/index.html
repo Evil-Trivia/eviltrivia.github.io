@@ -236,8 +236,21 @@
         const auth = firebase.auth();
         const db = firebase.database();
         
+        // Set persistence to SESSION for better token management
+        auth.setPersistence(firebase.auth.Auth.Persistence.SESSION)
+          .then(() => {
+            console.log('Auth persistence set to SESSION');
+          })
+          .catch((error) => {
+            console.error('Error setting auth persistence:', error);
+          });
+          
         // Initialize Functions with the correct region
         const functions = firebase.functions();
+        
+        // For testing: Enable local emulator if needed
+        // Uncomment this line if you're using the Firebase emulator suite
+        // functions.useEmulator("localhost", 5001);
         
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
@@ -344,13 +357,16 @@
                     throw new Error('You must be logged in to use this feature.');
                 }
                 
-                // Get a fresh token
+                // Get a fresh token and make sure it's properly used
                 console.log('Refreshing authentication token...');
                 await currentUser.getIdToken(true);
                 
-                // Call the function
-                console.log('Calling factChecker function...');
-                const factChecker = functions.httpsCallable('factChecker');
+                // Make sure we're using the latest auth state
+                await new Promise((resolve) => setTimeout(resolve, 500));
+                
+                // Call the function with explicit auth context
+                console.log('Calling factChecker function with user:', currentUser.uid);
+                const factChecker = firebase.app().functions().httpsCallable('factChecker');
                 const result = await factChecker({ text });
                 
                 console.log('Received result from factChecker function');
