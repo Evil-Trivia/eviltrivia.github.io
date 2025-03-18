@@ -7,6 +7,12 @@ const querystring = require('querystring');
 const crypto = require('crypto');
 const OpenAI = require('openai');
 
+// Load environment variables
+require('dotenv').config();
+
+// Log the presence of critical environment variables (without showing their values)
+console.log('Environment variables loaded, OPENAI_APIKEY present:', !!process.env.OPENAI_APIKEY);
+
 // Initialize Firebase admin with database URL specified
 admin.initializeApp({
   databaseURL: 'https://eviltrivia-47664-default-rtdb.firebaseio.com'
@@ -570,11 +576,11 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
       );
     }
 
-    // Get API key from Firebase config
-    const apiKey = functions.config().openai?.apikey;
+    // Get API key from environment variables instead of functions.config()
+    const apiKey = process.env.OPENAI_APIKEY;
     
     if (!apiKey) {
-      console.error('[ERROR] OpenAI API key not configured in Firebase config');
+      console.error('[ERROR] OpenAI API key not configured in environment variables');
       throw new functions.https.HttpsError(
         'failed-precondition',
         'OpenAI API key not configured on the server. Please contact the administrator.'
@@ -583,7 +589,7 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
 
     console.log('OpenAI API key is configured, proceeding with analysis');
 
-    // Create the OpenAI client with the API key from Firebase config
+    // Create the OpenAI client with the API key from environment variables
     const openai = new OpenAI({
       apiKey: apiKey
     });
@@ -749,11 +755,11 @@ exports.factCheckerHttp = functions.https.onRequest(async (req, res) => {
       return;
     }
     
-    // Get API key from Firebase config
-    const apiKey = functions.config().openai?.apikey;
+    // Get API key from environment variables instead of functions.config()
+    const apiKey = process.env.OPENAI_APIKEY;
     
     if (!apiKey) {
-      console.error('OpenAI API key not configured');
+      console.error('OpenAI API key not configured in environment variables');
       res.status(500).json({ error: 'OpenAI API key not configured on the server' });
       return;
     }
