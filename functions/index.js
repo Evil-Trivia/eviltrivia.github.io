@@ -5,6 +5,7 @@ const cors = require('cors');
 const axios = require('axios');
 const querystring = require('querystring');
 const crypto = require('crypto');
+const OpenAI = require('openai');
 
 // Initialize Firebase admin with database URL specified
 admin.initializeApp({
@@ -501,6 +502,181 @@ async function handlePledgeEvent(data, included, isActive) {
     throw error;
   }
 }
+
+// OpenAI Fact Checker Function
+exports.factChecker = functions.https.onCall(async (data, context) => {
+  // Verify authentication
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'The function must be called while authenticated.'
+    );
+  }
+
+  try {
+    // Verify user has admin or tools role
+    const userSnapshot = await admin.database().ref(`users/${context.auth.uid}`).once('value');
+    const userData = userSnapshot.val() || {};
+    
+    const isAdmin = 
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+      (userData.role === 'admin');
+    
+    const hasToolsAccess =
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
+      (userData.role === 'tools');
+    
+    if (!isAdmin && !hasToolsAccess) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'You need admin or tools privileges to use this feature.'
+      );
+    }
+
+    // Get the API key from the user's secure storage
+    const apiKeySnapshot = await admin.database().ref(`openai_api_keys/${context.auth.uid}`).once('value');
+    const apiKey = apiKeySnapshot.val();
+
+    if (!apiKey) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'No OpenAI API key found. Please set your API key first.'
+      );
+    }
+
+    // Get the text to analyze
+    const { text } = data;
+    if (!text) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'No text provided for analysis.'
+      );
+    }
+
+    // Create the OpenAI client with the user's API key
+    const openai = new OpenAI({
+      apiKey: apiKey
+    });
+
+    // The prompt template
+    const promptTemplate = `
+    The following text is a trivia question or multiple questions. You will find the questions and answers below. You are an expert fact checker and aware of nuance and ambiguitiy in facts. Please check the following questions for the following qualities, and only return notes on what you find as potentially problematic in each area. Note: some questions may make reference to images you cannot see. 
+    1. Ambiguitiy: if the question leads to multiple possible correct answers but I only have one listed, please note that. 
+    2. Clarity: if the question is unclear as to what is being asked for, please note that. 
+    3. Correctness: if a fact in the question or the answer is incorrect, please note that.
+    4. Style and grammar: if the question or answer has style or grammar or spelling issues, please note that.
+    5. "Um Actuallys": If the question has a more technical or less technical answer that might lead to trivia players protesting, please note that. 
+
+    Text below:
+
+    ${text}
+    `;
+
+    // Call the OpenAI API
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: "You are an expert fact checker for trivia questions." },
+        { role: "user", content: promptTemplate }
+      ],
+      temperature: 0.7
+    });
+
+    // Return the AI's response
+    return {
+      result: completion.choices[0].message.content
+    };
+  } catch (error) {
+    console.error('[ERROR] OpenAI Fact Checker error:', error);
+    throw new functions.https.HttpsError(
+      'internal',
+      'An error occurred while processing your request.',
+      error.message
+    );
+  }
+});
+
+// API Key Management Function
+exports.setOpenAIApiKey = functions.https.onCall(async (data, context) => {
+  // Verify authentication
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'The function must be called while authenticated.'
+    );
+  }
+
+  try {
+    // Verify user has admin or tools role
+    const userSnapshot = await admin.database().ref(`users/${context.auth.uid}`).once('value');
+    const userData = userSnapshot.val() || {};
+    
+    const isAdmin = 
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+      (userData.role === 'admin');
+    
+    const hasToolsAccess =
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
+      (userData.role === 'tools');
+    
+    if (!isAdmin && !hasToolsAccess) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'You need admin or tools privileges to use this feature.'
+      );
+    }
+
+    // Get the API key from the request
+    const { apiKey } = data;
+    if (!apiKey) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'No API key provided.'
+      );
+    }
+
+    // Store the API key securely
+    await admin.database().ref(`openai_api_keys/${context.auth.uid}`).set(apiKey);
+
+    return { success: true };
+  } catch (error) {
+    console.error('[ERROR] Setting OpenAI API key:', error);
+    throw new functions.https.HttpsError(
+      'internal',
+      'An error occurred while setting your API key.',
+      error.message
+    );
+  }
+});
+
+// API Key Verification Function
+exports.verifyOpenAIApiKey = functions.https.onCall(async (data, context) => {
+  // Verify authentication
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'The function must be called while authenticated.'
+    );
+  }
+
+  try {
+    // Get the API key from the user's secure storage
+    const apiKeySnapshot = await admin.database().ref(`openai_api_keys/${context.auth.uid}`).once('value');
+    const apiKey = apiKeySnapshot.val();
+
+    // Return whether the API key exists
+    return {
+      hasApiKey: Boolean(apiKey)
+    };
+  } catch (error) {
+    console.error('[ERROR] Verifying OpenAI API key:', error);
+    throw new functions.https.HttpsError(
+      'internal',
+      'An error occurred while verifying your API key status.',
+      error.message
+    );
+  }
+});
 
 // Export the Express app as a Firebase Cloud Function
 exports.patreonAuth = functions.https.onRequest(app);
