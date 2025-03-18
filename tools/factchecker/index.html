@@ -170,6 +170,72 @@
             margin: 10px 0;
             font-weight: bold;
         }
+        
+        /* Settings panel styles */
+        .settings-panel {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .settings-header {
+            background-color: #f5f5f5;
+            padding: 10px 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .settings-header h3 {
+            margin: 0;
+            font-size: 16px;
+        }
+        
+        .settings-content {
+            padding: 15px;
+            background-color: #fff;
+            display: none;
+        }
+        
+        .settings-content.expanded {
+            display: block;
+        }
+        
+        .settings-row {
+            margin-bottom: 15px;
+        }
+        
+        .settings-row label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .settings-row select,
+        .settings-row textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .settings-row textarea {
+            min-height: 150px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        
+        .settings-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+        
+        .settings-actions button {
+            margin-left: 10px;
+        }
     </style>
 </head>
 <body>
@@ -190,6 +256,38 @@
             <div id="fact-checker-tool" class="fact-checker-container">
                 <h2>Question Analyzer</h2>
                 <p>Paste your trivia question(s) below to check for potential issues:</p>
+                
+                <!-- Settings Panel -->
+                <div class="settings-panel">
+                    <div class="settings-header" id="settings-toggle">
+                        <h3>Advanced Settings</h3>
+                        <span class="toggle-icon">▼</span>
+                    </div>
+                    <div class="settings-content" id="settings-content">
+                        <div class="settings-row">
+                            <label for="model-select">OpenAI Model:</label>
+                            <select id="model-select">
+                                <option value="gpt-4o">GPT-4o (Default)</option>
+                                <option value="gpt-o1">GPT-o1 (Latest)</option>
+                                <option value="gpt-4">GPT-4</option>
+                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                            </select>
+                        </div>
+                        <div class="settings-row">
+                            <label for="prompt-template">Prompt Template:</label>
+                            <textarea id="prompt-template">The following text is a trivia question or multiple questions. You will find the questions and answers below. You are an expert fact checker and aware of nuance and ambiguitiy in facts. Please check the following questions for the following qualities, and only return notes on what you find as potentially problematic in each area. Note: some questions may make reference to images you cannot see. 
+1. Ambiguitiy: if the question leads to multiple possible correct answers but I only have one listed, please note that. 
+2. Clarity: if the question is unclear as to what is being asked for, please note that. 
+3. Correctness: if a fact in the question or the answer is incorrect, please note that.
+4. Style and grammar: if the question or answer has style or grammar or spelling issues, please note that.
+5. "Um Actuallys": If the question has a more technical or less technical answer that might lead to trivia players protesting, please note that.</textarea>
+                        </div>
+                        <div class="settings-actions">
+                            <button id="reset-settings" class="auth-btn">Reset to Default</button>
+                            <button id="save-settings" class="check-btn">Save Settings</button>
+                        </div>
+                    </div>
+                </div>
                 
                 <div class="input-container">
                     <textarea id="question-input" placeholder="Paste your trivia question(s) here...&#10;&#10;Example:&#10;Q: Who painted 'Starry Night'?&#10;A: Vincent van Gogh"></textarea>
@@ -276,11 +374,27 @@
             
             if (user) {
                 checkUserAccess(user);
+                // Initialize settings after auth
+                initializeSettings();
             } else {
                 authScreen.classList.remove('hidden');
                 factCheckerScreen.classList.add('hidden');
             }
         });
+        
+        // Initialize settings from localStorage
+        function initializeSettings() {
+            const savedModel = localStorage.getItem('factchecker_model');
+            const savedPrompt = localStorage.getItem('factchecker_prompt');
+            
+            if (savedModel) {
+                document.getElementById('model-select').value = savedModel;
+            }
+            
+            if (savedPrompt) {
+                document.getElementById('prompt-template').value = savedPrompt;
+            }
+        }
         
         // Check if user has access to the tool
         async function checkUserAccess(user) {
@@ -399,7 +513,9 @@
                     },
                     body: JSON.stringify({
                         text: text,
-                        auth: authPayload // Include auth data in the request body too
+                        auth: authPayload, // Include auth data in the request body too
+                        model: document.getElementById('model-select').value,
+                        promptTemplate: document.getElementById('prompt-template').value
                     })
                 });
                 
@@ -444,6 +560,42 @@
         clearButton.addEventListener('click', function() {
             questionInput.value = '';
             resultContainer.classList.add('hidden');
+        });
+        
+        // Settings panel toggle
+        document.getElementById('settings-toggle').addEventListener('click', function() {
+            const settingsContent = document.getElementById('settings-content');
+            const toggleIcon = this.querySelector('.toggle-icon');
+            
+            if (settingsContent.classList.contains('expanded')) {
+                settingsContent.classList.remove('expanded');
+                toggleIcon.textContent = '▼';
+            } else {
+                settingsContent.classList.add('expanded');
+                toggleIcon.textContent = '▲';
+            }
+        });
+        
+        // Reset settings button
+        document.getElementById('reset-settings').addEventListener('click', function() {
+            document.getElementById('model-select').value = 'gpt-4o';
+            document.getElementById('prompt-template').value = `The following text is a trivia question or multiple questions. You will find the questions and answers below. You are an expert fact checker and aware of nuance and ambiguitiy in facts. Please check the following questions for the following qualities, and only return notes on what you find as potentially problematic in each area. Note: some questions may make reference to images you cannot see. 
+1. Ambiguitiy: if the question leads to multiple possible correct answers but I only have one listed, please note that. 
+2. Clarity: if the question is unclear as to what is being asked for, please note that. 
+3. Correctness: if a fact in the question or the answer is incorrect, please note that.
+4. Style and grammar: if the question or answer has style or grammar or spelling issues, please note that.
+5. "Um Actuallys": If the question has a more technical or less technical answer that might lead to trivia players protesting, please note that.`;
+        });
+        
+        // Save settings to localStorage
+        document.getElementById('save-settings').addEventListener('click', function() {
+            const model = document.getElementById('model-select').value;
+            const promptTemplate = document.getElementById('prompt-template').value;
+            
+            localStorage.setItem('factchecker_model', model);
+            localStorage.setItem('factchecker_prompt', promptTemplate);
+            
+            alert('Settings saved successfully!');
         });
         
         // Log initial auth state

@@ -576,6 +576,10 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
       );
     }
 
+    // Get optional parameters with defaults
+    const model = data.model || "gpt-4o";
+    const customPrompt = data.promptTemplate;
+
     // Get API key from environment variables instead of functions.config()
     const apiKey = process.env.OPENAI_APIKEY;
     
@@ -595,7 +599,7 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
     });
 
     // The prompt template
-    const promptTemplate = `
+    const promptTemplate = customPrompt || `
     The following text is a trivia question or multiple questions. You will find the questions and answers below. You are an expert fact checker and aware of nuance and ambiguitiy in facts. Please check the following questions for the following qualities, and only return notes on what you find as potentially problematic in each area. Note: some questions may make reference to images you cannot see. 
     1. Ambiguitiy: if the question leads to multiple possible correct answers but I only have one listed, please note that. 
     2. Clarity: if the question is unclear as to what is being asked for, please note that. 
@@ -609,9 +613,9 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
     `;
 
     // Call the OpenAI API
-    console.log('Calling OpenAI API');
+    console.log('Calling OpenAI API with model:', model);
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: model,
       messages: [
         { role: "system", content: "You are an expert fact checker for trivia questions." },
         { role: "user", content: promptTemplate }
@@ -755,6 +759,10 @@ exports.factCheckerHttp = functions.https.onRequest(async (req, res) => {
       return;
     }
     
+    // Get optional parameters with defaults
+    const model = req.body?.model || "gpt-4o";
+    const customPrompt = req.body?.promptTemplate;
+    
     // Get API key from environment variables instead of functions.config()
     const apiKey = process.env.OPENAI_APIKEY;
     
@@ -772,7 +780,7 @@ exports.factCheckerHttp = functions.https.onRequest(async (req, res) => {
     });
     
     // The prompt template
-    const promptTemplate = `
+    const promptTemplate = customPrompt || `
     The following text is a trivia question or multiple questions. You will find the questions and answers below. You are an expert fact checker and aware of nuance and ambiguitiy in facts. Please check the following questions for the following qualities, and only return notes on what you find as potentially problematic in each area. Note: some questions may make reference to images you cannot see. 
     1. Ambiguitiy: if the question leads to multiple possible correct answers but I only have one listed, please note that. 
     2. Clarity: if the question is unclear as to what is being asked for, please note that. 
@@ -785,11 +793,11 @@ exports.factCheckerHttp = functions.https.onRequest(async (req, res) => {
     ${text}
     `;
     
-    console.log('Calling OpenAI API');
+    console.log('Calling OpenAI API with model:', model);
     
     // Call the OpenAI API
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: model,
       messages: [
         { role: "system", content: "You are an expert fact checker for trivia questions." },
         { role: "user", content: promptTemplate }
