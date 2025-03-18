@@ -278,8 +278,8 @@
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.database();
-        const functions = firebase.functions();
-        
+        const functions = firebase.functions('us-central1');
+
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
         const factCheckerScreen = document.getElementById('fact-checker-screen');
@@ -344,6 +344,16 @@
             try {
                 apiKeyStatus.innerHTML = '<p>Checking API key status...</p>';
                 
+                // Force refresh the token before checking
+                const user = auth.currentUser;
+                if (!user) {
+                    throw new Error("User not authenticated");
+                }
+                
+                // Get a fresh token to ensure we're using the latest authentication
+                await user.getIdToken(true);
+                
+                // Set functions region to match where you deployed your functions
                 const verifyApiKey = functions.httpsCallable('verifyOpenAIApiKey');
                 const result = await verifyApiKey();
                 
@@ -380,6 +390,16 @@
                 saveApiKeyButton.disabled = true;
                 saveApiKeyButton.textContent = 'Saving...';
                 
+                // Force refresh the token before saving
+                const user = auth.currentUser;
+                if (!user) {
+                    throw new Error("User not authenticated");
+                }
+                
+                // Get a fresh token to ensure we're using the latest authentication
+                await user.getIdToken(true);
+                
+                // Set functions region to match where you deployed your functions
                 const setApiKey = functions.httpsCallable('setOpenAIApiKey');
                 await setApiKey({ apiKey });
                 
@@ -418,7 +438,16 @@
                 loader.style.display = 'block';
                 resultContainer.style.display = 'none';
                 
-                // Call the fact checker function
+                // Force refresh the token before calling the function
+                const user = auth.currentUser;
+                if (!user) {
+                    throw new Error("User not authenticated");
+                }
+                
+                // Get a fresh token to ensure we're using the latest authentication
+                await user.getIdToken(true);
+                
+                // Set functions region to match where you deployed your functions
                 const factChecker = functions.httpsCallable('factChecker');
                 const result = await factChecker({ text });
                 
@@ -441,6 +470,13 @@
             questionInput.value = '';
             resultContainer.style.display = 'none';
         });
+
+        // Initialize by checking if user is already signed in
+        if (auth.currentUser) {
+            console.log('User already signed in:', auth.currentUser.uid);
+        } else {
+            console.log('No user currently signed in');
+        }
     </script>
 </body>
 </html> 
