@@ -505,8 +505,28 @@ async function handlePledgeEvent(data, included, isActive) {
 
 // OpenAI Fact Checker Function
 exports.factChecker = functions.https.onCall(async (data, context) => {
+  // More detailed authentication logging
+  console.log('Function called with context:', {
+    auth: context.auth ? {
+      uid: context.auth.uid,
+      token: {
+        email: context.auth.token?.email,
+        emailVerified: context.auth.token?.email_verified,
+        roles: context.auth.token?.roles,
+        role: context.auth.token?.role,
+        isAdmin: context.auth.token?.admin,
+      }
+    } : 'No auth context',
+    rawRequest: context.rawRequest ? {
+      method: context.rawRequest.method,
+      headers: context.rawRequest.headers,
+      path: context.rawRequest.path,
+    } : 'No raw request data'
+  });
+
   // Verify authentication
   if (!context.auth) {
+    console.error('Authentication required but not provided');
     throw new functions.https.HttpsError(
       'unauthenticated',
       'The function must be called while authenticated.'
@@ -514,9 +534,13 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
   }
 
   try {
+    console.log('Authenticated user:', context.auth.uid);
+    
     // Verify user has admin or tools role
     const userSnapshot = await admin.database().ref(`users/${context.auth.uid}`).once('value');
     const userData = userSnapshot.val() || {};
+    
+    console.log('User data from database:', userData);
     
     const isAdmin = 
       (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
@@ -526,7 +550,10 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
       (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
       (userData.role === 'tools');
     
+    console.log('Authorization check:', { isAdmin, hasToolsAccess });
+    
     if (!isAdmin && !hasToolsAccess) {
+      console.error('User lacks required permissions');
       throw new functions.https.HttpsError(
         'permission-denied',
         'You need admin or tools privileges to use this feature.'
@@ -536,6 +563,7 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
     // Get the text to analyze
     const { text } = data;
     if (!text) {
+      console.error('No text provided for analysis');
       throw new functions.https.HttpsError(
         'invalid-argument',
         'No text provided for analysis.'
@@ -552,6 +580,8 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
         'OpenAI API key not configured on the server. Please contact the administrator.'
       );
     }
+
+    console.log('OpenAI API key is configured, proceeding with analysis');
 
     // Create the OpenAI client with the API key from Firebase config
     const openai = new OpenAI({
@@ -573,6 +603,7 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
     `;
 
     // Call the OpenAI API
+    console.log('Calling OpenAI API');
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -582,6 +613,8 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
       temperature: 0.7
     });
 
+    console.log('Received OpenAI response, returning results');
+    
     // Return the AI's response
     return {
       result: completion.choices[0].message.content

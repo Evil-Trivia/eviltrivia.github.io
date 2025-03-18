@@ -246,7 +246,7 @@
           });
           
         // Initialize Functions with the correct region
-        const functions = firebase.functions();
+        const functions = firebase.app().functions('us-central1');
         
         // For testing: Enable local emulator if needed
         // Uncomment this line if you're using the Firebase emulator suite
@@ -359,16 +359,22 @@
                 
                 // Get a fresh token and make sure it's properly used
                 console.log('Refreshing authentication token...');
-                await currentUser.getIdToken(true);
+                const idToken = await currentUser.getIdToken(true);
+                console.log('Token refreshed successfully');
                 
-                // Make sure we're using the latest auth state
-                await new Promise((resolve) => setTimeout(resolve, 500));
+                // Make direct call to the Firebase function with the token
+                console.log('Making direct call to factChecker function with auth token');
                 
-                // Call the function with explicit auth context
-                console.log('Calling factChecker function with user:', currentUser.uid);
-                const factChecker = firebase.app().functions().httpsCallable('factChecker');
+                // Option 1: Use Firebase Functions SDK with explicit token
+                const factChecker = firebase.app().functions('us-central1').httpsCallable('factChecker', {
+                    httpRequestOptions: {
+                        headers: {
+                            'Authorization': 'Bearer ' + idToken
+                        }
+                    }
+                });
+                
                 const result = await factChecker({ text });
-                
                 console.log('Received result from factChecker function');
                 
                 // Display the result
@@ -378,6 +384,15 @@
                 console.error('Error in fact checking process:', error);
                 resultContent.textContent = 'Error: ' + (error.message || 'Unknown error occurred.');
                 resultContainer.classList.remove('hidden');
+                
+                // Additional error details for debugging
+                console.error('Error details:', JSON.stringify(error));
+                if (error.code) {
+                    console.error('Error code:', error.code);
+                }
+                if (error.details) {
+                    console.error('Error details:', error.details);
+                }
             } finally {
                 // Reset UI
                 checkButton.disabled = false;
