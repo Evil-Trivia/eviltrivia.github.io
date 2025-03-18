@@ -156,20 +156,6 @@
             100% { transform: rotate(360deg); }
         }
         
-        .api-key-container {
-            margin-top: 20px;
-            display: none;
-        }
-        
-        .api-key-input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            margin-bottom: 10px;
-            box-sizing: border-box;
-        }
-        
         .hidden {
             display: none;
         }
@@ -184,14 +170,6 @@
             color: #43a047;
             margin: 10px 0;
             font-weight: bold;
-        }
-        
-        .api-key-info {
-            margin-top: 10px;
-            padding: 15px;
-            background-color: #f5f5f5;
-            border-radius: 4px;
-            font-size: 14px;
         }
     </style>
 </head>
@@ -209,28 +187,6 @@
         
         <!-- Main Tool Interface -->
         <div id="fact-checker-screen" class="hidden">
-            <!-- API Key Setup -->
-            <div id="api-key-setup" class="fact-checker-container">
-                <h2>OpenAI API Key Setup</h2>
-                <p>This tool uses OpenAI's API to analyze trivia questions. You'll need to provide your OpenAI API key to use this feature.</p>
-                
-                <div id="api-key-status">
-                    <p>Checking API key status...</p>
-                </div>
-                
-                <div id="api-key-input-container" class="api-key-container">
-                    <p>Enter your OpenAI API key below:</p>
-                    <input type="password" id="api-key-input" class="api-key-input" placeholder="sk-...">
-                    <button id="save-api-key" class="auth-btn">Save API Key</button>
-                    
-                    <div id="api-key-message" class="error-message hidden"></div>
-                    
-                    <div class="api-key-info">
-                        <p><strong>Note:</strong> Your API key is stored securely and is only used for this tool. You can get an API key from the <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI dashboard</a>.</p>
-                    </div>
-                </div>
-            </div>
-            
             <!-- Fact Checker Tool -->
             <div id="fact-checker-tool" class="fact-checker-container">
                 <h2>Question Analyzer</h2>
@@ -287,12 +243,6 @@
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
         const factCheckerScreen = document.getElementById('fact-checker-screen');
-        const apiKeySetup = document.getElementById('api-key-setup');
-        const apiKeyStatus = document.getElementById('api-key-status');
-        const apiKeyInputContainer = document.getElementById('api-key-input-container');
-        const apiKeyInput = document.getElementById('api-key-input');
-        const saveApiKeyButton = document.getElementById('save-api-key');
-        const apiKeyMessage = document.getElementById('api-key-message');
         const factCheckerTool = document.getElementById('fact-checker-tool');
         const questionInput = document.getElementById('question-input');
         const checkButton = document.getElementById('check-button');
@@ -304,7 +254,6 @@
         console.log('DOM elements:', {
             authScreen: !!authScreen,
             factCheckerScreen: !!factCheckerScreen,
-            apiKeySetup: !!apiKeySetup,
             factCheckerTool: !!factCheckerTool
         });
         
@@ -336,17 +285,6 @@
                         factCheckerScreen.classList.remove('hidden');
                         
                         console.log('Showing fact checker screen');
-                        
-                        // By default show the fact checker tool
-                        apiKeySetup.classList.remove('hidden');
-                        factCheckerTool.classList.remove('hidden');
-                        
-                        // Check if the user has an API key
-                        try {
-                            checkApiKeyStatus();
-                        } catch (error) {
-                            console.error('Error in checkApiKeyStatus:', error);
-                        }
                     } else {
                         // User does not have access
                         authScreen.classList.remove('hidden');
@@ -365,117 +303,6 @@
                 console.log('User is not signed in');
             }
         });
-        
-        // Check if the user has an API key
-        async function checkApiKeyStatus() {
-            console.log('Checking API key status...');
-            
-            try {
-                apiKeyStatus.innerHTML = '<p>Checking API key status...</p>';
-                
-                // Force refresh the token before checking
-                const user = auth.currentUser;
-                if (!user) {
-                    throw new Error("User not authenticated");
-                }
-                
-                try {
-                    // Get a fresh token to ensure we're using the latest authentication
-                    await user.getIdToken(true);
-                    console.log('Token refreshed successfully');
-                } catch (tokenError) {
-                    console.error('Error refreshing token:', tokenError);
-                }
-                
-                console.log('Calling verifyOpenAIApiKey function...');
-                
-                try {
-                    // Call the Firebase function
-                    const verifyApiKey = functions.httpsCallable('verifyOpenAIApiKey');
-                    const result = await verifyApiKey();
-                    
-                    console.log('API key verification result:', result.data);
-                    
-                    if (result.data.hasApiKey) {
-                        // User has an API key
-                        apiKeyStatus.innerHTML = '<p class="success-message">✓ API key is set up and ready to use.</p>';
-                        apiKeyInputContainer.style.display = 'none';
-                    } else {
-                        // User does not have an API key
-                        apiKeyStatus.innerHTML = '<p>Please set up your OpenAI API key to use this tool.</p>';
-                        apiKeyInputContainer.style.display = 'block';
-                    }
-                } catch (functionError) {
-                    console.error('Error calling verifyOpenAIApiKey function:', functionError);
-                    throw functionError;
-                }
-            } catch (error) {
-                console.error('Error checking API key status:', error);
-                apiKeyStatus.innerHTML = `<p class="error-message">Error checking API key status: ${error.message}</p>`;
-                apiKeyInputContainer.style.display = 'block';
-            }
-        }
-        
-        // Save API key
-        saveApiKeyButton.addEventListener('click', async () => {
-            const apiKey = apiKeyInput.value.trim();
-            
-            if (!apiKey) {
-                showApiKeyMessage('Please enter a valid OpenAI API key', 'error');
-                return;
-            }
-            
-            try {
-                apiKeyMessage.classList.add('hidden');
-                saveApiKeyButton.disabled = true;
-                saveApiKeyButton.textContent = 'Saving...';
-                
-                console.log('Saving API key...');
-                
-                // Force refresh the token before saving
-                const user = auth.currentUser;
-                if (!user) {
-                    throw new Error("User not authenticated");
-                }
-                
-                try {
-                    // Get a fresh token to ensure we're using the latest authentication
-                    await user.getIdToken(true);
-                } catch (tokenError) {
-                    console.error('Error refreshing token:', tokenError);
-                    throw tokenError;
-                }
-                
-                try {
-                    // Call the Firebase function to save the API key
-                    const setApiKey = functions.httpsCallable('setOpenAIApiKey');
-                    await setApiKey({ apiKey });
-                    
-                    console.log('API key saved successfully');
-                    showApiKeyMessage('API key saved successfully!', 'success');
-                    
-                    setTimeout(() => {
-                        checkApiKeyStatus();
-                    }, 1500);
-                } catch (functionError) {
-                    console.error('Error calling setOpenAIApiKey function:', functionError);
-                    throw functionError;
-                }
-            } catch (error) {
-                console.error('Error saving API key:', error);
-                showApiKeyMessage(`Error saving API key: ${error.message}`, 'error');
-            } finally {
-                saveApiKeyButton.disabled = false;
-                saveApiKeyButton.textContent = 'Save API Key';
-            }
-        });
-        
-        // Show API key message
-        function showApiKeyMessage(message, type) {
-            apiKeyMessage.textContent = message;
-            apiKeyMessage.classList.remove('hidden', 'error-message', 'success-message');
-            apiKeyMessage.classList.add(type === 'error' ? 'error-message' : 'success-message');
-        }
         
         // Check questions
         checkButton.addEventListener('click', async () => {

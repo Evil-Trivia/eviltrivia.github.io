@@ -533,17 +533,6 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
       );
     }
 
-    // Get the API key from the user's secure storage
-    const apiKeySnapshot = await admin.database().ref(`openai_api_keys/${context.auth.uid}`).once('value');
-    const apiKey = apiKeySnapshot.val();
-
-    if (!apiKey) {
-      throw new functions.https.HttpsError(
-        'failed-precondition',
-        'No OpenAI API key found. Please set your API key first.'
-      );
-    }
-
     // Get the text to analyze
     const { text } = data;
     if (!text) {
@@ -555,7 +544,7 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
 
     // Create the OpenAI client with the user's API key
     const openai = new OpenAI({
-      apiKey: apiKey
+      apiKey: process.env.OPENAI_API_KEY
     });
 
     // The prompt template
@@ -591,88 +580,6 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError(
       'internal',
       'An error occurred while processing your request.',
-      error.message
-    );
-  }
-});
-
-// API Key Management Function
-exports.setOpenAIApiKey = functions.https.onCall(async (data, context) => {
-  // Verify authentication
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
-      'unauthenticated',
-      'The function must be called while authenticated.'
-    );
-  }
-
-  try {
-    // Verify user has admin or tools role
-    const userSnapshot = await admin.database().ref(`users/${context.auth.uid}`).once('value');
-    const userData = userSnapshot.val() || {};
-    
-    const isAdmin = 
-      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
-      (userData.role === 'admin');
-    
-    const hasToolsAccess =
-      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
-      (userData.role === 'tools');
-    
-    if (!isAdmin && !hasToolsAccess) {
-      throw new functions.https.HttpsError(
-        'permission-denied',
-        'You need admin or tools privileges to use this feature.'
-      );
-    }
-
-    // Get the API key from the request
-    const { apiKey } = data;
-    if (!apiKey) {
-      throw new functions.https.HttpsError(
-        'invalid-argument',
-        'No API key provided.'
-      );
-    }
-
-    // Store the API key securely
-    await admin.database().ref(`openai_api_keys/${context.auth.uid}`).set(apiKey);
-
-    return { success: true };
-  } catch (error) {
-    console.error('[ERROR] Setting OpenAI API key:', error);
-    throw new functions.https.HttpsError(
-      'internal',
-      'An error occurred while setting your API key.',
-      error.message
-    );
-  }
-});
-
-// API Key Verification Function
-exports.verifyOpenAIApiKey = functions.https.onCall(async (data, context) => {
-  // Verify authentication
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
-      'unauthenticated',
-      'The function must be called while authenticated.'
-    );
-  }
-
-  try {
-    // Get the API key from the user's secure storage
-    const apiKeySnapshot = await admin.database().ref(`openai_api_keys/${context.auth.uid}`).once('value');
-    const apiKey = apiKeySnapshot.val();
-
-    // Return whether the API key exists
-    return {
-      hasApiKey: Boolean(apiKey)
-    };
-  } catch (error) {
-    console.error('[ERROR] Verifying OpenAI API key:', error);
-    throw new functions.https.HttpsError(
-      'internal',
-      'An error occurred while verifying your API key status.',
       error.message
     );
   }
