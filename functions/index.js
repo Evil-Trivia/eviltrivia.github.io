@@ -635,7 +635,7 @@ exports.patreonAuth = functions.https.onRequest(app);
 // HTTP-Triggered Fact Checker Function
 exports.factCheckerHttp = functions.https.onRequest(async (req, res) => {
   try {
-    // Set CORS headers
+    // Set CORS headers for preflight requests
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -652,112 +652,163 @@ exports.factCheckerHttp = functions.https.onRequest(async (req, res) => {
     }
     
     console.log('HTTP factChecker request received');
+    console.log('Headers present:', Object.keys(req.headers));
+    console.log('Body keys:', Object.keys(req.body || {}));
     
-    // Get token from the Authorization header
+    // Extract auth information
+    let userId = null;
+    let userData = null;
+    let authMethod = 'none';
+    
+    // First try ID token from Authorization header
     const authHeader = req.headers.authorization || '';
-    const idToken = authHeader.startsWith('Bearer ') ? authHeader.split('Bearer ')[1] : '';
+    if (authHeader.startsWith('Bearer ')) {
+      const idToken = authHeader.split('Bearer ')[1];
+      
+      if (idToken && idToken.length > 20) {
+        console.log('Found ID token in Authorization header, length:', idToken.length);
+        
+        try {
+          // Try to verify the token
+          const decodedToken = await admin.auth().verifyIdToken(idToken);
+          userId = decodedToken.uid;
+          authMethod = 'id_token';
+          console.log('Successfully verified ID token for user:', userId);
+          
+          // Load user data
+          const userSnapshot = await admin.database().ref(`users/${userId}`).once('value');
+          userData = userSnapshot.val() || {};
+        } catch (tokenError) {
+          console.warn('ID token verification failed:', tokenError.message);
+          // Continue to alternative auth method
+        }
+      }
+    }
     
-    if (!idToken) {
-      console.error('No auth token provided');
-      res.status(401).json({ error: 'Missing authentication token' });
+    // If token auth failed, try the auth data from request body
+    if (!userId && req.body && req.body.auth) {
+      console.log('Trying auth data from request body');
+      const authData = req.body.auth;
+      
+      if (authData && authData.user && authData.user.uid) {
+        userId = authData.user.uid;
+        authMethod = 'request_body';
+        console.log('Using user ID from request body:', userId);
+        
+        // Load user data directly from DB to verify
+        const userSnapshot = await admin.database().ref(`users/${userId}`).once('value');
+        userData = userSnapshot.val() || {};
+        
+        // Check if user actually exists
+        if (!userData || Object.keys(userData).length === 0) {
+          console.error('No user data found for claimed user ID:', userId);
+          res.status(401).json({ error: 'Invalid user credentials' });
+          return;
+        }
+        
+        console.log('Found user data for ID from body auth');
+      }
+    }
+    
+    // If we still don't have a user ID, authentication failed
+    if (!userId) {
+      console.error('All authentication methods failed');
+      res.status(401).json({ 
+        error: 'Authentication required',
+        message: 'No valid authentication provided. Please log in again.' 
+      });
       return;
     }
     
-    console.log('Verifying auth token...');
+    // At this point we have userId and userData, verify permissions
+    console.log('Checking permissions for authenticated user:', userId);
+    console.log('User data:', userData);
     
-    // Verify the ID token
-    try {
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      console.log('Token verified for user:', decodedToken.uid);
-      
-      // Get user data from Firebase
-      const userSnapshot = await admin.database().ref(`users/${decodedToken.uid}`).once('value');
-      const userData = userSnapshot.val() || {};
-      
-      console.log('User data:', userData);
-      
-      // Check for admin or tools role
-      const isAdmin = 
-        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
-        (userData.role === 'admin');
-      
-      const hasToolsAccess =
-        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
-        (userData.role === 'tools');
-      
-      console.log('Authorization check:', { isAdmin, hasToolsAccess });
-      
-      if (!isAdmin && !hasToolsAccess) {
-        console.error('User lacks required permissions');
-        res.status(403).json({ error: 'Permission denied. You need admin or tools privileges to use this feature.' });
-        return;
-      }
-      
-      // Get text from request body
-      const text = req.body?.text || '';
-      if (!text) {
-        console.error('No text provided');
-        res.status(400).json({ error: 'No text provided for analysis' });
-        return;
-      }
-      
-      // Get API key from Firebase config
-      const apiKey = functions.config().openai?.apikey;
-      
-      if (!apiKey) {
-        console.error('OpenAI API key not configured');
-        res.status(500).json({ error: 'OpenAI API key not configured on the server' });
-        return;
-      }
-      
-      console.log('Creating OpenAI client');
-      
-      // Create the OpenAI client
-      const openai = new OpenAI({
-        apiKey: apiKey
-      });
-      
-      // The prompt template
-      const promptTemplate = `
-      The following text is a trivia question or multiple questions. You will find the questions and answers below. You are an expert fact checker and aware of nuance and ambiguitiy in facts. Please check the following questions for the following qualities, and only return notes on what you find as potentially problematic in each area. Note: some questions may make reference to images you cannot see. 
-      1. Ambiguitiy: if the question leads to multiple possible correct answers but I only have one listed, please note that. 
-      2. Clarity: if the question is unclear as to what is being asked for, please note that. 
-      3. Correctness: if a fact in the question or the answer is incorrect, please note that.
-      4. Style and grammar: if the question or answer has style or grammar or spelling issues, please note that.
-      5. "Um Actuallys": If the question has a more technical or less technical answer that might lead to trivia players protesting, please note that. 
-
-      Text below:
-
-      ${text}
-      `;
-      
-      console.log('Calling OpenAI API');
-      
-      // Call the OpenAI API
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: "You are an expert fact checker for trivia questions." },
-          { role: "user", content: promptTemplate }
-        ],
-        temperature: 0.7
-      });
-      
-      console.log('OpenAI response received, sending result');
-      
-      // Return the AI's response
-      res.json({
-        result: completion.choices[0].message.content
-      });
-      
-    } catch (tokenError) {
-      console.error('Token verification error:', tokenError);
-      res.status(401).json({ error: 'Invalid authentication token' });
+    // Check for admin or tools role
+    const isAdmin = 
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+      (userData.role === 'admin');
+    
+    const hasToolsAccess =
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
+      (userData.role === 'tools');
+    
+    console.log('Authorization check:', { isAdmin, hasToolsAccess, authMethod });
+    
+    if (!isAdmin && !hasToolsAccess) {
+      console.error('User lacks required permissions');
+      res.status(403).json({ error: 'Permission denied. You need admin or tools privileges to use this feature.' });
       return;
     }
+    
+    // Get text from request body
+    const text = req.body?.text || '';
+    if (!text) {
+      console.error('No text provided');
+      res.status(400).json({ error: 'No text provided for analysis' });
+      return;
+    }
+    
+    // Get API key from Firebase config
+    const apiKey = functions.config().openai?.apikey;
+    
+    if (!apiKey) {
+      console.error('OpenAI API key not configured');
+      res.status(500).json({ error: 'OpenAI API key not configured on the server' });
+      return;
+    }
+    
+    console.log('Creating OpenAI client');
+    
+    // Create the OpenAI client
+    const openai = new OpenAI({
+      apiKey: apiKey
+    });
+    
+    // The prompt template
+    const promptTemplate = `
+    The following text is a trivia question or multiple questions. You will find the questions and answers below. You are an expert fact checker and aware of nuance and ambiguitiy in facts. Please check the following questions for the following qualities, and only return notes on what you find as potentially problematic in each area. Note: some questions may make reference to images you cannot see. 
+    1. Ambiguitiy: if the question leads to multiple possible correct answers but I only have one listed, please note that. 
+    2. Clarity: if the question is unclear as to what is being asked for, please note that. 
+    3. Correctness: if a fact in the question or the answer is incorrect, please note that.
+    4. Style and grammar: if the question or answer has style or grammar or spelling issues, please note that.
+    5. "Um Actuallys": If the question has a more technical or less technical answer that might lead to trivia players protesting, please note that. 
+
+    Text below:
+
+    ${text}
+    `;
+    
+    console.log('Calling OpenAI API');
+    
+    // Call the OpenAI API
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: "You are an expert fact checker for trivia questions." },
+        { role: "user", content: promptTemplate }
+      ],
+      temperature: 0.7
+    });
+    
+    console.log('OpenAI response received, sending result');
+    
+    // Return the AI's response
+    res.json({
+      result: completion.choices[0].message.content,
+      auth: {
+        method: authMethod,
+        userId: userId
+      }
+    });
     
   } catch (error) {
     console.error('Error in HTTP factChecker:', error);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
   }
 });

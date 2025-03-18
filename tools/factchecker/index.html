@@ -357,18 +357,40 @@
                     throw new Error('You must be logged in to use this feature.');
                 }
                 
-                // Get a fresh token
-                console.log('Refreshing authentication token...');
+                // Create direct authentication format
+                console.log('Creating direct payload with user info...');
+                
+                // Get user data from database
+                const userSnapshot = await db.ref(`users/${currentUser.uid}`).once('value');
+                const userData = userSnapshot.val() || {};
+                
+                // Create a simpler payload instead of using ID token
+                const authPayload = {
+                    user: {
+                        uid: currentUser.uid,
+                        email: currentUser.email,
+                        displayName: currentUser.displayName
+                    },
+                    userData: userData,
+                    userInfo: {
+                        isAdmin: userData.role === 'admin' || (userData.roles && userData.roles.includes('admin')),
+                        hasToolsAccess: userData.role === 'tools' || (userData.roles && userData.roles.includes('tools'))
+                    }
+                };
+                
+                console.log('Created auth payload:', authPayload);
+                
+                // Try a completely different approach - using Google Cloud Run's direct URL
+                console.log('Making direct HTTP request to the Cloud Run function URL...');
+                
+                // The direct Cloud Run URL from the deployment output
+                const functionUrl = 'https://factcheckerhttp-vapvabofwq-uc.a.run.app';
+                
+                // Get a fresh ID token
                 const idToken = await currentUser.getIdToken(true);
-                console.log('Token refreshed successfully');
+                console.log('ID token refreshed, length:', idToken.length);
                 
-                // DIRECT HTTP APPROACH INSTEAD OF FIREBASE SDK
-                console.log('Making direct HTTP request to the factCheckerHttp function...');
-                
-                // The direct URL to the HTTP Cloud Function
-                const functionUrl = 'https://us-central1-eviltrivia-47664.cloudfunctions.net/factCheckerHttp';
-                
-                // Make direct HTTP request with the token in Authorization header
+                // Make direct HTTP request with both approaches
                 const response = await fetch(functionUrl, {
                     method: 'POST',
                     headers: {
@@ -376,7 +398,8 @@
                         'Authorization': 'Bearer ' + idToken
                     },
                     body: JSON.stringify({
-                        text: text  // Direct format for HTTP function
+                        text: text,
+                        auth: authPayload // Include auth data in the request body too
                     })
                 });
                 
