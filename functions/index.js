@@ -612,13 +612,18 @@ exports.factChecker = functions.https.onCall(async (data, context) => {
     ${text}
     `;
 
+    // Check if the custom prompt already includes the text (as modified in the frontend)
+    const finalPrompt = customPrompt && customPrompt.includes(text) 
+      ? customPrompt 
+      : promptTemplate;
+
     // Call the OpenAI API
     console.log('Calling OpenAI API with model:', model);
     const completion = await openai.chat.completions.create({
       model: model,
       messages: [
         { role: "system", content: "You are an expert fact checker for trivia questions." },
-        { role: "user", content: promptTemplate }
+        { role: "user", content: finalPrompt }
       ],
       temperature: 0.7
     });
@@ -793,6 +798,11 @@ exports.factCheckerHttp = functions.https.onRequest(async (req, res) => {
     ${text}
     `;
     
+    // Check if the custom prompt already includes the text (as modified in the frontend)
+    const finalPrompt = customPrompt && customPrompt.includes(text) 
+      ? customPrompt 
+      : promptTemplate;
+    
     console.log('Calling OpenAI API with model:', model);
     
     // Call the OpenAI API
@@ -800,7 +810,7 @@ exports.factCheckerHttp = functions.https.onRequest(async (req, res) => {
       model: model,
       messages: [
         { role: "system", content: "You are an expert fact checker for trivia questions." },
-        { role: "user", content: promptTemplate }
+        { role: "user", content: finalPrompt }
       ],
       temperature: 0.7
     });
