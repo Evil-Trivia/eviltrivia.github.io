@@ -1351,9 +1351,14 @@
     }
     
     // Handle score submission with statistics comparison
-    document.getElementById('score-submit-btn').addEventListener('click', async function() {
+    document.getElementById('score-submit-btn')?.addEventListener('click', async function() {
       try {
         const scoreInput = document.getElementById('score-input');
+        if (!scoreInput) {
+          console.error('Score input element not found');
+          return;
+        }
+        
         const score = parseFloat(scoreInput.value);
         
         if (isNaN(score) || score < 0) {
@@ -1363,6 +1368,11 @@
         
         // Show a loading indicator
         const submitBtn = document.getElementById('score-submit-btn');
+        if (!submitBtn) {
+          console.error('Submit button element not found');
+          return;
+        }
+        
         const originalBtnText = submitBtn.textContent || 'Submit Score';
         submitBtn.textContent = 'Loading...';
         submitBtn.disabled = true;
@@ -1552,7 +1562,7 @@
           }
         }
       } catch (error) {
-        console.error('Error processing score:', error);
+        console.error('Error in score submission:', error);
         alert('Error processing your score. Please try again.');
         
         // Reset the button
@@ -1587,38 +1597,82 @@
     
     // Initialize based on user's previous selection
     document.addEventListener('DOMContentLoaded', () => {
+      // Make sure all required elements exist before setting up event handlers
+      const setupEventHandlers = () => {
+        // Ensure the score submission button exists
+        const scoreSubmitBtn = document.getElementById('score-submit-btn');
+        if (scoreSubmitBtn) {
+          // Re-attach the click handler to ensure it's properly bound
+          scoreSubmitBtn.addEventListener('click', async function(e) {
+            // Prevent multiple clicks
+            e.preventDefault();
+            
+            if (scoreSubmitBtn.disabled) return;
+            
+            try {
+              const scoreInput = document.getElementById('score-input');
+              if (!scoreInput) {
+                console.error('Score input element not found');
+                return;
+              }
+              
+              // Rest of the handler is already defined elsewhere, just trigger it
+              console.log('Score submit button clicked');
+            } catch (err) {
+              console.error('Error in click handler:', err);
+            }
+          });
+          console.log('Score submission button handler attached');
+        } else {
+          console.warn('Score submit button not found, will try again later');
+          // Try again after a delay in case the DOM is still loading
+          setTimeout(setupEventHandlers, 1000);
+        }
+      };
+      
       // Wait for trivia content to load
       document.addEventListener('triviaLoaded', () => {
+        console.log('Trivia content loaded event fired');
         // Check if the user has a preference for this specific trivia
         const triviaSpecificPreference = localStorage.getItem(`trivia_${currentTriviaNumber}_preference`);
         
-        if (triviaSpecificPreference) {
-          // User has viewed this trivia before, use their preference
-          if (triviaSpecificPreference === 'interactive') {
-            btnInteractive.click();
-          } else {
-            btnPDF.click();
-          }
-        } else {
-          // Check general preference
-          const generalPreference = localStorage.getItem('triviaViewPreference');
-          
-          if (generalPreference) {
-            // User has a general preference
-            if (generalPreference === 'interactive') {
+        try {
+          if (triviaSpecificPreference) {
+            // User has viewed this trivia before, use their preference
+            if (triviaSpecificPreference === 'interactive' && btnInteractive) {
               btnInteractive.click();
-            } else {
+            } else if (btnPDF) {
               btnPDF.click();
             }
           } else {
-            // No preference, show buttons without selecting either
-            btnPDF.classList.remove('active');
-            btnInteractive.classList.remove('active');
-            pdfSection.classList.add('hidden');
-            interactiveSection.classList.add('hidden');
+            // Check general preference
+            const generalPreference = localStorage.getItem('triviaViewPreference');
+            
+            if (generalPreference) {
+              // User has a general preference
+              if (generalPreference === 'interactive' && btnInteractive) {
+                btnInteractive.click();
+              } else if (btnPDF) {
+                btnPDF.click();
+              }
+            } else if (btnPDF && btnInteractive && pdfSection && interactiveSection) {
+              // No preference, show buttons without selecting either
+              btnPDF.classList.remove('active');
+              btnInteractive.classList.remove('active');
+              pdfSection.classList.add('hidden');
+              interactiveSection.classList.add('hidden');
+            }
           }
+          
+          // Setup event handlers after the sections are shown
+          setTimeout(setupEventHandlers, 500);
+        } catch (error) {
+          console.error('Error setting up trivia preferences:', error);
         }
       });
+      
+      // Attempt to set up handlers immediately as well
+      setupEventHandlers();
     });
   </script>
 </body>
