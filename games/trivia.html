@@ -221,6 +221,20 @@
       margin: 15px 0;
       display: none;
     }
+    
+    /* Hide the Last Modified column in Google Drive folder view */
+    .iframe-container iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    
+    /* Style for the music folder button */
+    #music-folder-link {
+      white-space: nowrap;
+      min-width: 220px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -309,7 +323,7 @@
             <div class="music-section">
               <div class="pdf-header">
                 <h3>Music Folder</h3>
-                <a id="music-folder-link" class="btn print-btn" target="_blank">Open in New Tab</a>
+                <a id="music-folder-link" class="btn print-btn" target="_blank">Open Music Folder to Play All Files</a>
               </div>
               <!-- Dedicated audio player for playing music without leaving the page -->
               <div id="embedded-audio-container" class="audio-player">
@@ -805,7 +819,7 @@
                 if (folderId) {
                   // Update direct link
                   musicFolderLink.href = musicFolderUrl;
-                  musicFolderLink.textContent = "Open in New Tab";
+                  musicFolderLink.textContent = "Open Music Folder to Play All Files";
                   musicFolderLink.style.display = 'inline-block';
                   
                   // Create folder embed in iframe with clear logging
@@ -866,6 +880,39 @@
                           }
                         };
                         
+                        // Try to inject CSS to hide the Last Modified column
+                        try {
+                          // This will inject a style tag that hides the Last Modified column if possible
+                          const hideColumnStyle = document.createElement('style');
+                          hideColumnStyle.textContent = `
+                            /* Try different approaches to target and hide the Last Modified column */
+                            table th:nth-child(2), table td:nth-child(2) { display: none !important; }
+                            .column-header-last-modified, .last-modified { display: none !important; }
+                            [aria-label="Last modified"], [data-column-field="last-modified"] { display: none !important; }
+                            div[role="columnheader"]:nth-child(2), div[role="cell"]:nth-child(2) { display: none !important; }
+                          `;
+                          document.head.appendChild(hideColumnStyle);
+                          
+                          // Try to inject the style into the iframe if possible
+                          setTimeout(() => {
+                            try {
+                              const iframeDoc = musicIframe.contentDocument || musicIframe.contentWindow.document;
+                              const iframeHead = iframeDoc.head || iframeDoc.getElementsByTagName('head')[0];
+                              
+                              if (iframeHead) {
+                                const iframeStyle = iframeDoc.createElement('style');
+                                iframeStyle.textContent = hideColumnStyle.textContent;
+                                iframeHead.appendChild(iframeStyle);
+                                console.log("Successfully injected column-hiding CSS into iframe");
+                              }
+                            } catch (err) {
+                              console.warn("Could not inject CSS into iframe due to cross-origin policy:", err);
+                            }
+                          }, 1000);
+                        } catch (cssErr) {
+                          console.warn("Failed to inject column-hiding CSS:", cssErr);
+                        }
+                        
                         // This is a fallback approach that likely won't work due to cross-origin restrictions
                         try {
                           const iframeDoc = musicIframe.contentDocument || musicIframe.contentWindow.document;
@@ -918,7 +965,7 @@
                   console.warn("Could not extract folder ID from URL:", musicFolderUrl);
                   // If we can't extract a folder ID, just use direct link as before
                   musicFolderLink.href = musicFolderUrl;
-                  musicFolderLink.textContent = "Open Music Folder";
+                  musicFolderLink.textContent = "Open Music Folder to Play All Files";
                   musicFolderLink.style.display = 'inline-block';
                   
                   // Show message in container
