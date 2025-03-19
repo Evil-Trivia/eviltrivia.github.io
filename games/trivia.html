@@ -118,6 +118,19 @@
   <div class="container">
     <h1>This Week's Trivia</h1>
     
+    <!-- Admin Controls - Only visible to admins -->
+    <div id="admin-controls" class="content-section hidden">
+      <h3>Admin Controls</h3>
+      <div class="admin-form">
+        <div class="form-group">
+          <label for="trivia-selector">Select Trivia Number:</label>
+          <select id="trivia-selector" class="form-control"></select>
+        </div>
+        <button id="btn-change-trivia" class="btn">Change Active Trivia</button>
+        <a href="/games/triviaadmin.html" class="btn" style="margin-left: 10px;">Trivia Management</a>
+      </div>
+    </div>
+    
     <div class="content-section">
       <!-- Loading State -->
       <div id="loading-section" class="auth-message">
@@ -173,7 +186,7 @@
     // Import Firebase modules
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
-    import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
     
     // Firebase configuration
     const firebaseConfig = {
@@ -202,6 +215,15 @@
     const pdfSection = document.getElementById('pdf-section');
     const interactiveSection = document.getElementById('interactive-section');
     
+    // Admin Elements
+    const adminControls = document.getElementById('admin-controls');
+    const triviaSelector = document.getElementById('trivia-selector');
+    const btnChangeTrivia = document.getElementById('btn-change-trivia');
+    
+    // Current active trivia
+    let currentTriviaNumber = 1;
+    let isAdmin = false;
+    
     // Check if user is authorized
     async function checkUserAuthorization(user) {
       try {
@@ -217,6 +239,7 @@
         // If user is admin, they're authorized
         if (userData.role === 'admin') {
           console.log('User is admin, access granted');
+          isAdmin = true;
           return true;
         }
         
@@ -284,6 +307,12 @@
           notAuthorized.classList.add('hidden');
           triviaAuthorized.style.display = 'block';
           
+          // Show admin controls if user is admin
+          if (isAdmin) {
+            adminControls.classList.remove('hidden');
+            loadAdminData();
+          }
+          
           // Load trivia content
           loadTriviaContent();
         } else {
@@ -306,15 +335,103 @@
     // Load trivia content
     async function loadTriviaContent() {
       try {
-        // TODO: Fetch trivia content from Firebase
-        console.log('Loading trivia content...');
+        // Fetch active trivia information from Firebase
+        const activeTrivia = await getActiveTrivia();
+        currentTriviaNumber = activeTrivia.number || 1;
         
-        // For now, we're just setting up the UI
-        // This will be expanded later
+        console.log('Loading trivia content for trivia #', currentTriviaNumber);
+        
+        // TODO: Load actual trivia content based on currentTriviaNumber
+        
+        // For now, we're just updating placeholder text
+        pdfSection.querySelector('h2').textContent = `PDF Trivia #${currentTriviaNumber}`;
+        interactiveSection.querySelector('h2').textContent = `Interactive Trivia #${currentTriviaNumber}`;
       } catch (error) {
         console.error('Error loading trivia content:', error);
       }
     }
+    
+    // Get active trivia from Firebase
+    async function getActiveTrivia() {
+      try {
+        const snapshot = await get(ref(db, 'trivia/active'));
+        if (snapshot.exists()) {
+          return snapshot.val();
+        }
+        return { number: 1, name: 'Default Trivia' };
+      } catch (error) {
+        console.error('Error getting active trivia:', error);
+        return { number: 1, name: 'Default Trivia' };
+      }
+    }
+    
+    // Load admin data including available trivias
+    async function loadAdminData() {
+      try {
+        // Clear existing options
+        triviaSelector.innerHTML = '';
+        
+        // Get list of available trivias
+        const snapshot = await get(ref(db, 'trivia/available'));
+        if (snapshot.exists()) {
+          const trivias = snapshot.val();
+          // Create options for each trivia
+          Object.entries(trivias).forEach(([number, trivia]) => {
+            const option = document.createElement('option');
+            option.value = number;
+            option.textContent = `Trivia #${number}: ${trivia.name}`;
+            triviaSelector.appendChild(option);
+          });
+        } else {
+          // Add a default option if no trivias found
+          const option = document.createElement('option');
+          option.value = "1";
+          option.textContent = "Trivia #1";
+          triviaSelector.appendChild(option);
+        }
+        
+        // Get active trivia and set selector to match
+        const activeTrivia = await getActiveTrivia();
+        triviaSelector.value = activeTrivia.number;
+        
+      } catch (error) {
+        console.error('Error loading admin data:', error);
+      }
+    }
+    
+    // Handle change active trivia button
+    btnChangeTrivia.addEventListener('click', async () => {
+      try {
+        const selectedTriviaNumber = triviaSelector.value;
+        if (!selectedTriviaNumber) {
+          console.error('No trivia selected');
+          return;
+        }
+        
+        // Get name of selected trivia
+        const snapshot = await get(ref(db, `trivia/available/${selectedTriviaNumber}`));
+        let triviaName = 'Unknown Trivia';
+        if (snapshot.exists()) {
+          triviaName = snapshot.val().name;
+        }
+        
+        // Update active trivia
+        await set(ref(db, 'trivia/active'), {
+          number: selectedTriviaNumber,
+          name: triviaName,
+          updatedAt: new Date().toISOString(),
+          updatedBy: auth.currentUser.uid
+        });
+        
+        console.log('Active trivia updated to:', selectedTriviaNumber);
+        
+        // Reload trivia content
+        loadTriviaContent();
+        
+      } catch (error) {
+        console.error('Error changing active trivia:', error);
+      }
+    });
     
     // Button click handlers
     btnPDF.addEventListener('click', () => {
