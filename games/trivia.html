@@ -112,6 +112,45 @@
     .pdf-viewer, .interactive-trivia {
       margin-top: 20px;
     }
+    
+    .pdf-container {
+      margin-top: 20px;
+    }
+    
+    .iframe-container {
+      position: relative;
+      width: 100%;
+      height: 600px;
+      margin: 15px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow: hidden;
+      background-color: #f5f5f5;
+    }
+    
+    .pdf-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    
+    .pdf-controls {
+      margin: 20px 0;
+      text-align: center;
+    }
+    
+    .music-section {
+      margin-top: 30px;
+      text-align: center;
+    }
+    
+    #reveal-answers-btn {
+      background-color: #dc3545;
+    }
+    
+    #reveal-answers-btn:hover {
+      background-color: #c82333;
+    }
   </style>
 </head>
 <body>
@@ -167,8 +206,37 @@
         <!-- PDF Trivia Section -->
         <div id="pdf-section" class="pdf-viewer hidden">
           <h2>PDF Trivia</h2>
-          <p>PDF trivia content will be loaded here.</p>
-          <!-- PDF content will be loaded here -->
+          
+          <div class="pdf-container">
+            <h3>Questions PDF</h3>
+            <div class="iframe-container" id="questions-pdf-container">
+              <div class="loader" id="questions-pdf-loader"></div>
+              <iframe id="questions-pdf-iframe" class="pdf-iframe" allowfullscreen></iframe>
+            </div>
+            
+            <h3>Teams Sheet</h3>
+            <div class="iframe-container" id="teams-pdf-container">
+              <div class="loader" id="teams-pdf-loader"></div>
+              <iframe id="teams-pdf-iframe" class="pdf-iframe" allowfullscreen></iframe>
+            </div>
+            
+            <div class="pdf-controls">
+              <button id="reveal-answers-btn" class="btn">Reveal Answers</button>
+            </div>
+            
+            <div id="answers-section" class="hidden">
+              <h3>Answers PDF</h3>
+              <div class="iframe-container" id="answers-pdf-container">
+                <div class="loader" id="answers-pdf-loader"></div>
+                <iframe id="answers-pdf-iframe" class="pdf-iframe" allowfullscreen></iframe>
+              </div>
+            </div>
+            
+            <div class="music-section">
+              <h3>Music Folder</h3>
+              <a id="music-folder-link" class="btn" target="_blank">Open Music Folder</a>
+            </div>
+          </div>
         </div>
         
         <!-- Interactive Trivia Section -->
@@ -341,11 +409,14 @@
         
         console.log('Loading trivia content for trivia #', currentTriviaNumber);
         
-        // TODO: Load actual trivia content based on currentTriviaNumber
-        
-        // For now, we're just updating placeholder text
+        // Update the section titles with the trivia number
         pdfSection.querySelector('h2').textContent = `PDF Trivia #${currentTriviaNumber}`;
         interactiveSection.querySelector('h2').textContent = `Interactive Trivia #${currentTriviaNumber}`;
+        
+        // Load PDF content
+        if (btnPDF.classList.contains('active-btn')) {
+          loadPDFContent(currentTriviaNumber);
+        }
       } catch (error) {
         console.error('Error loading trivia content:', error);
       }
@@ -433,12 +504,82 @@
       }
     });
     
+    // Load PDF content from Firebase
+    async function loadPDFContent(triviaNumber) {
+      try {
+        // Show loaders
+        document.getElementById('questions-pdf-loader').style.display = 'block';
+        document.getElementById('teams-pdf-loader').style.display = 'block';
+        document.getElementById('answers-pdf-loader').style.display = 'block';
+        
+        // Get trivia drive links from Firebase
+        const driveLinksSnapshot = await get(ref(db, `trivia-archive/driveLookup/${triviaNumber}`));
+        
+        if (driveLinksSnapshot.exists()) {
+          const driveLinks = driveLinksSnapshot.val();
+          console.log("Drive links data:", driveLinks);
+          
+          // Set Questions PDF - using "Questions PDF" field from screenshot
+          if (driveLinks["Questions PDF"]) {
+            const questionsPdfIframe = document.getElementById('questions-pdf-iframe');
+            questionsPdfIframe.src = driveLinks["Questions PDF"];
+            questionsPdfIframe.onload = () => {
+              document.getElementById('questions-pdf-loader').style.display = 'none';
+            };
+          } else {
+            document.getElementById('questions-pdf-container').innerHTML = '<p>Questions PDF not available</p>';
+          }
+          
+          // Set Teams Sheet PDF - using "Teams Sheet PDF" field from screenshot
+          if (driveLinks["Teams Sheet PDF"]) {
+            const teamsPdfIframe = document.getElementById('teams-pdf-iframe');
+            teamsPdfIframe.src = driveLinks["Teams Sheet PDF"];
+            teamsPdfIframe.onload = () => {
+              document.getElementById('teams-pdf-loader').style.display = 'none';
+            };
+          } else {
+            document.getElementById('teams-pdf-container').innerHTML = '<p>Teams Sheet not available</p>';
+          }
+          
+          // Set Answers PDF - using "Answers PDF" field from screenshot
+          if (driveLinks["Answers PDF"]) {
+            const answersPdfIframe = document.getElementById('answers-pdf-iframe');
+            answersPdfIframe.src = driveLinks["Answers PDF"];
+            answersPdfIframe.onload = () => {
+              document.getElementById('answers-pdf-loader').style.display = 'none';
+            };
+          } else {
+            document.getElementById('answers-pdf-container').innerHTML = '<p>Answers PDF not available</p>';
+          }
+          
+          // Set Music Folder link - using "Music Folder" field from screenshot
+          if (driveLinks["Music Folder"]) {
+            const musicFolderLink = document.getElementById('music-folder-link');
+            musicFolderLink.href = driveLinks["Music Folder"];
+            musicFolderLink.style.display = 'inline-block';
+          } else {
+            document.getElementById('music-folder-link').style.display = 'none';
+            document.querySelector('.music-section').innerHTML = '<p>Music folder not available</p>';
+          }
+        } else {
+          console.error('No drive links found for trivia #', triviaNumber);
+          document.getElementById('pdf-section').innerHTML = `<h2>PDF Trivia #${triviaNumber}</h2><p>No PDF content available for this trivia.</p>`;
+        }
+      } catch (error) {
+        console.error('Error loading PDF content:', error);
+        document.getElementById('pdf-section').innerHTML += `<p class="error">Error loading PDF content: ${error.message}</p>`;
+      }
+    }
+    
     // Button click handlers
     btnPDF.addEventListener('click', () => {
       btnPDF.classList.add('active-btn');
       btnInteractive.classList.remove('active-btn');
       pdfSection.classList.remove('hidden');
       interactiveSection.classList.add('hidden');
+      
+      // Load PDF content if it hasn't been loaded yet
+      loadPDFContent(currentTriviaNumber);
     });
     
     btnInteractive.addEventListener('click', () => {
@@ -446,6 +587,18 @@
       btnPDF.classList.remove('active-btn');
       interactiveSection.classList.remove('hidden');
       pdfSection.classList.add('hidden');
+    });
+    
+    // Reveal answers button handler
+    document.getElementById('reveal-answers-btn').addEventListener('click', function() {
+      const answersSection = document.getElementById('answers-section');
+      if (answersSection.classList.contains('hidden')) {
+        answersSection.classList.remove('hidden');
+        this.textContent = 'Hide Answers';
+      } else {
+        answersSection.classList.add('hidden');
+        this.textContent = 'Reveal Answers';
+      }
     });
     
     // Initialize with PDF view active by default
