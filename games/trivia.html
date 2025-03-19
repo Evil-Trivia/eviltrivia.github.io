@@ -211,13 +211,13 @@
             <h3>Questions PDF</h3>
             <div class="iframe-container" id="questions-pdf-container">
               <div class="loader" id="questions-pdf-loader"></div>
-              <iframe id="questions-pdf-iframe" class="pdf-iframe" allowfullscreen allow="autoplay"></iframe>
+              <!-- iframe will be inserted here dynamically -->
             </div>
             
             <h3>Teams Sheet</h3>
             <div class="iframe-container" id="teams-pdf-container">
               <div class="loader" id="teams-pdf-loader"></div>
-              <iframe id="teams-pdf-iframe" class="pdf-iframe" allowfullscreen allow="autoplay"></iframe>
+              <!-- iframe will be inserted here dynamically -->
             </div>
             
             <div class="pdf-controls">
@@ -228,7 +228,7 @@
               <h3>Answers PDF</h3>
               <div class="iframe-container" id="answers-pdf-container">
                 <div class="loader" id="answers-pdf-loader"></div>
-                <iframe id="answers-pdf-iframe" class="pdf-iframe" allowfullscreen allow="autoplay"></iframe>
+                <!-- iframe will be inserted here dynamically -->
               </div>
             </div>
             
@@ -523,11 +523,11 @@
           const driveLinks = driveLinksSnapshot.val();
           console.log("Drive links data:", driveLinks);
           
-          // Helper function to extract Google Drive file ID and create proper embed URL
-          function getGoogleDriveEmbedUrl(url) {
+          // Helper function to create a direct embed for Google Drive
+          function createGoogleDriveEmbed(url) {
             if (!url) return null;
             
-            // Extract file ID from various Google Drive URL formats
+            // Extract the Google Drive file ID
             let fileId = null;
             
             // Format: https://drive.google.com/open?id=FILE_ID
@@ -542,118 +542,121 @@
               fileId = fileViewMatch[1];
             }
             
-            // If we found a file ID, create the embed URL
-            if (fileId) {
-              console.log("Extracted file ID:", fileId);
-              return `https://drive.google.com/file/d/${fileId}/preview`;
+            if (!fileId) {
+              console.error("Could not extract file ID from URL:", url);
+              return null;
             }
             
-            // If we couldn't extract the ID, return the original URL as fallback
-            console.log("Could not extract file ID from URL:", url);
-            return url;
+            console.log("Extracted file ID:", fileId);
+            return fileId;
           }
           
           // Set Questions PDF
           const questionsPdfContainer = document.getElementById('questions-pdf-container');
-          if (driveLinks["Questions PDF"]) {
-            try {
-              const embedUrl = getGoogleDriveEmbedUrl(driveLinks["Questions PDF"]);
-              const questionsPdfIframe = document.getElementById('questions-pdf-iframe');
-              
-              // Add event listeners for both loading success and failure
-              questionsPdfIframe.onload = () => {
-                if (questionsLoader) questionsLoader.style.display = 'none';
-              };
-              
-              questionsPdfIframe.onerror = () => {
-                if (questionsLoader) questionsLoader.style.display = 'none';
-                questionsPdfContainer.innerHTML = '<p>Error loading Questions PDF. Please try again later.</p>';
-              };
-              
-              questionsPdfIframe.src = embedUrl;
-            } catch (error) {
-              console.error("Error setting questions PDF:", error);
-              if (questionsLoader) questionsLoader.style.display = 'none';
-              questionsPdfContainer.innerHTML = '<p>Error loading Questions PDF: ' + error.message + '</p>';
+          if (questionsPdfContainer) {
+            if (driveLinks["Questions PDF"]) {
+              try {
+                const fileId = createGoogleDriveEmbed(driveLinks["Questions PDF"]);
+                if (fileId) {
+                  // Create the embed HTML
+                  const embedHtml = `
+                    <iframe 
+                      src="https://drive.google.com/file/d/${fileId}/preview" 
+                      width="100%" 
+                      height="100%" 
+                      allow="autoplay"
+                      allowfullscreen>
+                    </iframe>
+                  `;
+                  questionsPdfContainer.innerHTML = embedHtml;
+                } else {
+                  questionsPdfContainer.innerHTML = '<p>Error: Could not process Questions PDF link.</p>';
+                }
+              } catch (error) {
+                console.error("Error setting questions PDF:", error);
+                questionsPdfContainer.innerHTML = '<p>Error loading Questions PDF: ' + error.message + '</p>';
+              }
+            } else {
+              questionsPdfContainer.innerHTML = '<p>Questions PDF not available</p>';
             }
-          } else {
-            if (questionsLoader) questionsLoader.style.display = 'none';
-            questionsPdfContainer.innerHTML = '<p>Questions PDF not available</p>';
           }
           
           // Set Teams Sheet PDF
           const teamsPdfContainer = document.getElementById('teams-pdf-container');
-          if (driveLinks["Teams Sheet PDF"]) {
-            try {
-              const embedUrl = getGoogleDriveEmbedUrl(driveLinks["Teams Sheet PDF"]);
-              const teamsPdfIframe = document.getElementById('teams-pdf-iframe');
-              
-              // Add event listeners for both loading success and failure
-              teamsPdfIframe.onload = () => {
-                if (teamsLoader) teamsLoader.style.display = 'none';
-              };
-              
-              teamsPdfIframe.onerror = () => {
-                if (teamsLoader) teamsLoader.style.display = 'none';
-                teamsPdfContainer.innerHTML = '<p>Error loading Teams Sheet. Please try again later.</p>';
-              };
-              
-              teamsPdfIframe.src = embedUrl;
-            } catch (error) {
-              console.error("Error setting teams PDF:", error);
-              if (teamsLoader) teamsLoader.style.display = 'none';
-              teamsPdfContainer.innerHTML = '<p>Error loading Teams Sheet: ' + error.message + '</p>';
+          if (teamsPdfContainer) {
+            if (driveLinks["Teams Sheet PDF"]) {
+              try {
+                const fileId = createGoogleDriveEmbed(driveLinks["Teams Sheet PDF"]);
+                if (fileId) {
+                  // Create the embed HTML
+                  const embedHtml = `
+                    <iframe 
+                      src="https://drive.google.com/file/d/${fileId}/preview" 
+                      width="100%" 
+                      height="100%" 
+                      allow="autoplay"
+                      allowfullscreen>
+                    </iframe>
+                  `;
+                  teamsPdfContainer.innerHTML = embedHtml;
+                } else {
+                  teamsPdfContainer.innerHTML = '<p>Error: Could not process Teams Sheet PDF link.</p>';
+                }
+              } catch (error) {
+                console.error("Error setting teams PDF:", error);
+                teamsPdfContainer.innerHTML = '<p>Error loading Teams Sheet: ' + error.message + '</p>';
+              }
+            } else {
+              teamsPdfContainer.innerHTML = '<p>Teams Sheet not available</p>';
             }
-          } else {
-            if (teamsLoader) teamsLoader.style.display = 'none';
-            teamsPdfContainer.innerHTML = '<p>Teams Sheet not available</p>';
           }
           
           // Set Answers PDF
           const answersPdfContainer = document.getElementById('answers-pdf-container');
-          if (driveLinks["Answers PDF"]) {
-            try {
-              const embedUrl = getGoogleDriveEmbedUrl(driveLinks["Answers PDF"]);
-              const answersPdfIframe = document.getElementById('answers-pdf-iframe');
-              
-              // Add event listeners for both loading success and failure
-              answersPdfIframe.onload = () => {
-                if (answersLoader) answersLoader.style.display = 'none';
-              };
-              
-              answersPdfIframe.onerror = () => {
-                if (answersLoader) answersLoader.style.display = 'none';
-                answersPdfContainer.innerHTML = '<p>Error loading Answers PDF. Please try again later.</p>';
-              };
-              
-              answersPdfIframe.src = embedUrl;
-            } catch (error) {
-              console.error("Error setting answers PDF:", error);
-              if (answersLoader) answersLoader.style.display = 'none';
-              answersPdfContainer.innerHTML = '<p>Error loading Answers PDF: ' + error.message + '</p>';
+          if (answersPdfContainer) {
+            if (driveLinks["Answers PDF"]) {
+              try {
+                const fileId = createGoogleDriveEmbed(driveLinks["Answers PDF"]);
+                if (fileId) {
+                  // Create the embed HTML
+                  const embedHtml = `
+                    <iframe 
+                      src="https://drive.google.com/file/d/${fileId}/preview" 
+                      width="100%" 
+                      height="100%" 
+                      allow="autoplay"
+                      allowfullscreen>
+                    </iframe>
+                  `;
+                  answersPdfContainer.innerHTML = embedHtml;
+                } else {
+                  answersPdfContainer.innerHTML = '<p>Error: Could not process Answers PDF link.</p>';
+                }
+              } catch (error) {
+                console.error("Error setting answers PDF:", error);
+                answersPdfContainer.innerHTML = '<p>Error loading Answers PDF: ' + error.message + '</p>';
+              }
+            } else {
+              answersPdfContainer.innerHTML = '<p>Answers PDF not available</p>';
             }
-          } else {
-            if (answersLoader) answersLoader.style.display = 'none';
-            answersPdfContainer.innerHTML = '<p>Answers PDF not available</p>';
           }
           
-          // Set Music Folder link (no need to embed, it's a direct link)
+          // Set Music Folder link
           const musicSection = document.querySelector('.music-section');
-          if (driveLinks["Music Folder"]) {
-            try {
-              const musicFolderLink = document.getElementById('music-folder-link');
-              if (musicFolderLink) {
-                musicFolderLink.href = driveLinks["Music Folder"];
-                musicFolderLink.style.display = 'inline-block';
-              }
-            } catch (error) {
-              console.error("Error setting music folder link:", error);
-              if (musicSection) {
+          if (musicSection) {
+            if (driveLinks["Music Folder"]) {
+              try {
+                const musicFolderLink = document.getElementById('music-folder-link');
+                if (musicFolderLink) {
+                  musicFolderLink.href = driveLinks["Music Folder"];
+                  musicFolderLink.textContent = "Open Music Folder";
+                  musicFolderLink.style.display = 'inline-block';
+                }
+              } catch (error) {
+                console.error("Error setting music folder link:", error);
                 musicSection.innerHTML = '<p>Error loading Music Folder: ' + error.message + '</p>';
               }
-            }
-          } else {
-            if (musicSection) {
+            } else {
               musicSection.innerHTML = '<p>Music folder not available</p>';
             }
           }
@@ -670,6 +673,12 @@
         if (pdfSection) {
           pdfSection.innerHTML += `<p class="error">Error loading PDF content: ${error.message}</p>`;
         }
+      } finally {
+        // Hide all loaders in case they weren't hidden properly
+        const loaders = document.querySelectorAll('.loader');
+        loaders.forEach(loader => {
+          if (loader) loader.style.display = 'none';
+        });
       }
     }
     
