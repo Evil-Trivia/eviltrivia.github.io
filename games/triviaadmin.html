@@ -219,43 +219,6 @@
         <button id="btn-set-active" class="btn btn-success">Set as Active</button>
       </div>
       
-      <!-- Add New Trivia Section -->
-      <div class="content-section">
-        <h2>Add New Trivia</h2>
-        <form id="new-trivia-form">
-          <div class="form-group">
-            <label for="new-trivia-number">Trivia Number:</label>
-            <input type="number" id="new-trivia-number" required min="1">
-          </div>
-          <div class="form-group">
-            <label for="new-trivia-name">Trivia Name:</label>
-            <input type="text" id="new-trivia-name" required>
-          </div>
-          <div class="form-group">
-            <label for="new-trivia-description">Description:</label>
-            <textarea id="new-trivia-description"></textarea>
-          </div>
-          
-          <!-- PDF Upload (placeholder) -->
-          <div class="form-group">
-            <label for="pdf-upload">Upload PDF:</label>
-            <div class="file-upload">
-              <p>PDF upload will be implemented in the next phase</p>
-            </div>
-          </div>
-          
-          <!-- Interactive Trivia Questions (placeholder) -->
-          <div class="form-group">
-            <label>Interactive Trivia Questions:</label>
-            <div class="file-upload">
-              <p>Interactive trivia question management will be implemented in the next phase</p>
-            </div>
-          </div>
-          
-          <button type="submit" class="btn btn-success">Add Trivia</button>
-        </form>
-      </div>
-      
       <!-- Trivia List Section -->
       <div class="content-section">
         <h2>All Trivias</h2>
@@ -307,10 +270,6 @@
     const currentTriviaName = document.getElementById('current-trivia-name');
     const activeTriviaSelector = document.getElementById('active-trivia-selector');
     const btnSetActive = document.getElementById('btn-set-active');
-    const newTriviaForm = document.getElementById('new-trivia-form');
-    const newTriviaNumber = document.getElementById('new-trivia-number');
-    const newTriviaName = document.getElementById('new-trivia-name');
-    const newTriviaDescription = document.getElementById('new-trivia-description');
     const triviaList = document.getElementById('trivia-list');
     
     // Check if user is admin
@@ -374,9 +333,6 @@
         
         // Load available trivias for the selector and table
         await loadAvailableTrivias();
-        
-        // Set next trivia number
-        await updateNextTriviaNumber();
       } catch (error) {
         console.error('Error loading trivia data:', error);
         showError('Failed to load trivia data');
@@ -448,24 +404,6 @@
       }
     }
     
-    // Update next trivia number based on existing trivias
-    async function updateNextTriviaNumber() {
-      try {
-        const snapshot = await get(ref(db, 'trivia/available'));
-        if (snapshot.exists()) {
-          const trivias = snapshot.val();
-          const numbers = Object.keys(trivias).map(num => parseInt(num));
-          const nextNumber = Math.max(...numbers) + 1;
-          newTriviaNumber.value = nextNumber;
-        } else {
-          newTriviaNumber.value = 1;
-        }
-      } catch (error) {
-        console.error('Error updating next trivia number:', error);
-        newTriviaNumber.value = 1;
-      }
-    }
-    
     // Set active trivia
     async function setActiveTrivia(number) {
       try {
@@ -523,7 +461,6 @@
         
         // Reload trivias
         loadAvailableTrivias();
-        updateNextTriviaNumber();
       } catch (error) {
         console.error('Error deleting trivia:', error);
         showError('Failed to delete trivia');
@@ -563,42 +500,6 @@
         setActiveTrivia(selectedNumber);
       } else {
         showError('Please select a trivia to set as active');
-      }
-    });
-    
-    // Add new trivia form
-    newTriviaForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      
-      try {
-        const number = newTriviaNumber.value;
-        const name = newTriviaName.value;
-        const description = newTriviaDescription.value;
-        
-        // Check if trivia number already exists
-        const existingSnapshot = await get(ref(db, `trivia/available/${number}`));
-        if (existingSnapshot.exists()) {
-          showError(`Trivia #${number} already exists. Please use a different number.`);
-          return;
-        }
-        
-        // Add new trivia
-        await set(ref(db, `trivia/available/${number}`), {
-          name: name,
-          description: description,
-          createdAt: new Date().toISOString(),
-          createdBy: auth.currentUser.uid
-        });
-        
-        showSuccess(`Trivia #${number} added successfully`);
-        
-        // Reset form and reload data
-        newTriviaForm.reset();
-        loadAvailableTrivias();
-        updateNextTriviaNumber();
-      } catch (error) {
-        console.error('Error adding new trivia:', error);
-        showError('Failed to add new trivia');
       }
     });
   </script>
