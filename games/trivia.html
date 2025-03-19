@@ -287,8 +287,14 @@
             </div>
             
             <div class="music-section">
-              <h3>Music Folder</h3>
-              <a id="music-folder-link" class="btn" target="_blank">Open Music Folder</a>
+              <div class="pdf-header">
+                <h3>Music Folder</h3>
+                <a id="music-folder-link" class="btn print-btn" target="_blank">Open in New Tab</a>
+              </div>
+              <div class="iframe-container" id="music-folder-container">
+                <div class="loader" id="music-folder-loader"></div>
+                <!-- Music folder iframe will be inserted here dynamically -->
+              </div>
             </div>
           </div>
         </div>
@@ -730,15 +736,74 @@
           if (musicFolderLink) {
             if (driveLinks["Music Folder"] && driveLinks["Music Folder"].trim() !== '') {
               try {
-                musicFolderLink.href = driveLinks["Music Folder"];
-                musicFolderLink.textContent = "Open Music Folder";
-                musicFolderLink.style.display = 'inline-block';
-                console.log("Set music folder link to:", driveLinks["Music Folder"]);
+                // Extract folder ID from the Google Drive URL
+                let folderId = null;
+                // Format: https://drive.google.com/drive/folders/FOLDER_ID
+                const folderMatch = driveLinks["Music Folder"].match(/\/folders\/([^\/\?]+)/);
+                if (folderMatch) {
+                  folderId = folderMatch[1];
+                }
+                
+                // Format: https://drive.google.com/open?id=FOLDER_ID
+                const openIdMatch = driveLinks["Music Folder"].match(/id=([^&]+)/);
+                if (openIdMatch && !folderId) {
+                  folderId = openIdMatch[1];
+                }
+                
+                // Set up folder viewer and direct link
+                if (folderId) {
+                  // Update direct link
+                  musicFolderLink.href = driveLinks["Music Folder"];
+                  musicFolderLink.textContent = "Open in New Tab";
+                  musicFolderLink.style.display = 'inline-block';
+                  
+                  // Create folder embed in iframe
+                  const musicFolderContainer = document.getElementById('music-folder-container');
+                  const musicLoader = document.getElementById('music-folder-loader');
+                  if (musicFolderContainer) {
+                    // Grid view works best for media files
+                    const embedHtml = `
+                      <iframe 
+                        src="https://drive.google.com/embeddedfolderview?id=${folderId}#grid" 
+                        width="100%" 
+                        height="100%" 
+                        frameborder="0"
+                        onload="document.getElementById('music-folder-loader').style.display='none';">
+                      </iframe>
+                    `;
+                    musicFolderContainer.innerHTML = embedHtml;
+                  }
+                  
+                  console.log("Set music folder embed with ID:", folderId);
+                } else {
+                  // If we can't extract a folder ID, just use direct link as before
+                  musicFolderLink.href = driveLinks["Music Folder"];
+                  musicFolderLink.textContent = "Open Music Folder";
+                  musicFolderLink.style.display = 'inline-block';
+                  
+                  // Show message in container
+                  const musicFolderContainer = document.getElementById('music-folder-container');
+                  const musicLoader = document.getElementById('music-folder-loader');
+                  if (musicFolderContainer) {
+                    musicFolderContainer.innerHTML = '<p>Music folder embed not available, please use the link above.</p>';
+                    // Hide loader
+                    if (musicLoader) {
+                      musicLoader.style.display = 'none';
+                    }
+                  }
+                  
+                  console.log("Could not extract folder ID, using direct link only");
+                }
               } catch (error) {
                 console.error("Error setting music folder link:", error);
                 const musicSection = document.querySelector('.music-section');
+                const musicLoader = document.getElementById('music-folder-loader');
                 if (musicSection) {
-                  musicSection.innerHTML = '<p>Error loading Music Folder: ' + error.message + '</p>';
+                  musicSection.innerHTML = '<h3>Music Folder</h3><p>Error loading Music Folder: ' + error.message + '</p>';
+                }
+                // Hide loader
+                if (musicLoader) {
+                  musicLoader.style.display = 'none';
                 }
               }
             } else {
