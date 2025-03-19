@@ -1369,74 +1369,62 @@
         
         console.log(`Finding trivia data for trivia #${currentTriviaNumber}`);
         
-        // First, find the trivia event with this trivia number
-        const archiveRef = ref(db, 'trivia-archive/archive');
-        const archiveSnapshot = await get(archiveRef);
-        let triviaEvent = null;
+        // Get all data from the root to search for the trivia
+        const rootRef = ref(db);
+        const rootSnapshot = await get(rootRef);
         
-        if (archiveSnapshot.exists()) {
-          // Find the trivia event with this trivia number
-          Object.entries(archiveSnapshot.val()).forEach(([key, value]) => {
-            if (value.triviaNumber === currentTriviaNumber) {
-              triviaEvent = key;
+        let teamScores = [];
+        let statsMessage = '';
+        
+        if (rootSnapshot.exists()) {
+          const rootData = rootSnapshot.val();
+          
+          // Search for entries containing the trivia number in the key
+          Object.entries(rootData).forEach(([key, value]) => {
+            // Check if the key contains the trivia number (e.g., "20250318_St_Dymphna's_199")
+            const keyContainsNumber = key.includes(`_${currentTriviaNumber}`) || key.endsWith(`_${currentTriviaNumber}`);
+            
+            // Also check for the triviaNumber field
+            const hasMatchingTriviaNumber = 
+              value && 
+              (value.triviaNumber === currentTriviaNumber || 
+               (value.triviaNumber !== undefined && value.triviaNumber.toString() === currentTriviaNumber.toString()));
+            
+            // Check if this entry has the matching trivia number and contains teams
+            if ((keyContainsNumber || hasMatchingTriviaNumber) && value && value.teams) {
+              console.log(`Found trivia with teams: ${key}`);
+              
+              // Process team scores in this trivia
+              Object.entries(value.teams).forEach(([teamId, teamData]) => {
+                if (teamData) {
+                  console.log(`Processing team ${teamId}`, teamData);
+                  
+                  // Calculate total score for this team across all rounds
+                  let teamTotalScore = 0;
+                  let roundsFound = 0;
+                  
+                  // Look for round totals
+                  for (let i = 1; i <= 8; i++) {
+                    const roundKey = `round${i}`;
+                    if (teamData[roundKey] && teamData[roundKey].total !== undefined) {
+                      const roundTotal = parseFloat(teamData[roundKey].total);
+                      if (!isNaN(roundTotal)) {
+                        teamTotalScore += roundTotal;
+                        roundsFound++;
+                        console.log(`Found ${roundKey} score: ${roundTotal}`);
+                      }
+                    }
+                  }
+                  
+                  // For teams that have finalized scores (at least one round completed)
+                  if (roundsFound > 0) {
+                    teamScores.push(teamTotalScore);
+                    console.log(`Team ${teamId} total score: ${teamTotalScore}`);
+                  }
+                }
+              });
             }
           });
-        }
-        
-        let statsMessage = '';
-        let teamScores = [];
-        
-        if (triviaEvent) {
-          console.log(`Found trivia event: ${triviaEvent}`);
-          
-          // Look in the complete trivia-archive structure to get team scores
-          const allTriviasRef = ref(db);
-          const allTriviasSnapshot = await get(allTriviasRef);
-          
-          if (allTriviasSnapshot.exists()) {
-            const allData = allTriviasSnapshot.val();
-            
-            // Look for trivia events with this trivia number
-            Object.keys(allData).forEach(node => {
-              if (typeof allData[node] === 'object') {
-                Object.keys(allData[node]).forEach(eventKey => {
-                  const event = allData[node][eventKey];
-                  
-                  // Check if this is our trivia
-                  if (event && event.triviaNumber === currentTriviaNumber && event.teams) {
-                    console.log(`Found teams data in ${node}/${eventKey}`);
-                    
-                    // Process team scores
-                    Object.entries(event.teams).forEach(([teamId, teamData]) => {
-                      if (teamData) {
-                        // Calculate total score for this team across all rounds
-                        let teamTotalScore = 0;
-                        let roundsFound = 0;
-                        
-                        // Look for round totals
-                        for (let i = 1; i <= 8; i++) {
-                          const roundKey = `round${i}`;
-                          if (teamData[roundKey] && teamData[roundKey].total !== undefined) {
-                            const roundTotal = parseFloat(teamData[roundKey].total);
-                            if (!isNaN(roundTotal)) {
-                              teamTotalScore += roundTotal;
-                              roundsFound++;
-                            }
-                          }
-                        }
-                        
-                        // For teams that have finalized scores (at least one round completed)
-                        if (roundsFound > 0) {
-                          teamScores.push(teamTotalScore);
-                          console.log(`Team ${teamId} score: ${teamTotalScore}`);
-                        }
-                      }
-                    });
-                  }
-                });
-              }
-            });
-          }
         }
         
         if (teamScores.length > 0) {
