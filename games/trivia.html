@@ -33,13 +33,84 @@
       border-radius: 8px;
       padding: 30px;
       box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
     }
     
-    .placeholder-message {
+    .auth-message {
       text-align: center;
       padding: 50px;
       font-size: 18px;
       color: #666;
+    }
+    
+    .btn {
+      display: inline-block;
+      background-color: #000;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+      transition: background-color 0.3s;
+    }
+    
+    .btn:hover {
+      background-color: #333;
+    }
+    
+    .btn-patreon {
+      background-color: #F96854;
+    }
+    
+    .btn-patreon:hover {
+      background-color: #e05c49;
+    }
+    
+    .trivia-content {
+      display: none;
+    }
+    
+    .trivia-options {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin: 30px 0;
+    }
+    
+    .active-btn {
+      background-color: #555;
+    }
+    
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 2s linear infinite;
+      margin: 20px auto;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .hidden {
+      display: none;
+    }
+    
+    .login-section {
+      text-align: center;
+      padding: 20px;
+    }
+    
+    .pdf-viewer, .interactive-trivia {
+      margin-top: 20px;
     }
   </style>
 </head>
@@ -48,12 +119,222 @@
     <h1>This Week's Trivia</h1>
     
     <div class="content-section">
-      <div class="placeholder-message">
-        <h2>Coming Soon</h2>
-        <p>We're working on building a complex trivia game here. Check back soon for weekly trivia questions and challenges!</p>
-        <p><a href="/games/index.html" style="color: #000; font-weight: bold;">Back to Games</a></p>
+      <!-- Loading State -->
+      <div id="loading-section" class="auth-message">
+        <div class="loader"></div>
+        <p>Loading trivia content...</p>
+      </div>
+      
+      <!-- Not Logged In State -->
+      <div id="not-logged-in" class="auth-message hidden">
+        <h2>Access Required</h2>
+        <p>You need to sign in to access this week's trivia.</p>
+        <div class="login-section">
+          <a href="/pages/account.html" class="btn">Sign In</a>
+        </div>
+      </div>
+      
+      <!-- Not Authorized State -->
+      <div id="not-authorized" class="auth-message hidden">
+        <h2>Patreon Membership Required</h2>
+        <p>You must be a Patreon member pledging $5 or more to access this week's trivia.</p>
+        <div class="login-section">
+          <a href="https://patreon.com/eviltrivia" class="btn btn-patreon">Join on Patreon</a>
+          <a href="/pages/account.html" class="btn">Connect Existing Patreon</a>
+        </div>
+      </div>
+      
+      <!-- Authorized Content -->
+      <div id="trivia-authorized" class="trivia-content">
+        <div class="trivia-options">
+          <button id="btn-pdf" class="btn">PDF Trivia</button>
+          <button id="btn-interactive" class="btn">Interactive Trivia</button>
+        </div>
+        
+        <!-- PDF Trivia Section -->
+        <div id="pdf-section" class="pdf-viewer hidden">
+          <h2>PDF Trivia</h2>
+          <p>PDF trivia content will be loaded here.</p>
+          <!-- PDF content will be loaded here -->
+        </div>
+        
+        <!-- Interactive Trivia Section -->
+        <div id="interactive-section" class="interactive-trivia hidden">
+          <h2>Interactive Trivia</h2>
+          <p>Interactive trivia content will be loaded here.</p>
+          <!-- Interactive content will be loaded here -->
+        </div>
       </div>
     </div>
   </div>
+  
+  <!-- Firebase -->
+  <script type="module">
+    // Import Firebase modules
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+    import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.firebasestorage.app",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
+    };
+    
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+    
+    // DOM Elements
+    const loadingSection = document.getElementById('loading-section');
+    const notLoggedIn = document.getElementById('not-logged-in');
+    const notAuthorized = document.getElementById('not-authorized');
+    const triviaAuthorized = document.getElementById('trivia-authorized');
+    const btnPDF = document.getElementById('btn-pdf');
+    const btnInteractive = document.getElementById('btn-interactive');
+    const pdfSection = document.getElementById('pdf-section');
+    const interactiveSection = document.getElementById('interactive-section');
+    
+    // Check if user is authorized
+    async function checkUserAuthorization(user) {
+      try {
+        // Check if user exists in database
+        const userSnapshot = await get(ref(db, `users/${user.uid}`));
+        if (!userSnapshot.exists()) {
+          console.log('User not found in database');
+          return false;
+        }
+        
+        const userData = userSnapshot.val();
+        
+        // If user is admin, they're authorized
+        if (userData.role === 'admin') {
+          console.log('User is admin, access granted');
+          return true;
+        }
+        
+        // Check if user has Patreon ID
+        if (!userData.patreonId) {
+          console.log('User has no Patreon ID');
+          return false;
+        }
+        
+        // Get Patreon settings - minimum pledge amount
+        const settingsSnapshot = await get(ref(db, 'adminSettings/patreon'));
+        if (!settingsSnapshot.exists()) {
+          console.log('Patreon settings not found');
+          return false;
+        }
+        
+        const patreonSettings = settingsSnapshot.val();
+        const requiredAmountCents = patreonSettings.requiredAmountCents || 500; // Default to $5 if not set
+        
+        // Get Patreon user data
+        const patreonSnapshot = await get(ref(db, `patreonUsers/${userData.patreonId}`));
+        if (!patreonSnapshot.exists()) {
+          console.log('Patreon user data not found');
+          return false;
+        }
+        
+        const patreonData = patreonSnapshot.val();
+        
+        // Check if user is active member with sufficient pledge
+        const membershipData = patreonData.membershipData || {};
+        const attributes = membershipData.attributes || {};
+        
+        // Check pledge amount
+        const pledgeAmountCents = patreonData.pledgeAmountCents || 
+                                  attributes.currently_entitled_amount_cents || 0;
+        
+        // Check if pledge amount meets minimum requirements
+        if (pledgeAmountCents >= requiredAmountCents && 
+            (patreonData.isActiveMember || attributes.patron_status === 'active_patron')) {
+          console.log('User is active Patreon member with sufficient pledge');
+          return true;
+        }
+        
+        console.log('User Patreon membership does not meet requirements');
+        return false;
+        
+      } catch (error) {
+        console.error('Error checking authorization:', error);
+        return false;
+      }
+    }
+    
+    // Handle auth state changes
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        console.log('User is signed in:', user.uid);
+        
+        // Check if user is authorized
+        const isAuthorized = await checkUserAuthorization(user);
+        
+        if (isAuthorized) {
+          // Show authorized content
+          loadingSection.classList.add('hidden');
+          notLoggedIn.classList.add('hidden');
+          notAuthorized.classList.add('hidden');
+          triviaAuthorized.style.display = 'block';
+          
+          // Load trivia content
+          loadTriviaContent();
+        } else {
+          // Show not authorized message
+          loadingSection.classList.add('hidden');
+          notLoggedIn.classList.add('hidden');
+          notAuthorized.classList.remove('hidden');
+          triviaAuthorized.style.display = 'none';
+        }
+      } else {
+        // User is not signed in
+        console.log('User is not signed in');
+        loadingSection.classList.add('hidden');
+        notLoggedIn.classList.remove('hidden');
+        notAuthorized.classList.add('hidden');
+        triviaAuthorized.style.display = 'none';
+      }
+    });
+    
+    // Load trivia content
+    async function loadTriviaContent() {
+      try {
+        // TODO: Fetch trivia content from Firebase
+        console.log('Loading trivia content...');
+        
+        // For now, we're just setting up the UI
+        // This will be expanded later
+      } catch (error) {
+        console.error('Error loading trivia content:', error);
+      }
+    }
+    
+    // Button click handlers
+    btnPDF.addEventListener('click', () => {
+      btnPDF.classList.add('active-btn');
+      btnInteractive.classList.remove('active-btn');
+      pdfSection.classList.remove('hidden');
+      interactiveSection.classList.add('hidden');
+    });
+    
+    btnInteractive.addEventListener('click', () => {
+      btnInteractive.classList.add('active-btn');
+      btnPDF.classList.remove('active-btn');
+      interactiveSection.classList.remove('hidden');
+      pdfSection.classList.add('hidden');
+    });
+    
+    // Initialize with PDF view active by default
+    document.addEventListener('DOMContentLoaded', () => {
+      btnPDF.click();
+    });
+  </script>
 </body>
 </html> 
