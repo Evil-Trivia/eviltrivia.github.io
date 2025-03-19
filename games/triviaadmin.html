@@ -322,20 +322,23 @@
     async function loadTriviaData() {
       try {
         // Listen for active trivia changes
-        onValue(ref(db, 'trivia/active'), (snapshot) => {
+        onValue(ref(db, 'trivia-archive/active'), (snapshot) => {
           if (snapshot.exists()) {
             const activeTrivia = snapshot.val();
             currentTriviaName.textContent = `#${activeTrivia.number}: ${activeTrivia.name}`;
           } else {
             currentTriviaName.textContent = 'None set';
           }
+        }, (error) => {
+          console.error('Error listening to active trivia:', error);
+          showError('Error loading active trivia: ' + error.message);
         });
         
         // Load available trivias for the selector and table
         await loadAvailableTrivias();
       } catch (error) {
         console.error('Error loading trivia data:', error);
-        showError('Failed to load trivia data');
+        showError('Failed to load trivia data: ' + error.message);
       }
     }
     
@@ -346,41 +349,53 @@
         activeTriviaSelector.innerHTML = '';
         triviaList.innerHTML = '';
         
-        // Get list of available trivias
-        const snapshot = await get(ref(db, 'trivia/available'));
+        // Get list of available trivias from archive
+        const snapshot = await get(ref(db, 'trivia-archive/archive'));
         
         if (snapshot.exists()) {
           const trivias = snapshot.val();
           
+          // Format the trivias into a usable format for the selector and table
+          const formattedTrivias = [];
+          
+          // Process the trivia data from the archive format
+          Object.entries(trivias).forEach(([triviaNumber, triviaData]) => {
+            if (triviaData.triviaName) {
+              formattedTrivias.push({
+                number: triviaNumber,
+                name: triviaData.triviaName,
+                createdAt: triviaData.date || 'Unknown'
+              });
+            }
+          });
+          
           // Sort trivias by number (descending)
-          const sortedTrivias = Object.entries(trivias)
-            .sort(([a], [b]) => parseInt(b) - parseInt(a));
+          formattedTrivias.sort((a, b) => parseInt(b.number) - parseInt(a.number));
           
           // Get active trivia for highlighting
-          const activeSnapshot = await get(ref(db, 'trivia/active'));
+          const activeSnapshot = await get(ref(db, 'trivia-archive/active'));
           const activeNumber = activeSnapshot.exists() ? activeSnapshot.val().number : null;
           
           // Add trivias to selector and table
-          sortedTrivias.forEach(([number, trivia]) => {
+          formattedTrivias.forEach((trivia) => {
             // Add to selector
             const option = document.createElement('option');
-            option.value = number;
-            option.textContent = `Trivia #${number}: ${trivia.name}`;
+            option.value = trivia.number;
+            option.textContent = `Trivia #${trivia.number}: ${trivia.name}`;
             activeTriviaSelector.appendChild(option);
             
             // Add to table
             const row = document.createElement('tr');
-            if (number === activeNumber) {
+            if (trivia.number === activeNumber) {
               row.classList.add('active-row');
             }
             
             row.innerHTML = `
-              <td>${number}</td>
+              <td>${trivia.number}</td>
               <td>${trivia.name}</td>
               <td>${trivia.createdAt ? new Date(trivia.createdAt).toLocaleDateString() : 'Unknown'}</td>
               <td>
-                <button class="btn btn-sm btn-success set-active-btn" data-number="${number}">Set Active</button>
-                <button class="btn btn-sm btn-danger delete-btn" data-number="${number}">Delete</button>
+                <button class="btn btn-sm btn-success set-active-btn" data-number="${trivia.number}">Set Active</button>
               </td>
             `;
             triviaList.appendChild(row);
@@ -390,17 +405,13 @@
           document.querySelectorAll('.set-active-btn').forEach(btn => {
             btn.addEventListener('click', () => setActiveTrivia(btn.dataset.number));
           });
-          
-          document.querySelectorAll('.delete-btn').forEach(btn => {
-            btn.addEventListener('click', () => deleteTrivia(btn.dataset.number));
-          });
         } else {
           // No trivias found
-          triviaList.innerHTML = '<tr><td colspan="4">No trivias available</td></tr>';
+          triviaList.innerHTML = '<tr><td colspan="4">No trivias available in archive</td></tr>';
         }
       } catch (error) {
         console.error('Error loading available trivias:', error);
-        showError('Failed to load available trivias');
+        showError('Failed to load available trivias: ' + error.message);
       }
     }
     
@@ -408,18 +419,18 @@
     async function setActiveTrivia(number) {
       try {
         // Get trivia details
-        const snapshot = await get(ref(db, `trivia/available/${number}`));
+        const snapshot = await get(ref(db, `trivia-archive/archive/${number}`));
         if (!snapshot.exists()) {
-          showError(`Trivia #${number} not found`);
+          showError(`Trivia #${number} not found in archive`);
           return;
         }
         
-        const trivia = snapshot.val();
+        const triviaData = snapshot.val();
         
         // Update active trivia
-        await set(ref(db, 'trivia/active'), {
+        await set(ref(db, 'trivia-archive/active'), {
           number: number,
-          name: trivia.name,
+          name: triviaData.triviaName || `Trivia #${number}`,
           updatedAt: new Date().toISOString(),
           updatedBy: auth.currentUser.uid
         });
@@ -430,40 +441,7 @@
         loadAvailableTrivias();
       } catch (error) {
         console.error('Error setting active trivia:', error);
-        showError('Failed to set active trivia');
-      }
-    }
-    
-    // Delete trivia
-    async function deleteTrivia(number) {
-      try {
-        // Check if this is the active trivia
-        const activeSnapshot = await get(ref(db, 'trivia/active'));
-        if (activeSnapshot.exists() && activeSnapshot.val().number === number) {
-          if (!confirm('This is the currently active trivia. Are you sure you want to delete it?')) {
-            return;
-          }
-        } else {
-          if (!confirm(`Are you sure you want to delete Trivia #${number}?`)) {
-            return;
-          }
-        }
-        
-        // Delete the trivia
-        await remove(ref(db, `trivia/available/${number}`));
-        
-        // If this was the active trivia, clear the active trivia
-        if (activeSnapshot.exists() && activeSnapshot.val().number === number) {
-          await remove(ref(db, 'trivia/active'));
-        }
-        
-        showSuccess(`Trivia #${number} deleted successfully`);
-        
-        // Reload trivias
-        loadAvailableTrivias();
-      } catch (error) {
-        console.error('Error deleting trivia:', error);
-        showError('Failed to delete trivia');
+        showError('Failed to set active trivia: ' + error.message);
       }
     }
     
