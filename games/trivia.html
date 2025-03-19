@@ -76,13 +76,100 @@
     
     .trivia-options {
       display: flex;
-      justify-content: center;
-      gap: 15px;
+      justify-content: space-between;
       margin: 30px 0;
+      gap: 20px;
     }
     
-    .active-btn {
-      background-color: #555;
+    .option-btn {
+      flex: 1;
+      text-align: center;
+      border-radius: 8px;
+      padding: 20px;
+      cursor: pointer;
+      border: 2px solid #333;
+      background-color: #f8f8f8;
+      transition: all 0.2s ease-in-out;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .option-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+    
+    .option-btn.active {
+      background-color: #fff;
+      border-color: #28a745;
+      box-shadow: inset 0 2px 5px rgba(0,0,0,0.15);
+      transform: translateY(2px);
+    }
+    
+    .option-btn-title {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 8px;
+      color: #333;
+    }
+    
+    .option-btn-desc {
+      font-size: 14px;
+      color: #666;
+      line-height: 1.4;
+    }
+    
+    .score-input-container {
+      margin-top: 40px;
+      padding: 20px;
+      background-color: #f5f5f5;
+      border-radius: 8px;
+      text-align: center;
+      border: 1px solid #ddd;
+    }
+    
+    .score-input-container h3 {
+      margin-top: 0;
+      margin-bottom: 15px;
+      color: #333;
+    }
+    
+    .score-input-container p {
+      margin-bottom: 15px;
+      color: #666;
+    }
+    
+    .score-input-form {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    
+    .score-input {
+      padding: 10px;
+      width: 100px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 16px;
+      text-align: center;
+    }
+    
+    .score-submit-btn {
+      padding: 10px 20px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    
+    .score-submit-btn:hover {
+      background-color: #218838;
     }
     
     .loader {
@@ -333,8 +420,14 @@
       <!-- Authorized Content -->
       <div id="trivia-authorized" class="trivia-content">
         <div class="trivia-options">
-          <button id="btn-pdf" class="btn">PDF Trivia</button>
-          <button id="btn-interactive" class="btn">Interactive Trivia</button>
+          <div id="btn-pdf" class="option-btn">
+            <div class="option-btn-title">PDFs</div>
+            <div class="option-btn-desc">View and print PDFs of this week's trivia</div>
+          </div>
+          <div id="btn-interactive" class="option-btn">
+            <div class="option-btn-title">Interactive</div>
+            <div class="option-btn-desc">Play trivia in your browser and compare your scores to others</div>
+          </div>
         </div>
         
         <!-- PDF Trivia Section -->
@@ -410,6 +503,16 @@
               <div class="iframe-container" id="answers-pdf-container">
                 <div class="loader" id="answers-pdf-loader"></div>
                 <!-- iframe will be inserted here dynamically -->
+              </div>
+            </div>
+            
+            <!-- Score Input Section -->
+            <div class="score-input-container">
+              <h3>Record Your Score</h3>
+              <p>Enter your final score to compare with others!</p>
+              <div class="score-input-form">
+                <input type="number" id="score-input" class="score-input" min="0" max="100" placeholder="Your score">
+                <button id="score-submit-btn" class="score-submit-btn">Submit Score</button>
               </div>
             </div>
           </div>
@@ -589,10 +692,8 @@
         pdfSection.querySelector('h2').textContent = `PDF Trivia #${currentTriviaNumber}`;
         interactiveSection.querySelector('h2').textContent = `Interactive Trivia #${currentTriviaNumber}`;
         
-        // Load PDF content
-        if (btnPDF.classList.contains('active-btn')) {
-          loadPDFContent(currentTriviaNumber);
-        }
+        // Dispatch event that trivia content is loaded
+        document.dispatchEvent(new Event('triviaLoaded'));
       } catch (error) {
         console.error('Error loading trivia content:', error);
       }
@@ -891,20 +992,28 @@
     
     // Button click handlers
     btnPDF.addEventListener('click', () => {
-      btnPDF.classList.add('active-btn');
-      btnInteractive.classList.remove('active-btn');
+      btnPDF.classList.add('active');
+      btnInteractive.classList.remove('active');
       pdfSection.classList.remove('hidden');
       interactiveSection.classList.add('hidden');
       
       // Load PDF content if it hasn't been loaded yet
       loadPDFContent(currentTriviaNumber);
+      
+      // Save user preference
+      localStorage.setItem('triviaViewPreference', 'pdf');
+      localStorage.setItem(`trivia_${currentTriviaNumber}_preference`, 'pdf');
     });
     
     btnInteractive.addEventListener('click', () => {
-      btnInteractive.classList.add('active-btn');
-      btnPDF.classList.remove('active-btn');
+      btnInteractive.classList.add('active');
+      btnPDF.classList.remove('active');
       interactiveSection.classList.remove('hidden');
       pdfSection.classList.add('hidden');
+      
+      // Save user preference
+      localStorage.setItem('triviaViewPreference', 'interactive');
+      localStorage.setItem(`trivia_${currentTriviaNumber}_preference`, 'interactive');
     });
     
     // Reveal answers button handler
@@ -1213,9 +1322,54 @@
       }
     }
     
-    // Initialize with PDF view active by default
+    // Handle score submission (placeholder for now)
+    document.getElementById('score-submit-btn').addEventListener('click', function() {
+      const scoreInput = document.getElementById('score-input');
+      const score = scoreInput.value;
+      
+      if (!score || isNaN(score) || score < 0) {
+        alert('Please enter a valid score');
+        return;
+      }
+      
+      alert(`Score of ${score} recorded! In the future, you'll be able to compare your score with other players.`);
+      // Future implementation will save this to Firebase
+    });
+    
+    // Initialize based on user's previous selection
     document.addEventListener('DOMContentLoaded', () => {
-      btnPDF.click();
+      // Wait for trivia content to load
+      document.addEventListener('triviaLoaded', () => {
+        // Check if the user has a preference for this specific trivia
+        const triviaSpecificPreference = localStorage.getItem(`trivia_${currentTriviaNumber}_preference`);
+        
+        if (triviaSpecificPreference) {
+          // User has viewed this trivia before, use their preference
+          if (triviaSpecificPreference === 'interactive') {
+            btnInteractive.click();
+          } else {
+            btnPDF.click();
+          }
+        } else {
+          // Check general preference
+          const generalPreference = localStorage.getItem('triviaViewPreference');
+          
+          if (generalPreference) {
+            // User has a general preference
+            if (generalPreference === 'interactive') {
+              btnInteractive.click();
+            } else {
+              btnPDF.click();
+            }
+          } else {
+            // No preference, show buttons without selecting either
+            btnPDF.classList.remove('active');
+            btnInteractive.classList.remove('active');
+            pdfSection.classList.add('hidden');
+            interactiveSection.classList.add('hidden');
+          }
+        }
+      });
     });
   </script>
 </body>
