@@ -928,6 +928,7 @@
     // Load and display individual music tracks from the music round
     async function loadMusicRoundTracks(triviaNumber) {
       try {
+        console.log(`Loading music tracks for trivia #${triviaNumber}`);
         const musicRoundLoader = document.getElementById('music-round-loader');
         const musicTracksTable = document.getElementById('music-tracks-table');
         const musicTracksBody = document.getElementById('music-tracks-body');
@@ -945,11 +946,11 @@
         function createGoogleDrivePlayer(fileId) {
           return `
             <div class="audio-player-container">
-              <iframe class="google-drive-player" 
-                      src="https://drive.google.com/file/d/${fileId}/preview" 
-                      width="100%" 
-                      height="55" 
-                      allow="autoplay"></iframe>
+              <iframe 
+                src="https://drive.google.com/file/d/${fileId}/preview" 
+                width="100%" 
+                height="80" 
+                allow="autoplay"></iframe>
             </div>
           `;
         }
@@ -960,35 +961,58 @@
         
         if (triviaSnapshot.exists()) {
           const triviaData = triviaSnapshot.val();
+          console.log("Trivia data structure:", Object.keys(triviaData));
           
           // Look for the music round (could be named Music, Audio, or something similar)
           let musicRoundData = null;
           let musicRoundNumber = null;
           let musicRoundFormat = null;
           
-          // Find the music round by looking for round names containing "music" or "audio"
+          // Find the music round by looking for round formats named "Music"
           Object.entries(triviaData).forEach(([roundNum, roundFormats]) => {
-            Object.entries(roundFormats).forEach(([format, roundData]) => {
-              const roundName = roundData.roundName || '';
-              const lowerRoundName = roundName.toLowerCase();
-              
-              if (lowerRoundName.includes('music') || lowerRoundName.includes('audio')) {
-                musicRoundData = roundData;
-                musicRoundNumber = roundNum;
-                musicRoundFormat = format;
-                console.log(`Found music round: Round ${roundNum}, Format: ${format}, Name: ${roundName}`);
-              }
-            });
+            if (roundFormats.Music) {
+              musicRoundData = roundFormats.Music;
+              musicRoundNumber = roundNum;
+              musicRoundFormat = "Music";
+              console.log(`Found music round: Round ${roundNum}`);
+            } else {
+              // Alternative: Look for round names containing "music" or "audio"
+              Object.entries(roundFormats).forEach(([format, roundData]) => {
+                const roundName = roundData.roundName || '';
+                const lowerRoundName = roundName.toLowerCase();
+                
+                if (lowerRoundName.includes('music') || lowerRoundName.includes('audio')) {
+                  musicRoundData = roundData;
+                  musicRoundNumber = roundNum;
+                  musicRoundFormat = format;
+                  console.log(`Found music round by name: Round ${roundNum}, Format: ${format}, Name: ${roundName}`);
+                }
+              });
+            }
           });
           
+          console.log("Music round data:", musicRoundData);
+          
           if (musicRoundData && musicRoundData.questions) {
-            console.log("Music round data:", musicRoundData);
-            
             // Create a row for each question in the music round
             Object.entries(musicRoundData.questions).forEach(([questionNum, questionData]) => {
-              // Skip if no music link/file
-              if (!questionData.musicLink && !questionData.musicFile) return;
+              console.log(`Processing question ${questionNum}:`, questionData);
               
+              // Look for the music clip link - could be named "Music Clip Link" or other variations
+              const musicClipLink = questionData["Music Clip Link"] || 
+                                   questionData.musicLink || 
+                                   questionData.musicFile || 
+                                   questionData.musicClipLink || 
+                                   questionData.music || 
+                                   '';
+              
+              // Skip if no music link found
+              if (!musicClipLink) {
+                console.log(`No music link found for question ${questionNum}`);
+                return;
+              }
+              
+              // Create a table row for this question
               const row = document.createElement('tr');
               
               // Question number cell
@@ -996,50 +1020,86 @@
               numCell.textContent = questionNum;
               row.appendChild(numCell);
               
-              // Question text cell
+              // Question text cell - could be named "Question Text" or "questionText"
               const questionCell = document.createElement('td');
-              questionCell.textContent = questionData.questionText || 'Question ' + questionNum;
+              const questionText = questionData["Question Text"] || 
+                                  questionData.questionText || 
+                                  questionData.text || 
+                                  `Question ${questionNum}`;
+              questionCell.textContent = questionText;
               row.appendChild(questionCell);
               
               // Music player cell
               const playerCell = document.createElement('td');
-              
-              // Determine the music source (link or file)
-              let musicUrl = questionData.musicLink || questionData.musicFile || '';
               let musicPlayer = '';
               
-              if (musicUrl) {
-                // Handle Google Drive links
-                if (musicUrl.includes('drive.google.com')) {
-                  const fileIdMatch = musicUrl.match(/[-\w]{25,}/);
-                  if (fileIdMatch) {
-                    const fileId = fileIdMatch[0];
-                    musicPlayer = createGoogleDrivePlayer(fileId);
+              console.log(`Music URL for question ${questionNum}:`, musicClipLink);
+              
+              // Handle Google Drive links
+              if (musicClipLink.includes('drive.google.com')) {
+                // Extract file ID using different patterns
+                let fileId = null;
+                
+                // Format: https://drive.google.com/open?id=FILE_ID
+                const openIdMatch = musicClipLink.match(/id=([^&]+)/);
+                if (openIdMatch) {
+                  fileId = openIdMatch[1];
+                  console.log(`Extracted file ID from open link: ${fileId}`);
+                }
+                
+                // Format: https://drive.google.com/file/d/FILE_ID/view
+                if (!fileId) {
+                  const fileViewMatch = musicClipLink.match(/\/file\/d\/([^\/]+)/);
+                  if (fileViewMatch) {
+                    fileId = fileViewMatch[1];
+                    console.log(`Extracted file ID from file link: ${fileId}`);
                   }
-                } 
-                // If it's a direct Google Drive ID (not a full URL)
-                else if (/^[a-zA-Z0-9_-]{25,}$/.test(musicUrl.trim())) {
-                  const fileId = musicUrl.trim();
+                }
+                
+                // Any other pattern with a long ID
+                if (!fileId) {
+                  const genericIdMatch = musicClipLink.match(/[-\w]{25,}/);
+                  if (genericIdMatch) {
+                    fileId = genericIdMatch[0];
+                    console.log(`Extracted file ID using generic pattern: ${fileId}`);
+                  }
+                }
+                
+                if (fileId) {
                   musicPlayer = createGoogleDrivePlayer(fileId);
-                }
-                // If it's a direct audio file link
-                else if (musicUrl.match(/\.(mp3|wav|ogg|m4a)$/i)) {
+                } else {
+                  // If we couldn't extract a file ID, just provide a link
                   musicPlayer = `
                     <div class="audio-player-container">
-                      <audio src="${musicUrl}" controls class="custom-audio-player"></audio>
+                      <a href="${musicClipLink}" target="_blank">Play Music Track</a>
                     </div>
                   `;
+                  console.warn(`Could not extract file ID from URL: ${musicClipLink}`);
                 }
-                // Default fallback - just show a link
-                else {
-                  musicPlayer = `
-                    <div class="audio-player-container">
-                      <a href="${musicUrl}" target="_blank">Play Music Track</a>
-                    </div>
-                  `;
-                }
-              } else {
-                musicPlayer = '<p>No music available</p>';
+              } 
+              // If it's a direct Google Drive ID (not a full URL)
+              else if (/^[a-zA-Z0-9_-]{25,}$/.test(musicClipLink.trim())) {
+                const fileId = musicClipLink.trim();
+                musicPlayer = createGoogleDrivePlayer(fileId);
+                console.log(`Using direct file ID: ${fileId}`);
+              }
+              // If it's a direct audio file link
+              else if (musicClipLink.match(/\.(mp3|wav|ogg|m4a)$/i)) {
+                musicPlayer = `
+                  <div class="audio-player-container">
+                    <audio src="${musicClipLink}" controls class="custom-audio-player"></audio>
+                  </div>
+                `;
+                console.log(`Using direct audio file link`);
+              }
+              // Default fallback - just show a link
+              else {
+                musicPlayer = `
+                  <div class="audio-player-container">
+                    <a href="${musicClipLink}" target="_blank">Play Music Track</a>
+                  </div>
+                `;
+                console.log(`Using fallback link`);
               }
               
               playerCell.innerHTML = musicPlayer;
@@ -1053,9 +1113,110 @@
             musicTracksTable.classList.remove('hidden');
             
           } else {
-            // No music round found, show message
-            noMusicMessage.classList.remove('hidden');
-            console.log("No music round found for trivia #" + triviaNumber);
+            // No questions found in music round, try a different approach
+            // Some trivias might have music directly in the round level instead of in questions
+            if (musicRoundData) {
+              console.log("Looking for music clips at round level");
+              // Check if there are numbered items directly in the music round
+              Object.entries(musicRoundData).forEach(([key, value]) => {
+                // Skip if not a numbered question 
+                if (isNaN(parseInt(key)) || typeof value !== 'object') return;
+                
+                console.log(`Processing direct music item ${key}:`, value);
+                
+                // Look for the music clip link with various possible property names
+                const musicClipLink = value["Music Clip Link"] || 
+                                     value.musicLink || 
+                                     value.music ||
+                                     '';
+                
+                if (!musicClipLink) return;
+                
+                // Create a table row
+                const row = document.createElement('tr');
+                
+                // Question number cell
+                const numCell = document.createElement('td');
+                numCell.textContent = key;
+                row.appendChild(numCell);
+                
+                // Question text or answer cell
+                const questionCell = document.createElement('td');
+                const questionText = value["Question Text"] || 
+                                    value.questionText || 
+                                    value.Answer || 
+                                    value.answer ||
+                                    `Track ${key}`;
+                questionCell.textContent = questionText;
+                row.appendChild(questionCell);
+                
+                // Music player cell
+                const playerCell = document.createElement('td');
+                let musicPlayer = '';
+                
+                console.log(`Direct music URL for item ${key}:`, musicClipLink);
+                
+                // Handle Google Drive links
+                if (musicClipLink.includes('drive.google.com')) {
+                  let fileId = null;
+                  
+                  // Various Google Drive URL patterns
+                  const openIdMatch = musicClipLink.match(/id=([^&]+)/);
+                  if (openIdMatch) {
+                    fileId = openIdMatch[1];
+                  } else {
+                    const fileViewMatch = musicClipLink.match(/\/file\/d\/([^\/]+)/);
+                    if (fileViewMatch) {
+                      fileId = fileViewMatch[1];
+                    } else {
+                      const genericIdMatch = musicClipLink.match(/[-\w]{25,}/);
+                      if (genericIdMatch) {
+                        fileId = genericIdMatch[0];
+                      }
+                    }
+                  }
+                  
+                  if (fileId) {
+                    musicPlayer = createGoogleDrivePlayer(fileId);
+                  } else {
+                    musicPlayer = `
+                      <div class="audio-player-container">
+                        <a href="${musicClipLink}" target="_blank">Play Music Track</a>
+                      </div>
+                    `;
+                  }
+                } else if (/^[a-zA-Z0-9_-]{25,}$/.test(musicClipLink.trim())) {
+                  // Direct file ID
+                  const fileId = musicClipLink.trim();
+                  musicPlayer = createGoogleDrivePlayer(fileId);
+                } else {
+                  // Default link
+                  musicPlayer = `
+                    <div class="audio-player-container">
+                      <a href="${musicClipLink}" target="_blank">Play Music Track</a>
+                    </div>
+                  `;
+                }
+                
+                playerCell.innerHTML = musicPlayer;
+                row.appendChild(playerCell);
+                
+                // Add the row to the table
+                musicTracksBody.appendChild(row);
+              });
+              
+              // Show the table if we added any rows
+              if (musicTracksBody.children.length > 0) {
+                musicTracksTable.classList.remove('hidden');
+              } else {
+                noMusicMessage.classList.remove('hidden');
+                noMusicMessage.innerHTML = '<p>No music clips found in this trivia.</p>';
+              }
+            } else {
+              // No music round found at all
+              noMusicMessage.classList.remove('hidden');
+              console.log("No music round found for trivia #" + triviaNumber);
+            }
           }
         } else {
           // Trivia doesn't exist, show message
