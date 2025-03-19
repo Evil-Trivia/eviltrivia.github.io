@@ -235,6 +235,61 @@
       min-width: 220px;
       text-align: center;
     }
+    
+    /* Music tracks table styling */
+    .music-tracks-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      background-color: white;
+    }
+    
+    .music-tracks-table th,
+    .music-tracks-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .music-tracks-table th {
+      background-color: #f5f5f5;
+      color: #333;
+      font-weight: bold;
+    }
+    
+    .music-tracks-table tr:hover {
+      background-color: #f9f9f9;
+    }
+    
+    .music-tracks-table th:nth-child(1),
+    .music-tracks-table td:nth-child(1) {
+      width: 50px;
+      text-align: center;
+    }
+    
+    .music-tracks-table th:nth-child(2),
+    .music-tracks-table td:nth-child(2) {
+      width: 40%;
+    }
+    
+    .music-tracks-table th:nth-child(3),
+    .music-tracks-table td:nth-child(3) {
+      width: 60%;
+    }
+    
+    .audio-player-container {
+      margin: 5px 0;
+      width: 100%;
+    }
+    
+    .google-drive-player {
+      width: 100%;
+      height: 55px;
+      border: none;
+      border-radius: 4px;
+      background-color: #f8f8f8;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    }
   </style>
 </head>
 <body>
@@ -319,20 +374,33 @@
               </div>
             </div>
             
-            <!-- Music Section - Moved above Reveal Answers button -->
+            <!-- Music Section - Individual music tracks from the music round -->
             <div class="music-section">
               <div class="pdf-header">
-                <h3>Music Folder</h3>
+                <h3>Music Round</h3>
                 <a id="music-folder-link" class="btn print-btn" target="_blank">Open Music Folder to Play All Files</a>
               </div>
-              <!-- Dedicated audio player for playing music without leaving the page -->
-              <div id="embedded-audio-container" class="audio-player">
-                <div class="now-playing">Now Playing: <span id="track-name">No track selected</span></div>
-                <audio id="embedded-audio-player" controls></audio>
-              </div>
-              <div class="iframe-container" id="music-folder-container">
-                <div class="loader" id="music-folder-loader"></div>
-                <!-- Music folder iframe will be inserted here dynamically -->
+              
+              <!-- Music tracks table -->
+              <div id="music-round-container">
+                <div class="loader" id="music-round-loader"></div>
+                <div id="music-tracks-table" class="hidden">
+                  <table class="music-tracks-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Question</th>
+                        <th>Music Track</th>
+                      </tr>
+                    </thead>
+                    <tbody id="music-tracks-body">
+                      <!-- Music tracks will be loaded here dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+                <div id="no-music-message" class="hidden">
+                  <p>No music round available for this trivia.</p>
+                </div>
               </div>
             </div>
             
@@ -785,214 +853,25 @@
             }
           }
           
-          // Set Music Folder link
+          // Set up Music Round with individual tracks
           const musicFolderLink = document.getElementById('music-folder-link');
-          const musicFolderContainer = document.getElementById('music-folder-container');
-          const musicLoader = document.getElementById('music-folder-loader');
+          const musicRoundLoader = document.getElementById('music-round-loader');
+          const musicTracksTable = document.getElementById('music-tracks-table');
+          const musicTracksBody = document.getElementById('music-tracks-body');
+          const noMusicMessage = document.getElementById('no-music-message');
           
-          if (musicFolderLink && musicFolderContainer) {
-            console.log("Music Folder URL from database:", driveLinks["Music Folder"]);
-            
+          if (musicFolderLink && musicTracksTable && musicTracksBody) {
+            // Set the music folder link (as a fallback)
             if (driveLinks["Music Folder"] && driveLinks["Music Folder"].trim() !== '') {
-              try {
-                // Extract folder ID from the Google Drive URL
-                let folderId = null;
-                const musicFolderUrl = driveLinks["Music Folder"];
-                
-                // Format: https://drive.google.com/drive/folders/FOLDER_ID
-                const folderMatch = musicFolderUrl.match(/\/folders\/([^\/\?]+)/);
-                if (folderMatch) {
-                  folderId = folderMatch[1];
-                  console.log("Extracted folder ID from folders URL:", folderId);
-                }
-                
-                // Format: https://drive.google.com/open?id=FOLDER_ID
-                if (!folderId) {
-                  const openIdMatch = musicFolderUrl.match(/id=([^&]+)/);
-                  if (openIdMatch) {
-                    folderId = openIdMatch[1];
-                    console.log("Extracted folder ID from open URL:", folderId);
-                  }
-                }
-                
-                // Set up folder viewer and direct link
-                if (folderId) {
-                  // Update direct link
-                  musicFolderLink.href = musicFolderUrl;
-                  musicFolderLink.textContent = "Open Music Folder to Play All Files";
-                  musicFolderLink.style.display = 'inline-block';
-                  
-                  // Create folder embed in iframe with clear logging
-                  console.log("Creating music folder embed with ID:", folderId);
-                  // Using list view which might be better for playing audio files
-                  const embedUrl = `https://drive.google.com/embeddedfolderview?id=${folderId}#list`;
-                  console.log("Embed URL:", embedUrl);
-                  
-                  // Create the embed HTML with sandbox allowing media playback
-                  const embedHtml = `
-                    <iframe 
-                      src="${embedUrl}" 
-                      width="100%" 
-                      height="100%" 
-                      frameborder="0"
-                      allow="autoplay; encrypted-media; fullscreen"
-                      sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox allow-presentation"
-                      onload="document.getElementById('music-folder-loader').style.display='none'; console.log('Music folder iframe loaded');"
-                      onerror="console.error('Failed to load music folder iframe'); document.getElementById('music-folder-loader').style.display='none';">
-                    </iframe>
-                  `;
-                  musicFolderContainer.innerHTML = embedHtml;
-                  
-                  console.log("Music folder iframe created");
-                  
-                  // Add event listener to try to intercept clicks in the iframe
-                  try {
-                    // Add a message listener to receive messages from the iframe
-                    window.addEventListener('message', function(event) {
-                      // Check if the message is from Google Drive
-                      if (event.origin.includes('google.com') && event.data && event.data.type === 'audio') {
-                        console.log("Received audio file from iframe:", event.data);
-                        // Play the audio in our embedded player
-                        playAudioInEmbeddedPlayer(event.data.url, event.data.name);
-                      }
-                    });
-                    
-                    // Inject script into iframe to intercept clicks (this might not work due to cross-origin restrictions)
-                    setTimeout(() => {
-                      const musicIframe = musicFolderContainer.querySelector('iframe');
-                      if (musicIframe && musicIframe.contentWindow) {
-                        console.log("Setting up message passing for music iframe");
-                        
-                        // Function to play audio in our custom player
-                        window.playAudioInEmbeddedPlayer = function(url, name) {
-                          const audioPlayer = document.getElementById('embedded-audio-player');
-                          const trackName = document.getElementById('track-name');
-                          const container = document.getElementById('embedded-audio-container');
-                          
-                          if (audioPlayer && trackName && container) {
-                            audioPlayer.src = url;
-                            trackName.textContent = name || 'Unknown Track';
-                            container.style.display = 'block';
-                            audioPlayer.play().catch(err => console.error("Could not autoplay:", err));
-                            
-                            // Scroll to the player
-                            container.scrollIntoView({ behavior: 'smooth' });
-                          }
-                        };
-                        
-                        // Try to inject CSS to hide the Last Modified column
-                        try {
-                          // This will inject a style tag that hides the Last Modified column if possible
-                          const hideColumnStyle = document.createElement('style');
-                          hideColumnStyle.textContent = `
-                            /* Try different approaches to target and hide the Last Modified column */
-                            table th:nth-child(2), table td:nth-child(2) { display: none !important; }
-                            .column-header-last-modified, .last-modified { display: none !important; }
-                            [aria-label="Last modified"], [data-column-field="last-modified"] { display: none !important; }
-                            div[role="columnheader"]:nth-child(2), div[role="cell"]:nth-child(2) { display: none !important; }
-                          `;
-                          document.head.appendChild(hideColumnStyle);
-                          
-                          // Try to inject the style into the iframe if possible
-                          setTimeout(() => {
-                            try {
-                              const iframeDoc = musicIframe.contentDocument || musicIframe.contentWindow.document;
-                              const iframeHead = iframeDoc.head || iframeDoc.getElementsByTagName('head')[0];
-                              
-                              if (iframeHead) {
-                                const iframeStyle = iframeDoc.createElement('style');
-                                iframeStyle.textContent = hideColumnStyle.textContent;
-                                iframeHead.appendChild(iframeStyle);
-                                console.log("Successfully injected column-hiding CSS into iframe");
-                              }
-                            } catch (err) {
-                              console.warn("Could not inject CSS into iframe due to cross-origin policy:", err);
-                            }
-                          }, 1000);
-                        } catch (cssErr) {
-                          console.warn("Failed to inject column-hiding CSS:", cssErr);
-                        }
-                        
-                        // This is a fallback approach that likely won't work due to cross-origin restrictions
-                        try {
-                          const iframeDoc = musicIframe.contentDocument || musicIframe.contentWindow.document;
-                          
-                          // Add click listener to the iframe document
-                          iframeDoc.addEventListener('click', function(e) {
-                            const link = e.target.closest('a');
-                            console.log("Click in iframe detected:", link);
-                            
-                            if (link && link.href) {
-                              // Check if this is an audio file
-                              const isAudio = link.href.match(/\.(mp3|wav|ogg|m4a)$/i);
-                              // Check if this looks like a Google Drive file
-                              const isDriveFile = link.href.includes('/file/d/');
-                              
-                              if (isAudio || isDriveFile) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                
-                                const fileName = link.textContent || 'Track';
-                                console.log("Intercepted audio file:", fileName, link.href);
-                                
-                                // Get direct playable URL (if Google Drive, convert to direct link)
-                                let directUrl = link.href;
-                                if (isDriveFile) {
-                                  // Try to extract file ID
-                                  const fileIdMatch = link.href.match(/\/file\/d\/([^\/]+)/);
-                                  if (fileIdMatch && fileIdMatch[1]) {
-                                    directUrl = `https://drive.google.com/uc?export=download&id=${fileIdMatch[1]}`;
-                                  }
-                                }
-                                
-                                // Play in our custom player
-                                window.playAudioInEmbeddedPlayer(directUrl, fileName);
-                                return false;
-                              }
-                            }
-                          }, true);
-                          
-                          console.log("Successfully added click interceptor to iframe document");
-                        } catch (err) {
-                          console.warn("Could not access iframe document due to cross-origin policy:", err);
-                        }
-                      }
-                    }, 2000);
-                  } catch (e) {
-                    console.warn("Could not set up click interception for music files:", e);
-                  }
-                } else {
-                  console.warn("Could not extract folder ID from URL:", musicFolderUrl);
-                  // If we can't extract a folder ID, just use direct link as before
-                  musicFolderLink.href = musicFolderUrl;
-                  musicFolderLink.textContent = "Open Music Folder to Play All Files";
-                  musicFolderLink.style.display = 'inline-block';
-                  
-                  // Show message in container
-                  musicFolderContainer.innerHTML = '<p>Music folder embed not available, please use the link above.</p>';
-                  // Hide loader
-                  if (musicLoader) {
-                    musicLoader.style.display = 'none';
-                  }
-                }
-              } catch (error) {
-                console.error("Error setting music folder link:", error);
-                const musicSection = document.querySelector('.music-section');
-                musicFolderContainer.innerHTML = '<p>Error loading Music Folder: ' + error.message + '</p>';
-                // Hide loader
-                if (musicLoader) {
-                  musicLoader.style.display = 'none';
-                }
-              }
+              musicFolderLink.href = driveLinks["Music Folder"];
+              musicFolderLink.textContent = "Open Music Folder to Play All Files";
+              musicFolderLink.style.display = 'inline-block';
             } else {
-              console.warn("No music folder URL provided in database");
-              musicFolderContainer.innerHTML = '<p>Music folder not available</p>';
-              if (musicLoader) {
-                musicLoader.style.display = 'none';
-              }
+              musicFolderLink.style.display = 'none';
             }
-          } else {
-            console.error("Missing music folder elements in the DOM");
+            
+            // Load music round questions from Firebase
+            loadMusicRoundTracks(triviaNumber);
           }
         } else {
           console.error('No drive links found for trivia #', triviaNumber);
@@ -1045,6 +924,158 @@
         this.textContent = 'Reveal Answers';
       }
     });
+    
+    // Load and display individual music tracks from the music round
+    async function loadMusicRoundTracks(triviaNumber) {
+      try {
+        const musicRoundLoader = document.getElementById('music-round-loader');
+        const musicTracksTable = document.getElementById('music-tracks-table');
+        const musicTracksBody = document.getElementById('music-tracks-body');
+        const noMusicMessage = document.getElementById('no-music-message');
+        
+        // Show loader
+        if (musicRoundLoader) musicRoundLoader.style.display = 'block';
+        if (musicTracksTable) musicTracksTable.classList.add('hidden');
+        if (noMusicMessage) noMusicMessage.classList.add('hidden');
+        
+        // Clear any existing tracks
+        if (musicTracksBody) musicTracksBody.innerHTML = '';
+        
+        // Helper function to create a Google Drive audio player
+        function createGoogleDrivePlayer(fileId) {
+          return `
+            <div class="audio-player-container">
+              <iframe class="google-drive-player" 
+                      src="https://drive.google.com/file/d/${fileId}/preview" 
+                      width="100%" 
+                      height="55" 
+                      allow="autoplay"></iframe>
+            </div>
+          `;
+        }
+        
+        // Find the music round in the trivia structure
+        const triviaRef = ref(db, `trivia-archive/archive/${triviaNumber}/trivia`);
+        const triviaSnapshot = await get(triviaRef);
+        
+        if (triviaSnapshot.exists()) {
+          const triviaData = triviaSnapshot.val();
+          
+          // Look for the music round (could be named Music, Audio, or something similar)
+          let musicRoundData = null;
+          let musicRoundNumber = null;
+          let musicRoundFormat = null;
+          
+          // Find the music round by looking for round names containing "music" or "audio"
+          Object.entries(triviaData).forEach(([roundNum, roundFormats]) => {
+            Object.entries(roundFormats).forEach(([format, roundData]) => {
+              const roundName = roundData.roundName || '';
+              const lowerRoundName = roundName.toLowerCase();
+              
+              if (lowerRoundName.includes('music') || lowerRoundName.includes('audio')) {
+                musicRoundData = roundData;
+                musicRoundNumber = roundNum;
+                musicRoundFormat = format;
+                console.log(`Found music round: Round ${roundNum}, Format: ${format}, Name: ${roundName}`);
+              }
+            });
+          });
+          
+          if (musicRoundData && musicRoundData.questions) {
+            console.log("Music round data:", musicRoundData);
+            
+            // Create a row for each question in the music round
+            Object.entries(musicRoundData.questions).forEach(([questionNum, questionData]) => {
+              // Skip if no music link/file
+              if (!questionData.musicLink && !questionData.musicFile) return;
+              
+              const row = document.createElement('tr');
+              
+              // Question number cell
+              const numCell = document.createElement('td');
+              numCell.textContent = questionNum;
+              row.appendChild(numCell);
+              
+              // Question text cell
+              const questionCell = document.createElement('td');
+              questionCell.textContent = questionData.questionText || 'Question ' + questionNum;
+              row.appendChild(questionCell);
+              
+              // Music player cell
+              const playerCell = document.createElement('td');
+              
+              // Determine the music source (link or file)
+              let musicUrl = questionData.musicLink || questionData.musicFile || '';
+              let musicPlayer = '';
+              
+              if (musicUrl) {
+                // Handle Google Drive links
+                if (musicUrl.includes('drive.google.com')) {
+                  const fileIdMatch = musicUrl.match(/[-\w]{25,}/);
+                  if (fileIdMatch) {
+                    const fileId = fileIdMatch[0];
+                    musicPlayer = createGoogleDrivePlayer(fileId);
+                  }
+                } 
+                // If it's a direct Google Drive ID (not a full URL)
+                else if (/^[a-zA-Z0-9_-]{25,}$/.test(musicUrl.trim())) {
+                  const fileId = musicUrl.trim();
+                  musicPlayer = createGoogleDrivePlayer(fileId);
+                }
+                // If it's a direct audio file link
+                else if (musicUrl.match(/\.(mp3|wav|ogg|m4a)$/i)) {
+                  musicPlayer = `
+                    <div class="audio-player-container">
+                      <audio src="${musicUrl}" controls class="custom-audio-player"></audio>
+                    </div>
+                  `;
+                }
+                // Default fallback - just show a link
+                else {
+                  musicPlayer = `
+                    <div class="audio-player-container">
+                      <a href="${musicUrl}" target="_blank">Play Music Track</a>
+                    </div>
+                  `;
+                }
+              } else {
+                musicPlayer = '<p>No music available</p>';
+              }
+              
+              playerCell.innerHTML = musicPlayer;
+              row.appendChild(playerCell);
+              
+              // Add the row to the table
+              musicTracksBody.appendChild(row);
+            });
+            
+            // Show the table
+            musicTracksTable.classList.remove('hidden');
+            
+          } else {
+            // No music round found, show message
+            noMusicMessage.classList.remove('hidden');
+            console.log("No music round found for trivia #" + triviaNumber);
+          }
+        } else {
+          // Trivia doesn't exist, show message
+          noMusicMessage.classList.remove('hidden');
+          console.warn("Trivia not found: " + triviaNumber);
+        }
+        
+      } catch (error) {
+        console.error("Error loading music round tracks:", error);
+        const noMusicMessage = document.getElementById('no-music-message');
+        if (noMusicMessage) {
+          noMusicMessage.innerHTML = `<p>Error loading music round: ${error.message}</p>`;
+          noMusicMessage.classList.remove('hidden');
+        }
+      } finally {
+        // Hide loader
+        const musicRoundLoader = document.getElementById('music-round-loader');
+        if (musicRoundLoader) musicRoundLoader.style.display = 'none';
+      }
+    }
     
     // Initialize with PDF view active by default
     document.addEventListener('DOMContentLoaded', () => {
