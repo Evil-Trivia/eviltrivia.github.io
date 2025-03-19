@@ -372,6 +372,34 @@
       background-color: #f8f8f8;
       box-shadow: 0 1px 3px rgba(0,0,0,0.12);
     }
+    
+    .score-stats-container {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #f0f8ff;
+      border-radius: 8px;
+      border: 1px solid #b8daff;
+    }
+    
+    .score-stats {
+      text-align: center;
+    }
+    
+    .score-stats h4 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      color: #004085;
+    }
+    
+    .score-stats p {
+      margin: 8px 0;
+      color: #004085;
+    }
+    
+    .score-stats strong {
+      font-weight: bold;
+      color: #000;
+    }
   </style>
 </head>
 <body>
@@ -1322,19 +1350,139 @@
       }
     }
     
-    // Handle score submission (placeholder for now)
-    document.getElementById('score-submit-btn').addEventListener('click', function() {
-      const scoreInput = document.getElementById('score-input');
-      const score = scoreInput.value;
-      
-      if (!score || isNaN(score) || score < 0) {
-        alert('Please enter a valid score');
-        return;
+    // Handle score submission with statistics comparison
+    document.getElementById('score-submit-btn').addEventListener('click', async function() {
+      try {
+        const scoreInput = document.getElementById('score-input');
+        const score = parseInt(scoreInput.value);
+        
+        if (!score || isNaN(score) || score < 0) {
+          alert('Please enter a valid score');
+          return;
+        }
+        
+        // Show a loading indicator
+        const submitBtn = document.getElementById('score-submit-btn');
+        const originalBtnText = submitBtn.textContent;
+        submitBtn.textContent = 'Loading...';
+        submitBtn.disabled = true;
+        
+        // Get scores for this trivia number
+        const scoresRef = ref(db, `trivia-scores/${currentTriviaNumber}`);
+        const scoresSnapshot = await get(scoresRef);
+        
+        let statsMessage = '';
+        
+        if (scoresSnapshot.exists()) {
+          const scoresData = scoresSnapshot.val();
+          
+          // Extract all team scores as an array
+          const teamScores = [];
+          Object.entries(scoresData).forEach(([teamId, teamData]) => {
+            if (teamData.score && !isNaN(teamData.score)) {
+              teamScores.push(parseInt(teamData.score));
+            }
+          });
+          
+          // Sort scores in descending order
+          teamScores.sort((a, b) => b - a);
+          
+          // Calculate user's rank
+          let userRank = 1;
+          for (let i = 0; i < teamScores.length; i++) {
+            if (score > teamScores[i]) {
+              userRank = i + 1;
+              break;
+            } else if (score === teamScores[i]) {
+              userRank = i + 1;
+              break;
+            } else {
+              userRank = i + 2; // Position after current team
+            }
+          }
+          
+          // Calculate average score
+          const totalScore = teamScores.reduce((sum, current) => sum + current, 0);
+          const averageScore = teamScores.length > 0 ? (totalScore / teamScores.length).toFixed(1) : 0;
+          
+          // Calculate average of top 3 teams (or fewer if less than 3 teams)
+          const topTeamsCount = Math.min(3, teamScores.length);
+          const topTeamsScores = teamScores.slice(0, topTeamsCount);
+          const topTeamsTotal = topTeamsScores.reduce((sum, current) => sum + current, 0);
+          const topTeamsAverage = topTeamsCount > 0 ? (topTeamsTotal / topTeamsCount).toFixed(1) : 0;
+          
+          // Create the stats message
+          statsMessage = `
+            <div class="score-stats">
+              <h4>Score Comparison</h4>
+              <p>You would have scored <strong>${userRank}${getOrdinalSuffix(userRank)} place</strong> out of ${teamScores.length + 1} teams</p>
+              <p>The average score was <strong>${averageScore}</strong></p>
+              <p>The average for the top ${topTeamsCount} teams was <strong>${topTeamsAverage}</strong></p>
+            </div>
+          `;
+          
+          // Save the score to the user's history (if logged in)
+          if (auth.currentUser) {
+            const userScoreRef = ref(db, `users/${auth.currentUser.uid}/scores/${currentTriviaNumber}`);
+            await set(userScoreRef, {
+              score: score,
+              submittedAt: new Date().toISOString()
+            });
+            console.log('Score saved to user history');
+          }
+        } else {
+          // No existing scores for this trivia
+          statsMessage = `
+            <div class="score-stats">
+              <h4>Score Comparison</h4>
+              <p>You are the first to submit a score for this trivia!</p>
+              <p>Your score: <strong>${score}</strong></p>
+            </div>
+          `;
+        }
+        
+        // Create a stats container if it doesn't exist, or update it
+        let statsContainer = document.querySelector('.score-stats-container');
+        if (!statsContainer) {
+          statsContainer = document.createElement('div');
+          statsContainer.className = 'score-stats-container';
+          const scoreInputContainer = document.querySelector('.score-input-container');
+          scoreInputContainer.appendChild(statsContainer);
+        }
+        
+        statsContainer.innerHTML = statsMessage;
+        
+        // Reset the button
+        submitBtn.textContent = originalBtnText;
+        submitBtn.disabled = false;
+        
+      } catch (error) {
+        console.error('Error processing score:', error);
+        alert('Error processing your score. Please try again.');
+        
+        // Reset the button
+        const submitBtn = document.getElementById('score-submit-btn');
+        submitBtn.textContent = 'Submit Score';
+        submitBtn.disabled = false;
       }
-      
-      alert(`Score of ${score} recorded! In the future, you'll be able to compare your score with other players.`);
-      // Future implementation will save this to Firebase
     });
+    
+    // Helper function to get ordinal suffix for numbers (1st, 2nd, 3rd, etc.)
+    function getOrdinalSuffix(num) {
+      const j = num % 10;
+      const k = num % 100;
+      
+      if (j === 1 && k !== 11) {
+        return 'st';
+      }
+      if (j === 2 && k !== 12) {
+        return 'nd';
+      }
+      if (j === 3 && k !== 13) {
+        return 'rd';
+      }
+      return 'th';
+    }
     
     // Initialize based on user's previous selection
     document.addEventListener('DOMContentLoaded', () => {
