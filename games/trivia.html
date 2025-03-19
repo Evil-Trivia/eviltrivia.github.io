@@ -187,6 +187,40 @@
         flex-direction: column;
       }
     }
+    
+    /* Styles for audio player */
+    .audio-player {
+      background-color: #f0f0f0;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      max-width: 100%;
+    }
+    
+    .audio-player audio {
+      width: 100%;
+    }
+    
+    /* Custom audio player appearance */
+    audio {
+      border-radius: 30px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    /* Now Playing indicator */
+    .now-playing {
+      font-size: 14px;
+      margin-bottom: 5px;
+      color: #333;
+      font-weight: bold;
+    }
+    
+    /* Container for the embedded music player */
+    #embedded-audio-container {
+      margin: 15px 0;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -271,6 +305,23 @@
               </div>
             </div>
             
+            <!-- Music Section - Moved above Reveal Answers button -->
+            <div class="music-section">
+              <div class="pdf-header">
+                <h3>Music Folder</h3>
+                <a id="music-folder-link" class="btn print-btn" target="_blank">Open in New Tab</a>
+              </div>
+              <!-- Dedicated audio player for playing music without leaving the page -->
+              <div id="embedded-audio-container" class="audio-player">
+                <div class="now-playing">Now Playing: <span id="track-name">No track selected</span></div>
+                <audio id="embedded-audio-player" controls></audio>
+              </div>
+              <div class="iframe-container" id="music-folder-container">
+                <div class="loader" id="music-folder-loader"></div>
+                <!-- Music folder iframe will be inserted here dynamically -->
+              </div>
+            </div>
+            
             <div class="pdf-controls">
               <button id="reveal-answers-btn" class="btn">Reveal Answers</button>
             </div>
@@ -283,17 +334,6 @@
               <div class="iframe-container" id="answers-pdf-container">
                 <div class="loader" id="answers-pdf-loader"></div>
                 <!-- iframe will be inserted here dynamically -->
-              </div>
-            </div>
-            
-            <div class="music-section">
-              <div class="pdf-header">
-                <h3>Music Folder</h3>
-                <a id="music-folder-link" class="btn print-btn" target="_blank">Open in New Tab</a>
-              </div>
-              <div class="iframe-container" id="music-folder-container">
-                <div class="loader" id="music-folder-loader"></div>
-                <!-- Music folder iframe will be inserted here dynamically -->
               </div>
             </div>
           </div>
@@ -770,16 +810,19 @@
                   
                   // Create folder embed in iframe with clear logging
                   console.log("Creating music folder embed with ID:", folderId);
-                  const embedUrl = `https://drive.google.com/embeddedfolderview?id=${folderId}#grid`;
+                  // Using list view which might be better for playing audio files
+                  const embedUrl = `https://drive.google.com/embeddedfolderview?id=${folderId}#list`;
                   console.log("Embed URL:", embedUrl);
                   
-                  // Create the embed HTML
+                  // Create the embed HTML with sandbox allowing media playback
                   const embedHtml = `
                     <iframe 
                       src="${embedUrl}" 
                       width="100%" 
                       height="100%" 
                       frameborder="0"
+                      allow="autoplay; encrypted-media; fullscreen"
+                      sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox allow-presentation"
                       onload="document.getElementById('music-folder-loader').style.display='none'; console.log('Music folder iframe loaded');"
                       onerror="console.error('Failed to load music folder iframe'); document.getElementById('music-folder-loader').style.display='none';">
                     </iframe>
@@ -787,6 +830,90 @@
                   musicFolderContainer.innerHTML = embedHtml;
                   
                   console.log("Music folder iframe created");
+                  
+                  // Add event listener to try to intercept clicks in the iframe
+                  try {
+                    // Add a message listener to receive messages from the iframe
+                    window.addEventListener('message', function(event) {
+                      // Check if the message is from Google Drive
+                      if (event.origin.includes('google.com') && event.data && event.data.type === 'audio') {
+                        console.log("Received audio file from iframe:", event.data);
+                        // Play the audio in our embedded player
+                        playAudioInEmbeddedPlayer(event.data.url, event.data.name);
+                      }
+                    });
+                    
+                    // Inject script into iframe to intercept clicks (this might not work due to cross-origin restrictions)
+                    setTimeout(() => {
+                      const musicIframe = musicFolderContainer.querySelector('iframe');
+                      if (musicIframe && musicIframe.contentWindow) {
+                        console.log("Setting up message passing for music iframe");
+                        
+                        // Function to play audio in our custom player
+                        window.playAudioInEmbeddedPlayer = function(url, name) {
+                          const audioPlayer = document.getElementById('embedded-audio-player');
+                          const trackName = document.getElementById('track-name');
+                          const container = document.getElementById('embedded-audio-container');
+                          
+                          if (audioPlayer && trackName && container) {
+                            audioPlayer.src = url;
+                            trackName.textContent = name || 'Unknown Track';
+                            container.style.display = 'block';
+                            audioPlayer.play().catch(err => console.error("Could not autoplay:", err));
+                            
+                            // Scroll to the player
+                            container.scrollIntoView({ behavior: 'smooth' });
+                          }
+                        };
+                        
+                        // This is a fallback approach that likely won't work due to cross-origin restrictions
+                        try {
+                          const iframeDoc = musicIframe.contentDocument || musicIframe.contentWindow.document;
+                          
+                          // Add click listener to the iframe document
+                          iframeDoc.addEventListener('click', function(e) {
+                            const link = e.target.closest('a');
+                            console.log("Click in iframe detected:", link);
+                            
+                            if (link && link.href) {
+                              // Check if this is an audio file
+                              const isAudio = link.href.match(/\.(mp3|wav|ogg|m4a)$/i);
+                              // Check if this looks like a Google Drive file
+                              const isDriveFile = link.href.includes('/file/d/');
+                              
+                              if (isAudio || isDriveFile) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                const fileName = link.textContent || 'Track';
+                                console.log("Intercepted audio file:", fileName, link.href);
+                                
+                                // Get direct playable URL (if Google Drive, convert to direct link)
+                                let directUrl = link.href;
+                                if (isDriveFile) {
+                                  // Try to extract file ID
+                                  const fileIdMatch = link.href.match(/\/file\/d\/([^\/]+)/);
+                                  if (fileIdMatch && fileIdMatch[1]) {
+                                    directUrl = `https://drive.google.com/uc?export=download&id=${fileIdMatch[1]}`;
+                                  }
+                                }
+                                
+                                // Play in our custom player
+                                window.playAudioInEmbeddedPlayer(directUrl, fileName);
+                                return false;
+                              }
+                            }
+                          }, true);
+                          
+                          console.log("Successfully added click interceptor to iframe document");
+                        } catch (err) {
+                          console.warn("Could not access iframe document due to cross-origin policy:", err);
+                        }
+                      }
+                    }, 2000);
+                  } catch (e) {
+                    console.warn("Could not set up click interception for music files:", e);
+                  }
                 } else {
                   console.warn("Could not extract folder ID from URL:", musicFolderUrl);
                   // If we can't extract a folder ID, just use direct link as before
