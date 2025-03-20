@@ -79,4 +79,12 @@ The site uses Firebase redirects to maintain compatibility with legacy URLs:
 - `/admin` redirects to `/pages/admin.html`
 - `/grading` redirects to `/pages/grading.html`
 - `/partner` redirects to `/pages/partner.html`
-- `/patreon` redirects to `/pages/patreon.html` 
+- `/patreon` redirects to `/pages/patreon.html`
+
+## Patreon Integration
+
+The website now features improved Patreon integration, allowing users to connect their Patreon accounts and access exclusive content.
+
+## Testing Git Commit
+
+This is a small change to test Git commit functionality. 
