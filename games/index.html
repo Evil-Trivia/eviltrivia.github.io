@@ -128,11 +128,31 @@
     }
     
     /* Direct image container */
+    .direct-image-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    /* Direct image styling */
+    .trivia-poster-image {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+    }
+    
+    /* Fallback iframe container when direct image fails */
     .iframe-poster-container {
       width: 100%;
       height: 100%;
       position: relative;
       overflow: hidden;
+      display: none; /* Hidden by default, shown only when direct image fails */
     }
     
     /* Style for the iframe */
@@ -291,41 +311,67 @@
               // Update the trivia image
               const triviaImageElement = document.getElementById('trivia-image');
               
-              // Create iframe container
+              // Create direct image container
+              const imageContainer = document.createElement('div');
+              imageContainer.className = 'direct-image-container';
+              
+              // Create iframe container as fallback (hidden initially)
               const iframeContainer = document.createElement('div');
               iframeContainer.className = 'iframe-poster-container';
               
-              // Create iframe using the preview parameter
-              const iframe = document.createElement('iframe');
-              iframe.className = 'trivia-poster-iframe';
-              iframe.src = `https://drive.google.com/file/d/${fileId}/preview`;
-              iframe.frameBorder = "0";
-              iframe.allow = "autoplay";
+              // Create direct image using the export=view parameter
+              const directImage = document.createElement('img');
+              directImage.className = 'trivia-poster-image';
+              directImage.alt = "This Week's Trivia";
               
-              // Add overlay elements to hide the controls
-              const controlOverlay = document.createElement('div');
-              controlOverlay.className = 'control-overlay';
+              // Generate the direct image URL
+              // Format: https://drive.google.com/uc?export=view&id=FILE_ID
+              directImage.src = `https://drive.google.com/uc?export=view&id=${fileId}`;
               
-              const cornerOverlay = document.createElement('div');
-              cornerOverlay.className = 'corner-overlay';
-              
-              // Add error handling
-              iframe.onerror = function() {
-                console.error('Failed to load iframe from Google Drive');
-                triviaImageElement.removeChild(iframeContainer);
+              // Add error handling for direct image
+              directImage.onerror = function() {
+                console.error('Failed to load direct image from Google Drive, falling back to iframe');
+                // Hide the direct image container
+                imageContainer.style.display = 'none';
+                // Show the iframe container
+                iframeContainer.style.display = 'block';
+                
+                // Create iframe using the preview parameter
+                const iframe = document.createElement('iframe');
+                iframe.className = 'trivia-poster-iframe';
+                iframe.src = `https://drive.google.com/file/d/${fileId}/preview`;
+                iframe.frameBorder = "0";
+                iframe.allow = "autoplay";
+                
+                // Add overlay elements to hide the controls
+                const controlOverlay = document.createElement('div');
+                controlOverlay.className = 'control-overlay';
+                
+                const cornerOverlay = document.createElement('div');
+                cornerOverlay.className = 'corner-overlay';
+                
+                // Assemble the iframe elements
+                iframeContainer.appendChild(iframe);
+                iframeContainer.appendChild(controlOverlay);
+                iframeContainer.appendChild(cornerOverlay);
+                
+                // Clear background image when iframe loads
+                iframe.onload = function() {
+                  triviaImageElement.style.backgroundImage = 'none';
+                };
               };
               
-              // Clear background image on load
-              iframe.onload = function() {
+              // Clear background image when direct image loads successfully
+              directImage.onload = function() {
+                console.log('Direct image loaded successfully');
                 triviaImageElement.style.backgroundImage = 'none';
               };
               
-              // Assemble the elements
-              iframeContainer.appendChild(iframe);
-              iframeContainer.appendChild(controlOverlay);
-              iframeContainer.appendChild(cornerOverlay);
+              // Add image to container
+              imageContainer.appendChild(directImage);
               
-              // Add container to the trivia image element
+              // Add containers to the trivia image element
+              triviaImageElement.appendChild(imageContainer);
               triviaImageElement.appendChild(iframeContainer);
             }
           }
