@@ -127,6 +127,7 @@
       background-color: #e6b800;
     }
     
+    /* Use iframe approach but with proper CSS to hide controls */
     .iframe-poster-container {
       width: 100%;
       height: 100%;
@@ -134,30 +135,22 @@
       position: relative;
     }
     
-    /* Better approach for Google Drive embeds */
     .iframe-poster-container iframe {
       width: 100%;
       height: 100%;
       border: none;
       pointer-events: none; /* Prevents interaction with controls */
-      opacity: 1;
-      filter: opacity(1); /* Ensure the image is visible */
     }
     
-    /* The image container covers any unwanted controls */
-    .image-container {
-      position: relative;
+    /* Apply a bottom cover to hide the Google Drive controls */
+    .iframe-poster-container:after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
       width: 100%;
-      height: 100%;
-      overflow: hidden;
-    }
-    
-    /* Alternative approach using direct image URL from Google Drive */
-    .direct-image {
-      width: 100%;
-      height: 100%;
-      object-fit: cover; /* Ensures image fills container without distortion */
-      display: block;
+      height: 40px; /* Covers the Google Drive controls */
+      background-color: white; /* Matches the card background */
     }
   </style>
 </head>
@@ -268,39 +261,42 @@
         // Get active trivia
         const activeTrivia = await getActiveTrivia();
         const triviaNumber = activeTrivia.number;
+        console.log('Active trivia number:', triviaNumber);
         
         // Get drive links for the active trivia
         const driveLinksSnapshot = await get(ref(db, `trivia-archive/driveLookup/${triviaNumber}`));
         
         if (driveLinksSnapshot.exists()) {
           const driveLinks = driveLinksSnapshot.val();
+          console.log('Drive links found:', driveLinks);
           
           // Get Instagram Poster Link
           const instagramPosterLink = driveLinks["Instagram Poster Link"];
+          console.log('Instagram poster link:', instagramPosterLink);
           
           if (instagramPosterLink) {
             const fileId = extractGoogleDriveFileId(instagramPosterLink);
+            console.log('Extracted file ID:', fileId);
             
             if (fileId) {
               // Update the trivia image
               const triviaImageElement = document.getElementById('trivia-image');
               
-              // Use a direct image approach instead of iframe
-              const imageContainer = document.createElement('div');
-              imageContainer.className = 'image-container';
+              // Go back to using iframe with improvements
+              const iframeContainer = document.createElement('div');
+              iframeContainer.className = 'iframe-poster-container';
               
-              // Create a direct image element using Google Drive's export URL
-              const directImage = document.createElement('img');
-              directImage.className = 'direct-image';
-              directImage.src = `https://drive.google.com/uc?export=view&id=${fileId}`;
-              directImage.alt = "This Week's Trivia";
+              const iframe = document.createElement('iframe');
+              iframe.src = `https://drive.google.com/file/d/${fileId}/preview`;
+              iframe.frameBorder = '0';
+              iframe.allowFullscreen = true;
               
-              // Add image to container
-              imageContainer.appendChild(directImage);
+              // Add iframe to container
+              iframeContainer.appendChild(iframe);
               
               // Clear background image and add container
               triviaImageElement.style.backgroundImage = 'none';
-              triviaImageElement.appendChild(imageContainer);
+              triviaImageElement.appendChild(iframeContainer);
             }
           }
         }
