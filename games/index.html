@@ -127,30 +127,19 @@
       background-color: #e6b800;
     }
     
-    /* Use iframe approach but with proper CSS to hide controls */
-    .iframe-poster-container {
+    /* Improved approach for the trivia poster */
+    .trivia-poster-container {
       width: 100%;
       height: 100%;
-      overflow: hidden;
       position: relative;
     }
     
-    .iframe-poster-container iframe {
+    /* Make sure the image fills the container */
+    .trivia-poster {
       width: 100%;
       height: 100%;
-      border: none;
-      pointer-events: none; /* Prevents interaction with controls */
-    }
-    
-    /* Apply a bottom cover to hide the Google Drive controls */
-    .iframe-poster-container:after {
-      content: '';
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      width: 100%;
-      height: 40px; /* Covers the Google Drive controls */
-      background-color: white; /* Matches the card background */
+      object-fit: cover;
+      object-position: center;
     }
   </style>
 </head>
@@ -255,6 +244,21 @@
       return null;
     }
     
+    // Function to fetch image as blob and create an object URL
+    async function fetchImageAsBlob(url) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      } catch (error) {
+        console.error('Error fetching image:', error);
+        return null;
+      }
+    }
+    
     // Function to get Instagram poster link and update the UI
     async function loadTriviaInstagramPoster() {
       try {
@@ -282,21 +286,46 @@
               // Update the trivia image
               const triviaImageElement = document.getElementById('trivia-image');
               
-              // Go back to using iframe with improvements
-              const iframeContainer = document.createElement('div');
-              iframeContainer.className = 'iframe-poster-container';
+              // Use direct image download from Google Drive instead of iframe
+              const imageUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
               
-              const iframe = document.createElement('iframe');
-              iframe.src = `https://drive.google.com/file/d/${fileId}/preview`;
-              iframe.frameBorder = '0';
-              iframe.allowFullscreen = true;
-              
-              // Add iframe to container
-              iframeContainer.appendChild(iframe);
-              
-              // Clear background image and add container
-              triviaImageElement.style.backgroundImage = 'none';
-              triviaImageElement.appendChild(iframeContainer);
+              try {
+                // Create a container for the poster
+                const posterContainer = document.createElement('div');
+                posterContainer.className = 'trivia-poster-container';
+                
+                // Create the image element
+                const imageElement = document.createElement('img');
+                imageElement.className = 'trivia-poster';
+                imageElement.alt = "This Week's Trivia";
+                
+                // Load the image with retry mechanism
+                const loadImage = async () => {
+                  try {
+                    // Try a few different URL formats to see which works best
+                    const exportViewUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+                    
+                    imageElement.src = exportViewUrl;
+                    imageElement.onerror = () => {
+                      console.log('Image failed to load with export=view, trying download');
+                      imageElement.src = imageUrl;
+                    };
+                    
+                    posterContainer.appendChild(imageElement);
+                    
+                    // Clear background image and add container
+                    triviaImageElement.style.backgroundImage = 'none';
+                    triviaImageElement.appendChild(posterContainer);
+                  } catch (err) {
+                    console.error('Error loading image:', err);
+                    // Fall back to default background image - it's already set
+                  }
+                };
+                
+                loadImage();
+              } catch (imageError) {
+                console.error('Error setting up image:', imageError);
+              }
             }
           }
         }
