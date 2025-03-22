@@ -458,6 +458,139 @@ app.post('/webhooks/patreon', async (req, res) => {
   }
 });
 
+// New endpoint to force refresh Patreon data
+app.post('/refresh-patreon-data', async (req, res) => {
+  try {
+    // Check authentication
+    const idToken = req.headers.authorization?.split('Bearer ')[1];
+    if (!idToken) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+    
+    // Check if user is admin
+    const userSnapshot = await admin.database().ref(`users/${uid}`).once('value');
+    const userData = userSnapshot.val() || {};
+    const isAdmin = 
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+      (userData.role === 'admin');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin privileges required' });
+    }
+    
+    // Get the Patreon user ID to refresh (or 'all' for all users)
+    const { patreonId } = req.body;
+    
+    if (!patreonId) {
+      return res.status(400).json({ error: 'Missing patreonId parameter (or use "all" for all users)' });
+    }
+    
+    if (patreonId === 'all') {
+      // Refresh all Patreon users
+      const patreonUsersSnapshot = await admin.database().ref('patreonUsers').once('value');
+      const patreonUsers = patreonUsersSnapshot.val() || {};
+      
+      console.log(`Starting refresh for ${Object.keys(patreonUsers).length} Patreon users`);
+      
+      const refreshPromises = [];
+      for (const [userId, userData] of Object.entries(patreonUsers)) {
+        if (userData.tokens && userData.tokens.accessToken) {
+          refreshPromises.push(refreshPatreonUserData(userId, userData.tokens.accessToken));
+        }
+      }
+      
+      await Promise.allSettled(refreshPromises);
+      res.json({ success: true, message: `Refreshed data for ${refreshPromises.length} Patreon users` });
+    } else {
+      // Refresh specific user
+      const userTokenSnapshot = await admin.database().ref(`patreonUsers/${patreonId}/tokens/accessToken`).once('value');
+      const accessToken = userTokenSnapshot.val();
+      
+      if (!accessToken) {
+        return res.status(404).json({ error: 'No access token found for this Patreon user' });
+      }
+      
+      await refreshPatreonUserData(patreonId, accessToken);
+      res.json({ success: true, message: `Refreshed data for Patreon user ${patreonId}` });
+    }
+  } catch (error) {
+    console.error('Error refreshing Patreon data:', error);
+    res.status(500).json({ error: 'Failed to refresh Patreon data', message: error.message });
+  }
+});
+
+// Helper function to refresh a single Patreon user's data
+async function refreshPatreonUserData(patreonId, accessToken) {
+  try {
+    // Get fresh Patreon user info and membership data
+    const userResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/identity', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      },
+      params: {
+        'include': 'memberships',
+        'fields[user]': 'email,full_name,image_url',
+        'fields[member]': 'currently_entitled_amount_cents,patron_status'
+      }
+    });
+    
+    const userData = userResponse.data.data;
+    const memberships = userResponse.data.included || [];
+    
+    // Find active membership if any
+    let activeMembership = null;
+    for (const membership of memberships) {
+      if (membership.type === 'member') {
+        activeMembership = membership;
+        break;
+      }
+    }
+    
+    // Get pledge amount from membership data if available
+    const pledgeAmountCents = activeMembership && 
+      activeMembership.attributes && 
+      activeMembership.attributes.currently_entitled_amount_cents
+        ? activeMembership.attributes.currently_entitled_amount_cents
+        : 0;
+    
+    // Convert to dollars for readability
+    const pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
+    
+    // Update database with fresh data
+    await admin.database().ref(`patreonUsers/${patreonId}`).update({
+      email: userData.attributes.email,
+      fullName: userData.attributes.full_name,
+      imageUrl: userData.attributes.image_url,
+      lastUpdated: admin.database.ServerValue.TIMESTAMP,
+      isActiveMember: !!activeMembership,
+      pledgeAmountCents: pledgeAmountCents,
+      pledgeAmountDollars: pledgeAmountDollars,
+      membershipData: activeMembership
+    });
+    
+    // Update the linked Firebase user if any
+    const firebaseUidSnapshot = await admin.database().ref(`patreonUsers/${patreonId}/firebaseUid`).once('value');
+    const firebaseUid = firebaseUidSnapshot.val();
+    
+    if (firebaseUid) {
+      await admin.database().ref(`users/${firebaseUid}`).update({
+        patronStatus: !!activeMembership ? 'active' : 'inactive',
+        patreonPledgeAmount: pledgeAmountDollars,
+        lastPatreonUpdate: admin.database.ServerValue.TIMESTAMP
+      });
+    }
+    
+    console.log(`Successfully refreshed data for Patreon user ${patreonId}`);
+    return true;
+  } catch (error) {
+    console.error(`Error refreshing data for Patreon user ${patreonId}:`, error);
+    throw error;
+  }
+}
+
 // Helper function to handle pledge events
 async function handlePledgeEvent(data, included, isActive) {
   try {
