@@ -1380,78 +1380,157 @@
         console.log(`Finding trivia data for trivia #${currentTriviaNumber}`);
         
         try {
-          // Get all data from the root to search for the trivia
-          const rootRef = ref(db);
-          const rootSnapshot = await get(rootRef);
+          // Look specifically in the grading path first
+          const gradingRef = ref(db, 'grading');
+          const gradingSnapshot = await get(gradingRef);
           
           let teamScores = [];
           let statsMessage = '';
           
-          if (rootSnapshot.exists()) {
-            const rootData = rootSnapshot.val() || {};
+          if (gradingSnapshot.exists()) {
+            const gradingSessions = gradingSnapshot.val() || {};
             
-            // Search for entries containing the trivia number in the key
-            Object.entries(rootData).forEach(([key, value]) => {
-              // Skip null or undefined values
-              if (!key || !value) return;
+            // Find sessions with matching trivia number
+            Object.entries(gradingSessions).forEach(([sessionId, sessionData]) => {
+              if (!sessionData || typeof sessionData !== 'object') return;
               
-              try {
-                // Check if the key contains the trivia number (e.g., "20250318_St_Dymphna's_199")
-                const keyContainsNumber = key.includes(`_${currentTriviaNumber}`) || key.endsWith(`_${currentTriviaNumber}`);
-                
-                // Also check for the triviaNumber field with extra null checking
-                const hasMatchingTriviaNumber = 
-                  value && 
-                  typeof value === 'object' &&
-                  ((value.triviaNumber !== undefined && value.triviaNumber === currentTriviaNumber) || 
-                  (value.triviaNumber !== undefined && value.triviaNumber.toString() === currentTriviaNumber.toString()));
-                
-                // Check if this entry has the matching trivia number and contains teams
-                if ((keyContainsNumber || hasMatchingTriviaNumber) && value && value.teams && typeof value.teams === 'object') {
-                  console.log(`Found trivia with teams: ${key}`);
+              // Check if this session matches our trivia number
+              if (sessionData.triviaNumber && 
+                  (sessionData.triviaNumber === currentTriviaNumber || 
+                   sessionData.triviaNumber.toString() === currentTriviaNumber.toString())) {
                   
-                  // Process team scores in this trivia
-                  Object.entries(value.teams).forEach(([teamId, teamData]) => {
-                    if (!teamId || !teamData || typeof teamData !== 'object') return;
+                console.log(`Found matching session: ${sessionId}`);
+                
+                // Process teams in this session
+                if (sessionData.teams && typeof sessionData.teams === 'object') {
+                  Object.entries(sessionData.teams).forEach(([teamId, teamData]) => {
+                    if (!teamData || typeof teamData !== 'object') return;
                     
                     try {
-                      console.log(`Processing team ${teamId}`);
+                      // Calculate total score using the same logic as in grading.html
+                      const roundScores = [
+                        parseFloat(teamData.round1?.total || 0),
+                        parseFloat(teamData.round2?.total || 0),
+                        parseFloat(teamData.round3?.total || 0)
+                      ];
                       
-                      // Calculate total score for this team across all rounds
-                      let teamTotalScore = 0;
-                      let roundsFound = 0;
+                      const igChallenge = parseInt(teamData.igChallenge || 0);
+                      const teamNameBonus = parseInt(teamData.teamNameBonus || 0);
+                      const finalChallenge = parseInt(teamData.finalChallenge || 0);
                       
-                      // Look for round totals
-                      for (let i = 1; i <= 8; i++) {
-                        const roundKey = `round${i}`;
-                        if (teamData[roundKey] && 
-                            typeof teamData[roundKey] === 'object' && 
-                            teamData[roundKey].total !== undefined) {
-                          const roundTotal = parseFloat(teamData[roundKey].total);
-                          if (!isNaN(roundTotal)) {
-                            teamTotalScore += roundTotal;
-                            roundsFound++;
-                            console.log(`Found ${roundKey} score: ${roundTotal}`);
-                          }
-                        }
-                      }
+                      // Calculate size penalty (same formula as in grading.html)
+                      const teamSize = parseInt(teamData.size || 0);
+                      const sizePenalty = teamSize <= 6 ? 0 : -2 * (teamSize - 5);
                       
-                      // For teams that have finalized scores (at least one round completed)
-                      if (roundsFound > 0) {
-                        teamScores.push(teamTotalScore);
-                        console.log(`Team ${teamId} total score: ${teamTotalScore}`);
+                      // Calculate subtotal (all components except size penalty)
+                      const subtotal = roundScores.reduce((sum, score) => sum + score, 0) + 
+                                     igChallenge + teamNameBonus + finalChallenge;
+                      
+                      // Final total with size penalty
+                      const totalScore = subtotal + sizePenalty;
+                      
+                      // Only include teams with some score data
+                      if (roundScores.some(score => score > 0) || subtotal > 0) {
+                        teamScores.push(totalScore);
+                        console.log(`Team ${teamId} total score: ${totalScore.toFixed(2)}`);
                       }
                     } catch (teamError) {
                       console.error(`Error processing team ${teamId}:`, teamError);
-                      // Continue with next team
                     }
                   });
                 }
-              } catch (entryError) {
-                console.error(`Error processing database entry ${key}:`, entryError);
-                // Continue with next entry
               }
             });
+          }
+          
+          // If no scores found in grading path, fall back to the original broader search
+          if (teamScores.length === 0) {
+            console.log("No scores found in grading path, trying broader search");
+            
+            // Get all data from the root to search for the trivia
+            const rootRef = ref(db);
+            const rootSnapshot = await get(rootRef);
+            
+            if (rootSnapshot.exists()) {
+              const rootData = rootSnapshot.val() || {};
+              
+              // Search for entries containing the trivia number in the key
+              Object.entries(rootData).forEach(([key, value]) => {
+                // Skip null or undefined values
+                if (!key || !value) return;
+                
+                try {
+                  // Check if the key contains the trivia number (e.g., "20250318_St_Dymphna's_199")
+                  const keyContainsNumber = key.includes(`_${currentTriviaNumber}`) || key.endsWith(`_${currentTriviaNumber}`);
+                  
+                  // Also check for the triviaNumber field with extra null checking
+                  const hasMatchingTriviaNumber = 
+                    value && 
+                    typeof value === 'object' &&
+                    ((value.triviaNumber !== undefined && value.triviaNumber === currentTriviaNumber) || 
+                    (value.triviaNumber !== undefined && value.triviaNumber.toString() === currentTriviaNumber.toString()));
+                  
+                  // Check if this entry has the matching trivia number and contains teams
+                  if ((keyContainsNumber || hasMatchingTriviaNumber) && value && value.teams && typeof value.teams === 'object') {
+                    console.log(`Found trivia with teams: ${key}`);
+                    
+                    // Process team scores in this trivia
+                    Object.entries(value.teams).forEach(([teamId, teamData]) => {
+                      if (!teamId || !teamData || typeof teamData !== 'object') return;
+                      
+                      try {
+                        console.log(`Processing team ${teamId}`);
+                        
+                        // Calculate total score for this team across all rounds
+                        let teamTotalScore = 0;
+                        let roundsFound = 0;
+                        
+                        // Look for round totals
+                        for (let i = 1; i <= 8; i++) {
+                          const roundKey = `round${i}`;
+                          if (teamData[roundKey] && 
+                              typeof teamData[roundKey] === 'object' && 
+                              teamData[roundKey].total !== undefined) {
+                            const roundTotal = parseFloat(teamData[roundKey].total);
+                            if (!isNaN(roundTotal)) {
+                              teamTotalScore += roundTotal;
+                              roundsFound++;
+                              console.log(`Found ${roundKey} score: ${roundTotal}`);
+                            }
+                          }
+                        }
+                        
+                        // Add bonuses and adjustments if present
+                        if (teamData.igChallenge) teamTotalScore += parseFloat(teamData.igChallenge);
+                        if (teamData.teamNameBonus) teamTotalScore += parseFloat(teamData.teamNameBonus);
+                        if (teamData.finalChallenge) teamTotalScore += parseFloat(teamData.finalChallenge);
+                        
+                        // Apply size penalty if size is available
+                        if (teamData.size) {
+                          const teamSize = parseInt(teamData.size);
+                          if (teamSize > 6) {
+                            const sizePenalty = -2 * (teamSize - 5);
+                            teamTotalScore += sizePenalty;
+                          }
+                        }
+                        
+                        // For teams that have finalized scores (at least one round completed)
+                        if (roundsFound > 0) {
+                          teamScores.push(teamTotalScore);
+                          console.log(`Team ${teamId} total score: ${teamTotalScore}`);
+                        }
+                      } catch (teamError) {
+                        console.error(`Error processing team ${teamId}:`, teamError);
+                        // Continue with next team
+                      }
+                    });
+                  }
+                } catch (entryError) {
+                  console.error(`Error processing database entry ${key}:`, entryError);
+                  // Continue with next entry
+                }
+              });
+            }
           }
           
           // Only proceed with stats calculations if no errors occurred
