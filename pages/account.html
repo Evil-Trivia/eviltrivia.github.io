@@ -665,16 +665,57 @@
         const membership = patreonUserData.membershipData || {};
         const attributes = membership.attributes || {};
         
+        // Find entitled tiers if available
+        const entitledTiers = patreonUserData.entitledTiers || [];
+        
         // Set tier info
-        const patronStatus = attributes.patron_status || patreonUserData.patronStatus || 'Connected';
+        let patronStatus = attributes.patron_status || patreonUserData.patronStatus || 'Connected';
+        let tierTitle = 'Patron';
+        
+        // Find highest paid tier for display
+        if (entitledTiers && Array.isArray(entitledTiers) && entitledTiers.length > 0) {
+          // Find the highest tier by amount_cents
+          const highestTier = entitledTiers.reduce((highest, current) => {
+            const currentAmount = current.attributes?.amount_cents || 0;
+            const highestAmount = highest.attributes?.amount_cents || 0;
+            return currentAmount > highestAmount ? current : highest;
+          }, entitledTiers[0]);
+          
+          // Use the tier title if available
+          if (highestTier && highestTier.attributes && highestTier.attributes.title) {
+            tierTitle = highestTier.attributes.title;
+            console.log(`Found tier title: ${tierTitle}`);
+            
+            // Override the status with the tier name for better display
+            patronStatus = tierTitle;
+          }
+        }
+        
         patreonTier.textContent = patronStatus;
         patreonTierBadge.textContent = patronStatus;
         
-        // Set pledge amount
-        patreonPledge.textContent = patreonUserData.pledgeAmountDollars || 
-                                  (patreonUserData.pledgeAmountCents / 100).toFixed(2) || 
-                                  (attributes.currently_entitled_amount_cents / 100).toFixed(2) || 
-                                  '0.00';
+        // Set pledge amount - first check entitled tiers, then fall back to top-level fields
+        let pledgeAmountCents = 0;
+        
+        // Try to get from entitled tiers first
+        if (entitledTiers && Array.isArray(entitledTiers) && entitledTiers.length > 0) {
+          // Sum up all tier amounts
+          pledgeAmountCents = entitledTiers.reduce((total, tier) => {
+            return total + (tier.attributes?.amount_cents || 0);
+          }, 0);
+          
+          console.log(`Using pledge amount from entitled tiers: ${pledgeAmountCents} cents`);
+        }
+        
+        // If no amount from tiers, fall back to top-level fields
+        if (pledgeAmountCents === 0) {
+          pledgeAmountCents = patreonUserData.pledgeAmountCents || attributes.currently_entitled_amount_cents || 0;
+          console.log(`Using fallback pledge amount: ${pledgeAmountCents} cents`);
+        }
+        
+        // Convert to dollars and update display
+        const pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
+        patreonPledge.textContent = pledgeAmountDollars;
         
         // Set status
         patreonStatus.textContent = patreonUserData.isActiveMember ? 'Active' : 'Inactive';

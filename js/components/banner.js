@@ -294,11 +294,43 @@
 
                         // Check if user has 'patron' role - if so, that's also a connection to Patreon
                         if (userData?.patreonId || userRoles.includes('patron')) {
-                            // If we have pledge amount info, display it in the status
-                            if (userData?.patreonPledgeAmount) {
-                                patreonStatus.textContent = `$${userData.patreonPledgeAmount}`;
-                                mobilePatreonStatus.textContent = `$${userData.patreonPledgeAmount}`;
-                            } else {
+                            try {
+                                // First try to get the Patreon tier information from the user's record
+                                if (userData?.patreonId) {
+                                    // Try to get the actual tier information from patreonUsers collection
+                                    const patreonSnapshot = await get(ref(db, `patreonUsers/${userData.patreonId}`));
+                                    const patreonData = patreonSnapshot.val();
+                                    
+                                    if (patreonData?.entitledTiers && Array.isArray(patreonData.entitledTiers)) {
+                                        // Find the highest tier by amount
+                                        const highestTier = patreonData.entitledTiers.reduce((highest, current) => {
+                                            const currentAmount = current.attributes?.amount_cents || 0;
+                                            const highestAmount = highest.attributes?.amount_cents || 0;
+                                            return currentAmount > highestAmount ? current : highest;
+                                        }, patreonData.entitledTiers[0]);
+                                        
+                                        if (highestTier?.attributes?.title) {
+                                            // Show the tier title
+                                            patreonStatus.textContent = highestTier.attributes.title;
+                                            mobilePatreonStatus.textContent = highestTier.attributes.title;
+                                            console.log(`Banner showing Patreon tier: ${highestTier.attributes.title}`);
+                                            // Found tier info, so skip ahead
+                                            return;
+                                        }
+                                    }
+                                }
+                                
+                                // Fallback: If we couldn't get tier info, but have pledge amount, use that
+                                if (userData?.patreonPledgeAmount) {
+                                    patreonStatus.textContent = `$${userData.patreonPledgeAmount}`;
+                                    mobilePatreonStatus.textContent = `$${userData.patreonPledgeAmount}`;
+                                } else {
+                                    patreonStatus.textContent = 'Connected';
+                                    mobilePatreonStatus.textContent = 'Connected';
+                                }
+                            } catch (error) {
+                                console.error("Error getting Patreon tier data:", error);
+                                // Fallback to basic info on error
                                 patreonStatus.textContent = 'Connected';
                                 mobilePatreonStatus.textContent = 'Connected';
                             }
@@ -306,7 +338,39 @@
                             // Check localStorage as fallback
                             const patreonId = localStorage.getItem('patreonUserId');
                             if (patreonId) {
-                                // Try to get pledge amount from localStorage if available
+                                try {
+                                    // Try to get the patreon tier info from the database
+                                    const patreonSnapshot = await get(ref(db, `patreonUsers/${patreonId}`));
+                                    const patreonData = patreonSnapshot.val();
+                                    
+                                    if (patreonData?.entitledTiers && Array.isArray(patreonData.entitledTiers)) {
+                                        // Find the highest tier
+                                        const highestTier = patreonData.entitledTiers.reduce((highest, current) => {
+                                            const currentAmount = current.attributes?.amount_cents || 0;
+                                            const highestAmount = highest.attributes?.amount_cents || 0;
+                                            return currentAmount > highestAmount ? current : highest;
+                                        }, patreonData.entitledTiers[0]);
+                                        
+                                        if (highestTier?.attributes?.title) {
+                                            // Show the tier title
+                                            patreonStatus.textContent = highestTier.attributes.title;
+                                            mobilePatreonStatus.textContent = highestTier.attributes.title;
+                                            console.log(`Banner showing Patreon tier from localStorage: ${highestTier.attributes.title}`);
+                                            return;
+                                        }
+                                    }
+                                    
+                                    // Fallback to pledge amount
+                                    if (patreonData?.pledgeAmountDollars) {
+                                        patreonStatus.textContent = `$${patreonData.pledgeAmountDollars}`;
+                                        mobilePatreonStatus.textContent = `$${patreonData.pledgeAmountDollars}`;
+                                        return;
+                                    }
+                                } catch (error) {
+                                    console.error("Error getting Patreon tier data from localStorage ID:", error);
+                                }
+                                
+                                // Fallback to localStorage pledge amount
                                 const pledgeAmount = localStorage.getItem('patreonPledgeAmount');
                                 if (pledgeAmount) {
                                     patreonStatus.textContent = `$${pledgeAmount}`;
