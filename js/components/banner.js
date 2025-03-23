@@ -302,6 +302,27 @@
                                     const patreonData = patreonSnapshot.val();
                                     
                                     if (patreonData?.entitledTiers && Array.isArray(patreonData.entitledTiers)) {
+                                        console.log("Looking for tier ID 24216420 in entitledTiers");
+                                        
+                                        // Check if the specific tier ID 24216420 exists in the numeric indices
+                                        let bigLemonFound = false;
+                                        for (let i = 0; i < patreonData.entitledTiers.length; i++) {
+                                            const tier = patreonData.entitledTiers[i];
+                                            if (tier && tier.id && tier.id === "24216420" && tier.attributes && tier.attributes.title) {
+                                                console.log(`Found Big Lemon tier at index ${i}:`, tier.attributes.title);
+                                                patreonStatus.textContent = tier.attributes.title;
+                                                mobilePatreonStatus.textContent = tier.attributes.title;
+                                                bigLemonFound = true;
+                                                break;
+                                            }
+                                        }
+                                        
+                                        if (bigLemonFound) {
+                                            console.log("Successfully displayed Big Lemon tier");
+                                            return;
+                                        }
+                                        
+                                        // If Big Lemon not found, continue with existing code
                                         // Look specifically for the "The Big Lemon" tier with ID 24216420
                                         const bigLemonTier = patreonData.entitledTiers.find(tier => 
                                             tier.id === "24216420"
@@ -312,22 +333,6 @@
                                             patreonStatus.textContent = bigLemonTier.attributes.title;
                                             mobilePatreonStatus.textContent = bigLemonTier.attributes.title;
                                             console.log(`Banner showing The Big Lemon tier: ${bigLemonTier.attributes.title}`);
-                                            return;
-                                        }
-                                        
-                                        // Otherwise, find the highest tier by amount (fallback to old behavior)
-                                        const highestTier = patreonData.entitledTiers.reduce((highest, current) => {
-                                            const currentAmount = current.attributes?.amount_cents || 0;
-                                            const highestAmount = highest.attributes?.amount_cents || 0;
-                                            return currentAmount > highestAmount ? current : highest;
-                                        }, patreonData.entitledTiers[0]);
-                                        
-                                        if (highestTier?.attributes?.title) {
-                                            // Show the tier title
-                                            patreonStatus.textContent = highestTier.attributes.title;
-                                            mobilePatreonStatus.textContent = highestTier.attributes.title;
-                                            console.log(`Banner showing Patreon tier: ${highestTier.attributes.title}`);
-                                            // Found tier info, so skip ahead
                                             return;
                                         }
                                     }
@@ -357,6 +362,27 @@
                                     const patreonData = patreonSnapshot.val();
                                     
                                     if (patreonData?.entitledTiers && Array.isArray(patreonData.entitledTiers)) {
+                                        console.log("Looking for tier ID 24216420 in entitledTiers");
+                                        
+                                        // Check if the specific tier ID 24216420 exists in the numeric indices
+                                        let bigLemonFound = false;
+                                        for (let i = 0; i < patreonData.entitledTiers.length; i++) {
+                                            const tier = patreonData.entitledTiers[i];
+                                            if (tier && tier.id && tier.id === "24216420" && tier.attributes && tier.attributes.title) {
+                                                console.log(`Found Big Lemon tier at index ${i}:`, tier.attributes.title);
+                                                patreonStatus.textContent = tier.attributes.title;
+                                                mobilePatreonStatus.textContent = tier.attributes.title;
+                                                bigLemonFound = true;
+                                                break;
+                                            }
+                                        }
+                                        
+                                        if (bigLemonFound) {
+                                            console.log("Successfully displayed Big Lemon tier");
+                                            return;
+                                        }
+                                        
+                                        // If Big Lemon not found, continue with existing code
                                         // Look specifically for the "The Big Lemon" tier with ID 24216420
                                         const bigLemonTier = patreonData.entitledTiers.find(tier => 
                                             tier.id === "24216420"
@@ -367,22 +393,6 @@
                                             patreonStatus.textContent = bigLemonTier.attributes.title;
                                             mobilePatreonStatus.textContent = bigLemonTier.attributes.title;
                                             console.log(`Banner showing The Big Lemon tier: ${bigLemonTier.attributes.title}`);
-                                            return;
-                                        }
-                                        
-                                        // Otherwise, find the highest tier by amount (fallback to old behavior)
-                                        const highestTier = patreonData.entitledTiers.reduce((highest, current) => {
-                                            const currentAmount = current.attributes?.amount_cents || 0;
-                                            const highestAmount = highest.attributes?.amount_cents || 0;
-                                            return currentAmount > highestAmount ? current : highest;
-                                        }, patreonData.entitledTiers[0]);
-                                        
-                                        if (highestTier?.attributes?.title) {
-                                            // Show the tier title
-                                            patreonStatus.textContent = highestTier.attributes.title;
-                                            mobilePatreonStatus.textContent = highestTier.attributes.title;
-                                            console.log(`Banner showing Patreon tier: ${highestTier.attributes.title}`);
-                                            // Found tier info, so skip ahead
                                             return;
                                         }
                                     }
