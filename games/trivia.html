@@ -421,19 +421,6 @@
   <div class="container">
     <h1>This Week's Trivia</h1>
     
-    <!-- Admin Controls - Only visible to admins -->
-    <div id="admin-controls" class="content-section hidden">
-      <h3>Admin Controls</h3>
-      <div class="admin-form">
-        <div class="form-group">
-          <label for="trivia-selector">Select Trivia Number:</label>
-          <select id="trivia-selector" class="form-control"></select>
-        </div>
-        <button id="btn-change-trivia" class="btn">Change Active Trivia</button>
-        <a href="/games/triviaadmin.html" class="btn" style="margin-left: 10px;">Trivia Management</a>
-      </div>
-    </div>
-    
     <div class="content-section">
       <!-- Loading State -->
       <div id="loading-section" class="auth-message">
@@ -561,6 +548,11 @@
                 <button id="score-submit-btn" class="score-submit-btn">Submit Score</button>
               </div>
             </div>
+            
+            <!-- Admin-only: Previous Week Button -->
+            <div id="admin-prev-week-container" class="hidden" style="margin-top: 30px; text-align: center;">
+              <button id="btn-load-prev-week" class="btn" style="background-color: #6c757d;">Load Previous Week</button>
+            </div>
           </div>
         </div>
         
@@ -608,14 +600,10 @@
     const pdfSection = document.getElementById('pdf-section');
     const interactiveSection = document.getElementById('interactive-section');
     
-    // Admin Elements
-    const adminControls = document.getElementById('admin-controls');
-    const triviaSelector = document.getElementById('trivia-selector');
-    const btnChangeTrivia = document.getElementById('btn-change-trivia');
-    
     // Current active trivia
     let currentTriviaNumber = 1;
     let isAdmin = false;
+    let displayedTriviaNumber = 1; // Track which trivia number is being displayed
     
     // Check if user is authorized
     async function checkUserAuthorization(user) {
@@ -700,12 +688,6 @@
           notAuthorized.classList.add('hidden');
           triviaAuthorized.style.display = 'block';
           
-          // Show admin controls if user is admin
-          if (isAdmin) {
-            adminControls.classList.remove('hidden');
-            loadAdminData();
-          }
-          
           // Load trivia content
           loadTriviaContent();
         } else {
@@ -731,11 +713,12 @@
         // Fetch active trivia information from Firebase
         const activeTrivia = await getActiveTrivia();
         currentTriviaNumber = activeTrivia.number || 1;
+        displayedTriviaNumber = currentTriviaNumber; // Set displayed trivia to current
         
-        console.log('Loading trivia content for trivia #', currentTriviaNumber);
+        console.log('Loading trivia content for trivia #', displayedTriviaNumber);
         
         // Get formatted date
-        const formattedDate = await getFormattedTriviaDate(currentTriviaNumber);
+        const formattedDate = await getFormattedTriviaDate(displayedTriviaNumber);
         
         // Update the section titles with the formatted date
         pdfSection.querySelector('h2').textContent = formattedDate;
@@ -745,6 +728,14 @@
         const triviaDateHeading = document.getElementById('trivia-date-heading');
         if (triviaDateHeading) {
           triviaDateHeading.textContent = formattedDate;
+        }
+        
+        // Show the admin previous week button if user is admin
+        if (isAdmin) {
+          const adminPrevWeekContainer = document.getElementById('admin-prev-week-container');
+          if (adminPrevWeekContainer) {
+            adminPrevWeekContainer.classList.remove('hidden');
+          }
         }
         
         // Dispatch event that trivia content is loaded
@@ -789,74 +780,6 @@
         return `This Week's Trivia`;
       }
     }
-    
-    // Load admin data including available trivias
-    async function loadAdminData() {
-      try {
-        // Clear existing options
-        triviaSelector.innerHTML = '';
-        
-        // Get list of available trivias
-        const snapshot = await get(ref(db, 'trivia-archive/archive'));
-        if (snapshot.exists()) {
-          const trivias = snapshot.val();
-          // Create options for each trivia
-          Object.entries(trivias).forEach(([number, trivia]) => {
-            const option = document.createElement('option');
-            option.value = number;
-            option.textContent = `Trivia #${number}: ${trivia.triviaName || 'Untitled'}`;
-            triviaSelector.appendChild(option);
-          });
-        } else {
-          // Add a default option if no trivias found
-          const option = document.createElement('option');
-          option.value = "1";
-          option.textContent = "Trivia #1";
-          triviaSelector.appendChild(option);
-        }
-        
-        // Get active trivia and set selector to match
-        const activeTrivia = await getActiveTrivia();
-        triviaSelector.value = activeTrivia.number;
-        
-      } catch (error) {
-        console.error('Error loading admin data:', error);
-      }
-    }
-    
-    // Handle change active trivia button
-    btnChangeTrivia.addEventListener('click', async () => {
-      try {
-        const selectedTriviaNumber = triviaSelector.value;
-        if (!selectedTriviaNumber) {
-          console.error('No trivia selected');
-          return;
-        }
-        
-        // Get name of selected trivia
-        const snapshot = await get(ref(db, `trivia-archive/archive/${selectedTriviaNumber}`));
-        let triviaName = 'Unknown Trivia';
-        if (snapshot.exists()) {
-          triviaName = snapshot.val().triviaName || `Trivia #${selectedTriviaNumber}`;
-        }
-        
-        // Update active trivia
-        await set(ref(db, 'trivia-archive/active'), {
-          number: selectedTriviaNumber,
-          name: triviaName,
-          updatedAt: new Date().toISOString(),
-          updatedBy: auth.currentUser.uid
-        });
-        
-        console.log('Active trivia updated to:', selectedTriviaNumber);
-        
-        // Reload trivia content
-        loadTriviaContent();
-        
-      } catch (error) {
-        console.error('Error changing active trivia:', error);
-      }
-    });
     
     // Load PDF content from Firebase
     async function loadPDFContent(triviaNumber) {
@@ -1076,11 +999,11 @@
       interactiveSection.classList.add('hidden');
       
       // Load PDF content if it hasn't been loaded yet
-      loadPDFContent(currentTriviaNumber);
+      loadPDFContent(displayedTriviaNumber);
       
       // Save user preference
       localStorage.setItem('triviaViewPreference', 'pdf');
-      localStorage.setItem(`trivia_${currentTriviaNumber}_preference`, 'pdf');
+      localStorage.setItem(`trivia_${displayedTriviaNumber}_preference`, 'pdf');
     });
     
     btnInteractive.addEventListener('click', () => {
@@ -1091,7 +1014,7 @@
       
       // Save user preference
       localStorage.setItem('triviaViewPreference', 'interactive');
-      localStorage.setItem(`trivia_${currentTriviaNumber}_preference`, 'interactive');
+      localStorage.setItem(`trivia_${displayedTriviaNumber}_preference`, 'interactive');
     });
     
     // Reveal answers button handler
@@ -1724,6 +1647,50 @@
       return 'th';
     }
     
+    // Handle "Load Previous Week" button
+    document.getElementById('btn-load-prev-week')?.addEventListener('click', async function() {
+      try {
+        const prevTriviaNumber = displayedTriviaNumber - 1;
+        
+        if (prevTriviaNumber < 1) {
+          alert('This is the earliest available trivia.');
+          return;
+        }
+        
+        // Update the displayed trivia number
+        displayedTriviaNumber = prevTriviaNumber;
+        
+        // Get formatted date for previous trivia
+        const formattedDate = await getFormattedTriviaDate(displayedTriviaNumber);
+        
+        // Update the section titles with the formatted date
+        pdfSection.querySelector('h2').textContent = formattedDate;
+        
+        // Update the main trivia date heading
+        const triviaDateHeading = document.getElementById('trivia-date-heading');
+        if (triviaDateHeading) {
+          triviaDateHeading.textContent = formattedDate;
+        }
+        
+        // Update the button text to indicate which trivia is loaded
+        this.textContent = `Load Previous Week (Current: Week #${displayedTriviaNumber})`;
+        
+        // Load PDF content for the previous trivia
+        loadPDFContent(displayedTriviaNumber);
+        
+        // Clear any existing score stats
+        const scoreStatsContainer = document.querySelector('.score-stats-container');
+        if (scoreStatsContainer) {
+          scoreStatsContainer.innerHTML = '';
+        }
+        
+        console.log(`Loaded previous trivia #${displayedTriviaNumber}`);
+      } catch (error) {
+        console.error('Error loading previous trivia:', error);
+        alert('Error loading previous trivia. Please try again.');
+      }
+    });
+    
     // Initialize based on user's previous selection
     document.addEventListener('DOMContentLoaded', () => {
       // Make sure all required elements exist before setting up event handlers
@@ -1763,7 +1730,7 @@
       document.addEventListener('triviaLoaded', () => {
         console.log('Trivia content loaded event fired');
         // Check if the user has a preference for this specific trivia
-        const triviaSpecificPreference = localStorage.getItem(`trivia_${currentTriviaNumber}_preference`);
+        const triviaSpecificPreference = localStorage.getItem(`trivia_${displayedTriviaNumber}_preference`);
         
         try {
           if (triviaSpecificPreference) {
