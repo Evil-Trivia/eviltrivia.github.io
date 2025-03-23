@@ -716,9 +716,12 @@
         
         console.log('Loading trivia content for trivia #', currentTriviaNumber);
         
-        // Update the section titles with the trivia number
-        pdfSection.querySelector('h2').textContent = `PDF Trivia #${currentTriviaNumber}`;
-        interactiveSection.querySelector('h2').textContent = `Interactive Trivia #${currentTriviaNumber}`;
+        // Get formatted date
+        const formattedDate = await getFormattedTriviaDate(currentTriviaNumber);
+        
+        // Update the section titles with the formatted date
+        pdfSection.querySelector('h2').textContent = formattedDate;
+        interactiveSection.querySelector('h2').textContent = formattedDate;
         
         // Dispatch event that trivia content is loaded
         document.dispatchEvent(new Event('triviaLoaded'));
@@ -738,6 +741,28 @@
       } catch (error) {
         console.error('Error getting active trivia:', error);
         return { number: 1, name: 'Default Trivia' };
+      }
+    }
+    
+    // Get trivia date and format it
+    async function getFormattedTriviaDate(triviaNumber) {
+      try {
+        const snapshot = await get(ref(db, `trivia-archive/overview/${triviaNumber}/date`));
+        if (snapshot.exists()) {
+          const dateString = snapshot.val();
+          if (dateString) {
+            // Parse the date
+            const date = new Date(dateString);
+            // Format the date as "Week of Month Day, Year"
+            const options = { month: 'long', day: 'numeric', year: 'numeric' };
+            const formattedDate = date.toLocaleDateString('en-US', options);
+            return `Trivia - Week of ${formattedDate}`;
+          }
+        }
+        return `Trivia #${triviaNumber}`;
+      } catch (error) {
+        console.error('Error getting trivia date:', error);
+        return `Trivia #${triviaNumber}`;
       }
     }
     
@@ -1000,7 +1025,8 @@
           console.error('No drive links found for trivia #', triviaNumber);
           const pdfSection = document.getElementById('pdf-section');
           if (pdfSection) {
-            pdfSection.innerHTML = `<h2>PDF Trivia #${triviaNumber}</h2><p>No PDF content available for this trivia.</p>`;
+            const formattedDate = await getFormattedTriviaDate(triviaNumber);
+            pdfSection.innerHTML = `<h2>${formattedDate}</h2><p>No PDF content available for this trivia.</p>`;
           }
         }
       } catch (error) {
