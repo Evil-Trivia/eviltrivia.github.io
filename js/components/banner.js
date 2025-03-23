@@ -302,7 +302,20 @@
                                     const patreonData = patreonSnapshot.val();
                                     
                                     if (patreonData?.entitledTiers && Array.isArray(patreonData.entitledTiers)) {
-                                        // Find the highest tier by amount
+                                        // Look specifically for the "The Big Lemon" tier with ID 24216420
+                                        const bigLemonTier = patreonData.entitledTiers.find(tier => 
+                                            tier.id === "24216420"
+                                        );
+                                        
+                                        // If found, use it
+                                        if (bigLemonTier && bigLemonTier.attributes?.title) {
+                                            patreonStatus.textContent = bigLemonTier.attributes.title;
+                                            mobilePatreonStatus.textContent = bigLemonTier.attributes.title;
+                                            console.log(`Banner showing The Big Lemon tier: ${bigLemonTier.attributes.title}`);
+                                            return;
+                                        }
+                                        
+                                        // Otherwise, find the highest tier by amount (fallback to old behavior)
                                         const highestTier = patreonData.entitledTiers.reduce((highest, current) => {
                                             const currentAmount = current.attributes?.amount_cents || 0;
                                             const highestAmount = highest.attributes?.amount_cents || 0;
@@ -344,7 +357,20 @@
                                     const patreonData = patreonSnapshot.val();
                                     
                                     if (patreonData?.entitledTiers && Array.isArray(patreonData.entitledTiers)) {
-                                        // Find the highest tier
+                                        // Look specifically for the "The Big Lemon" tier with ID 24216420
+                                        const bigLemonTier = patreonData.entitledTiers.find(tier => 
+                                            tier.id === "24216420"
+                                        );
+                                        
+                                        // If found, use it
+                                        if (bigLemonTier && bigLemonTier.attributes?.title) {
+                                            patreonStatus.textContent = bigLemonTier.attributes.title;
+                                            mobilePatreonStatus.textContent = bigLemonTier.attributes.title;
+                                            console.log(`Banner showing The Big Lemon tier: ${bigLemonTier.attributes.title}`);
+                                            return;
+                                        }
+                                        
+                                        // Otherwise, find the highest tier by amount (fallback to old behavior)
                                         const highestTier = patreonData.entitledTiers.reduce((highest, current) => {
                                             const currentAmount = current.attributes?.amount_cents || 0;
                                             const highestAmount = highest.attributes?.amount_cents || 0;
@@ -355,7 +381,8 @@
                                             // Show the tier title
                                             patreonStatus.textContent = highestTier.attributes.title;
                                             mobilePatreonStatus.textContent = highestTier.attributes.title;
-                                            console.log(`Banner showing Patreon tier from localStorage: ${highestTier.attributes.title}`);
+                                            console.log(`Banner showing Patreon tier: ${highestTier.attributes.title}`);
+                                            // Found tier info, so skip ahead
                                             return;
                                         }
                                     }
