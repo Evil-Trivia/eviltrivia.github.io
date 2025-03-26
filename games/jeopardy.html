@@ -557,6 +557,68 @@
     .settings-btn:hover {
       background-color: #2980b9;
     }
+    
+    /* Advanced Stats Styles */
+    .advanced-stats {
+      background-color: #f9f9f9;
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .stats-category, .stats-value {
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .stats-category:last-child, .stats-value:last-child {
+      border-bottom: none;
+    }
+    
+    .category-name, .value-name {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    
+    .progress-bar-container {
+      height: 8px;
+      background-color: #ecf0f1;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 5px;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #2ecc71;
+    }
+    
+    .accuracy-text {
+      font-size: 14px;
+      color: #666;
+      margin-top: 3px;
+    }
+    
+    .loading-stats {
+      padding: 20px;
+      text-align: center;
+      color: #7f8c8d;
+    }
+    
+    details summary {
+      cursor: pointer;
+      padding: 10px;
+      background-color: #ecf0f1;
+      border-radius: 4px;
+      margin-bottom: 5px;
+    }
+    
+    details summary:hover {
+      background-color: #dfe4e6;
+    }
   </style>
 </head>
 <body>
@@ -719,6 +781,36 @@
               <span>Total Coryat Score:</span>
               <span id="modal-stats-coryat">$0</span>
             </div>
+            <div class="stat-row">
+              <span>Longest Streak:</span>
+              <span id="modal-stats-streak">0</span>
+            </div>
+            <div class="stat-row">
+              <span>Total Play Time:</span>
+              <span id="modal-stats-playtime">0 min</span>
+            </div>
+            <div class="stat-row">
+              <span>Game Sessions:</span>
+              <span id="modal-stats-sessions">0</span>
+            </div>
+          </div>
+
+          <div style="margin-top: 20px;">
+            <details>
+              <summary><strong>Category Performance</strong></summary>
+              <div class="advanced-stats" id="category-stats-container">
+                <div class="loading-stats">Loading category stats...</div>
+              </div>
+            </details>
+          </div>
+
+          <div style="margin-top: 20px;">
+            <details>
+              <summary><strong>Value Performance</strong></summary>
+              <div class="advanced-stats" id="value-stats-container">
+                <div class="loading-stats">Loading value stats...</div>
+              </div>
+            </details>
           </div>
         </div>
         
@@ -833,7 +925,15 @@
       incorrect: 0,
       passed: 0,
       buzzTimes: [],
-      coryat: 0
+      coryat: 0,
+      // Extended user stats
+      streakCurrent: 0,        // Current streak of correct answers
+      streakLongest: 0,        // Longest streak of correct answers
+      lastPlayedDate: null,    // Last date the user played
+      categoryAccuracy: {},    // Tracking accuracy by category
+      valueAccuracy: {},       // Tracking accuracy by dollar value
+      totalPlayTime: 0,        // Total time spent playing in seconds
+      sessionsPlayed: 0        // Number of game sessions
     };
     
     // Check if user is authorized
@@ -1034,8 +1134,7 @@
       // Settings button click event
       settingsBtn.addEventListener('click', openSettingsModal);
       
-      // Close modal event
-      closeModalBtn.addEventListener('click', closeSettingsModal);
+      // Close modal events are handled in openSettingsModal
       
       // Close modal when clicking outside
       window.addEventListener('click', (event) => {
@@ -1077,6 +1176,16 @@
         const dateData = jeopardyData[currentDate];
         if (!dateData) {
           throw new Error('No data found for selected date');
+        }
+        
+        // Record session start time and increment sessions played
+        stats.sessionStartTime = Date.now();
+        stats.sessionsPlayed++;
+        stats.lastPlayedDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+        
+        // Save this initial session data
+        if (userData && userData.uid) {
+          set(ref(db, `users/${userData.uid}/jeopardyStats`), stats);
         }
         
         // Process questions from all games on this date
@@ -1344,19 +1453,52 @@
       stats.questionsAnswered++;
       
       const questionValue = currentQuestion.clue_value || 200;
+      const category = currentQuestion.category || "Unknown";
+      
+      // Initialize category tracking if it doesn't exist yet
+      if (!stats.categoryAccuracy[category]) {
+        stats.categoryAccuracy[category] = { total: 0, correct: 0 };
+      }
+      
+      // Initialize value tracking if it doesn't exist yet
+      const valueKey = `$${questionValue}`;
+      if (!stats.valueAccuracy[valueKey]) {
+        stats.valueAccuracy[valueKey] = { total: 0, correct: 0 };
+      }
+      
+      // Update category and value stats
+      stats.categoryAccuracy[category].total++;
+      stats.valueAccuracy[valueKey].total++;
       
       switch(result) {
         case 'correct':
           stats.correct++;
           stats.coryat += questionValue;
+          stats.categoryAccuracy[category].correct++;
+          stats.valueAccuracy[valueKey].correct++;
+          
+          // Update streak
+          stats.streakCurrent++;
+          if (stats.streakCurrent > stats.streakLongest) {
+            stats.streakLongest = stats.streakCurrent;
+          }
           break;
         case 'wrong':
           stats.incorrect++;
           stats.coryat -= questionValue;
+          stats.streakCurrent = 0; // Reset streak on wrong answer
           break;
         case 'pass':
           stats.passed++;
+          stats.streakCurrent = 0; // Reset streak on pass
           break;
+      }
+      
+      // Update play time if we have a session start time
+      if (stats.sessionStartTime) {
+        const sessionTime = Math.floor((Date.now() - stats.sessionStartTime) / 1000);
+        stats.totalPlayTime += Math.min(sessionTime, 300); // Cap at 5 minutes per question as sanity check
+        stats.sessionStartTime = Date.now(); // Reset for next question
       }
       
       // Update stats display
@@ -1546,21 +1688,116 @@
       
       // Show modal
       settingsModal.classList.remove('hidden');
+      
+      // Make sure close button is working
+      if (closeModalBtn) {
+        closeModalBtn.addEventListener('click', closeSettingsModal);
+      }
     }
     
     // Close settings modal
     function closeSettingsModal() {
-      settingsModal.classList.add('hidden');
+      if (settingsModal) {
+        settingsModal.classList.add('hidden');
+        console.log('Modal closed');
+      }
     }
+    
+    // Add a keyboard shortcut to close the modal with Escape key
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && settingsModal && !settingsModal.classList.contains('hidden')) {
+        closeSettingsModal();
+      }
+    });
     
     // Update modal stats display
     function updateModalStats() {
+      // Basic stats
       modalStatsQuestions.textContent = stats.questionsAnswered;
       modalStatsCorrect.textContent = stats.correct;
       modalStatsIncorrect.textContent = stats.incorrect;
       modalStatsPassed.textContent = stats.passed;
       modalStatsAvgBuzz.textContent = calculateAverageBuzzTime() + 'ms';
       modalStatsCoryat.textContent = `$${stats.coryat}`;
+      
+      // Extended stats
+      document.getElementById('modal-stats-streak').textContent = stats.streakLongest || 0;
+      
+      // Format playtime in minutes
+      const totalMinutes = Math.floor(stats.totalPlayTime / 60);
+      document.getElementById('modal-stats-playtime').textContent = `${totalMinutes} min`;
+      
+      document.getElementById('modal-stats-sessions').textContent = stats.sessionsPlayed || 0;
+      
+      // Category stats
+      const categoryContainer = document.getElementById('category-stats-container');
+      if (categoryContainer) {
+        // Clear previous content
+        categoryContainer.innerHTML = '';
+        
+        // Check if we have category data
+        if (stats.categoryAccuracy && Object.keys(stats.categoryAccuracy).length > 0) {
+          // Sort categories by number of questions answered
+          const sortedCategories = Object.entries(stats.categoryAccuracy)
+            .sort((a, b) => b[1].total - a[1].total);
+          
+          // Generate HTML for each category
+          sortedCategories.forEach(([category, data]) => {
+            const accuracy = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+            
+            const categoryElement = document.createElement('div');
+            categoryElement.className = 'stats-category';
+            categoryElement.innerHTML = `
+              <div class="category-name">${category}</div>
+              <div class="progress-bar-container">
+                <div class="progress-bar" style="width: ${accuracy}%"></div>
+              </div>
+              <div class="accuracy-text">${accuracy}% (${data.correct}/${data.total})</div>
+            `;
+            
+            categoryContainer.appendChild(categoryElement);
+          });
+        } else {
+          categoryContainer.innerHTML = '<div class="loading-stats">No category data available yet.</div>';
+        }
+      }
+      
+      // Value stats
+      const valueContainer = document.getElementById('value-stats-container');
+      if (valueContainer) {
+        // Clear previous content
+        valueContainer.innerHTML = '';
+        
+        // Check if we have value data
+        if (stats.valueAccuracy && Object.keys(stats.valueAccuracy).length > 0) {
+          // Sort values by clue value
+          const sortedValues = Object.entries(stats.valueAccuracy)
+            .sort((a, b) => {
+              const aValue = parseInt(a[0].replace('$', ''));
+              const bValue = parseInt(b[0].replace('$', ''));
+              return aValue - bValue;
+            });
+          
+          // Generate HTML for each value
+          sortedValues.forEach(([value, data]) => {
+            const accuracy = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+            
+            const valueElement = document.createElement('div');
+            valueElement.className = 'stats-value';
+            valueElement.innerHTML = `
+              <div class="value-name">${value}</div>
+              <div class="progress-bar-container">
+                <div class="progress-bar" style="width: ${accuracy}%"></div>
+              </div>
+              <div class="accuracy-text">${accuracy}% (${data.correct}/${data.total})</div>
+            `;
+            
+            valueContainer.appendChild(valueElement);
+          });
+        } else {
+          valueContainer.innerHTML = '<div class="loading-stats">No value data available yet.</div>';
+        }
+      }
     }
     
     // Reset all stats
@@ -1571,7 +1808,15 @@
         incorrect: 0,
         passed: 0,
         buzzTimes: [],
-        coryat: 0
+        coryat: 0,
+        // Extended user stats
+        streakCurrent: 0,        // Current streak of correct answers
+        streakLongest: 0,        // Longest streak of correct answers
+        lastPlayedDate: null,    // Last date the user played
+        categoryAccuracy: {},    // Tracking accuracy by category
+        valueAccuracy: {},       // Tracking accuracy by dollar value
+        totalPlayTime: 0,        // Total time spent playing in seconds
+        sessionsPlayed: 0        // Number of game sessions
       };
       
       // Update displays
