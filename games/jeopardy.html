@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evil Trivia - Jeopardy Study Tool</title>
+  <script src="/js/components/autoload-banner.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #FFCC00;
+      margin-top: 60px;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1, h2, h3 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 20px;
+    }
+    
+    .content-section {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    
+    .auth-message {
+      text-align: center;
+      padding: 50px;
+      font-size: 18px;
+      color: #666;
+    }
+    
+    .btn {
+      display: inline-block;
+      background-color: #000;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+      transition: background-color 0.3s;
+    }
+    
+    .btn:hover {
+      background-color: #333;
+    }
+    
+    .btn-patreon {
+      background-color: #F96854;
+    }
+    
+    .btn-patreon:hover {
+      background-color: #e05c49;
+    }
+    
+    .hidden {
+      display: none;
+    }
+    
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 2s linear infinite;
+      margin: 20px auto;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Jeopardy-specific styles */
+    .jeopardy-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    
+    .stats-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      background-color: #f0f0f0;
+      padding: 10px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .stat-item {
+      text-align: center;
+      padding: 0 15px;
+    }
+    
+    .stat-label {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    
+    .stat-value {
+      font-size: 20px;
+      font-weight: bold;
+      color: #333;
+    }
+    
+    .question-container {
+      width: 100%;
+      background-color: #060CE9; /* Jeopardy blue */
+      color: white;
+      padding: 30px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    
+    .category-text {
+      font-size: 22px;
+      margin-bottom: 15px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-weight: bold;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    
+    .question-text {
+      font-size: 28px;
+      text-align: center;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+    
+    .answer-text {
+      font-size: 24px;
+      text-align: center;
+      margin-top: 20px;
+      font-weight: bold;
+      color: #FFCC33; /* Jeopardy gold */
+    }
+    
+    .value-display {
+      position: absolute;
+      top: 10px;
+      right: 15px;
+      background-color: #FFCC33;
+      color: #060CE9;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 18px;
+    }
+    
+    .controls-container {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      margin-bottom: 30px;
+    }
+    
+    .buzz-btn {
+      flex: 1;
+      padding: 15px 30px;
+      background-color: #e74c3c;
+      color: white;
+      font-size: 24px;
+      font-weight: bold;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-right: 20px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      transition: all 0.2s;
+    }
+    
+    .buzz-btn:hover {
+      background-color: #c0392b;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 8px rgba(0,0,0,0.15);
+    }
+    
+    .buzz-btn:active {
+      transform: translateY(1px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .action-btns {
+      flex: 1;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .action-btn {
+      padding: 15px 20px;
+      border: none;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .reveal-btn {
+      background-color: #3498db;
+      color: white;
+    }
+    
+    .reveal-btn:hover {
+      background-color: #2980b9;
+    }
+    
+    .next-btn {
+      background-color: #2ecc71;
+      color: white;
+    }
+    
+    .next-btn:hover {
+      background-color: #27ae60;
+    }
+    
+    .result-buttons {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+      gap: 15px;
+    }
+    
+    .result-btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    
+    .correct-btn {
+      background-color: #2ecc71;
+      color: white;
+    }
+    
+    .correct-btn:hover {
+      background-color: #27ae60;
+    }
+    
+    .wrong-btn {
+      background-color: #e74c3c;
+      color: white;
+    }
+    
+    .wrong-btn:hover {
+      background-color: #c0392b;
+    }
+    
+    .pass-btn {
+      background-color: #95a5a6;
+      color: white;
+    }
+    
+    .pass-btn:hover {
+      background-color: #7f8c8d;
+    }
+    
+    .categories-section {
+      margin-top: 30px;
+      width: 100%;
+    }
+    
+    .categories-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+    
+    .category-group {
+      background-color: #f9f9f9;
+      border-radius: 8px;
+      padding: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .category-group h4 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 16px;
+      color: #333;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+    }
+    
+    .category-checkbox {
+      margin-bottom: 8px;
+    }
+    
+    /* Responsive styles */
+    @media (max-width: 768px) {
+      .controls-container {
+        flex-direction: column;
+      }
+      
+      .buzz-btn {
+        margin-right: 0;
+        margin-bottom: 15px;
+      }
+      
+      .stats-bar {
+        flex-wrap: wrap;
+      }
+      
+      .stat-item {
+        flex: 1 0 50%;
+        margin-bottom: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Jeopardy Study Tool</h1>
+    
+    <!-- Loading Section -->
+    <div id="loading-section" class="content-section">
+      <div class="auth-message">
+        <p>Loading...</p>
+        <div class="loader"></div>
+      </div>
+    </div>
+    
+    <!-- Not Logged In Section -->
+    <div id="not-logged-in" class="content-section hidden">
+      <div class="auth-message">
+        <p>Please sign in to access the Jeopardy Study Tool.</p>
+        <p>
+          <a href="/pages/account.html" class="btn">Sign In</a>
+          <a href="https://patreon.com/eviltrivia" class="btn btn-patreon">Join Patreon</a>
+        </p>
+      </div>
+    </div>
+    
+    <!-- Not Authorized Section -->
+    <div id="not-authorized" class="content-section hidden">
+      <div class="auth-message">
+        <p>You need to be a Patreon member to access the Jeopardy Study Tool.</p>
+        <p>
+          <a href="https://patreon.com/eviltrivia" class="btn btn-patreon">Join Patreon</a>
+        </p>
+      </div>
+    </div>
+    
+    <!-- Jeopardy Tool Authorized Section -->
+    <div id="jeopardy-authorized" style="display: none;">
+      <div class="content-section">
+        <div class="jeopardy-content">
+          <!-- Stats Bar -->
+          <div class="stats-bar">
+            <div class="stat-item">
+              <div class="stat-label">Questions</div>
+              <div class="stat-value" id="stats-questions">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Correct</div>
+              <div class="stat-value" id="stats-correct">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Incorrect</div>
+              <div class="stat-value" id="stats-incorrect">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Passed</div>
+              <div class="stat-value" id="stats-passed">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Avg Buzz</div>
+              <div class="stat-value" id="stats-avg-buzz">--</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Coryat</div>
+              <div class="stat-value" id="stats-coryat">$0</div>
+            </div>
+          </div>
+          
+          <!-- Question Container -->
+          <div class="question-container">
+            <div class="value-display" id="question-value">$200</div>
+            <div class="category-text" id="question-category">CATEGORY</div>
+            <div class="question-text" id="question-text">Press "Next Question" to start...</div>
+            <div class="answer-text hidden" id="answer-text"></div>
+          </div>
+          
+          <!-- Controls Container -->
+          <div class="controls-container">
+            <button id="buzz-btn" class="buzz-btn">BUZZ IN (SPACE)</button>
+            <div class="action-btns">
+              <button id="reveal-btn" class="action-btn reveal-btn">Reveal (R)</button>
+              <button id="next-btn" class="action-btn next-btn">Next Question (Q)</button>
+            </div>
+          </div>
+          
+          <!-- Result Buttons -->
+          <div class="result-buttons">
+            <button id="correct-btn" class="result-btn correct-btn">Correct (Y)</button>
+            <button id="wrong-btn" class="result-btn wrong-btn">Wrong (N)</button>
+            <button id="pass-btn" class="result-btn pass-btn">Pass (P)</button>
+          </div>
+          
+          <!-- Categories Section -->
+          <div class="categories-section">
+            <h3>Select Categories</h3>
+            <p>Filter the questions by selecting categories you want to practice:</p>
+            <div class="categories-grid" id="categories-grid">
+              <!-- Categories will be loaded dynamically -->
+              <div class="loader"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Audio elements for sound effects -->
+  <audio id="buzz-sound" src="/sounds/buzz.mp3" preload="auto"></audio>
+  <audio id="times-up-sound" src="/sounds/timesup.mp3" preload="auto"></audio>
+  
+  <!-- Firebase -->
+  <script type="module">
+    // Import Firebase modules
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+    import { getDatabase, ref, get, set, push } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.firebasestorage.app",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
+    };
+    
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+    
+    // DOM Elements
+    const loadingSection = document.getElementById('loading-section');
+    const notLoggedIn = document.getElementById('not-logged-in');
+    const notAuthorized = document.getElementById('not-authorized');
+    const jeopardyAuthorized = document.getElementById('jeopardy-authorized');
+    
+    // Jeopardy UI Elements
+    const questionCategory = document.getElementById('question-category');
+    const questionText = document.getElementById('question-text');
+    const answerText = document.getElementById('answer-text');
+    const questionValue = document.getElementById('question-value');
+    const buzzBtn = document.getElementById('buzz-btn');
+    const revealBtn = document.getElementById('reveal-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const correctBtn = document.getElementById('correct-btn');
+    const wrongBtn = document.getElementById('wrong-btn');
+    const passBtn = document.getElementById('pass-btn');
+    const categoriesGrid = document.getElementById('categories-grid');
+    
+    // Stats Elements
+    const statsQuestions = document.getElementById('stats-questions');
+    const statsCorrect = document.getElementById('stats-correct');
+    const statsIncorrect = document.getElementById('stats-incorrect');
+    const statsPassed = document.getElementById('stats-passed');
+    const statsAvgBuzz = document.getElementById('stats-avg-buzz');
+    const statsCoryat = document.getElementById('stats-coryat');
+    
+    // Sound Elements
+    const buzzSound = document.getElementById('buzz-sound');
+    const timesUpSound = document.getElementById('times-up-sound');
+    
+    // Game state variables
+    let jeopardyData = [];
+    let filteredQuestions = [];
+    let currentQuestionIndex = -1;
+    let currentQuestion = null;
+    let buzzedIn = false;
+    let buzzInTime = null;
+    let enableBuzzInTime = null;
+    let questionTimer = null;
+    let selectedCategories = new Set();
+    let isAdmin = false;
+    let userData = null;
+    
+    // Stats variables
+    let stats = {
+      questionsAnswered: 0,
+      correct: 0,
+      incorrect: 0,
+      passed: 0,
+      buzzTimes: [],
+      coryat: 0
+    };
+    
+    // Check if user is authorized
+    async function checkUserAuthorization(user) {
+      try {
+        // Check if user exists in database
+        const userSnapshot = await get(ref(db, `users/${user.uid}`));
+        if (!userSnapshot.exists()) {
+          console.log('User not found in database');
+          return false;
+        }
+        
+        userData = userSnapshot.val();
+        
+        // If user is admin, they're authorized
+        if (userData.role === 'admin') {
+          console.log('User is admin, access granted');
+          isAdmin = true;
+          return true;
+        }
+        
+        // Check if user has Patreon ID
+        if (!userData.patreonId) {
+          console.log('User has no Patreon ID');
+          return false;
+        }
+        
+        // Get Patreon settings - minimum pledge amount
+        const settingsSnapshot = await get(ref(db, 'adminSettings/patreon'));
+        if (!settingsSnapshot.exists()) {
+          console.log('Patreon settings not found');
+          return false;
+        }
+        
+        const patreonSettings = settingsSnapshot.val();
+        const requiredAmountCents = patreonSettings.requiredAmountCents || 500; // Default to $5 if not set
+        
+        // Get Patreon user data
+        const patreonSnapshot = await get(ref(db, `patreonUsers/${userData.patreonId}`));
+        if (!patreonSnapshot.exists()) {
+          console.log('Patreon user data not found');
+          return false;
+        }
+        
+        const patreonData = patreonSnapshot.val();
+        
+        // Check if user is active member with sufficient pledge
+        const membershipData = patreonData.membershipData || {};
+        const attributes = membershipData.attributes || {};
+        
+        // Check pledge amount
+        const pledgeAmountCents = patreonData.pledgeAmountCents || 
+                                  attributes.currently_entitled_amount_cents || 0;
+        
+        // Check if pledge amount meets minimum requirements
+        if (pledgeAmountCents >= requiredAmountCents && 
+            (patreonData.isActiveMember || attributes.patron_status === 'active_patron')) {
+          console.log('User is active Patreon member with sufficient pledge');
+          return true;
+        }
+        
+        console.log('User Patreon membership does not meet requirements');
+        return false;
+        
+      } catch (error) {
+        console.error('Error checking authorization:', error);
+        return false;
+      }
+    }
+    
+    // Handle auth state changes
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        console.log('User is signed in:', user.uid);
+        
+        // Check if user is authorized
+        const isAuthorized = await checkUserAuthorization(user);
+        
+        if (isAuthorized) {
+          // Show authorized content
+          loadingSection.classList.add('hidden');
+          notLoggedIn.classList.add('hidden');
+          notAuthorized.classList.add('hidden');
+          jeopardyAuthorized.style.display = 'block';
+          
+          // Load Jeopardy data and initialize the app
+          initializeJeopardyApp();
+        } else {
+          // Show not authorized message
+          loadingSection.classList.add('hidden');
+          notLoggedIn.classList.add('hidden');
+          notAuthorized.classList.remove('hidden');
+          jeopardyAuthorized.style.display = 'none';
+        }
+      } else {
+        // User is not signed in
+        console.log('User is not signed in');
+        loadingSection.classList.add('hidden');
+        notLoggedIn.classList.remove('hidden');
+        notAuthorized.classList.add('hidden');
+        jeopardyAuthorized.style.display = 'none';
+      }
+    });
+    
+    // Initialize the Jeopardy app
+    async function initializeJeopardyApp() {
+      try {
+        // 1. Load metadata
+        const metadataSnapshot = await get(ref(db, 'tools/jeopardy/metadata'));
+        if (!metadataSnapshot.exists()) {
+          console.error('Jeopardy metadata not found');
+          return;
+        }
+        
+        const metadata = metadataSnapshot.val();
+        console.log('Jeopardy metadata:', metadata);
+        
+        // 2. Load category index
+        const categoryIndexSnapshot = await get(ref(db, 'tools/jeopardy/categoryIndex'));
+        if (!categoryIndexSnapshot.exists()) {
+          console.error('Category index not found');
+          return;
+        }
+        
+        const categoryIndex = categoryIndexSnapshot.val();
+        
+        // 3. Populate category checkboxes
+        populateCategoryCheckboxes(categoryIndex);
+        
+        // 4. Load first batch of questions
+        const firstBatchSnapshot = await get(ref(db, 'tools/jeopardy/questions/batch0'));
+        if (!firstBatchSnapshot.exists()) {
+          console.error('First batch of questions not found');
+          return;
+        }
+        
+        jeopardyData = firstBatchSnapshot.val();
+        console.log(`Loaded ${jeopardyData.length} questions from batch 0`);
+        
+        // 5. Initialize game state
+        filteredQuestions = jeopardyData.slice();
+        
+        // 6. Load user stats if available
+        if (userData && userData.uid) {
+          const userStatsSnapshot = await get(ref(db, `users/${userData.uid}/jeopardyStats`));
+          if (userStatsSnapshot.exists()) {
+            stats = userStatsSnapshot.val();
+            updateStatsDisplay();
+          }
+        }
+        
+        // 7. Set up event listeners
+        setupEventListeners();
+        
+        // 8. Ready to start
+        nextQuestion();
+        
+      } catch (error) {
+        console.error('Error initializing Jeopardy app:', error);
+      }
+    }
+    
+    // Populate category checkboxes
+    function populateCategoryCheckboxes(categoryIndex) {
+      categoriesGrid.innerHTML = '';
+      
+      // Group categories by first letter
+      const categoriesByLetter = {};
+      
+      for (const category in categoryIndex) {
+        if (category && category.length > 0) {
+          const firstLetter = category.charAt(0).toUpperCase();
+          if (!categoriesByLetter[firstLetter]) {
+            categoriesByLetter[firstLetter] = [];
+          }
+          categoriesByLetter[firstLetter].push(category);
+        }
+      }
+      
+      // Create category groups
+      for (const letter in categoriesByLetter) {
+        const categoryGroup = document.createElement('div');
+        categoryGroup.className = 'category-group';
+        
+        const groupTitle = document.createElement('h4');
+        groupTitle.textContent = letter;
+        categoryGroup.appendChild(groupTitle);
+        
+        categoriesByLetter[letter].sort().forEach(category => {
+          const categoryItem = document.createElement('div');
+          categoryItem.className = 'category-checkbox';
+          
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.id = `category-${category.replace(/\s+/g, '-').toLowerCase()}`;
+          checkbox.value = category;
+          
+          const label = document.createElement('label');
+          label.htmlFor = checkbox.id;
+          label.textContent = ` ${category} (${categoryIndex[category].length})`;
+          
+          checkbox.addEventListener('change', handleCategoryChange);
+          
+          categoryItem.appendChild(checkbox);
+          categoryItem.appendChild(label);
+          categoryGroup.appendChild(categoryItem);
+        });
+        
+        categoriesGrid.appendChild(categoryGroup);
+      }
+    }
+    
+    // Handle category checkbox change
+    function handleCategoryChange(event) {
+      const category = event.target.value;
+      
+      if (event.target.checked) {
+        selectedCategories.add(category);
+      } else {
+        selectedCategories.delete(category);
+      }
+      
+      // Filter questions based on selected categories
+      filterQuestions();
+    }
+    
+    // Filter questions based on selected categories
+    function filterQuestions() {
+      if (selectedCategories.size === 0) {
+        // If no categories selected, use all questions
+        filteredQuestions = jeopardyData.slice();
+      } else {
+        // Filter to only include selected categories
+        filteredQuestions = jeopardyData.filter(q => selectedCategories.has(q.category));
+      }
+      
+      console.log(`Filtered to ${filteredQuestions.length} questions`);
+      
+      // Reset current question index
+      currentQuestionIndex = -1;
+      
+      // Load next question
+      nextQuestion();
+    }
+    
+    // Set up event listeners
+    function setupEventListeners() {
+      // Button click events
+      buzzBtn.addEventListener('click', buzzIn);
+      revealBtn.addEventListener('click', revealAnswer);
+      nextBtn.addEventListener('click', nextQuestion);
+      correctBtn.addEventListener('click', () => scoreAnswer('correct'));
+      wrongBtn.addEventListener('click', () => scoreAnswer('wrong'));
+      passBtn.addEventListener('click', () => scoreAnswer('pass'));
+      
+      // Keyboard shortcuts
+      document.addEventListener('keydown', (event) => {
+        // Prevent handling key events if in a text field
+        if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+          return;
+        }
+        
+        switch(event.key) {
+          case ' ':  // Space for buzzing in
+            buzzIn();
+            event.preventDefault();
+            break;
+          case 'r':  // R to reveal answer
+          case 'R':
+            revealAnswer();
+            break;
+          case 'q':  // Q for next question
+          case 'Q':
+            nextQuestion();
+            break;
+          case 'y':  // Y for correct
+          case 'Y':
+            scoreAnswer('correct');
+            break;
+          case 'n':  // N for wrong
+          case 'N':
+            scoreAnswer('wrong');
+            break;
+          case 'p':  // P for pass
+          case 'P':
+            scoreAnswer('pass');
+            break;
+        }
+      });
+    }
+    
+    // Buzz in function
+    function buzzIn() {
+      if (!buzzedIn && currentQuestion) {
+        buzzedIn = true;
+        clearTimeout(questionTimer);
+        
+        // Play buzz sound
+        buzzSound.play();
+        
+        // Calculate buzz time
+        const currentTime = performance.now();
+        buzzInTime = Math.round(currentTime - enableBuzzInTime);
+        
+        // Update stats
+        stats.buzzTimes.push(buzzInTime);
+        
+        // Update display
+        statsAvgBuzz.textContent = calculateAverageBuzzTime() + 'ms';
+        
+        // Auto-reveal after 1.5 seconds (simulating Jeopardy's time to answer)
+        setTimeout(revealAnswer, 1500);
+      }
+    }
+    
+    // Reveal answer function
+    function revealAnswer() {
+      if (currentQuestion) {
+        // Show the answer
+        answerText.textContent = currentQuestion.answer;
+        answerText.classList.remove('hidden');
+        
+        // If not buzzed in, mark as pass
+        if (!buzzedIn) {
+          scoreAnswer('pass');
+        }
+      }
+    }
+    
+    // Next question function
+    function nextQuestion() {
+      // Clear previous question timer if it exists
+      if (questionTimer) {
+        clearTimeout(questionTimer);
+      }
+      
+      // Reset state
+      buzzedIn = false;
+      buzzInTime = null;
+      answerText.classList.add('hidden');
+      
+      // Get a random question from filtered questions
+      if (filteredQuestions.length === 0) {
+        questionText.textContent = "No questions available with the selected filters. Please select different categories.";
+        questionCategory.textContent = "ERROR";
+        questionValue.textContent = "$0";
+        return;
+      }
+      
+      currentQuestionIndex = (currentQuestionIndex + 1) % filteredQuestions.length;
+      currentQuestion = filteredQuestions[currentQuestionIndex];
+      
+      // Update UI with question
+      questionCategory.textContent = currentQuestion.category;
+      questionText.textContent = currentQuestion.question;
+      answerText.textContent = "";
+      
+      // Set question value
+      const valueDisplay = currentQuestion.clue_value || 200;
+      questionValue.textContent = `$${valueDisplay}`;
+      
+      // Start timer for auto-reveal (5 seconds)
+      enableBuzzInTime = performance.now();
+      questionTimer = setTimeout(() => {
+        // Play times up sound
+        timesUpSound.play();
+        
+        // Reveal answer automatically
+        revealAnswer();
+      }, 5000);
+    }
+    
+    // Score answer function
+    function scoreAnswer(result) {
+      if (!currentQuestion) return;
+      
+      stats.questionsAnswered++;
+      
+      const questionValue = currentQuestion.clue_value || 200;
+      
+      switch(result) {
+        case 'correct':
+          stats.correct++;
+          stats.coryat += questionValue;
+          break;
+        case 'wrong':
+          stats.incorrect++;
+          stats.coryat -= questionValue;
+          break;
+        case 'pass':
+          stats.passed++;
+          break;
+      }
+      
+      // Update stats display
+      updateStatsDisplay();
+      
+      // Save stats to Firebase
+      if (userData && userData.uid) {
+        set(ref(db, `users/${userData.uid}/jeopardyStats`), stats);
+      }
+      
+      // Move to next question
+      setTimeout(nextQuestion, 1500);
+    }
+    
+    // Update stats display function
+    function updateStatsDisplay() {
+      statsQuestions.textContent = stats.questionsAnswered;
+      statsCorrect.textContent = stats.correct;
+      statsIncorrect.textContent = stats.incorrect;
+      statsPassed.textContent = stats.passed;
+      statsAvgBuzz.textContent = calculateAverageBuzzTime() + 'ms';
+      statsCoryat.textContent = `$${stats.coryat}`;
+    }
+    
+    // Calculate average buzz time
+    function calculateAverageBuzzTime() {
+      if (stats.buzzTimes.length === 0) return '--';
+      
+      const sum = stats.buzzTimes.reduce((total, time) => total + time, 0);
+      return Math.round(sum / stats.buzzTimes.length);
+    }
+  </script>
+</body>
+</html> 
