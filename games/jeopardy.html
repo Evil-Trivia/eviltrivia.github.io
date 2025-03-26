@@ -9,6 +9,7 @@
   <style>
     body {
       font-family: Arial, sans-serif;
+      padding-top: 60px; /* Add space for the banner */
     }
     
     h1, h2, h3 {
@@ -122,45 +123,53 @@
       width: 100%;
       background-color: #060CE9; /* Jeopardy blue */
       color: white;
-      padding: 30px;
-      border-radius: 8px;
+      padding: 40px 30px;
+      border-radius: 4px;
       margin-bottom: 20px;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-      min-height: 200px;
+      box-shadow: 0 6px 12px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.2);
+      min-height: 250px;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       position: relative;
+      border: 2px solid rgba(255,255,255,0.3);
+      text-align: center;
+      aspect-ratio: 4/3;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
     }
     
     .category-text {
-      font-size: 22px;
-      margin-bottom: 15px;
+      font-size: 24px;
+      margin-bottom: 20px;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 2px;
       font-weight: bold;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
       font-family: 'Anton', 'Impact', sans-serif;
     }
     
     .question-text {
-      font-size: 28px;
+      font-size: 32px;
       text-align: center;
       line-height: 1.4;
       font-family: 'Anton', 'Impact', sans-serif;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 1px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
     }
     
     .answer-text {
-      font-size: 24px;
+      font-size: 28px;
       text-align: center;
       margin-top: 20px;
       font-weight: bold;
       color: #FFCC33; /* Jeopardy gold */
       font-family: 'Anton', 'Impact', sans-serif;
       text-transform: uppercase;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
     }
     
     .value-display {
@@ -200,15 +209,27 @@
       letter-spacing: 1px;
     }
     
+    .buzz-btn:disabled {
+      background-color: #95a5a6;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    .buzz-btn.buzz-ready {
+      animation: pulse 1.5s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); background-color: #ff5e3a; }
+      100% { transform: scale(1); }
+    }
+    
     .buzz-btn:hover {
       background-color: #c0392b;
       transform: translateY(-2px);
       box-shadow: 0 6px 8px rgba(0,0,0,0.15);
-    }
-    
-    .buzz-btn:active {
-      transform: translateY(1px);
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     
     .action-btns {
@@ -737,12 +758,11 @@
         setupGameSelectionListeners();
         
         // 4. Load user stats if available
+        await loadUserStats();
+        
+        // 5. Check if user has a saved game in progress
         if (userData && userData.uid) {
-          const userStatsSnapshot = await get(ref(db, `users/${userData.uid}/jeopardyStats`));
-          if (userStatsSnapshot.exists()) {
-            stats = userStatsSnapshot.val();
-            updateStatsDisplay();
-          }
+          await checkSavedGame();
         }
         
       } catch (error) {
@@ -940,7 +960,7 @@
     
     // Buzz in function
     function buzzIn() {
-      if (!buzzedIn && currentQuestion) {
+      if (!buzzedIn && currentQuestion && enableBuzzInTime) {
         buzzedIn = true;
         clearTimeout(questionTimer);
         
@@ -956,9 +976,6 @@
         
         // Update display
         statsAvgBuzz.textContent = calculateAverageBuzzTime() + 'ms';
-        
-        // Auto-reveal after 1.5 seconds (simulating Jeopardy's time to answer)
-        setTimeout(revealAnswer, 1500);
       }
     }
     
@@ -966,13 +983,8 @@
     function revealAnswer() {
       if (currentQuestion) {
         // Show the answer
-        answerText.textContent = currentQuestion.answer;
+        answerText.textContent = currentQuestion.answer || "No answer available";
         answerText.classList.remove('hidden');
-        
-        // If not buzzed in, mark as pass
-        if (!buzzedIn) {
-          scoreAnswer('pass');
-        }
       }
     }
     
@@ -986,11 +998,17 @@
       // Reset state
       buzzedIn = false;
       buzzInTime = null;
+      enableBuzzInTime = null;
       answerText.classList.add('hidden');
+      
+      // Reset buzz button
+      buzzBtn.disabled = false;
+      buzzBtn.textContent = "BUZZ IN (SPACE)";
+      buzzBtn.classList.remove('buzz-ready');
       
       // Get a random question from filtered questions
       if (filteredQuestions.length === 0) {
-        questionText.textContent = "No questions available with the selected filters. Please select different categories.";
+        questionText.textContent = "No questions available for the selected date. Please select a different date.";
         questionCategory.textContent = "ERROR";
         questionValue.textContent = "$0";
         return;
@@ -1001,27 +1019,56 @@
       
       // Update UI with question
       questionCategory.textContent = currentQuestion.category;
-      questionText.textContent = currentQuestion.question;
+      
+      // In Jeopardy, the "question" field actually contains the clue/answer
+      // and the "answer" field contains the question response
+      questionText.textContent = currentQuestion.question || "No clue available";
       answerText.textContent = "";
       
       // Set question value
       const valueDisplay = currentQuestion.clue_value || 200;
       questionValue.textContent = `$${valueDisplay}`;
       
-      // Start timer for auto-reveal (5 seconds)
-      enableBuzzInTime = performance.now();
-      questionTimer = setTimeout(() => {
-        // Play times up sound
-        timesUpSound.play();
+      // Start timer for enabling buzz-in (5 seconds)
+      buzzBtn.disabled = true;
+      buzzBtn.textContent = "WAIT...";
+      
+      // Save current position in local storage
+      saveGameProgress();
+      
+      // Enable buzz-in after 5 seconds
+      setTimeout(() => {
+        enableBuzzInTime = performance.now();
+        buzzBtn.disabled = false;
+        buzzBtn.textContent = "BUZZ IN (SPACE)";
         
-        // Reveal answer automatically
-        revealAnswer();
+        // Add a timer animation to indicate buzz-in is available
+        buzzBtn.classList.add('buzz-ready');
+        
+        // Start timer for auto-reveal (8 seconds)
+        questionTimer = setTimeout(() => {
+          // Play times up sound
+          timesUpSound.play();
+          
+          // Reveal answer automatically
+          revealAnswer();
+          // Mark as pass if not buzzed in
+          if (!buzzedIn) {
+            scoreAnswer('pass');
+          }
+        }, 8000);
       }, 5000);
     }
     
     // Score answer function
     function scoreAnswer(result) {
       if (!currentQuestion) return;
+      
+      // If wrong answer but haven't revealed yet, allow another buzz-in attempt
+      if (result === 'wrong' && answerText.classList.contains('hidden')) {
+        buzzedIn = false;
+        return;
+      }
       
       stats.questionsAnswered++;
       
@@ -1050,7 +1097,7 @@
       }
       
       // Move to next question
-      setTimeout(nextQuestion, 1500);
+      setTimeout(nextQuestion, 2000);
     }
     
     // Update stats display function
@@ -1069,6 +1116,136 @@
       
       const sum = stats.buzzTimes.reduce((total, time) => total + time, 0);
       return Math.round(sum / stats.buzzTimes.length);
+    }
+    
+    // Load user stats
+    async function loadUserStats() {
+      if (userData && userData.uid) {
+        const userStatsSnapshot = await get(ref(db, `users/${userData.uid}/jeopardyStats`));
+        if (userStatsSnapshot.exists()) {
+          stats = userStatsSnapshot.val();
+          updateStatsDisplay();
+        }
+      }
+    }
+    
+    // Check if user has a saved game in progress
+    async function checkSavedGame() {
+      try {
+        const savedGameSnapshot = await get(ref(db, `users/${userData.uid}/jeopardyGameProgress`));
+        if (savedGameSnapshot.exists()) {
+          const savedGame = savedGameSnapshot.val();
+          
+          if (savedGame.date && savedGame.currentQuestionIndex >= 0) {
+            // Ask user if they want to resume
+            const resume = confirm(`You have a saved game from ${savedGame.date}. Would you like to resume?`);
+            
+            if (resume) {
+              // Auto-select the date
+              dateSelect.value = savedGame.date;
+              currentDate = savedGame.date;
+              
+              // Enable and trigger load button
+              loadGameBtn.disabled = false;
+              
+              // Custom function to load the saved game
+              loadSavedGame(savedGame);
+              return;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking saved game:', error);
+      }
+    }
+    
+    // Load a saved game
+    async function loadSavedGame(savedGame) {
+      try {
+        // Show loading indicator
+        loadGameBtn.disabled = true;
+        loadGameBtn.textContent = 'Loading...';
+        
+        // Get all games for the selected date
+        const dateData = jeopardyData[savedGame.date];
+        if (!dateData) {
+          throw new Error('No data found for selected date');
+        }
+        
+        // Process questions from all games on this date
+        currentQuestions = [];
+        const gameNumbers = Object.keys(dateData);
+        
+        // Loop through each game
+        for (const gameNumber of gameNumbers) {
+          const gameData = dateData[gameNumber];
+          const categories = Object.keys(gameData);
+          
+          // Extract all categories and questions for this game
+          for (const category of categories) {
+            const categoryData = gameData[category];
+            const dollarValues = Object.keys(categoryData);
+            
+            for (const value of dollarValues) {
+              // Process questions for this value
+              const questionsAtValue = categoryData[value];
+              const questionIndices = Object.keys(questionsAtValue);
+              
+              for (const index of questionIndices) {
+                const questionData = questionsAtValue[index];
+                
+                // Create a question object with all necessary information
+                const question = {
+                  ...questionData,
+                  category: category,
+                  date: savedGame.date,
+                  gameNumber: gameNumber,
+                  clue_value: parseInt(value, 10) || 0,
+                  index: index
+                };
+                
+                currentQuestions.push(question);
+              }
+            }
+          }
+        }
+        
+        console.log(`Loaded ${currentQuestions.length} questions from ${gameNumbers.length} games on ${savedGame.date}`);
+        
+        // Hide game selection and show game play
+        gameSelectionSection.style.display = 'none';
+        gamePlaySection.style.display = 'block';
+        
+        // Initialize game with all questions
+        filteredQuestions = currentQuestions.slice();
+        
+        // Set up game event listeners
+        setupEventListeners();
+        
+        // Set the question index from the saved game
+        currentQuestionIndex = savedGame.currentQuestionIndex - 1; // Subtract 1 because nextQuestion will add 1
+        
+        // Start the game
+        nextQuestion();
+        
+      } catch (error) {
+        console.error('Error loading saved game:', error);
+        loadGameBtn.disabled = false;
+        loadGameBtn.textContent = 'Load Clues';
+        alert('Error loading saved game: ' + error.message);
+      }
+    }
+    
+    // Save game progress
+    function saveGameProgress() {
+      if (userData && userData.uid && currentDate && currentQuestionIndex >= 0) {
+        // Save to Firebase
+        set(ref(db, `users/${userData.uid}/jeopardyGameProgress`), {
+          date: currentDate,
+          currentQuestionIndex: currentQuestionIndex,
+          timestamp: Date.now()
+        });
+      }
     }
     
     // Helper function to show debug errors
