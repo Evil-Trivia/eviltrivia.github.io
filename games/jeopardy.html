@@ -127,7 +127,7 @@
       border-radius: 4px;
       margin-bottom: 20px;
       box-shadow: 0 6px 12px rgba(0,0,0,0.3), inset 0 0 10px rgba(255,255,255,0.2);
-      min-height: 250px;
+      min-height: 220px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -135,14 +135,14 @@
       position: relative;
       border: 2px solid rgba(255,255,255,0.3);
       text-align: center;
-      aspect-ratio: 4/3;
-      max-width: 800px;
+      aspect-ratio: 16/9;
+      max-width: 700px;
       margin-left: auto;
       margin-right: auto;
     }
     
     .category-text {
-      font-size: 24px;
+      font-size: 28px;
       margin-bottom: 20px;
       text-transform: uppercase;
       letter-spacing: 2px;
@@ -152,7 +152,7 @@
     }
     
     .question-text {
-      font-size: 32px;
+      font-size: 36px;
       text-align: center;
       line-height: 1.4;
       font-family: 'Anton', 'Impact', sans-serif;
@@ -162,7 +162,7 @@
     }
     
     .answer-text {
-      font-size: 28px;
+      font-size: 32px;
       text-align: center;
       margin-top: 20px;
       font-weight: bold;
@@ -207,6 +207,8 @@
       transition: all 0.2s;
       font-family: 'Anton', 'Impact', sans-serif;
       letter-spacing: 1px;
+      border-bottom: 4px solid transparent;
+      position: relative;
     }
     
     .buzz-btn:disabled {
@@ -218,6 +220,33 @@
     
     .buzz-btn.buzz-ready {
       animation: pulse 1.5s infinite;
+      border-bottom: 4px solid #ff0000;
+    }
+    
+    /* Digital border effect for the buzz button */
+    .buzz-btn.buzz-ready::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: linear-gradient(90deg, 
+        #ff0000 0%, #ff0000 20%, 
+        #ff5e3a 20%, #ff5e3a 40%,
+        #ff0000 40%, #ff0000 60%,
+        #ff5e3a 60%, #ff5e3a 80%,
+        #ff0000 80%, #ff0000 100%);
+      animation: digitalBorder 0.5s infinite linear;
+    }
+    
+    @keyframes digitalBorder {
+      0% {
+        background-position: 0 0;
+      }
+      100% {
+        background-position: 20px 0;
+      }
     }
     
     @keyframes pulse {
@@ -417,7 +446,7 @@
     <!-- Loading Section -->
     <div id="loading-section" class="content-section">
       <div class="auth-message">
-        <p>Loading...</p>
+        <p id="loading-message">Loading...</p>
         <div class="loader"></div>
       </div>
     </div>
@@ -565,6 +594,7 @@
     const notLoggedIn = document.getElementById('not-logged-in');
     const notAuthorized = document.getElementById('not-authorized');
     const jeopardyAuthorized = document.getElementById('jeopardy-authorized');
+    const loadingMessage = document.getElementById('loading-message');
     
     // Game Selection UI Elements
     const dateSelect = document.getElementById('date-select');
@@ -694,18 +724,24 @@
       if (user) {
         console.log('User is signed in:', user.uid);
         
+        // Show loading message
+        loadingMessage.textContent = "Checking authorization...";
+        
         // Check if user is authorized
         const isAuthorized = await checkUserAuthorization(user);
         
         if (isAuthorized) {
+          // Update loading message
+          loadingMessage.textContent = "Loading Jeopardy data...";
+          
+          // Initialize the Jeopardy app
+          await initializeJeopardyApp();
+          
           // Show authorized content
           loadingSection.classList.add('hidden');
           notLoggedIn.classList.add('hidden');
           notAuthorized.classList.add('hidden');
           jeopardyAuthorized.style.display = 'block';
-          
-          // Load Jeopardy data and initialize the app
-          initializeJeopardyApp();
         } else {
           // Show not authorized message
           loadingSection.classList.add('hidden');
@@ -982,9 +1018,23 @@
     // Reveal answer function
     function revealAnswer() {
       if (currentQuestion) {
-        // Show the answer
-        answerText.textContent = currentQuestion.answer || "No answer available";
-        answerText.classList.remove('hidden');
+        // Show the Jeopardy response (which is phrased as a question)
+        // Prepend "What is" or "Who is" if it doesn't already start with it
+        let answerText = currentQuestion.answer || "No response available";
+        if (!answerText.toLowerCase().startsWith("what") && 
+            !answerText.toLowerCase().startsWith("who") && 
+            !answerText.toLowerCase().startsWith("where") && 
+            !answerText.toLowerCase().startsWith("when") &&
+            !answerText.toLowerCase().startsWith("how")) {
+          answerText = "What is " + answerText;
+        }
+        // Add question mark if missing
+        if (!answerText.endsWith("?")) {
+          answerText += "?";
+        }
+        
+        document.getElementById('answer-text').textContent = answerText;
+        document.getElementById('answer-text').classList.remove('hidden');
       }
     }
     
@@ -1020,8 +1070,9 @@
       // Update UI with question
       questionCategory.textContent = currentQuestion.category;
       
-      // In Jeopardy, the "question" field actually contains the clue/answer
-      // and the "answer" field contains the question response
+      // In Jeopardy format:
+      // - The "question" field contains the clue (the answer in Jeopardy terms)
+      // - The "answer" field contains the response (what contestants say as a question)
       questionText.textContent = currentQuestion.question || "No clue available";
       answerText.textContent = "";
       
