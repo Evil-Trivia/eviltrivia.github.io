@@ -372,6 +372,13 @@
       </div>
     </div>
     
+    <!-- Debug Information Section -->
+    <div id="debug-section" class="content-section hidden">
+      <h3 style="text-align: center; color: #e74c3c;">Jeopardy Data Loading Error</h3>
+      <p style="text-align: center;">There was an issue loading the Jeopardy data. Technical details below:</p>
+      <pre id="debug-info" style="background: #f9f9f9; padding: 15px; border-radius: 5px; max-height: 300px; overflow: auto; font-size: 12px; margin: 15px auto; white-space: pre-wrap;"></pre>
+    </div>
+    
     <!-- Jeopardy Tool Authorized Section -->
     <div id="jeopardy-authorized" style="display: none;">
       <div class="content-section">
@@ -629,37 +636,77 @@
     // Initialize the Jeopardy app
     async function initializeJeopardyApp() {
       try {
-        // 1. Load metadata
-        const metadataSnapshot = await get(ref(db, 'tools/jeopardy/metadata'));
-        if (!metadataSnapshot.exists()) {
-          console.error('Jeopardy metadata not found');
+        // 1. Load the list of available dates
+        const jeopardySnapshot = await get(ref(db, 'tools/jeopardy'));
+        if (!jeopardySnapshot.exists()) {
+          console.error('Jeopardy data not found');
+          showDebugError('Jeopardy data not found at path: tools/jeopardy');
           return;
         }
         
-        const metadata = metadataSnapshot.val();
-        console.log('Jeopardy metadata:', metadata);
+        const jeopardyRoot = jeopardySnapshot.val();
+        const dates = Object.keys(jeopardyRoot).filter(key => key.match(/^\d{4}-\d{2}-\d{2}$/));
+        console.log('Available dates:', dates);
         
-        // 2. Load category index
-        const categoryIndexSnapshot = await get(ref(db, 'tools/jeopardy/categoryIndex'));
-        if (!categoryIndexSnapshot.exists()) {
-          console.error('Category index not found');
+        if (dates.length === 0) {
+          console.error('No Jeopardy dates found');
+          showDebugError('No date-formatted keys found in tools/jeopardy. Data structure: ' + JSON.stringify(Object.keys(jeopardyRoot)));
           return;
         }
         
-        const categoryIndex = categoryIndexSnapshot.val();
+        // 2. Process all dates to extract categories and questions
+        const allQuestions = [];
+        const allCategories = new Set();
         
-        // 3. Populate category checkboxes
-        populateCategoryCheckboxes(categoryIndex);
-        
-        // 4. Load first batch of questions
-        const firstBatchSnapshot = await get(ref(db, 'tools/jeopardy/questions/batch0'));
-        if (!firstBatchSnapshot.exists()) {
-          console.error('First batch of questions not found');
-          return;
+        // Process each date to extract questions
+        for (const date of dates) {
+          const dateData = jeopardyRoot[date];
+          const gameNumbers = Object.keys(dateData);
+          
+          for (const gameNumber of gameNumbers) {
+            const gameData = dateData[gameNumber];
+            const gameCategories = Object.keys(gameData);
+            
+            for (const category of gameCategories) {
+              // Add to unique categories
+              allCategories.add(category);
+              
+              // Process questions for this category
+              const categoryData = gameData[category];
+              const dollarValues = Object.keys(categoryData);
+              
+              for (const value of dollarValues) {
+                // There might be multiple questions at each value (indexed by numbers)
+                const questionsAtValue = categoryData[value];
+                const questionIndices = Object.keys(questionsAtValue);
+                
+                for (const index of questionIndices) {
+                  const questionData = questionsAtValue[index];
+                  
+                  // Create a question object with all necessary information
+                  const question = {
+                    ...questionData,
+                    category: category,
+                    date: date,
+                    gameNumber: gameNumber,
+                    clue_value: parseInt(value, 10) || 0,
+                    index: index
+                  };
+                  
+                  allQuestions.push(question);
+                }
+              }
+            }
+          }
         }
         
-        jeopardyData = firstBatchSnapshot.val();
-        console.log(`Loaded ${jeopardyData.length} questions from batch 0`);
+        // 3. Store the processed data
+        jeopardyData = allQuestions;
+        categories = Array.from(allCategories);
+        console.log(`Loaded ${jeopardyData.length} questions from ${categories.length} categories`);
+        
+        // 4. Populate category checkboxes
+        populateCategoryCheckboxes(categories);
         
         // 5. Initialize game state
         filteredQuestions = jeopardyData.slice();
@@ -681,17 +728,18 @@
         
       } catch (error) {
         console.error('Error initializing Jeopardy app:', error);
+        showDebugError('Error initializing app: ' + error.message + '\n\nStack: ' + error.stack);
       }
     }
     
     // Populate category checkboxes
-    function populateCategoryCheckboxes(categoryIndex) {
+    function populateCategoryCheckboxes(categoryList) {
       categoriesGrid.innerHTML = '';
       
       // Group categories by first letter
       const categoriesByLetter = {};
       
-      for (const category in categoryIndex) {
+      for (const category of categoryList) {
         if (category && category.length > 0) {
           const firstLetter = category.charAt(0).toUpperCase();
           if (!categoriesByLetter[firstLetter]) {
@@ -719,9 +767,12 @@
           checkbox.id = `category-${category.replace(/\s+/g, '-').toLowerCase()}`;
           checkbox.value = category;
           
+          // Count questions in this category
+          const categoryCount = jeopardyData.filter(q => q.category === category).length;
+          
           const label = document.createElement('label');
           label.htmlFor = checkbox.id;
-          label.textContent = ` ${category} (${categoryIndex[category].length})`;
+          label.textContent = ` ${category} (${categoryCount})`;
           
           checkbox.addEventListener('change', handleCategoryChange);
           
@@ -944,6 +995,19 @@
       
       const sum = stats.buzzTimes.reduce((total, time) => total + time, 0);
       return Math.round(sum / stats.buzzTimes.length);
+    }
+    
+    // Helper function to show debug errors
+    function showDebugError(message) {
+      const debugSection = document.getElementById('debug-section');
+      const debugInfo = document.getElementById('debug-info');
+      
+      debugInfo.textContent = message;
+      debugSection.classList.remove('hidden');
+      
+      // Hide other sections
+      loadingSection.classList.add('hidden');
+      jeopardyAuthorized.style.display = 'none';
     }
   </script>
 </body>
