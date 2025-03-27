@@ -1387,6 +1387,9 @@
         // 4. Load user stats if available
         await loadUserStats();
         
+        // Check write permissions after loading stats
+        checkWritePermission();
+        
         // 5. Check if user has a saved game in progress
         if (userData && userData.uid) {
           const hasSavedGame = await checkSavedGame(false); // Don't prompt to resume
@@ -2288,6 +2291,24 @@
           } else {
             console.error('VERIFICATION FAILED: Data was not found at path after saving');
             
+            // Show error notification to user
+            const notification = document.createElement('div');
+            notification.style.position = 'fixed';
+            notification.style.bottom = '20px';
+            notification.style.right = '20px';
+            notification.style.background = 'rgba(231, 76, 60, 0.9)'; // Red
+            notification.style.color = 'white';
+            notification.style.padding = '10px';
+            notification.style.borderRadius = '5px';
+            notification.style.zIndex = '9999';
+            notification.textContent = 'Warning: Failed to verify saved data';
+            document.body.appendChild(notification);
+            
+            // Remove notification after 3 seconds
+            setTimeout(() => {
+              document.body.removeChild(notification);
+            }, 3000);
+            
             // Try another path as a test
             const testPath = `users/${userData.uid}/test_write`;
             console.log('Attempting to write to test path:', testPath);
@@ -2300,26 +2321,7 @@
           console.error('Error message:', error.message);
           console.error('Full error:', error);
           
-          // Check if this is a permission error
-          if (error.code === 'PERMISSION_DENIED') {
-            console.error('This appears to be a permissions issue. Checking alternative paths...');
-            
-            // Try writing to a different path to test permissions
-            const testPath = `users/${userData.uid}/test_write`;
-            console.log('Attempting to write to test path:', testPath);
-            set(ref(db, testPath), { test: true, timestamp: Date.now() })
-              .then(() => {
-                console.log('TEST SUCCESS: Could write to', testPath);
-                console.log('This suggests the issue is specific to the jeopardy path');
-              })
-              .catch(testError => {
-                console.error('TEST FAILED: Could not write to', testPath);
-                console.error('Error:', testError.message);
-                console.error('This suggests a general permissions issue');
-              });
-          }
-          
-          // Show error notification
+          // Show error notification to user
           const notification = document.createElement('div');
           notification.style.position = 'fixed';
           notification.style.bottom = '20px';
@@ -2329,13 +2331,30 @@
           notification.style.padding = '10px';
           notification.style.borderRadius = '5px';
           notification.style.zIndex = '9999';
-          notification.textContent = `Failed to save: ${error.message}`;
+          notification.textContent = `Error saving progress: ${error.message}`;
           document.body.appendChild(notification);
           
           // Remove notification after 5 seconds
           setTimeout(() => {
             document.body.removeChild(notification);
           }, 5000);
+          
+          // Check if this is a permission error
+          if (error.code === 'PERMISSION_DENIED') {
+            console.error('This appears to be a permissions issue. Checking alternative paths...');
+            
+            // Try writing to a different path to test permissions
+            const testPath = `users/${userData.uid}/test_write`;
+            console.log('Attempting to write to test path:', testPath);
+            set(ref(db, testPath), { test: true, timestamp: Date.now() })
+              .then(() => {
+                console.log('TEST SUCCESS: Could write to test path, but not to stats path. This suggests a rules issue.');
+              })
+              .catch(testError => {
+                console.error('TEST FAILED: Could not write to test path either:', testError.message);
+                console.error('This suggests a more general authentication or connection issue.');
+              });
+          }
         });
     }
     
@@ -2473,7 +2492,8 @@
     // Load user stats
     async function loadUserStats() {
       if (userData && userData.uid) {
-        const userStatsSnapshot = await get(ref(db, `users/${userData.uid}/jeopardyStats`));
+        // Fix the path to match where data is being saved in saveUserStats function
+        const userStatsSnapshot = await get(ref(db, `users/${userData.uid}/scores/jeopardy/stats`));
         if (userStatsSnapshot.exists()) {
           stats = userStatsSnapshot.val();
           
@@ -2872,9 +2892,9 @@
       updateStatsDisplay();
       updateModalStats();
       
-      // Save to Firebase
+      // Save to Firebase - use the same path as in saveUserStats
       if (userData && userData.uid) {
-        set(ref(db, `users/${userData.uid}/jeopardyStats`), stats);
+        set(ref(db, `users/${userData.uid}/scores/jeopardy/stats`), stats);
       }
       
       alert("Statistics have been reset successfully.");
@@ -2904,6 +2924,64 @@
       // Hide other sections
       loadingSection.classList.add('hidden');
       jeopardyAuthorized.style.display = 'none';
+    }
+    
+    // Check Firebase write permissions early during initialization
+    function checkWritePermission() {
+      console.log('Testing Firebase write permissions...');
+      
+      if (!userData || !userData.uid) {
+        console.error('No user data available to test permissions');
+        return;
+      }
+      
+      // Test paths we'll need to write to
+      const testPaths = [
+        `users/${userData.uid}/scores/test`,
+        `users/${userData.uid}/scores/jeopardy/stats`,
+        `users/${userData.uid}/scores/jeopardy/progress`
+      ];
+      
+      // Test each path
+      testPaths.forEach(path => {
+        const testData = {
+          test: 'permission_check',
+          timestamp: Date.now()
+        };
+        
+        console.log(`Testing write permission for: ${path}`);
+        set(ref(db, path), testData)
+          .then(() => {
+            console.log(`✅ PERMISSION TEST PASSED: Can write to ${path}`);
+            // Clean up test data
+            set(ref(db, path), null);
+          })
+          .catch(error => {
+            console.error(`❌ PERMISSION TEST FAILED: Cannot write to ${path}`);
+            console.error(`Error: ${error.code} - ${error.message}`);
+            
+            // Show alert for admin users
+            if (isAdmin) {
+              const notification = document.createElement('div');
+              notification.style.position = 'fixed';
+              notification.style.top = '70px';
+              notification.style.right = '20px';
+              notification.style.background = 'rgba(255, 152, 0, 0.9)'; // Orange
+              notification.style.color = 'white';
+              notification.style.padding = '10px';
+              notification.style.borderRadius = '5px';
+              notification.style.zIndex = '9999';
+              notification.style.maxWidth = '300px';
+              notification.innerHTML = `<strong>Admin Notice:</strong> Firebase permission issue detected.<br>Path: ${path}<br>Error: ${error.message}`;
+              document.body.appendChild(notification);
+              
+              // Remove notification after 10 seconds
+              setTimeout(() => {
+                document.body.removeChild(notification);
+              }, 10000);
+            }
+          });
+      });
     }
   </script>
 </body>
