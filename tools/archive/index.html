@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evil Trivia - Archive Viewer</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #FFCC00;
+            margin-top: 60px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 90%;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #555;
+            margin-top: -20px;
+            margin-bottom: 40px;
+        }
+        
+        .auth-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            max-width: 500px;
+            margin: 40px auto;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .auth-container h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .auth-container p {
+            margin-bottom: 20px;
+            color: #666;
+        }
+        
+        .auth-btn {
+            display: inline-block;
+            background-color: #000;
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .archive-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .load-more {
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .expandable {
+            border: 1px solid #eee;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        
+        .expandable-header {
+            background-color: #f5f5f5;
+            padding: 12px 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        
+        .expandable-header:hover {
+            background-color: #eaeaea;
+        }
+        
+        .expandable-content {
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s, padding 0.3s;
+        }
+        
+        .expandable.expanded .expandable-content {
+            padding: 15px;
+            max-height: 5000px;
+        }
+        
+        .caret {
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 8px solid #000;
+            transition: transform 0.3s;
+        }
+        
+        .expandable.expanded .caret {
+            transform: rotate(180deg);
+        }
+        
+        .trivia-card {
+            background-color: white;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .trivia-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background-color: #000;
+            color: white;
+        }
+        
+        .trivia-number {
+            font-size: 1.4rem;
+            font-weight: bold;
+        }
+        
+        .trivia-date {
+            color: #ccc;
+        }
+        
+        .rounds-container {
+            padding: 0 15px 15px;
+        }
+        
+        /* Round styling */
+        .round {
+            margin-top: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        
+        .round-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background-color: #f5f5f5;
+            cursor: pointer;
+        }
+        
+        .round-name {
+            font-weight: bold;
+        }
+        
+        .round-content {
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s, padding 0.3s;
+        }
+        
+        .round.expanded .round-content {
+            padding: 15px;
+            max-height: 2000px;
+        }
+        
+        /* Format styling */
+        .format {
+            margin-top: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        
+        .format-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background-color: #f9f9f9;
+            cursor: pointer;
+        }
+        
+        .format-name {
+            font-weight: bold;
+        }
+        
+        .format-content {
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s, padding 0.3s;
+        }
+        
+        .format.expanded .format-content {
+            padding: 15px;
+            max-height: 2000px;
+        }
+        
+        /* Question styling */
+        .question {
+            margin-bottom: 15px;
+            padding: 12px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border-left: 3px solid #ddd;
+        }
+        
+        .question:last-child {
+            margin-bottom: 0;
+        }
+        
+        .question-header {
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        
+        .question-content {
+            margin-bottom: 8px;
+        }
+        
+        .answer {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #ddd;
+        }
+        
+        .question-meta {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 8px;
+        }
+        
+        /* Metadata styling */
+        .metadata {
+            margin-bottom: 15px;
+            padding: 12px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        .metadata-item {
+            margin-bottom: 5px;
+        }
+        
+        .metadata-label {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        
+        /* Image and media styling */
+        .media-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .image-container {
+            max-width: 250px;
+            margin-bottom: 10px;
+        }
+        
+        .preview-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+        }
+        
+        .music-player {
+            width: 100%;
+            max-width: 450px;
+            margin-top: 10px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        /* Loading indicator */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 30px;
+            font-size: 16px;
+            color: #666;
+        }
+        
+        .loading::after {
+            content: "";
+            width: 20px;
+            height: 20px;
+            margin-left: 10px;
+            border-radius: 50%;
+            border: 3px solid #ddd;
+            border-top-color: #000;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        
+        .round-instruction {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            font-style: italic;
+        }
+        
+        .tag {
+            display: inline-block;
+            padding: 3px 8px;
+            margin-right: 5px;
+            background-color: #eee;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            color: #555;
+        }
+        
+        .expand-all-btn {
+            background-color: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 15px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .expand-all-btn:hover {
+            background-color: #333;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .container {
+                max-width: 100%;
+                padding: 10px;
+            }
+            
+            .trivia-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+            
+            .image-container {
+                max-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Trivia Archive</h1>
+        <p class="subtitle">Browse all trivia rounds and questions</p>
+        
+        <!-- Authentication Required Screen -->
+        <div id="auth-screen" class="auth-container hidden">
+            <h2>Access Required</h2>
+            <p>You need admin or tools privileges to access this page.</p>
+            <a href="/account" class="auth-btn">Go to Account Page</a>
+        </div>
+        
+        <!-- Archive Container -->
+        <div id="archive-screen" class="hidden">
+            <div class="archive-container">
+                <div class="controls">
+                    <div>
+                        <label for="items-per-page">Trivia Sets per Page:</label>
+                        <select id="items-per-page">
+                            <option value="5">5</option>
+                            <option value="10" selected>10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button id="expand-all" class="expand-all-btn">Expand All Trivia Sets</button>
+                        <button id="collapse-all" class="expand-all-btn">Collapse All</button>
+                    </div>
+                </div>
+                
+                <div id="archive-loading" class="loading">Loading archive data...</div>
+                
+                <div id="archive-list">
+                    <!-- Trivia sets will be loaded here -->
+                </div>
+                
+                <div class="load-more">
+                    <button id="load-more-btn" class="expand-all-btn">Load More</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebasestorage.app",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.database();
+        
+        // DOM Elements
+        const authScreen = document.getElementById('auth-screen');
+        const archiveScreen = document.getElementById('archive-screen');
+        const archiveList = document.getElementById('archive-list');
+        const archiveLoading = document.getElementById('archive-loading');
+        const loadMoreBtn = document.getElementById('load-more-btn');
+        const itemsPerPageSelect = document.getElementById('items-per-page');
+        const expandAllBtn = document.getElementById('expand-all');
+        const collapseAllBtn = document.getElementById('collapse-all');
+        
+        // Archive state
+        let lastTrivia = null;
+        let isLoading = false;
+        let hasMoreData = true;
+        let itemsPerPage = 10;
+        
+        // Helper function to format dates
+        function formatDate(dateString) {
+            if (!dateString) return 'Unknown Date';
+            
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return dateString;
+            
+            return date.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+        
+        // Helper function to escape HTML
+        function escapeHTML(str) {
+            if (!str) return '';
+            
+            // Convert to string first to ensure we're working with a string
+            const strValue = String(str);
+            
+            return strValue
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+        
+        // Create music player for audio clips
+        function createMusicPlayer(url) {
+            try {
+                if (!url) return '';
+                
+                // Detect if YouTube
+                if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                    let videoId;
+                    
+                    if (url.includes('youtube.com/watch')) {
+                        const urlParams = new URLSearchParams(new URL(url).search);
+                        videoId = urlParams.get('v');
+                    } else if (url.includes('youtu.be/')) {
+                        videoId = url.split('youtu.be/')[1].split('?')[0];
+                    }
+                    
+                    if (videoId) {
+                        return `
+                            <div class="music-player">
+                                <iframe width="100%" height="180" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+                            </div>
+                        `;
+                    }
+                }
+                
+                // Detect if SoundCloud
+                if (url.includes('soundcloud.com')) {
+                    return `
+                        <div class="music-player">
+                            <iframe width="100%" height="166" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff5500&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false"></iframe>
+                        </div>
+                    `;
+                }
+                
+                // If it's a direct Google Drive ID (not a full URL)
+                if (/^[a-zA-Z0-9_-]{25,}$/.test(url.trim())) {
+                    const fileId = url.trim();
+                    
+                    return `
+                        <div class="music-player">
+                            <iframe src="https://drive.google.com/file/d/${fileId}/preview" width="100%" height="80" allow="autoplay"></iframe>
+                        </div>
+                    `;
+                }
+                
+                // If not recognized as an embeddable service, just provide link
+                return `<a href="${escapeHTML(url)}" target="_blank" class="music-link">Listen to Music Clip</a>`;
+                
+            } catch (e) {
+                console.error('Error creating music player:', e);
+                return `<a href="${escapeHTML(url)}" target="_blank">Music Clip</a>`;
+            }
+        }
+        
+        // Create image preview
+        function createImagePreview(url, altText = 'Image') {
+            if (!url) return '';
+            
+            return `
+                <div class="image-container">
+                    <img src="${escapeHTML(url)}" alt="${escapeHTML(altText)}" class="preview-image" onclick="window.open('${escapeHTML(url)}', '_blank')">
+                </div>
+            `;
+        }
+        
+        // Toggle expandable sections
+        function toggleExpandable(element) {
+            element.classList.toggle('expanded');
+        }
+        
+        // Create a trivia card
+        function createTriviaCard(triviaNumber, triviaData) {
+            // Get date from metadata, ensuring it's a string or default to empty string
+            const triviaDate = triviaData.metadata && triviaData.metadata.date ? 
+                (typeof triviaData.metadata.date === 'string' ? 
+                    triviaData.metadata.date : 
+                    String(triviaData.metadata.date)) 
+                : '';
+            
+            // Create the card container
+            const card = document.createElement('div');
+            card.className = 'trivia-card';
+            card.id = `trivia-${triviaNumber}`;
+            
+            // Create the card header
+            const header = document.createElement('div');
+            header.className = 'trivia-header';
+            header.innerHTML = `
+                <div class="trivia-number">Trivia #${triviaNumber}</div>
+                <div class="trivia-date">${formatDate(triviaDate)}</div>
+            `;
+            
+            // Create the rounds container
+            const roundsContainer = document.createElement('div');
+            roundsContainer.className = 'rounds-container';
+            
+            // Check if trivia data exists
+            if (!triviaData.trivia) {
+                roundsContainer.innerHTML = '<p>No rounds data available for this trivia.</p>';
+            } else {
+                // Sort rounds by round number
+                const rounds = Object.entries(triviaData.trivia)
+                    .filter(([key, value]) => !isNaN(parseInt(key)) && typeof value === 'object')
+                    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+                
+                // Add rounds to the container
+                rounds.forEach(([roundNumber, roundData]) => {
+                    const roundElement = createRoundElement(triviaNumber, roundNumber, roundData);
+                    roundsContainer.appendChild(roundElement);
+                });
+            }
+            
+            // Assemble the card
+            card.appendChild(header);
+            card.appendChild(roundsContainer);
+            
+            // Make header clickable to expand/collapse the whole trivia
+            header.addEventListener('click', () => {
+                const allRounds = card.querySelectorAll('.round');
+                const isExpanded = card.classList.contains('expanded');
+                
+                card.classList.toggle('expanded');
+                
+                // Expand or collapse all rounds within this trivia
+                allRounds.forEach(round => {
+                    if (isExpanded) {
+                        round.classList.remove('expanded');
+                    } else {
+                        round.classList.add('expanded');
+                    }
+                });
+            });
+            
+            return card;
+        }
+        
+        // Create a round element
+        function createRoundElement(triviaNumber, roundNumber, roundData) {
+            // Get round name if available
+            let roundName = `Round ${roundNumber}`;
+            
+            // Create the round element
+            const roundElement = document.createElement('div');
+            roundElement.className = 'round';
+            roundElement.id = `trivia-${triviaNumber}-round-${roundNumber}`;
+            
+            // Create the round header
+            const roundHeader = document.createElement('div');
+            roundHeader.className = 'round-header';
+            
+            // Create the round content
+            const roundContent = document.createElement('div');
+            roundContent.className = 'round-content';
+            
+            // Get all formats in this round
+            const formats = Object.keys(roundData).filter(key => 
+                typeof roundData[key] === 'object' && key !== 'metadata'
+            );
+            
+            // Check if there's metadata for this round
+            if (roundData.metadata) {
+                const metadata = roundData.metadata;
+                if (metadata['Round Name']) {
+                    roundName = metadata['Round Name'];
+                }
+                
+                // Add round metadata section
+                const metadataSection = document.createElement('div');
+                metadataSection.className = 'metadata';
+                
+                let metadataHTML = '';
+                
+                // Add known metadata fields
+                if (metadata['Round Name']) {
+                    metadataHTML += `<div class="metadata-item"><span class="metadata-label">Round Name:</span> ${escapeHTML(metadata['Round Name'])}</div>`;
+                }
+                if (metadata['Round Type']) {
+                    metadataHTML += `<div class="metadata-item"><span class="metadata-label">Round Type:</span> ${escapeHTML(metadata['Round Type'])}</div>`;
+                }
+                if (metadata['Round Instruction']) {
+                    metadataHTML += `<div class="metadata-item"><span class="metadata-label">Round Instruction:</span> ${escapeHTML(metadata['Round Instruction'])}</div>`;
+                }
+                
+                // Add any other metadata fields that might exist
+                for (const [key, value] of Object.entries(metadata)) {
+                    if (key !== 'Round Name' && key !== 'Round Type' && key !== 'Round Instruction') {
+                        // Convert value to string representation even if it's not a string
+                        const stringValue = typeof value === 'object' && value !== null 
+                            ? JSON.stringify(value) 
+                            : String(value);
+                        metadataHTML += `<div class="metadata-item"><span class="metadata-label">${escapeHTML(key)}:</span> ${escapeHTML(stringValue)}</div>`;
+                    }
+                }
+                
+                if (metadataHTML) {
+                    metadataSection.innerHTML = metadataHTML;
+                    roundContent.appendChild(metadataSection);
+                }
+            }
+            
+            // Add formats to the round content
+            formats.forEach(format => {
+                const formatElement = createFormatElement(triviaNumber, roundNumber, format, roundData[format], roundName);
+                roundContent.appendChild(formatElement);
+            });
+            
+            // Set the round header content
+            roundHeader.innerHTML = `
+                <div class="round-name">${escapeHTML(roundName)}</div>
+                <div class="caret"></div>
+            `;
+            
+            // Make the header clickable
+            roundHeader.addEventListener('click', () => {
+                toggleExpandable(roundElement);
+            });
+            
+            // Assemble the round element
+            roundElement.appendChild(roundHeader);
+            roundElement.appendChild(roundContent);
+            
+            return roundElement;
+        }
+        
+        // Create a format element
+        function createFormatElement(triviaNumber, roundNumber, format, formatData, roundName) {
+            // Create the format element
+            const formatElement = document.createElement('div');
+            formatElement.className = 'format';
+            formatElement.id = `trivia-${triviaNumber}-round-${roundNumber}-format-${format}`;
+            
+            // Format display name
+            let formatDisplayName = format;
+            
+            // Check if format has a "Round Type" field that should be used instead
+            if (formatData['Round Type']) {
+                const roundType = formatData['Round Type'];
+                formatDisplayName = typeof roundType === 'string' ? roundType : String(roundType);
+            }
+            
+            // Create the format header
+            const formatHeader = document.createElement('div');
+            formatHeader.className = 'format-header';
+            formatHeader.innerHTML = `
+                <div class="format-name">${escapeHTML(formatDisplayName)}</div>
+                <div class="caret"></div>
+            `;
+            
+            // Create the format content
+            const formatContent = document.createElement('div');
+            formatContent.className = 'format-content';
+            
+            // Check for format-level instructions
+            if (formatData['Round Instruction']) {
+                const instruction = document.createElement('div');
+                instruction.className = 'round-instruction';
+                // Convert to string if not already a string
+                const instructionText = typeof formatData['Round Instruction'] === 'string' 
+                    ? formatData['Round Instruction'] 
+                    : String(formatData['Round Instruction']);
+                instruction.textContent = instructionText;
+                formatContent.appendChild(instruction);
+            }
+            
+            // Get all questions in this format
+            const questions = Object.entries(formatData)
+                .filter(([key, value]) => 
+                    typeof value === 'object' && 
+                    value !== null && 
+                    !isNaN(parseInt(key)) && 
+                    key !== 'metadata'
+                )
+                .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+            
+            // Add questions to the format content
+            questions.forEach(([questionNumber, questionData]) => {
+                const questionElement = createQuestionElement(questionNumber, questionData, format);
+                formatContent.appendChild(questionElement);
+            });
+            
+            // Make the header clickable
+            formatHeader.addEventListener('click', () => {
+                toggleExpandable(formatElement);
+            });
+            
+            // Assemble the format element
+            formatElement.appendChild(formatHeader);
+            formatElement.appendChild(formatContent);
+            
+            return formatElement;
+        }
+        
+        // Create a question element
+        function createQuestionElement(questionNumber, questionData, format) {
+            // Create the question container
+            const questionElement = document.createElement('div');
+            questionElement.className = 'question';
+            
+            // Create question header
+            const questionHeader = document.createElement('div');
+            questionHeader.className = 'question-header';
+            questionHeader.textContent = `Question ${questionNumber}`;
+            
+            // Extract common fields
+            const question = questionData.Question || questionData.question || '';
+            const answer = questionData.Answer || questionData.answer || '';
+            const imageLink = questionData['Image Link'] || questionData.image_link || '';
+            const answerImageLink = questionData['Answer Image Link'] || questionData.answer_image_link || '';
+            const musicClipLink = questionData['Music Clip Link'] || questionData.music_clip_link || '';
+            
+            // Ensure all values are strings
+            const questionStr = typeof question === 'string' ? question : String(question);
+            const answerStr = typeof answer === 'string' ? answer : String(answer);
+            const imageLinkStr = typeof imageLink === 'string' ? imageLink : String(imageLink);
+            const answerImageLinkStr = typeof answerImageLink === 'string' ? answerImageLink : String(answerImageLink);
+            const musicClipLinkStr = typeof musicClipLink === 'string' ? musicClipLink : String(musicClipLink);
+            
+            // Create question content
+            let questionHTML = `
+                <div class="question-content">${escapeHTML(questionStr)}</div>
+            `;
+            
+            // Add music player if there's a music clip
+            if (musicClipLinkStr) {
+                questionHTML += createMusicPlayer(musicClipLinkStr);
+            }
+            
+            // Add question image if available
+            if (imageLinkStr) {
+                questionHTML += `
+                    <div class="media-container">
+                        ${createImagePreview(imageLinkStr, 'Question Image')}
+                    </div>
+                `;
+            }
+            
+            // Add answer section
+            questionHTML += `
+                <div class="answer">
+                    <div class="question-header">Answer</div>
+                    <div class="question-content">${escapeHTML(answerStr)}</div>
+                    ${answerImageLinkStr ? `
+                        <div class="media-container">
+                            ${createImagePreview(answerImageLinkStr, 'Answer Image')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            // Add metadata/tags
+            const metadataFields = Object.entries(questionData).filter(([key, value]) => 
+                key !== 'Question' && 
+                key !== 'question' && 
+                key !== 'Answer' && 
+                key !== 'answer' && 
+                key !== 'Image Link' && 
+                key !== 'image_link' && 
+                key !== 'Answer Image Link' && 
+                key !== 'answer_image_link' && 
+                key !== 'Music Clip Link' && 
+                key !== 'music_clip_link' &&
+                key !== 'id' &&
+                key !== 'uid'
+            );
+            
+            if (metadataFields.length > 0) {
+                questionHTML += `<div class="question-meta">`;
+                
+                metadataFields.forEach(([key, value]) => {
+                    // Check if value exists and convert non-string values to appropriate string representation
+                    if (value !== null && value !== undefined) {
+                        // Convert value to string representation based on its type
+                        const stringValue = typeof value === 'object' && value !== null 
+                            ? JSON.stringify(value) 
+                            : String(value);
+                        questionHTML += `<span class="tag">${escapeHTML(key)}: ${escapeHTML(stringValue)}</span>`;
+                    }
+                });
+                
+                questionHTML += `</div>`;
+            }
+            
+            // Assemble the question element
+            questionElement.appendChild(questionHeader);
+            questionElement.innerHTML += questionHTML;
+            
+            return questionElement;
+        }
+        
+        // Load trivia data
+        async function loadTriviaData(limit = 10) {
+            if (isLoading || !hasMoreData) return;
+            
+            isLoading = true;
+            archiveLoading.style.display = 'flex';
+            loadMoreBtn.disabled = true;
+            
+            try {
+                let query = db.ref('trivia-archive/archive')
+                    .orderByKey()
+                    .limitToLast(limit);
+                
+                if (lastTrivia) {
+                    query = query.endBefore(lastTrivia);
+                }
+                
+                const snapshot = await query.once('value');
+                const data = snapshot.val();
+                
+                // Handle no data
+                if (!data) {
+                    archiveLoading.style.display = 'none';
+                    loadMoreBtn.disabled = false;
+                    isLoading = false;
+                    
+                    if (!lastTrivia) {
+                        archiveList.innerHTML = '<p class="no-results">No trivia data found in the archive.</p>';
+                    }
+                    
+                    hasMoreData = false;
+                    loadMoreBtn.style.display = 'none';
+                    return;
+                }
+                
+                // Sort by trivia number (descending)
+                const sortedTrivia = Object.entries(data)
+                    .sort((a, b) => parseInt(b[0]) - parseInt(a[0]));
+                
+                // Track the last trivia number for pagination
+                if (sortedTrivia.length > 0) {
+                    lastTrivia = sortedTrivia[sortedTrivia.length - 1][0];
+                }
+                
+                // Create trivia cards
+                sortedTrivia.forEach(([triviaNumber, triviaData]) => {
+                    const triviaCard = createTriviaCard(triviaNumber, triviaData);
+                    archiveList.appendChild(triviaCard);
+                });
+                
+                // Check if we've reached the end
+                if (sortedTrivia.length < limit) {
+                    hasMoreData = false;
+                    loadMoreBtn.style.display = 'none';
+                }
+                
+            } catch (error) {
+                console.error('Error loading trivia data:', error);
+                archiveList.innerHTML += `<p class="error">Error loading trivia data: ${error.message}</p>`;
+            } finally {
+                archiveLoading.style.display = 'none';
+                loadMoreBtn.disabled = false;
+                isLoading = false;
+            }
+        }
+        
+        // Event listeners
+        loadMoreBtn.addEventListener('click', () => {
+            loadTriviaData(itemsPerPage);
+        });
+        
+        itemsPerPageSelect.addEventListener('change', () => {
+            itemsPerPage = parseInt(itemsPerPageSelect.value);
+        });
+        
+        expandAllBtn.addEventListener('click', () => {
+            document.querySelectorAll('.trivia-card').forEach(card => {
+                card.classList.add('expanded');
+                
+                // Expand all rounds and formats within this trivia
+                card.querySelectorAll('.round, .format').forEach(element => {
+                    element.classList.add('expanded');
+                });
+            });
+        });
+        
+        collapseAllBtn.addEventListener('click', () => {
+            document.querySelectorAll('.trivia-card, .round, .format').forEach(element => {
+                element.classList.remove('expanded');
+            });
+        });
+        
+        // Check if user is admin or has tools access
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                try {
+                    // Get user data
+                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
+                    const userData = snapshot.val() || {};
+                    
+                    // Check for admin or tools role
+                    const isAdmin = 
+                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+                        (userData.role === 'admin');
+                    
+                    const hasToolsAccess =
+                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
+                        (userData.role === 'tools');
+                    
+                    if (isAdmin || hasToolsAccess) {
+                        // User has appropriate access, show archive interface
+                        authScreen.classList.add('hidden');
+                        archiveScreen.classList.remove('hidden');
+                        
+                        // Load the data
+                        loadTriviaData(itemsPerPage);
+                    } else {
+                        // User does not have access
+                        authScreen.classList.remove('hidden');
+                        archiveScreen.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error('Error checking user role:', error);
+                    authScreen.classList.remove('hidden');
+                    archiveScreen.classList.add('hidden');
+                }
+            } else {
+                // User is not signed in
+                authScreen.classList.remove('hidden');
+                archiveScreen.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html> 

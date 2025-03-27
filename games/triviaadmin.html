@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evil Trivia - Trivia Admin</title>
+  <script src="/js/components/autoload-banner.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #FFCC00;
+      margin-top: 60px;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1, h2, h3 {
+      color: #333;
+    }
+    
+    .content-section {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    
+    .auth-message {
+      text-align: center;
+      padding: 50px;
+      font-size: 18px;
+      color: #666;
+    }
+    
+    .btn {
+      display: inline-block;
+      background-color: #000;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+      transition: background-color 0.3s;
+    }
+    
+    .btn:hover {
+      background-color: #333;
+    }
+    
+    .btn-danger {
+      background-color: #dc3545;
+    }
+    
+    .btn-danger:hover {
+      background-color: #bd2130;
+    }
+    
+    .btn-success {
+      background-color: #28a745;
+    }
+    
+    .btn-success:hover {
+      background-color: #218838;
+    }
+    
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 14px;
+    }
+    
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 2s linear infinite;
+      margin: 20px auto;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .hidden {
+      display: none;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    
+    input, select, textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    
+    textarea {
+      min-height: 100px;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    
+    th, td {
+      padding: 12px;
+      border: 1px solid #ddd;
+      text-align: left;
+    }
+    
+    th {
+      background-color: #f5f5f5;
+      font-weight: bold;
+    }
+    
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    
+    .active-row {
+      background-color: #e8f4fd !important;
+    }
+    
+    .file-upload {
+      margin-top: 10px;
+      padding: 15px;
+      border: 2px dashed #ddd;
+      background-color: #f9f9f9;
+      text-align: center;
+      border-radius: 4px;
+    }
+    
+    .alert {
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
+    
+    .alert-success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .alert-danger {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Trivia Administration</h1>
+    
+    <!-- Loading State -->
+    <div id="loading-section" class="auth-message">
+      <div class="loader"></div>
+      <p>Loading trivia administration...</p>
+    </div>
+    
+    <!-- Not Authorized State -->
+    <div id="not-authorized" class="auth-message hidden">
+      <h2>Admin Access Required</h2>
+      <p>You must be an admin to access this page.</p>
+      <div style="margin-top: 20px;">
+        <a href="/games/trivia.html" class="btn">Back to Trivia</a>
+        <a href="/pages/account.html" class="btn">Go to Account</a>
+      </div>
+    </div>
+    
+    <!-- Admin Content -->
+    <div id="admin-content" class="hidden">
+      <!-- Status Messages -->
+      <div id="success-alert" class="alert alert-success hidden"></div>
+      <div id="error-alert" class="alert alert-danger hidden"></div>
+      
+      <!-- Navigation Buttons -->
+      <div style="margin-bottom: 20px;">
+        <a href="/games/trivia.html" class="btn">Back to Trivia</a>
+      </div>
+      
+      <!-- Active Trivia Section -->
+      <div class="content-section">
+        <h2>Active Trivia</h2>
+        <div id="active-trivia-info">
+          <p>Current active trivia: <strong id="current-trivia-name">Loading...</strong></p>
+        </div>
+        <div class="form-group">
+          <label for="active-trivia-selector">Change Active Trivia:</label>
+          <select id="active-trivia-selector" class="form-control"></select>
+        </div>
+        <button id="btn-set-active" class="btn btn-success">Set as Active</button>
+      </div>
+      
+      <!-- Trivia List Section -->
+      <div class="content-section">
+        <h2>All Trivias</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Number</th>
+              <th>Name</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="trivia-list"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Firebase -->
+  <script type="module">
+    // Import Firebase modules
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+    import { getDatabase, ref, get, set, remove, update, push, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.firebasestorage.app",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
+    };
+    
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+    
+    // DOM Elements
+    const loadingSection = document.getElementById('loading-section');
+    const notAuthorized = document.getElementById('not-authorized');
+    const adminContent = document.getElementById('admin-content');
+    const successAlert = document.getElementById('success-alert');
+    const errorAlert = document.getElementById('error-alert');
+    const currentTriviaName = document.getElementById('current-trivia-name');
+    const activeTriviaSelector = document.getElementById('active-trivia-selector');
+    const btnSetActive = document.getElementById('btn-set-active');
+    const triviaList = document.getElementById('trivia-list');
+    
+    // Check if user is admin
+    async function checkAdminAccess(user) {
+      try {
+        const userSnapshot = await get(ref(db, `users/${user.uid}`));
+        if (!userSnapshot.exists()) {
+          return false;
+        }
+        
+        const userData = userSnapshot.val();
+        return userData.role === 'admin';
+      } catch (error) {
+        console.error('Error checking admin access:', error);
+        return false;
+      }
+    }
+    
+    // Handle auth state changes
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        console.log('User is signed in:', user.uid);
+        
+        // Check if user is admin
+        const isAdmin = await checkAdminAccess(user);
+        
+        if (isAdmin) {
+          // Show admin content
+          loadingSection.classList.add('hidden');
+          notAuthorized.classList.add('hidden');
+          adminContent.classList.remove('hidden');
+          
+          // Load trivia data
+          loadTriviaData();
+        } else {
+          // Not authorized
+          loadingSection.classList.add('hidden');
+          notAuthorized.classList.remove('hidden');
+          adminContent.classList.add('hidden');
+        }
+      } else {
+        // User is not signed in
+        loadingSection.classList.add('hidden');
+        notAuthorized.classList.remove('hidden');
+        adminContent.classList.add('hidden');
+      }
+    });
+    
+    // Load trivia data
+    async function loadTriviaData() {
+      try {
+        // Listen for active trivia changes
+        onValue(ref(db, 'trivia-archive/active'), (snapshot) => {
+          if (snapshot.exists()) {
+            const activeTrivia = snapshot.val();
+            currentTriviaName.textContent = `#${activeTrivia.number}: ${activeTrivia.name}`;
+          } else {
+            currentTriviaName.textContent = 'None set';
+          }
+        }, (error) => {
+          console.error('Error listening to active trivia:', error);
+          showError('Error loading active trivia: ' + error.message);
+        });
+        
+        // Load available trivias for the selector and table
+        await loadAvailableTrivias();
+      } catch (error) {
+        console.error('Error loading trivia data:', error);
+        showError('Failed to load trivia data: ' + error.message);
+      }
+    }
+    
+    // Load available trivias
+    async function loadAvailableTrivias() {
+      try {
+        // Clear existing options
+        activeTriviaSelector.innerHTML = '';
+        triviaList.innerHTML = '';
+        
+        // Get list of available trivias from archive
+        const snapshot = await get(ref(db, 'trivia-archive/archive'));
+        
+        if (snapshot.exists()) {
+          const trivias = snapshot.val();
+          
+          // Format the trivias into a usable format for the selector and table
+          const formattedTrivias = [];
+          
+          // Process the trivia data from the archive format
+          Object.entries(trivias).forEach(([triviaNumber, triviaData]) => {
+            if (triviaData.triviaName) {
+              formattedTrivias.push({
+                number: triviaNumber,
+                name: triviaData.triviaName,
+                createdAt: triviaData.date || 'Unknown'
+              });
+            }
+          });
+          
+          // Sort trivias by number (descending)
+          formattedTrivias.sort((a, b) => parseInt(b.number) - parseInt(a.number));
+          
+          // Get active trivia for highlighting
+          const activeSnapshot = await get(ref(db, 'trivia-archive/active'));
+          const activeNumber = activeSnapshot.exists() ? activeSnapshot.val().number : null;
+          
+          // Add trivias to selector and table
+          formattedTrivias.forEach((trivia) => {
+            // Add to selector
+            const option = document.createElement('option');
+            option.value = trivia.number;
+            option.textContent = `Trivia #${trivia.number}: ${trivia.name}`;
+            activeTriviaSelector.appendChild(option);
+            
+            // Add to table
+            const row = document.createElement('tr');
+            if (trivia.number === activeNumber) {
+              row.classList.add('active-row');
+            }
+            
+            row.innerHTML = `
+              <td>${trivia.number}</td>
+              <td>${trivia.name}</td>
+              <td>${trivia.createdAt ? new Date(trivia.createdAt).toLocaleDateString() : 'Unknown'}</td>
+              <td>
+                <button class="btn btn-sm btn-success set-active-btn" data-number="${trivia.number}">Set Active</button>
+              </td>
+            `;
+            triviaList.appendChild(row);
+          });
+          
+          // Add event listeners to table buttons
+          document.querySelectorAll('.set-active-btn').forEach(btn => {
+            btn.addEventListener('click', () => setActiveTrivia(btn.dataset.number));
+          });
+        } else {
+          // No trivias found
+          triviaList.innerHTML = '<tr><td colspan="4">No trivias available in archive</td></tr>';
+        }
+      } catch (error) {
+        console.error('Error loading available trivias:', error);
+        showError('Failed to load available trivias: ' + error.message);
+      }
+    }
+    
+    // Set active trivia
+    async function setActiveTrivia(number) {
+      try {
+        // Get trivia details
+        const snapshot = await get(ref(db, `trivia-archive/archive/${number}`));
+        if (!snapshot.exists()) {
+          showError(`Trivia #${number} not found in archive`);
+          return;
+        }
+        
+        const triviaData = snapshot.val();
+        
+        // Update active trivia
+        await set(ref(db, 'trivia-archive/active'), {
+          number: number,
+          name: triviaData.triviaName || `Trivia #${number}`,
+          updatedAt: new Date().toISOString(),
+          updatedBy: auth.currentUser.uid
+        });
+        
+        showSuccess(`Trivia #${number} is now active`);
+        
+        // Reload table to update highlighting
+        loadAvailableTrivias();
+      } catch (error) {
+        console.error('Error setting active trivia:', error);
+        showError('Failed to set active trivia: ' + error.message);
+      }
+    }
+    
+    // Show success message
+    function showSuccess(message) {
+      successAlert.textContent = message;
+      successAlert.classList.remove('hidden');
+      errorAlert.classList.add('hidden');
+      
+      // Hide after 3 seconds
+      setTimeout(() => {
+        successAlert.classList.add('hidden');
+      }, 3000);
+    }
+    
+    // Show error message
+    function showError(message) {
+      errorAlert.textContent = message;
+      errorAlert.classList.remove('hidden');
+      successAlert.classList.add('hidden');
+      
+      // Hide after 5 seconds
+      setTimeout(() => {
+        errorAlert.classList.add('hidden');
+      }, 5000);
+    }
+    
+    // Event Listeners
+    
+    // Set active trivia button
+    btnSetActive.addEventListener('click', () => {
+      const selectedNumber = activeTriviaSelector.value;
+      if (selectedNumber) {
+        setActiveTrivia(selectedNumber);
+      } else {
+        showError('Please select a trivia to set as active');
+      }
+    });
+  </script>
+</body>
+</html> 

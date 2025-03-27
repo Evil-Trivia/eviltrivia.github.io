@@ -1,0 +1,2235 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Evil Trivia Grading</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background-color: #FFCC00;
+            margin-top: 60px; /* Adjust based on your banner height */
+        }
+        .screen {
+            display: none;
+            margin-bottom: 30px;
+        }
+        .screen.active {
+            display: block;
+        }
+        .section {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-top: 15px;
+            background-color: white;
+            border-radius: 8px;
+            width: 95%;  /* Adjust width to match parent */
+            max-width: 1200px;  /* Set a reasonable max-width */
+            margin-left: auto;
+            margin-right: auto;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 14px;
+            background-color: #000000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #333333;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .table-responsive {
+            width: 100%;  /* Take up full width of parent */
+            margin: 0 auto;
+            overflow-x: auto;
+        }
+        .table-responsive table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .table-responsive th,
+        .table-responsive td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        select {
+            width: 100%;
+            max-height: 38px;
+            overflow-y: auto;
+        }
+        
+        /* Style for dropdown options */
+        select option {
+            padding: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .rubric-section {
+            max-width: 95% !important; /* Override the default section width */
+            margin: 15px auto;
+            overflow-x: auto;
+        }
+
+        .rubric-table {
+            min-width: 100%;
+            white-space: nowrap;
+        }
+
+        .rubric-table th, .rubric-table td {
+            padding: 8px 12px;
+            min-width: 80px; /* Ensure columns don't get too narrow */
+        }
+
+        .rubric-table input[type="number"] {
+            width: 60px;
+        }
+
+        .sort-button {
+            background-color: #4CAF50 !important; /* Green */
+            margin-right: 10px;
+        }
+
+        .rubric-table tr {
+            transition: all 0.3s ease-in-out;
+        }
+
+        .rubric-table tr.moving {
+            background-color: #f0f0f0;
+            transform: scale(1.01);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .score-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin: 5px 0;
+        }
+        .score-btn {
+            background-color: #ddd;
+            color: #000;
+            border: 1px solid #999;
+            border-radius: 4px;
+            padding: 6px;
+            cursor: pointer;
+            width: 70px;
+            text-align: center;
+            transition: all 0.2s ease;
+        }
+        .score-btn:hover {
+            background-color: #ccc;
+        }
+        .score-btn.selected {
+            background-color: #4a4a4a;
+            color: white;
+            border-color: #000;
+        }
+        .score-btn[data-value="100"],
+        .score-btn[data-value="50"],
+        .score-btn[data-value="0"] {
+            font-size: 16px;
+            width: 90px;
+            font-weight: bold;
+            padding: 8px;
+            margin: 2px 0;
+        }
+        
+        /* Table styles */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        th {
+            background: #f5f5f5;
+        }
+        tr:nth-child(even) {
+            background: #fafafa;
+        }
+
+        #btnSortTeams {
+            background-color: #4CAF50;  /* Green */
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+
+        #btnSortTeams:hover {
+            background-color: #45a049;
+        }
+
+        #btnTriviaBreakdown {
+            background-color: #333;  /* Black */
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        #btnTriviaBreakdown:hover {
+            background-color: #000;
+        }
+
+        /* Make the button row stick to the top */
+        .button-row {
+            position: sticky;
+            top: 0;
+            background: white;
+            padding: 10px 0;
+            z-index: 1;
+        }
+
+        /* Make sure inputs don't overflow */
+        #newTeamName,
+        #newTeamSize {
+            max-width: 200px;
+        }
+
+        .table-responsive table tr {
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .table-responsive table tr.moving {
+            z-index: 2;
+            transform: scale(1.02);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .table-responsive table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .table-responsive table tr:nth-child(odd) {
+            background-color: #ffffff;
+        }
+
+        .table-responsive th {
+            background-color: #ffffff;  /* White header */
+            border: 1px solid #ddd;
+        }
+
+        .table-responsive td {
+            border: 1px solid #ddd;
+        }
+
+        /* Keep the table header visible when scrolling */
+        .table-responsive thead {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        /* Add styles for rank cells */
+        .rank-cell {
+            font-weight: bold;
+        }
+
+        /* 2) Condense rounds (reduce padding, smaller text, etc.) */
+        .grading-table td {
+            padding: 6px; /* smaller padding */
+            vertical-align: top; /* keep the table more compressed vertically */
+            font-size: 13px;     /* slightly smaller text */
+        }
+
+        .grading-table th {
+            padding: 6px;
+            font-size: 14px;
+        }
+
+        /* Simple round selection dialog styling */
+        .round-dialog {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%,-50%);
+            background: #fff;
+            border: 1px solid #ccc;
+            padding: 20px;
+            z-index: 9999;
+            border-radius: 6px;
+        }
+        .round-dialog button {
+            margin-right: 10px;
+        }
+
+        /* General buttons (light gray by default, black when selected) */
+        button.round-btn {
+            background-color: #ddd;
+            color: #000;
+            border: 1px solid #999;
+            border-radius: 4px;
+            padding: 8px 14px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button.round-btn.selected {
+            background-color: #000;
+            color: #fff;
+        }
+
+        /* Grading Table */
+        .grading-table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #fff;
+        }
+        .grading-table th,
+        .grading-table td {
+            border: 1px solid #ccc;
+            padding: 6px;
+            font-size: 13px;
+            vertical-align: middle;  /* Center vertically */
+            text-align: center;     /* Center horizontally */
+        }
+        .grading-table th {
+            background-color: #f8f8f8;
+        }
+        .score-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        /* Simple "Switch Session" button in the rubric screen */
+        .switch-session-btn {
+            margin-left: 20px;
+            background-color: #444;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .switch-session-btn:hover {
+            background-color: #222;
+        }
+
+        #authContainer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            text-align: center;
+        }
+
+        #authContainer .section {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #000000;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+
+        .button:hover {
+            background-color: #333333;
+        }
+
+        .table-responsive th.narrow-col {
+            width: 80px;
+            min-width: 80px;
+            max-width: 80px;
+            white-space: normal;
+            font-size: 14px;
+            padding: 5px;
+        }
+
+        .table-responsive td input.bonus-input {
+            width: 60px !important;
+            padding: 4px;
+            text-align: center;
+        }
+
+        .table-responsive td.size-penalty {
+            text-align: center;
+            width: 80px;
+            min-width: 80px;
+            max-width: 80px;
+        }
+
+        /* Make sure table cells don't expand unnecessarily */
+        .table-responsive td {
+            white-space: nowrap;
+        }
+
+        /* Ensure the team name column can still grow */
+        .table-responsive td:nth-child(2) {
+            white-space: normal;
+            min-width: 150px;
+        }
+
+        /* Add styles for the breakdown screen */
+        .sortable {
+            cursor: pointer;
+            position: relative;
+        }
+
+        .sortable:after {
+            content: '↕';
+            position: absolute;
+            right: 8px;
+            color: #999;
+        }
+
+        .sortable.asc:after {
+            content: '↑';
+        }
+
+        .sortable.desc:after {
+            content: '↓';
+        }
+
+        #breakdownTable {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed; /* This ensures columns maintain their width */
+        }
+
+        #breakdownTable th, #breakdownTable td {
+            padding: 8px;
+            text-align: left;
+            border: 1px solid #ddd;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Specific column widths */
+        #breakdownTable th:nth-child(1), /* Format */
+        #breakdownTable td:nth-child(1) {
+            width: 80px;
+        }
+
+        #breakdownTable th:nth-child(2), /* Round */
+        #breakdownTable td:nth-child(2),
+        #breakdownTable th:nth-child(3), /* Order */
+        #breakdownTable td:nth-child(3),
+        #breakdownTable th:nth-child(4), /* Q# */
+        #breakdownTable td:nth-child(4) {
+            width: 60px;
+            text-align: center;
+        }
+
+        .question-col {
+            width: 300px;
+        }
+
+        /* Question and Answer cells */
+        .question-cell {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 300px;
+            position: relative;
+        }
+
+        /* Hover effect to show full content */
+        .question-cell:hover {
+            white-space: normal;
+            overflow: visible;
+            background: white;
+            position: absolute;
+            z-index: 10;
+            border: 1px solid #ccc;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+            padding: 8px;
+            width: 300px;
+        }
+
+        /* Numeric columns */
+        #breakdownTable th:nth-child(7), /* Correct */
+        #breakdownTable td:nth-child(7),
+        #breakdownTable th:nth-child(8), /* Total */
+        #breakdownTable td:nth-child(8),
+        #breakdownTable th:nth-child(9) { /* % */
+            width: 80px;
+            text-align: right;
+        }
+
+        /* Add styles for compact mode */
+        .compact-mode .grading-table td:nth-child(2) {
+            display: none; /* Hide question column */
+        }
+
+        .compact-mode .grading-table th:nth-child(2) {
+            display: none; /* Hide question header */
+        }
+
+        .compact-mode .grading-table td,
+        .compact-mode .grading-table th {
+            padding: 3px;
+            font-size: 12px;
+        }
+
+        .compact-mode .score-buttons {
+            flex-direction: row;
+            flex-wrap: wrap;
+        }
+
+        .compact-mode .score-btn {
+            padding: 3px;
+            width: 40px;
+            font-size: 11px;
+            margin: 1px;
+        }
+
+        .compact-mode .score-btn[data-value="100"],
+        .compact-mode .score-btn[data-value="50"],
+        .compact-mode .score-btn[data-value="0"] {
+            width: 40px;
+            font-size: 11px;
+            padding: 3px;
+        }
+
+        .bottom-controls {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+            position: sticky;
+            bottom: 0;
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Add CSS for no-data rows */
+        .no-data {
+            opacity: 0.6;
+        }
+
+        /* Toast notification styles */
+        .toast-notification {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background-color: rgba(50, 50, 50, 0.9);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            z-index: 1000;
+            opacity: 0;
+            transition: transform 0.4s ease-out, opacity 0.4s ease-out;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .toast-notification.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        /* For error toasts */
+        .toast-notification.error {
+            background-color: rgba(200, 50, 50, 0.9);
+        }
+
+        /* For success toasts */
+        .toast-notification.success {
+            background-color: rgba(50, 180, 50, 0.9);
+        }
+    </style>
+</head>
+<body>
+    <div id="authContainer" class="screen">
+        <div class="section">
+            <h2>Authentication Required</h2>
+            <p>You must be logged in as a grader or admin to access this page.</p>
+            <a href="/pages/account.html" class="button">Log In or Sign Up</a>
+        </div>
+    </div>
+
+    <h1>Evil Trivia: Grading</h1>
+
+    <!-- Session Setup Screen -->
+    <div id="screenSessionSetup" class="screen">
+        <div class="section">
+            <h2>Grading Session</h2>
+            <div>
+                <button id="btnNewSession">Create New Session</button>
+                <button id="btnResumeSession">Resume Existing Session</button>
+            </div>
+        </div>
+        
+        <!-- New Session Form (initially hidden) -->
+        <div id="newSessionForm" class="section" style="display: none;">
+            <h3>Create New Session</h3>
+            <div>
+                <label>Location:</label>
+                <select id="locationSelect" style="max-width: 400px;">
+                    <option value="">Select a location...</option>
+                </select>
+            </div>
+            <div>
+                <label>Date:</label>
+                <input type="date" id="dateInput" />
+            </div>
+            <div>
+                <label>Select Trivia:</label>
+                <select id="triviaNumSelect" style="max-width: 400px;"></select>
+            </div>
+            <button id="btnCreateSession">Create Session</button>
+        </div>
+
+        <!-- Existing Sessions List (initially hidden) -->
+        <div id="existingSessionsList" class="section" style="display: none;">
+            <h3>Select Existing Session</h3>
+            <select id="existingSessionSelect" style="max-width: 400px;">
+                <option value="">Select a session...</option>
+            </select>
+            <button id="btnLoadSession">Load Session</button>
+        </div>
+    </div>
+
+    <!-- Team Setup Screen -->
+    <div id="screenTeamSetup" class="screen">
+        <div class="section">
+            <h2>Team Setup</h2>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Team Name</th>
+                            <th>Size</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="teamTableBody">
+                        <!-- Teams will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 20px;">
+                <input type="text" id="newTeamName" placeholder="Team Name" />
+                <input type="number" id="newTeamSize" placeholder="Team Size" min="1" max="10" />
+                <button id="btnAddTeam">Add Team</button>
+            </div>
+            <div class="button-row">
+                <button id="btnStartGrading">Start Grading</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Rubric Screen -->
+    <div id="screenRubric" class="screen">
+        <div class="button-row">
+            <button id="btnSortTeams">Sort Teams</button>
+            <button id="btnTriviaBreakdown">Trivia Breakdown</button>
+            <button id="btnGradeRound">Grade Round</button>
+            <button id="btnReturnToTeamInfo">Return to Team Information</button>
+            <button class="switch-session-btn" id="btnSwitchSession">Switch Session</button>
+        </div>
+        <div class="table-responsive">
+            <table>
+                <thead id="scoresTableHead">
+                    <!-- Headers will be inserted here -->
+                </thead>
+                <tbody id="scoresTableBody">
+                    <!-- Scores will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add new screen for grading -->
+    <div id="screenGrading" class="screen">
+        <div class="section grading-section">
+            <h2>Grade Round <span id="currentRoundNum"></span></h2>
+            
+            <div class="control-buttons" style="margin-bottom: 20px;">
+                <select id="teamSelect" style="max-width: 400px;">
+                    <option value="">Select a team...</option>
+                </select>
+                <button id="btnSaveGrades">Save Grades</button>
+                <button id="btnReturnToRubricFromGrading">Return to Rubric</button>
+                <button id="btnToggleCompactMode">Compact Mode</button>
+            </div>
+
+            <div id="gradingForm">
+                <!-- Questions will be populated here -->
+            </div>
+            
+            <div class="bottom-controls">
+                <div>
+                    <button id="btnSaveGradesBottom">Save Grades</button>
+                    <button id="btnReturnToRubricBottom">Return to Rubric</button>
+                </div>
+                <div>
+                    <h3>Current Score: <span id="liveScoreBottom">0.0</span></h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add new Trivia Breakdown Screen -->
+    <div id="screenTriviaBreakdown" class="screen">
+        <div class="button-row">
+            <button id="btnReturnFromBreakdown">Return to Rubric</button>
+            <select id="breakdownScope">
+                <option value="session">Current Session Only</option>
+                <option value="allTime">All-Time Statistics</option>
+            </select>
+        </div>
+        <div class="table-responsive">
+            <table id="breakdownTable">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-sort="format">Format</th>
+                        <th class="sortable" data-sort="round">Round</th>
+                        <th class="sortable" data-sort="order">Order</th>
+                        <th class="sortable" data-sort="number">Q#</th>
+                        <th class="question-col">Question</th>
+                        <th class="question-col">Answer</th>
+                        <th class="sortable" data-sort="right">Right</th>
+                        <th class="sortable" data-sort="wrong">Wrong</th>
+                    </tr>
+                </thead>
+                <tbody id="breakdownTableBody">
+                    <!-- Data will be populated here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Rest of the screens will go here -->
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+        import { getDatabase, ref, child, get, set, update } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebasestorage.app",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        // Add variable to store original team order
+        let originalTeamOrder = [];
+
+        // Authentication check
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                // User is signed in, check their role
+                try {
+                    const userRoleRef = ref(db, `users/${user.uid}/role`);
+                    const roleSnapshot = await get(userRoleRef);
+                    
+                    if (roleSnapshot.exists()) {
+                        const role = roleSnapshot.val();
+                        if (role === 'admin' || role === 'grader') {
+                            // User has correct role, show grading interface
+                            document.getElementById('authContainer').style.display = 'none';
+                            document.getElementById('screenSessionSetup').style.display = 'block';
+                            // Load any necessary data
+                            if (typeof loadSessions === 'function') {
+                                await loadSessions();
+                            }
+                        } else {
+                            // User doesn't have correct role
+                            alert('You do not have permission to access this page.');
+                            window.location.href = '/pages/account.html';
+                        }
+                    } else {
+                        // No role found
+                        alert('User role not found. Please contact administrator.');
+                        window.location.href = '/pages/account.html';
+                    }
+                } catch (error) {
+                    console.error("Error checking user role:", error);
+                    alert('Error checking permissions. Please try again.');
+                }
+            } else {
+                // No user is signed in
+                document.getElementById('authContainer').style.display = 'block';
+                document.getElementById('screenSessionSetup').style.display = 'none';
+            }
+        });
+
+        // Add a logout button
+        const logoutButton = document.createElement('button');
+        logoutButton.textContent = 'Logout';
+        logoutButton.onclick = () => {
+            signOut(auth).then(() => {
+                window.location.href = '/pages/account.html';
+            }).catch((error) => {
+                console.error('Error signing out:', error);
+            });
+        };
+        logoutButton.style.position = 'fixed';
+        logoutButton.style.top = '10px';
+        logoutButton.style.right = '10px';
+        document.body.appendChild(logoutButton);
+
+        // Screen navigation
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        // Event Listeners
+        document.getElementById('btnNewSession').addEventListener('click', async () => {
+            console.log("New session button clicked");
+            document.getElementById('newSessionForm').style.display = 'block';
+            document.getElementById('existingSessionsList').style.display = 'none';
+            
+            try {
+                await Promise.all([
+                    loadLocations(),
+                    loadTriviaOptions()
+                ]);
+                console.log("Locations and trivia options loaded");
+            } catch (error) {
+                console.error("Error loading form data:", error);
+                alert("Error loading form data. Please try again.");
+            }
+        });
+
+        document.getElementById('btnResumeSession').addEventListener('click', async () => {
+            document.getElementById('newSessionForm').style.display = 'none';
+            document.getElementById('existingSessionsList').style.display = 'block';
+            await loadExistingSessions();
+        });
+
+        document.getElementById('btnLoadSession').addEventListener('click', async () => {
+            const sessionId = document.getElementById('existingSessionSelect').value;
+            if (!sessionId) {
+                alert("Please select a session");
+                return;
+            }
+
+            localStorage.setItem('currentGradingSession', sessionId);
+            await setupTeamScreen();
+            showScreen('screenTeamSetup');
+        });
+
+        // Update createGradingSession function
+        async function createGradingSession() {
+            try {
+                const location = document.getElementById('locationSelect').value;
+                const date = document.getElementById('dateInput').value;
+                const triviaNumber = document.getElementById('triviaNumSelect').value;
+                
+                console.log("Creating session with:", { location, date, triviaNumber });
+                
+                if (!location || !date || !triviaNumber) {
+                    alert("Please fill in all fields");
+                    return;
+                }
+
+                // Format date for session ID (YYYYMMDD)
+                const dateFormatted = date.split('-').join('');
+                
+                // Create safe location name for path (remove special characters)
+                const safeLocation = location.replace(/[.#$[\]]/g, '_');
+                
+                // Generate session ID
+                const sessionId = `${dateFormatted}_${safeLocation}_${triviaNumber}`;
+                console.log("Generated session ID:", sessionId);
+
+                // Get trivia name
+                const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}`));
+                if (!triviaSnap.exists()) {
+                    throw new Error(`Trivia #${triviaNumber} not found`);
+                }
+                const triviaName = triviaSnap.val().triviaName || '';
+                console.log("Found trivia name:", triviaName);
+
+                // Create session data object
+                const sessionData = {
+                    location: location,
+                    date: date,
+                    triviaNumber: parseInt(triviaNumber),
+                    triviaName: triviaName,
+                    createdAt: new Date().toISOString(),
+                    availability: {
+                        "1": true  // Set round 1 as available by default
+                    }
+                };
+                console.log("Session data:", sessionData);
+
+                // Create session in database
+                await set(ref(db, `grading/${sessionId}`), sessionData);
+                console.log("Session created successfully");
+
+                // Store session ID in localStorage
+                localStorage.setItem('currentGradingSession', sessionId);
+                
+                // Setup team screen and show it
+                await setupTeamScreen();
+                showScreen('screenTeamSetup');
+
+            } catch (error) {
+                console.error("Error creating grading session:", error);
+                console.error("Error stack:", error.stack);
+                alert("Error creating grading session. Please try again.");
+            }
+        }
+
+        // Add setupTeamScreen function if it doesn't exist
+        async function setupTeamScreen() {
+            try {
+                const sessionId = localStorage.getItem('currentGradingSession');
+                if (!sessionId) {
+                    throw new Error("No session ID found");
+                }
+
+                // Clear existing team table
+                const teamTableBody = document.getElementById('teamTableBody');
+                teamTableBody.innerHTML = '';
+
+                // Load existing teams if any
+                const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
+                if (teamsSnap.exists()) {
+                    const teams = teamsSnap.val();
+                    Object.entries(teams).forEach(([teamId, team]) => {
+                        const row = document.createElement('tr');
+                        row.id = `team_${teamId}`;
+                        row.innerHTML = `
+                            <td class="team-name">${team.name}</td>
+                            <td class="team-size">${team.size}</td>
+                            <td>
+                                <button onclick="editTeam('${teamId}')">Edit</button>
+                                <button onclick="deleteTeam('${teamId}')">Delete</button>
+                            </td>
+                        `;
+                        teamTableBody.appendChild(row);
+                    });
+                }
+
+                // Clear input fields
+                document.getElementById('newTeamName').value = '';
+                document.getElementById('newTeamSize').value = '';
+
+            } catch (error) {
+                console.error("Error setting up team screen:", error);
+                alert("Error setting up team screen. Please try again.");
+            }
+        }
+
+        // Make deleteTeam function available globally
+        window.deleteTeam = async (teamId) => {
+            const sessionId = localStorage.getItem('currentGradingSession');
+            if (!sessionId || !teamId) return;
+
+            try {
+                await set(ref(db, `grading/${sessionId}/teams/${teamId}`), null);
+                await loadTeams();
+            } catch (error) {
+                console.error("Error deleting team:", error);
+                alert("Error deleting team. Please try again.");
+            }
+        };
+
+        // Event Listeners
+        document.getElementById('btnCreateSession').addEventListener('click', async () => {
+            console.log("Create session button clicked");
+            const location = document.getElementById('locationSelect').value;
+            const date = document.getElementById('dateInput').value;
+            const triviaNumber = document.getElementById('triviaNumSelect').value;
+            
+            console.log("Form values:", { location, date, triviaNumber });
+            
+            if (!location || !date || !triviaNumber) {
+                alert("Please fill in all fields");
+                return;
+            }
+
+            try {
+                await createGradingSession();
+            } catch (error) {
+                console.error("Error creating session:", error);
+                alert("Error creating session. Please try again.");
+            }
+        });
+
+        // Add event listener for adding teams
+        document.getElementById('btnAddTeam').addEventListener('click', async () => {
+            try {
+                const teamName = document.getElementById('newTeamName').value.trim();
+                const teamSize = parseInt(document.getElementById('newTeamSize').value);
+                
+                console.log("Adding team:", { teamName, teamSize });
+                
+                if (!teamName || !teamSize) {
+                    alert("Please enter both team name and size");
+                    return;
+                }
+
+                const sessionId = localStorage.getItem('currentGradingSession');
+                if (!sessionId) {
+                    console.error("No session ID found");
+                    alert("Session error. Please start over.");
+                    showScreen('screenSessionSetup');
+                    return;
+                }
+
+                // Create team data object
+                const teamData = {
+                    name: teamName,
+                    size: teamSize,
+                    createdAt: new Date().toISOString(),
+                    round1: { total: 0 },
+                    round2: { total: 0 },
+                    round3: { total: 0 },
+                    igChallenge: 0,
+                    teamNameBonus: 0,
+                    finalChallenge: 0
+                };
+
+                console.log("Team data:", teamData);
+                console.log("Session ID:", sessionId);
+
+                // Generate a unique team ID
+                const teamId = `team_${Date.now()}`;
+
+                // Create the full path
+                const teamPath = `grading/${sessionId}/teams/${teamId}`;
+                console.log("Team path:", teamPath);
+
+                // Set the team data
+                await set(ref(db, teamPath), teamData);
+                console.log("Team added successfully");
+
+                // Clear inputs
+                document.getElementById('newTeamName').value = '';
+                document.getElementById('newTeamSize').value = '';
+                document.getElementById('newTeamName').focus();
+
+                // Refresh team list
+                await setupTeamScreen();
+
+            } catch (error) {
+                console.error("Error adding team:", error);
+                console.error("Error stack:", error.stack);
+                alert("Error adding team. Please try again.");
+            }
+        });
+
+        // Add event listener for starting grading
+        document.getElementById('btnStartGrading').addEventListener('click', async () => {
+            await loadRubricScores();
+            showScreen('screenRubric');
+        });
+
+        // Add enter key handler for team size input
+        document.getElementById('newTeamSize').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('btnAddTeam').click();
+                document.getElementById('newTeamName').focus(); // Focus back to team name for next entry
+            }
+        });
+
+        // Add edit team functionality
+        window.editTeam = async (teamId) => {
+            const sessionId = localStorage.getItem('currentGradingSession');
+            if (!sessionId || !teamId) return;
+
+            const row = document.getElementById(`team_${teamId}`);
+            const currentName = row.querySelector('.team-name').textContent;
+            const currentSize = row.querySelector('.team-size').textContent;
+
+            // Replace cells with inputs
+            row.innerHTML = `
+                <td>
+                    <input type="text" class="edit-name" value="${currentName}" />
+                </td>
+                <td>
+                    <input type="number" class="edit-size" value="${currentSize}" min="1" max="10" />
+                </td>
+                <td>
+                    <button onclick="saveTeamEdit('${teamId}')">Save</button>
+                    <button onclick="cancelTeamEdit('${teamId}')">Cancel</button>
+                </td>
+            `;
+        };
+
+        // Update the return to team info button handler
+        document.getElementById('btnReturnToTeamInfo').addEventListener('click', async () => {
+            await setupTeamScreen();  // This function should already exist
+            showScreen('screenTeamSetup');
+        });
+
+        // Update the team editing functionality to preserve scores
+        window.saveTeamEdit = async (teamId) => {
+            const sessionId = localStorage.getItem('currentGradingSession');
+            if (!sessionId || !teamId) return;
+
+            const row = document.getElementById(`team_${teamId}`);
+            const newName = row.querySelector('.edit-name').value.trim();
+            const newSize = parseInt(row.querySelector('.edit-size').value);
+
+            if (!newName || !newSize) {
+                alert("Please fill in both team name and size");
+                return;
+            }
+
+            try {
+                // Get existing team data first
+                const teamSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}`));
+                const existingTeam = teamSnap.exists() ? teamSnap.val() : {};
+
+                // Update only name and size, preserve all other data
+                await set(ref(db, `grading/${sessionId}/teams/${teamId}`), {
+                    ...existingTeam,  // Keep all existing data (scores, etc.)
+                    name: newName,
+                    size: newSize,
+                    updatedAt: new Date().toISOString()
+                });
+                
+                await loadTeams(); // Refresh the list
+            } catch (error) {
+                console.error("Error updating team:", error);
+                alert("Error updating team. Please try again.");
+            }
+        };
+
+        // Add cancel edit functionality
+        window.cancelTeamEdit = async (teamId) => {
+            await loadTeams(); // Just reload the teams to reset the view
+        };
+
+        // Add this function after the other function declarations
+        async function checkLastSession() {
+            const lastSessionId = localStorage.getItem('currentGradingSession');
+            if (!lastSessionId) return false;
+
+            try {
+                const sessionSnap = await get(child(ref(db), `grading/${lastSessionId}`));
+                if (!sessionSnap.exists()) {
+                    localStorage.removeItem('currentGradingSession');
+                    return false;
+                }
+
+                const session = sessionSnap.val();
+                // Check if session is closed
+                if (session.closed) {
+                    localStorage.removeItem('currentGradingSession');
+                    return false;
+                }
+
+                // Session exists and is open
+                await loadRubricScores();
+                showScreen('screenRubric');
+                return true;
+            } catch (error) {
+                console.error("Error checking last session:", error);
+                return false;
+            }
+        }
+
+        // Update the initialization code
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                console.log("DOM Content Loaded");
+                const auth = getAuth();
+                
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        console.log("User is authenticated");
+                        const userRoleRef = ref(db, `users/${user.uid}/role`);
+                        const roleSnapshot = await get(userRoleRef);
+                        
+                        if (roleSnapshot.exists() && 
+                            (roleSnapshot.val() === 'admin' || roleSnapshot.val() === 'grader')) {
+                            console.log("User has correct role");
+                            document.getElementById('authContainer').style.display = 'none';
+                            document.getElementById('screenSessionSetup').style.display = 'block';
+                            
+                            // Check for existing session
+                            const hasActiveSession = await checkLastSession();
+                            if (!hasActiveSession) {
+                                console.log("No active session, showing setup screen");
+                                setDefaultDate();
+                                // Don't load options until "Create New Session" is clicked
+                            }
+                        }
+                    } else {
+                        console.log("No user authenticated");
+                        document.getElementById('authContainer').style.display = 'block';
+                        document.getElementById('screenSessionSetup').style.display = 'none';
+                    }
+                });
+            } catch (error) {
+                console.error("Error during initialization:", error);
+                console.error(error.stack);
+            }
+        });
+
+        // Function to get team order
+        async function getTeamOrder(sessionId) {
+            const orderSnap = await get(child(ref(db), `grading/${sessionId}/teamOrder`));
+            if (orderSnap.exists()) {
+                return orderSnap.val();
+            }
+            // If no order exists, get teams and create initial order
+            const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
+            if (teamsSnap.exists()) {
+                const initialOrder = Object.keys(teamsSnap.val());
+                await set(ref(db, `grading/${sessionId}/teamOrder`), initialOrder);
+                return initialOrder;
+            }
+            return [];
+        }
+
+        // Add function to update live score
+        function updateLiveScore() {
+            let totalScore = 0;
+            document.querySelectorAll('.score-buttons').forEach(group => {
+                const maxPoints = parseFloat(group.dataset.maxPoints);
+                const selectedBtn = group.querySelector('.score-btn.selected');
+                if (selectedBtn) {
+                    const percentage = parseInt(selectedBtn.dataset.value) / 100;
+                    totalScore += maxPoints * percentage;
+                }
+            });
+            const scoreValue = totalScore.toFixed(2);
+            document.getElementById('liveScore').textContent = scoreValue;
+            document.getElementById('liveScoreBottom').textContent = scoreValue;
+        }
+
+        // Add helper function to calculate size penalty
+        function calculateSizePenalty(teamSize) {
+            if (teamSize <= 6) return 0;
+            return -2 * (teamSize - 5); // This formula gives us: 7->-4, 8->-6, 9->-8, etc.
+        }
+
+        // Update loadRubricScores function
+        async function loadRubricScores(doSort = false) {
+            const sessionId = localStorage.getItem('currentGradingSession');
+            if (!sessionId) return;
+
+            try {
+                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
+                if (!sessionSnap.exists()) return;
+                const session = sessionSnap.val();
+                
+                const showFinalChallenge = session.availability?.finalChallenge === 'manual';
+                
+                const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
+                if (!teamsSnap.exists()) return;
+                const teams = teamsSnap.val();
+
+                const tableHeaders = `
+                    <tr>
+                        <th>Rank</th>
+                        <th>Team Name</th>
+                        <th>Size</th>
+                        <th>Round 1</th>
+                        <th>Round 2</th>
+                        <th>Round 3</th>
+                        <th class="narrow-col">IG<br>Challenge</th>
+                        <th class="narrow-col">Team<br>Name<br>Bonus</th>
+                        ${showFinalChallenge ? '<th class="narrow-col">Final<br>Challenge</th>' : ''}
+                        <th class="narrow-col">Size<br>Penalty</th>
+                        <th>Total</th>
+                    </tr>
+                `;
+
+                // Create array of teams with their scores
+                let teamScores = Object.entries(teams).map(([teamId, team]) => {
+                    const roundScores = [
+                        parseFloat(team.round1?.total || 0),
+                        parseFloat(team.round2?.total || 0),
+                        parseFloat(team.round3?.total || 0)
+                    ];
+                    
+                    const igChallenge = parseInt(team.igChallenge || 0);
+                    const teamNameBonus = parseInt(team.teamNameBonus || 0);
+                    const finalChallenge = parseInt(team.finalChallenge || 0);
+                    const sizePenalty = calculateSizePenalty(team.size || 0);
+                    
+                    const subtotal = roundScores.reduce((sum, score) => sum + score, 0) + 
+                                   igChallenge + 
+                                   teamNameBonus + 
+                                   (showFinalChallenge ? finalChallenge : 0);
+                    
+                    return {
+                        teamId,
+                        name: team.name,
+                        size: team.size,
+                        order: team.order || 999,
+                        roundScores,
+                        igChallenge,
+                        teamNameBonus,
+                        finalChallenge,
+                        sizePenalty,
+                        total: subtotal + sizePenalty
+                    };
+                });
+
+                // Always sort by the saved order
+                teamScores.sort((a, b) => (a.order || 999) - (b.order || 999));
+
+                // Calculate ranks for display without changing order
+                const ranks = [...teamScores]
+                    .sort((a, b) => b.total - a.total)
+                    .reduce((acc, team, index) => {
+                        acc[team.teamId] = index + 1;
+                        return acc;
+                    }, {});
+
+                // Create table rows using the original order but showing correct ranks
+                const tableRows = teamScores.map(team => `
+                    <tr data-team-id="${team.teamId}">
+                        <td class="rank-cell">${ranks[team.teamId]}</td>
+                        <td>${team.name}</td>
+                        <td>${team.size}</td>
+                        ${team.roundScores.map(score => `<td>${score.toFixed(2)}</td>`).join('')}
+                        <td>
+                            <input type="number" 
+                                   class="bonus-input ig-challenge" 
+                                   value="${team.igChallenge}" 
+                                   data-team-id="${team.teamId}"
+                                   step="1"
+                                   style="width: 60px;">
+                        </td>
+                        <td>
+                            <input type="number" 
+                                   class="bonus-input team-name-bonus" 
+                                   value="${team.teamNameBonus}" 
+                                   data-team-id="${team.teamId}"
+                                   step="1"
+                                   style="width: 60px;">
+                        </td>
+                        ${showFinalChallenge ? `
+                            <td>
+                                <input type="number" 
+                                       class="bonus-input final-challenge" 
+                                       value="${team.finalChallenge}" 
+                                       data-team-id="${team.teamId}"
+                                       step="1"
+                                       style="width: 60px;">
+                            </td>
+                        ` : ''}
+                        <td class="size-penalty">${team.sizePenalty}</td>
+                        <td><strong>${team.total.toFixed(2)}</strong></td>
+                    </tr>
+                `).join('');
+
+                // Update table
+                const scoresTableHead = document.getElementById('scoresTableHead');
+                const scoresTableBody = document.getElementById('scoresTableBody');
+                
+                if (scoresTableHead && scoresTableBody) {
+                    scoresTableHead.innerHTML = tableHeaders;
+                    scoresTableBody.innerHTML = tableRows;
+
+                    // Add event listeners for bonus inputs
+                    document.querySelectorAll('.bonus-input').forEach(input => {
+                        input.addEventListener('change', async (e) => {
+                            const teamId = e.target.dataset.teamId;
+                            const value = Math.round(parseFloat(e.target.value) || 0);
+                            const field = e.target.classList.contains('ig-challenge') ? 'igChallenge' : 
+                                        e.target.classList.contains('team-name-bonus') ? 'teamNameBonus' : 'finalChallenge';
+                            
+                            try {
+                                await set(ref(db, `grading/${sessionId}/teams/${teamId}/${field}`), value);
+                                await loadRubricScores(false);
+                            } catch (error) {
+                                console.error(`Error updating ${field}:`, error);
+                                alert(`Error updating score. Please try again.`);
+                            }
+                        });
+                    });
+                }
+
+            } catch (error) {
+                console.error("Error loading rubric scores:", error);
+                console.error(error.stack);
+            }
+        }
+
+        // Grade round button handler
+        document.getElementById('btnGradeRound').addEventListener('click', showRoundSelectionDialog);
+
+        // Add function to show round selection dialog
+        let roundDialog = null;
+        async function showRoundSelectionDialog() {
+            try {
+                const sessionId = localStorage.getItem('currentGradingSession');
+                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
+                const session = sessionSnap.val();
+                const availability = session.availability || { "1": true };  // Default to round 1 if no settings
+
+                roundDialog = document.createElement('div');
+                roundDialog.className = 'round-dialog';
+                roundDialog.innerHTML = `
+                    <h3>Select Round</h3>
+                    <div>
+                        <label>Round #:</label>
+                        <select id="roundSelectInput">
+                            ${[1, 2, 3].map(round => 
+                                availability[round] ? 
+                                    `<option value="${round}">Round ${round}</option>` : 
+                                    ''
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div style="margin-top:10px;">
+                        <button id="btnRoundConfirm">Confirm</button>
+                        <button id="btnRoundCancel">Cancel</button>
+                    </div>
+                `;
+                document.body.appendChild(roundDialog);
+
+                document.getElementById('btnRoundConfirm').onclick = async () => {
+                    const chosenRound = parseInt(document.getElementById('roundSelectInput').value);
+                    document.body.removeChild(roundDialog);
+                    roundDialog = null;
+                    document.getElementById('currentRoundNum').textContent = chosenRound;
+                    await setupGradingScreen(chosenRound);
+                };
+                document.getElementById('btnRoundCancel').onclick = () => {
+                    document.body.removeChild(roundDialog);
+                    roundDialog = null;
+                };
+            } catch (error) {
+                console.error("Error showing round selection dialog:", error);
+                alert("Error loading round selection. Please try again.");
+            }
+        }
+
+        // First, fix the setupGradingScreen function to correctly display existing scores
+        async function setupGradingScreen(roundNum) {
+            const sessionId = localStorage.getItem('currentGradingSession');
+            if (!sessionId) return;
+
+            try {
+                // Get session data
+                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
+                if (!sessionSnap.exists()) return;
+                const session = sessionSnap.val();
+
+                // Clear and setup team dropdown
+                const teamSelect = document.getElementById('teamSelect');
+                teamSelect.innerHTML = '<option value="">Select a team...</option>';
+                
+                // Get teams and populate dropdown
+                const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
+                if (teamsSnap.exists()) {
+                    const teams = teamsSnap.val();
+                    Object.entries(teams).forEach(([teamId, team]) => {
+                        const option = document.createElement('option');
+                        option.value = teamId;
+                        option.textContent = team.name;
+                        teamSelect.appendChild(option);
+                    });
+                }
+
+                // Show round number
+                document.getElementById('currentRoundNum').textContent = roundNum;
+
+                // Setup initial empty grading form
+                const gradingForm = document.getElementById('gradingForm');
+                gradingForm.innerHTML = `
+                    <div style="margin: 20px 0; padding: 10px; background: #f5f5f5; border-radius: 5px;">
+                        <h3>Current Score: <span id="liveScore">0.0</span></h3>
+                    </div>
+                    <div id="questionTableContainer"></div>
+                `;
+
+                // Add team selection handler
+                teamSelect.addEventListener('change', async (e) => {
+                    const teamId = e.target.value;
+                    if (!teamId) {
+                        document.getElementById('questionTableContainer').innerHTML = '';
+                        document.getElementById('liveScore').textContent = '0.00';
+                        document.getElementById('liveScoreBottom').textContent = '0.00';
+                        return;
+                    }
+
+                    // Get questions from trivia archive
+                    const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
+                    const allQuestions = [];
+
+                    for (const format of roundFormats) {
+                        const formatSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}`));
+                        if (formatSnap.exists()) {
+                            Object.entries(formatSnap.val()).forEach(([num, data]) => {
+                                // Use the Question_Number if it exists, otherwise use the key
+                                const questionNum = data.Question_Number || parseInt(num);
+                                // Store the full path including the key
+                                allQuestions.push({
+                                    format,
+                                    questionNumber: questionNum,
+                                    question: data.Question || '',
+                                    answer: data.Answer || '',
+                                    points: parseFloat(data['Point Value'] || 0),
+                                    imageLink: data['Image Link'] || '',
+                                    answerImageLink: data['Answer Image Link'] || '',
+                                    // Store both the key and the path
+                                    key: num,
+                                    path: `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}/${num}`
+                                });
+                            });
+                        }
+                    }
+
+                    // Sort questions by format and number
+                    allQuestions.sort((a, b) => {
+                        const formatOrder = { 
+                            'Written': 1, 
+                            'Visual': 2, 
+                            'Music': 3, 
+                            'Fill-In': 4, 
+                            'Puzzle': 5 
+                        };
+                        if (a.format !== b.format) {
+                            return formatOrder[a.format] - formatOrder[b.format];
+                        }
+                        return a.questionNumber - b.questionNumber;
+                    });
+
+                    // Get existing team scores if any
+                    const teamRoundSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}/round${roundNum}`));
+                    const teamRound = teamRoundSnap.exists() ? teamRoundSnap.val() : {};
+                    
+                    console.log("Team round data:", teamRound);
+
+                    // Build question table with existing scores
+                    const tableHTML = `
+                        <table class="grading-table">
+                            <thead>
+                                <tr>
+                                    <th>Format & No.</th>
+                                    <th>Question / Image</th>
+                                    <th>Answer</th>
+                                    <th>Buttons</th>
+                                    <th>Score</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${allQuestions.map((q, idx) => {
+                                    // Check for existing score using proper hierarchy
+                                    // First check if format exists
+                                    const formatData = teamRound[q.format] || {};
+                                    // Then check if this question number exists
+                                    const existingData = formatData[q.questionNumber] || {};
+                                    
+                                    const maxPoints = q.points;
+                                    
+                                    // Get percentage from existing data
+                                    let percentage = 100; // Default only for NEW questions
+                                    
+                                    // Check if question exists in the database
+                                    if (Object.keys(existingData).length > 0) {
+                                        // If it exists, use its percentage (even if it's 0)
+                                        percentage = existingData.percentage !== undefined ? 
+                                                     existingData.percentage : 
+                                                     (existingData.pointsEarned && maxPoints > 0 ? 
+                                                      Math.round((existingData.pointsEarned / maxPoints) * 100) : 
+                                                      0);
+                                        
+                                        console.log(`Loaded ${q.format} #${q.questionNumber}: ${percentage}%, existing data:`, existingData);
+                                    }
+
+                                    // Calculate the actual score
+                                    const actualScore = (maxPoints * percentage / 100).toFixed(2);
+
+                                    return `
+                                        <tr data-question-path="${q.path}" data-question-num="${q.questionNumber}" data-format="${q.format}">
+                                            <td>${q.format} #${q.questionNumber}</td>
+                                            <td>${formatQuestionContent(q)}</td>
+                                            <td>${q.answer}</td>
+                                            <td>
+                                                <div class="score-buttons" data-max-points="${maxPoints.toFixed(2)}">
+                                                    ${[100, 75, 66, 50, 33, 25, 0].map(value => `
+                                                        <button type="button"
+                                                            class="score-btn ${value === percentage ? 'selected' : ''}"
+                                                            data-value="${value}">
+                                                            ${value}%
+                                                        </button>
+                                                    `).join('')}
+                                                </div>
+                                            </td>
+                                            <td class="score-cell">${actualScore}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    `;
+
+                    document.getElementById('questionTableContainer').innerHTML = tableHTML;
+
+                    // Add click handlers for score buttons
+                    document.querySelectorAll('.score-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            const buttonGroup = e.target.closest('.score-buttons');
+                            buttonGroup.querySelectorAll('.score-btn').forEach(b => b.classList.remove('selected'));
+                            e.target.classList.add('selected');
+                            
+                            const maxPoints = parseFloat(buttonGroup.dataset.maxPoints);
+                            const percentage = parseInt(e.target.dataset.value);
+                            const score = (maxPoints * percentage / 100).toFixed(2);
+                            const scoreCell = e.target.closest('tr').querySelector('.score-cell');
+                            scoreCell.textContent = score;
+                            
+                            updateLiveScore();
+                        });
+                    });
+
+                    updateLiveScore();
+                });
+
+                showScreen('screenGrading');
+            } catch (error) {
+                console.error("Error setting up grading screen:", error);
+                console.error(error.stack);
+            }
+        }
+
+        // Now fix the save function to properly structure the data
+        document.getElementById('btnSaveGrades').addEventListener('click', async () => {
+            const sessionId = localStorage.getItem('currentGradingSession');
+            const teamId = document.getElementById('teamSelect').value;
+            const roundNum = parseInt(document.getElementById('currentRoundNum').textContent);
+            
+            if (!sessionId || !teamId || !roundNum) {
+                showToast("Please select a team before saving grades", 'error', 4000);
+                return;
+            }
+
+            try {
+                const rows = document.querySelectorAll('.grading-table tbody tr');
+                let totalPoints = 0;
+                
+                // Create new round structure with format hierarchy
+                const roundData = {
+                    roundNumber: roundNum,
+                    total: 0  // Will calculate this at the end
+                };
+                
+                // Process each question and add to appropriate format
+                for (const row of rows) {
+                    const format = row.dataset.format;
+                    const questionNum = parseInt(row.dataset.questionNum);
+                    const scoreButtons = row.querySelector('.score-buttons');
+                    const selectedBtn = row.querySelector('.score-btn.selected');
+                    const maxPoints = parseFloat(scoreButtons.dataset.maxPoints);
+                    
+                    if (format && questionNum) {
+                        // Initialize format if it doesn't exist
+                        if (!roundData[format]) {
+                            roundData[format] = {};
+                        }
+                        
+                        let percentage = 0;
+                        let pointsRounded = 0;
+                        
+                        // If a button is selected, use its value
+                        if (selectedBtn) {
+                            percentage = parseInt(selectedBtn.dataset.value);
+                            const points = maxPoints * percentage / 100;
+                            pointsRounded = parseFloat(points.toFixed(2));
+                        }
+                        
+                        // Always add the question data, even with 0 values
+                        roundData[format][questionNum] = {
+                            questionNumber: questionNum,
+                            totalPossiblePoints: maxPoints,
+                            pointsEarned: pointsRounded,
+                            percentage: percentage
+                        };
+                        
+                        totalPoints += pointsRounded;
+                        
+                        console.log(`Saving ${format} #${questionNum}: ${percentage}%, ${pointsRounded} points`);
+                    }
+                }
+                
+                // Set the total score for the round
+                roundData.total = parseFloat(totalPoints.toFixed(2));
+                
+                // Save the complete round data with proper hierarchy
+                const roundRef = ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`);
+                await set(roundRef, roundData);
+                
+                console.log(`Saved complete round ${roundNum} data for team ${teamId}:`, roundData);
+                
+                // Force a reload of the data to verify it's been saved correctly
+                const verifySnap = await get(roundRef);
+                console.log("Verification of saved data:", verifySnap.val());
+                
+                showToast("Grades saved successfully!", 'success', 3000);
+                
+                // Clear team selection and question table
+                document.getElementById('teamSelect').value = '';
+                document.getElementById('questionTableContainer').innerHTML = '';
+                
+                // Reload rubric scores to show updated totals
+                await loadRubricScores();
+                
+                // Update live score display
+                document.getElementById('liveScore').textContent = '0.00';
+                document.getElementById('liveScoreBottom').textContent = '0.00';
+                
+            } catch (error) {
+                console.error("Error saving grades:", error);
+                console.error(error.stack);
+                showToast("Error saving grades. Please try again.", 'error', 5000);
+            }
+        });
+
+        // Helper function to format question content
+        function formatQuestionContent(question) {
+            if (!question.question.trim() && question.imageLink) {
+                const match = question.imageLink.match(/[?&]id=([^&]+)/);
+                const googleFileId = match ? match[1] : '';
+                if (googleFileId) {
+                    return `
+                        <iframe 
+                            src="https://drive.google.com/file/d/${googleFileId}/preview" 
+                            width="320" height="240" 
+                            allow="autoplay">
+                        </iframe>
+                    `;
+                }
+                return `(Image link error - Link format: ${question.imageLink})`;
+            }
+            return question.question;
+        }
+
+        // Add event listener for trivia breakdown button
+        document.getElementById('btnTriviaBreakdown').addEventListener('click', () => {
+            loadTriviaBreakdown('session');
+            showScreen('screenTriviaBreakdown');
+        });
+
+        // Switch session
+        document.getElementById('btnSwitchSession').addEventListener('click', () => {
+            localStorage.removeItem('currentGradingSession');
+            showScreen('screenSessionSetup');
+        });
+
+        // Update the sort teams button handler
+        document.getElementById('btnSortTeams').addEventListener('click', async () => {
+            try {
+                console.log("Sort button clicked");
+                const sessionId = localStorage.getItem('currentGradingSession');
+                if (!sessionId) return;
+
+                // Get the current ranks from the table
+                const tableRows = Array.from(document.querySelectorAll('#scoresTableBody tr'));
+                const updates = {};
+                
+                // Process all teams in rank order
+                tableRows.forEach(row => {
+                    const teamId = row.dataset.teamId;
+                    const rankText = row.querySelector('td:first-child').textContent.trim();
+                    const rank = parseInt(rankText);
+                    
+                    console.log("Processing team:", {
+                        teamId: teamId,
+                        rank: rank,
+                        rankText: rankText
+                    });
+
+                    if (teamId && !isNaN(rank)) {
+                        // Use the rank directly as the order (rank 1 -> order 1)
+                        updates[`grading/${sessionId}/teams/${teamId}/order`] = rank;
+                    }
+                });
+
+                console.log("Updates to be made:", updates);
+
+                if (Object.keys(updates).length > 0) {
+                    await update(ref(db), updates);
+                    await loadRubricScores(false);
+                }
+
+            } catch (error) {
+                console.error("Error sorting teams:", error);
+                alert("Error sorting teams. Please try again.");
+            }
+        });
+
+        // Add new function to handle trivia breakdown
+        async function loadTriviaBreakdown(scope = 'session') {
+            try {
+                const currentSessionId = localStorage.getItem('currentGradingSession');
+                if (!currentSessionId) {
+                    throw new Error("No current session found");
+                }
+
+                // Get current session data to know which trivia we're working with
+                const sessionSnap = await get(child(ref(db), `grading/${currentSessionId}`));
+                if (!sessionSnap.exists()) {
+                    throw new Error("Session not found");
+                }
+                const currentSession = sessionSnap.val();
+                const triviaNumber = currentSession.triviaNumber;
+
+                console.log(`Loading breakdown for trivia #${triviaNumber}, scope: ${scope}`);
+
+                // Get question metadata from trivia-archive for all rounds
+                const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia`));
+                if (!triviaSnap.exists()) {
+                    throw new Error("Trivia not found");
+                }
+                const triviaData = triviaSnap.val();
+                console.log("Trivia data structure:", Object.keys(triviaData));
+
+                // Create maps to help with question identification
+                const questionMetadata = {};         // Stores all question metadata
+                const possibleFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
+                
+                // First pass: create metadata for all questions
+                for (const round of Object.keys(triviaData)) {
+                    console.log(`Processing Round ${round}, formats:`, Object.keys(triviaData[round]));
+                    
+                    // Process each format in this round
+                    for (const format of possibleFormats) {
+                        if (triviaData[round][format]) {
+                            console.log(`Found ${format} questions in Round ${round}`);
+                            
+                            for (const [qKey, question] of Object.entries(triviaData[round][format])) {
+                                // Use the question number if it exists, otherwise use the key
+                                const questionNum = question.Question_Number || parseInt(qKey);
+                                // Create a unique key for this question
+                                const questionId = `r${round}_f${format}_q${questionNum}`;
+                                
+                                // Store metadata
+                                questionMetadata[questionId] = {
+                                    id: questionId,
+                                    format,
+                                    round,
+                                    order: question.Order || 1,
+                                    number: questionNum,
+                                    question: question.Question || '',
+                                    answer: question.Answer || '',
+                                    pointValue: parseFloat(question['Point Value'] || 0),
+                                    right: 0,
+                                    wrong: 0,
+                                    totalTeams: 0
+                                };
+                            }
+                        }
+                    }
+                }
+
+                console.log(`Total questions found: ${Object.keys(questionMetadata).length}`);
+
+                // IMPORTANT: Determine which sessions to analyze based on scope
+                let sessionsToAnalyze = [];
+                if (scope === 'session') {
+                    // Only analyze the current session
+                    sessionsToAnalyze = [currentSessionId];
+                    console.log("Analyzing only current session:", currentSessionId);
+                } else if (scope === 'allTime') {
+                    // Get all sessions with the same trivia number
+                    const allSessionsSnap = await get(child(ref(db), 'grading'));
+                    if (allSessionsSnap.exists()) {
+                        const allSessions = allSessionsSnap.val();
+                        sessionsToAnalyze = Object.keys(allSessions).filter(sid => 
+                            allSessions[sid].triviaNumber === triviaNumber);
+                        console.log(`Found ${sessionsToAnalyze.length} sessions with trivia #${triviaNumber}:`, 
+                            sessionsToAnalyze);
+                    }
+                }
+                
+                if (sessionsToAnalyze.length === 0) {
+                    console.warn("No sessions to analyze!");
+                    return;
+                }
+
+                // Process each session
+                for (const sessionId of sessionsToAnalyze) {
+                    console.log(`Processing session: ${sessionId}`);
+                    
+                    // Get teams from this session
+                    const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
+                    if (!teamsSnap.exists()) {
+                        console.log(`No teams found in session ${sessionId}`);
+                        continue;
+                    }
+                    
+                    const teams = teamsSnap.val();
+                    console.log(`Processing scores for ${Object.keys(teams).length} teams in session ${sessionId}`);
+                    
+                    // Process all team scores
+                    for (const [teamId, team] of Object.entries(teams)) {
+                        // Process each round
+                        for (let roundNum = 1; roundNum <= 3; roundNum++) {
+                            const roundKey = `round${roundNum}`;
+                            if (!team[roundKey]) continue;
+                            
+                            const roundData = team[roundKey];
+                            
+                            // Process each format in this round
+                            for (const format of possibleFormats) {
+                                if (!roundData[format]) continue;
+                                
+                                // Process each question in this format
+                                for (const [questionNumStr, questionData] of Object.entries(roundData[format])) {
+                                    // Skip non-numeric keys
+                                    if (isNaN(parseInt(questionNumStr))) continue;
+                                    
+                                    const questionNum = parseInt(questionNumStr);
+                                    
+                                    // Build the question ID
+                                    const questionId = `r${roundNum}_f${format}_q${questionNum}`;
+                                    const metadata = questionMetadata[questionId];
+                                    
+                                    if (metadata) {
+                                        // Process the score
+                                        const percentage = questionData.percentage / 100;
+                                        
+                                        // Update right/wrong counts based on percentage
+                                        metadata.right += percentage;
+                                        metadata.wrong += (1 - percentage);
+                                        metadata.totalTeams += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Convert the metadata object to an array for display
+                const breakdownData = Object.values(questionMetadata);
+                console.log(`Prepared ${breakdownData.length} rows for display`);
+
+                // Sort the data by round, then format, then question number
+                breakdownData.sort((a, b) => {
+                    if (a.round !== b.round) return parseInt(a.round) - parseInt(b.round);
+                    // Format order: Written, Visual, Music, Fill-In, Puzzle
+                    const formatOrder = { 
+                        'Written': 1, 
+                        'Visual': 2, 
+                        'Music': 3, 
+                        'Fill-In': 4, 
+                        'Puzzle': 5 
+                    };
+                    if (a.format !== b.format) return formatOrder[a.format] - formatOrder[b.format];
+                    return a.number - b.number;
+                });
+
+                // Update the table
+                const tableBody = document.getElementById('breakdownTableBody');
+                
+                // Check if the table header has the percentage column, add it if not
+                const tableHeader = document.querySelector('#breakdownTable thead tr');
+                if (tableHeader && !tableHeader.querySelector('th[data-sort="percentage"]')) {
+                    const percentageHeader = document.createElement('th');
+                    percentageHeader.classList.add('sortable');
+                    percentageHeader.setAttribute('data-sort', 'percentage');
+                    percentageHeader.textContent = '% Correct';
+                    tableHeader.appendChild(percentageHeader);
+                    
+                    // Add event listener for the new column
+                    percentageHeader.addEventListener('click', () => {
+                        sortTable('percentage');
+                    });
+                }
+                
+                tableBody.innerHTML = breakdownData.map(row => {
+                    // Only show rows with at least one team
+                    const hasTeams = row.totalTeams > 0;
+                    const rightCount = Math.max(0, row.right).toFixed(1);
+                    const wrongCount = Math.max(0, row.wrong).toFixed(1);
+                    
+                    // Calculate percentage correct
+                    let percentCorrect = 0;
+                    if (hasTeams && (row.right + row.wrong > 0)) {
+                        percentCorrect = (row.right / (row.right + row.wrong)) * 100;
+                    }
+                    const percentFormatted = percentCorrect.toFixed(1) + '%';
+                    
+                    return `
+                        <tr class="${hasTeams ? '' : 'no-data'}">
+                            <td>${row.format}</td>
+                            <td>${row.round}</td>
+                            <td>${row.order}</td>
+                            <td>${row.number}</td>
+                            <td class="question-cell">${row.question}</td>
+                            <td class="question-cell">${row.answer}</td>
+                            <td>${hasTeams ? rightCount : '-'}</td>
+                            <td>${hasTeams ? wrongCount : '-'}</td>
+                            <td>${hasTeams ? percentFormatted : '-'}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error("Error loading trivia breakdown:", error);
+                console.error(error.stack);
+                alert("Error loading trivia breakdown. Please try again.");
+            }
+        }
+
+        // Make sure the dropdown event listener is correctly attached
+        document.addEventListener('DOMContentLoaded', () => {
+            // ... existing code ...
+            
+            // Add scope change handler with more detailed logging
+            const scopeDropdown = document.getElementById('breakdownScope');
+            if (scopeDropdown) {
+                scopeDropdown.addEventListener('change', function() {
+                    console.log("Breakdown scope changed to:", this.value);
+                    loadTriviaBreakdown(this.value);
+                });
+            }
+            
+            // ... rest of the existing code ...
+        });
+
+        // Add event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // Add sort handlers
+            document.querySelectorAll('#breakdownTable th.sortable').forEach(th => {
+                th.addEventListener('click', () => {
+                    sortTable(th.dataset.sort);
+                });
+            });
+            
+            // Add scope change handler
+            document.getElementById('breakdownScope').addEventListener('change', function() {
+                loadTriviaBreakdown(this.value);
+            });
+            
+            // Fix the return to rubric buttons
+            document.getElementById('btnReturnToRubricFromGrading').addEventListener('click', async () => {
+                await loadRubricScores();
+                showScreen('screenRubric');
+            });
+            
+            document.getElementById('btnReturnToRubricBottom').addEventListener('click', async () => {
+                await loadRubricScores();
+                showScreen('screenRubric');
+            });
+            
+            // Add toggle compact mode functionality
+            document.getElementById('btnToggleCompactMode').addEventListener('click', () => {
+                const grading = document.getElementById('screenGrading');
+                grading.classList.toggle('compact-mode');
+                
+                const btn = document.getElementById('btnToggleCompactMode');
+                if (grading.classList.contains('compact-mode')) {
+                    btn.textContent = 'Normal Mode';
+                } else {
+                    btn.textContent = 'Compact Mode';
+                }
+            });
+            
+            // Add bottom save grades functionality
+            document.getElementById('btnSaveGradesBottom').addEventListener('click', async () => {
+                // Use the same handler as the top button
+                document.getElementById('btnSaveGrades').click();
+            });
+            
+            // Make sure the return from breakdown button works
+            document.getElementById('btnReturnFromBreakdown').addEventListener('click', async () => {
+                await loadRubricScores();
+                showScreen('screenRubric');
+            });
+        });
+
+        // Add these functions at the start of your script
+        async function loadLocations() {
+            try {
+                const locationsSnap = await get(child(ref(db), 'adminSettings/locations'));
+                const locationSelect = document.getElementById('locationSelect');
+                locationSelect.innerHTML = '<option value="">Select a location...</option>';
+                
+                if (locationsSnap.exists()) {
+                    const locations = locationsSnap.val();
+                    // Create array of location objects with name and id
+                    const locationArray = Object.entries(locations)
+                        .map(([id, data]) => ({
+                            id: id,
+                            name: data.name || 'Unknown Location'
+                        }))
+                        .sort((a, b) => a.name.localeCompare(b.name)); // Sort by name
+
+                    // Add options to select
+                    locationArray.forEach(loc => {
+                        const option = document.createElement('option');
+                        option.value = loc.name; // Use the location name as the value
+                        option.textContent = loc.name;
+                        locationSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error("Error loading locations:", error);
+                alert("Error loading locations. Please try again.");
+            }
+        }
+
+        async function loadTriviaOptions() {
+            try {
+                const triviaSnap = await get(child(ref(db), 'trivia-archive/archive'));
+                const triviaSelect = document.getElementById('triviaNumSelect');
+                triviaSelect.innerHTML = '<option value="">Select trivia...</option>';
+                
+                if (triviaSnap.exists()) {
+                    const triviaArchive = triviaSnap.val();
+                    Object.keys(triviaArchive)
+                        .sort((a, b) => parseInt(b) - parseInt(a)) // Sort newest first
+                        .forEach(num => {
+                            const trivia = triviaArchive[num];
+                            const option = document.createElement('option');
+                            option.value = num;
+                            option.textContent = `#${num} - ${trivia.triviaName || 'Unnamed Trivia'}`;
+                            triviaSelect.appendChild(option);
+                        });
+                }
+            } catch (error) {
+                console.error("Error loading trivia options:", error);
+                alert("Error loading trivia options. Please try again.");
+            }
+        }
+
+        // Set default date to today when the form is shown
+        function setDefaultDate() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('dateInput').value = today;
+        }
+
+        // Add function to load existing sessions
+        async function loadExistingSessions() {
+            try {
+                const sessionsSnap = await get(child(ref(db), 'grading'));
+                const sessionSelect = document.getElementById('existingSessionSelect');
+                sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+                
+                if (sessionsSnap.exists()) {
+                    const sessions = sessionsSnap.val();
+                    // Convert to array and sort by date (newest first)
+                    const sessionArray = Object.entries(sessions)
+                        .map(([id, data]) => ({
+                            id: id,
+                            location: data.location || 'Unknown Location',
+                            date: data.date || '',
+                            triviaNumber: data.triviaNumber || '',
+                            triviaName: data.triviaName || ''
+                        }))
+                        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                    // Add options to select
+                    sessionArray.forEach(session => {
+                        const option = document.createElement('option');
+                        option.value = session.id;
+                        option.textContent = `${session.date} - ${session.location} - #${session.triviaNumber} ${session.triviaName}`;
+                        sessionSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error("Error loading existing sessions:", error);
+                alert("Error loading existing sessions. Please try again.");
+            }
+        }
+
+        // Add this function to show toast notifications
+        function showToast(message, type = 'info', duration = 3000) {
+            // Remove any existing toasts first
+            const existingToast = document.getElementById('toast-notification');
+            if (existingToast) {
+                existingToast.remove();
+            }
+            
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.id = 'toast-notification';
+            toast.className = `toast-notification ${type}`;
+            toast.textContent = message;
+            
+            // Add to body
+            document.body.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            // Hide after duration
+            setTimeout(() => {
+                toast.classList.remove('show');
+                // Remove from DOM after animation completes
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 500);
+            }, duration);
+        }
+
+        // Handle logout
+        document.getElementById('logoutBtn').addEventListener('click', function() {
+            signOut(auth).then(() => {
+                window.location.href = '/pages/account.html';
+            }).catch((error) => {
+                console.error("Error signing out:", error);
+            });
+        });
+
+        // User is not logged in, show login button
+        document.getElementById('loginScreen').classList.add('active');
+        document.getElementById('loginButton').innerHTML = 
+            `<p>You need to be logged in to access this tool.</p>
+            <a href="/pages/account.html" class="button">Log In or Sign Up</a>`;
+    </script>
+</body>
+</html>
