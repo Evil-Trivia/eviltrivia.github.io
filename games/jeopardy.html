@@ -1217,14 +1217,14 @@
     // Check if user is authorized
     async function checkUserAuthorization(user) {
       try {
-        // Initialize userData with basic user info from auth, regardless of database status
-        userData = {
+        // Create a variable for basic authentication info, but don't assign it to userData yet
+        const basicAuthInfo = {
           uid: user.uid,
           email: user.email,
           displayName: user.displayName
         };
         
-        console.log('Initial userData set with UID:', userData.uid);
+        console.log('Retrieved basic auth info with UID:', user.uid);
         
         // Check if user exists in database
         const userSnapshot = await get(ref(db, `users/${user.uid}`));
@@ -1247,14 +1247,23 @@
             console.error('Error creating user record:', error);
           }
           
-          // Merge with userData
-          userData = { ...userData, ...basicUserData };
+          // Initialize userData with merged data - ONLY if user doesn't exist
+          userData = { ...basicAuthInfo, ...basicUserData };
           return false;
         }
         
-        // Get the existing user data and merge with auth data
+        // Get the existing user data and DO NOT LOSE any properties
         const dbUserData = userSnapshot.val();
-        userData = { ...userData, ...dbUserData };
+        
+        // Make sure dbUserData contains the uid from auth (it might be missing in the database)
+        if (!dbUserData.uid) {
+          dbUserData.uid = user.uid;
+        }
+        
+        // Directly assign the complete database user data to userData
+        userData = dbUserData;
+        
+        console.log('Loaded complete user data from database');
         
         // If user is admin, they're authorized
         if (userData.role === 'admin') {
