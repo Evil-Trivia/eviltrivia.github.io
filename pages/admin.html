@@ -109,6 +109,14 @@
         .delete-location {
             background-color: #f44336;
         }
+        .refresh-btn {
+            background-color: #4c6baf;
+            margin-left: 5px;
+        }
+        .refresh-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -331,6 +339,9 @@
                                 <th>First Name</th>
                                 <th>Last Name</th>
                                 <th>Roles</th>
+                                <th>Patreon Status</th>
+                                <th>Tier</th>
+                                <th>Pledge</th>
                                 <th>Created At</th>
                                 <th>Actions</th>
                             </tr>
@@ -1017,6 +1028,42 @@
                             userRoles = [userData.role];
                         }
                         
+                        // Extract Patreon information
+                        const patreonData = userData.patreon || {};
+                        const patronStatus = userData.patronStatus || patreonData.patronStatus || 'Not a patron';
+                        
+                        // Check for special account types
+                        let specialStatus = '';
+                        if (patreonData.membershipData && patreonData.membershipData.attributes) {
+                            if (patreonData.membershipData.attributes.is_free_trial) {
+                                specialStatus = '(Free Trial)';
+                            } else if (patreonData.membershipData.attributes.is_gift) {
+                                specialStatus = '(Gift)';
+                            }
+                        }
+                        
+                        // Get tier information
+                        let tierDisplay = 'None';
+                        if (patreonData.entitledTiers && patreonData.entitledTiers.length > 0) {
+                            const tier = patreonData.entitledTiers[0];
+                            if (tier.attributes && tier.attributes.title) {
+                                tierDisplay = tier.attributes.title;
+                            }
+                        } else if (patreonData.membershipData && 
+                                  patreonData.membershipData.relationships && 
+                                  patreonData.membershipData.relationships.currently_entitled_tiers &&
+                                  patreonData.membershipData.relationships.currently_entitled_tiers.data) {
+                            const tierData = patreonData.membershipData.relationships.currently_entitled_tiers.data;
+                            if (tierData.length > 0) {
+                                tierDisplay = `Tier ID: ${tierData[0].id}`;
+                            }
+                        }
+                        
+                        // Format pledge amount
+                        const pledgeDisplay = patreonData.isActiveMember ? 
+                            `$${patreonData.pledgeAmountDollars || '0.00'} (${patreonData.pledgeAmountCents || 0}¢)` : 
+                            'None';
+                        
                         row.innerHTML = `
                             <td>${userData.email || 'No email'}</td>
                             <td>
@@ -1059,9 +1106,17 @@
                                     </div>
                                 </div>
                             </td>
+                            <td style="color: ${patreonData.isActiveMember ? 'green' : 'red'}">
+                                ${patronStatus} ${specialStatus}
+                            </td>
+                            <td>${tierDisplay}</td>
+                            <td>${pledgeDisplay}</td>
                             <td>${createdAt}</td>
                             <td>
                                 <button onclick="deleteUser('${uid}')" class="delete-btn">Delete</button>
+                                <button onclick="refreshPatreon('${patreonData.id}')" class="refresh-btn" ${!patreonData.id ? 'disabled' : ''}>
+                                    Refresh Patreon
+                                </button>
                             </td>
                         `;
                         userTableBody.appendChild(row);
@@ -1143,6 +1198,42 @@
                 } catch (error) {
                     console.error("Error deleting user:", error);
                     alert('Error deleting user: ' + error.message);
+                }
+            }
+        }
+
+        // Refresh Patreon data function
+        async function refreshPatreon(patreonId) {
+            if (!patreonId) {
+                alert('No Patreon ID found for this user');
+                return;
+            }
+            
+            if (confirm('Refresh Patreon data for this user?')) {
+                try {
+                    // Get the current user's ID token for authentication
+                    const idToken = await auth.currentUser.getIdToken();
+                    
+                    // Call the refreshPatreonManual function with the patreonId (updated endpoint with new URL)
+                    const response = await fetch(`https://us-central1-eviltrivia-47664.cloudfunctions.net/refreshPatreonManual?patreonId=${patreonId}&token=refresh-patreon-data-secret`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${idToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to refresh Patreon data');
+                    }
+                    
+                    const result = await response.json();
+                    alert('Patreon data refreshed successfully!');
+                    await loadUsers(); // Reload the user list
+                } catch (error) {
+                    console.error("Error refreshing Patreon data:", error);
+                    alert('Error refreshing Patreon data: ' + error.message);
                 }
             }
         }
