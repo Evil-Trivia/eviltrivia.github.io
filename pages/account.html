@@ -845,27 +845,46 @@
         
         // Find highest paid tier for display
         if (entitledTiers && Array.isArray(entitledTiers) && entitledTiers.length > 0) {
-          // Look specifically for the "The Big Lemon" tier with ID 24216420
-          const bigLemonTier = entitledTiers.find(tier => 
-            tier.id === "24216420"
-          );
+          // First, check if any tiers are for the Evil Trivia campaign (ID: 24216420)
+          const campaignId = "24216420"; // Evil Trivia campaign ID
           
-          // If found, use it
-          if (bigLemonTier && bigLemonTier.attributes?.title) {
-            tierTitle = bigLemonTier.attributes.title;
-            console.log(`Found The Big Lemon tier: ${tierTitle}`);
+          // Look for tiers associated with the Evil Trivia campaign
+          const campaignTiers = entitledTiers.filter(tier => {
+            // Check the relationships data if available
+            if (tier.relationships && 
+                tier.relationships.campaign && 
+                tier.relationships.campaign.data && 
+                tier.relationships.campaign.data.id) {
+              return tier.relationships.campaign.data.id === campaignId;
+            }
+            return false;
+          });
+          
+          if (campaignTiers.length > 0) {
+            console.log(`Found ${campaignTiers.length} tiers for campaign ${campaignId}`);
             
-            // Override the status with the tier name for better display
-            patronStatus = tierTitle;
+            // Use highest tier for this campaign
+            const highestTier = campaignTiers.reduce((highest, current) => {
+              const currentAmount = current.attributes?.amount_cents || 0;
+              const highestAmount = highest.attributes?.amount_cents || 0;
+              return currentAmount > highestAmount ? current : highest;
+            }, campaignTiers[0]);
+            
+            if (highestTier && highestTier.attributes && highestTier.attributes.title) {
+              tierTitle = highestTier.attributes.title;
+              console.log(`Found tier title for campaign ${campaignId}: ${tierTitle}`);
+              
+              // Override the status with the tier name for better display
+              patronStatus = tierTitle;
+            }
           } else {
-            // Otherwise, find the highest tier by amount (fallback to old behavior)
+            // If no campaign-specific tiers found, fall back to highest tier overall
             const highestTier = entitledTiers.reduce((highest, current) => {
               const currentAmount = current.attributes?.amount_cents || 0;
               const highestAmount = highest.attributes?.amount_cents || 0;
               return currentAmount > highestAmount ? current : highest;
             }, entitledTiers[0]);
             
-            // Use the tier title if available
             if (highestTier && highestTier.attributes && highestTier.attributes.title) {
               tierTitle = highestTier.attributes.title;
               console.log(`Found highest tier title: ${tierTitle}`);
@@ -882,19 +901,79 @@
         // Set pledge amount - get amount from specific tier instead of summing all
         let pledgeAmountCents = 0;
         
-        // Try to get from entitled tiers first, looking specifically for The Big Lemon tier
+        // Try to get from entitled tiers first, looking for Evil Trivia campaign tiers specifically
         if (entitledTiers && Array.isArray(entitledTiers) && entitledTiers.length > 0) {
-          // Look for The Big Lemon tier with ID 24216420
-          const bigLemonTier = entitledTiers.find(tier => 
-            tier.id === "24216420"
-          );
+          const campaignId = "24216420"; // Evil Trivia campaign ID
           
-          if (bigLemonTier && bigLemonTier.attributes && bigLemonTier.attributes.amount_cents) {
-            // Use amount from The Big Lemon tier
-            pledgeAmountCents = bigLemonTier.attributes.amount_cents;
-            console.log(`Using pledge amount from The Big Lemon tier: ${pledgeAmountCents} cents`);
+          // Look for tiers associated with the Evil Trivia campaign
+          const campaignTiers = entitledTiers.filter(tier => {
+            // Check the relationships data if available
+            if (tier.relationships && 
+                tier.relationships.campaign && 
+                tier.relationships.campaign.data && 
+                tier.relationships.campaign.data.id) {
+              return tier.relationships.campaign.data.id === campaignId;
+            }
+            return false;
+          });
+          
+          if (campaignTiers.length > 0) {
+            if (campaignTiers.length === 1) {
+              // Only one matching campaign tier, use its amount
+              const campaignTier = campaignTiers[0];
+              if (campaignTier.attributes && campaignTier.attributes.amount_cents) {
+                pledgeAmountCents = campaignTier.attributes.amount_cents;
+                console.log(`Using pledge amount from campaign ${campaignId} tier: ${pledgeAmountCents} cents`);
+              }
+            } else {
+              console.log(`Found multiple tiers for campaign ${campaignId}. Checking user-level patreonPledgeAmount.`);
+              
+              // Multiple tiers for this campaign, check if we have a user-level pledge amount
+              if (patreonUserData.patreonPledgeAmount) {
+                // Get the user's pledge amount in cents
+                const userPledgeAmountCents = parseFloat(patreonUserData.patreonPledgeAmount) * 100;
+                console.log(`User has patreonPledgeAmount: ${userPledgeAmountCents} cents`);
+                
+                // Try to find a matching tier with the exact same amount
+                const matchingTier = campaignTiers.find(tier => {
+                  return tier.attributes && 
+                         tier.attributes.amount_cents && 
+                         Math.abs(tier.attributes.amount_cents - userPledgeAmountCents) < 1; // Allow for tiny rounding differences
+                });
+                
+                if (matchingTier) {
+                  // Found a tier matching the user's pledge amount
+                  pledgeAmountCents = matchingTier.attributes.amount_cents;
+                  console.log(`Found tier matching user's pledge amount: ${pledgeAmountCents} cents with title "${matchingTier.attributes.title}"`);
+                  
+                  // Update the tier title display with the matching tier
+                  if (matchingTier.attributes.title) {
+                    tierTitle = matchingTier.attributes.title;
+                    patronStatus = tierTitle;
+                    patreonTier.textContent = patronStatus;
+                    patreonTierBadge.textContent = patronStatus;
+                  }
+                } else {
+                  // No exact match found, use the user's own pledge amount
+                  pledgeAmountCents = userPledgeAmountCents;
+                  console.log(`No matching tier found for amount ${userPledgeAmountCents}, using user's pledge amount directly`);
+                }
+              } else {
+                // No user-level amount, use the highest tier amount for this campaign
+                const highestTier = campaignTiers.reduce((highest, current) => {
+                  const currentAmount = current.attributes?.amount_cents || 0;
+                  const highestAmount = highest.attributes?.amount_cents || 0;
+                  return currentAmount > highestAmount ? current : highest;
+                }, campaignTiers[0]);
+                
+                if (highestTier.attributes && highestTier.attributes.amount_cents) {
+                  pledgeAmountCents = highestTier.attributes.amount_cents;
+                  console.log(`Using highest campaign ${campaignId} tier amount: ${pledgeAmountCents} cents`);
+                }
+              }
+            }
           } else {
-            // If Big Lemon tier not found, use highest tier amount as fallback
+            // If no campaign-specific tiers found, use highest tier amount as fallback
             const highestTier = entitledTiers.reduce((highest, current) => {
               const currentAmount = current.attributes?.amount_cents || 0;
               const highestAmount = highest.attributes?.amount_cents || 0;
@@ -903,12 +982,18 @@
             
             if (highestTier && highestTier.attributes && highestTier.attributes.amount_cents) {
               pledgeAmountCents = highestTier.attributes.amount_cents;
-              console.log(`Using pledge amount from highest tier: ${pledgeAmountCents} cents`);
+              console.log(`Using pledge amount from highest tier (no campaign match): ${pledgeAmountCents} cents`);
             }
           }
         }
         
-        // If no amount from tiers, fall back to top-level fields
+        // If no amount from tiers, check for user-level patreonPledgeAmount
+        if (pledgeAmountCents === 0 && patreonUserData.patreonPledgeAmount) {
+          pledgeAmountCents = parseFloat(patreonUserData.patreonPledgeAmount) * 100;
+          console.log(`Using user-level patreonPledgeAmount as fallback: ${pledgeAmountCents} cents`);
+        }
+        
+        // If still no amount from tiers, fall back to top-level fields
         if (pledgeAmountCents === 0) {
           pledgeAmountCents = patreonUserData.pledgeAmountCents || attributes.currently_entitled_amount_cents || 0;
           console.log(`Using fallback pledge amount: ${pledgeAmountCents} cents`);

@@ -1166,6 +1166,9 @@ async function refreshPatreonUserData(patreonId, accessToken) {
       patronStatus: standardizedData.patreon.patronStatus,
       pledgeAmountCents: standardizedData.patreon.pledgeAmountCents,
       pledgeAmountDollars: standardizedData.patreon.pledgeAmountDollars,
+      hasEvilTriviaCampaign: standardizedData.patreon.hasEvilTriviaCampaign,
+      evilTriviaCampaignTiers: standardizedData.patreon.evilTriviaCampaignTiers,
+      matchingTier: standardizedData.patreon.matchingTier,
       // API data
       membershipData: activeMembership,
       entitledTiers: entitledTiers.length > 0 ? entitledTiers : null,
@@ -1659,7 +1662,9 @@ async function handleMemberEvent(data, included, isActive) {
       willPayAmountDollars: standardizedData.patreon.willPayAmountDollars,
       lastChargeDate: standardizedData.patreon.lastChargeDate,
       nextChargeDate: standardizedData.patreon.nextChargeDate,
-      lastUpdated: admin.database.ServerValue.TIMESTAMP,
+      hasEvilTriviaCampaign: standardizedData.patreon.hasEvilTriviaCampaign,
+      evilTriviaCampaignTiers: standardizedData.patreon.evilTriviaCampaignTiers,
+      matchingTier: standardizedData.patreon.matchingTier,
       membershipData: data,
       // Only include tiers if we have them
       entitledTiers: tiers.length > 0 ? tiers : null,
@@ -1778,17 +1783,95 @@ function createStandardizedPatreonData(patreonId, userData, membershipData, enti
     }
   }
   
-  // If pledge amount is zero but there are entitled tiers, use the highest tier amount
-  if (pledgeAmountCents === 0 && entitledTiers && entitledTiers.length > 0) {
-    // Find the highest tier
-    const highestTier = entitledTiers.reduce((highest, current) => {
-      const currentAmount = current.attributes?.amount_cents || 0;
-      const highestAmount = highest.attributes?.amount_cents || 0;
-      return currentAmount > highestAmount ? current : highest;
-    }, entitledTiers[0]);
+  // If pledge amount is zero but there are entitled tiers, look for campaign tiers first
+  if (entitledTiers && entitledTiers.length > 0) {
+    // Filter for tiers from the Evil Trivia campaign (ID: 24216420)
+    const campaignId = "24216420"; // Evil Trivia campaign ID
     
-    if (highestTier && highestTier.attributes && highestTier.attributes.amount_cents) {
-      pledgeAmountCents = highestTier.attributes.amount_cents;
+    // Get tiers associated with the Evil Trivia campaign
+    const campaignTiers = entitledTiers.filter(tier => {
+      // Check the relationships data if available
+      if (tier.relationships && 
+          tier.relationships.campaign && 
+          tier.relationships.campaign.data && 
+          tier.relationships.campaign.data.id) {
+        return tier.relationships.campaign.data.id === campaignId;
+      }
+      return false;
+    });
+    
+    console.log(`Found ${campaignTiers.length} tiers for campaign ${campaignId} out of ${entitledTiers.length} total tiers`);
+    
+    if (campaignTiers.length > 0) {
+      if (campaignTiers.length === 1) {
+        // Only one campaign tier, use its amount
+        const campaignTier = campaignTiers[0];
+        if (campaignTier.attributes && campaignTier.attributes.amount_cents) {
+          pledgeAmountCents = campaignTier.attributes.amount_cents;
+          console.log(`Using pledge amount from single campaign ${campaignId} tier: ${pledgeAmountCents} cents`);
+        }
+      } else {
+        // Multiple tiers for this campaign
+        console.log(`Found multiple tiers (${campaignTiers.length}) for campaign ${campaignId}`);
+        
+        // Check if we have an existing pledge amount that we can match against
+        let existingPledgeAmountCents = 0;
+        
+        // Try several sources for existing pledge amount in priority order
+        if (existingData && existingData.patreon && existingData.patreon.pledgeAmountCents) {
+          existingPledgeAmountCents = existingData.patreon.pledgeAmountCents;
+          console.log(`Using existingData.patreon.pledgeAmountCents: ${existingPledgeAmountCents} cents`);
+        } else if (existingData && existingData.pledgeAmountCents) {
+          existingPledgeAmountCents = existingData.pledgeAmountCents;
+          console.log(`Using existingData.pledgeAmountCents: ${existingPledgeAmountCents} cents`);
+        } else if (existingData && existingData.patreonPledgeAmount) {
+          existingPledgeAmountCents = parseFloat(existingData.patreonPledgeAmount) * 100;
+          console.log(`Using existingData.patreonPledgeAmount: ${existingPledgeAmountCents} cents`);
+        }
+        
+        if (existingPledgeAmountCents > 0) {
+          // Try to find a tier that matches the existing pledge amount
+          const matchingTier = campaignTiers.find(tier => {
+            return tier.attributes && 
+                  tier.attributes.amount_cents && 
+                  Math.abs(tier.attributes.amount_cents - existingPledgeAmountCents) < 1; // Allow for tiny rounding differences
+          });
+          
+          if (matchingTier) {
+            // Found a tier matching the existing pledge amount
+            pledgeAmountCents = matchingTier.attributes.amount_cents;
+            console.log(`Found tier matching existing pledge amount: ${pledgeAmountCents} cents with title "${matchingTier.attributes.title}"`);
+          } else {
+            // No matching tier, keep the existing pledge amount
+            pledgeAmountCents = existingPledgeAmountCents;
+            console.log(`No matching tier found for amount ${existingPledgeAmountCents}, keeping existing amount`);
+          }
+        } else {
+          // No existing pledge amount, use the highest tier amount
+          const highestCampaignTier = campaignTiers.reduce((highest, current) => {
+            const currentAmount = current.attributes?.amount_cents || 0;
+            const highestAmount = highest.attributes?.amount_cents || 0;
+            return currentAmount > highestAmount ? current : highest;
+          }, campaignTiers[0]);
+          
+          if (highestCampaignTier && highestCampaignTier.attributes && highestCampaignTier.attributes.amount_cents) {
+            pledgeAmountCents = highestCampaignTier.attributes.amount_cents;
+            console.log(`No existing pledge amount, using highest tier: ${pledgeAmountCents} cents`);
+          }
+        }
+      }
+    } else if (pledgeAmountCents === 0) { 
+      // No campaign-specific tiers or still zero, use highest tier overall as fallback
+      const highestTier = entitledTiers.reduce((highest, current) => {
+        const currentAmount = current.attributes?.amount_cents || 0;
+        const highestAmount = highest.attributes?.amount_cents || 0;
+        return currentAmount > highestAmount ? current : highest;
+      }, entitledTiers[0]);
+      
+      if (highestTier && highestTier.attributes && highestTier.attributes.amount_cents) {
+        pledgeAmountCents = highestTier.attributes.amount_cents;
+        console.log(`Using pledge amount from highest tier (no campaign match): ${pledgeAmountCents} cents`);
+      }
     }
   }
   
@@ -1830,14 +1913,57 @@ function createStandardizedPatreonData(patreonId, userData, membershipData, enti
   const pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
   const willPayAmountDollars = (willPayAmountCents / 100).toFixed(2);
   
-  // Create tier details array for easier access
-  const tierDetails = entitledTiers ? entitledTiers.map(tier => ({
-    id: tier.id,
-    title: tier.attributes?.title || 'Unknown Tier',
-    amountCents: tier.attributes?.amount_cents || 0,
-    amountDollars: tier.attributes?.amount_cents ? (tier.attributes.amount_cents / 100).toFixed(2) : '0.00',
-    description: tier.attributes?.description || ''
-  })) : [];
+  // Create tier details array for easier access and track campaign associations
+  const tierDetails = [];
+  const campaignTiers = [];
+  const campaignId = "24216420"; // Evil Trivia campaign ID
+  let hasEvilTriviaCampaign = false;
+  let matchingTierInfo = null;
+  
+  if (entitledTiers) {
+    entitledTiers.forEach(tier => {
+      // Get campaign ID if available
+      let tierCampaignId = null;
+      if (tier.relationships && 
+          tier.relationships.campaign && 
+          tier.relationships.campaign.data && 
+          tier.relationships.campaign.data.id) {
+        tierCampaignId = tier.relationships.campaign.data.id;
+      }
+      
+      // Add to tier details
+      const tierDetail = {
+        id: tier.id,
+        title: tier.attributes?.title || 'Unknown Tier',
+        amountCents: tier.attributes?.amount_cents || 0,
+        amountDollars: tier.attributes?.amount_cents ? (tier.attributes.amount_cents / 100).toFixed(2) : '0.00',
+        description: tier.attributes?.description || '',
+        campaignId: tierCampaignId
+      };
+      
+      // Check if this tier is the one that matched the pledge amount
+      if (tierCampaignId === campaignId && 
+          tier.attributes && 
+          tier.attributes.amount_cents && 
+          tier.attributes.amount_cents === pledgeAmountCents) {
+        tierDetail.isMatchingTier = true;
+        matchingTierInfo = {
+          id: tier.id,
+          title: tier.attributes.title || 'Unknown Tier',
+          amountCents: tier.attributes.amount_cents,
+          amountDollars: (tier.attributes.amount_cents / 100).toFixed(2)
+        };
+      }
+      
+      // Check if this tier is for the Evil Trivia campaign
+      if (tierCampaignId === campaignId) {
+        hasEvilTriviaCampaign = true;
+        campaignTiers.push(tierDetail);
+      }
+      
+      tierDetails.push(tierDetail);
+    });
+  }
   
   // Build the standardized data structure
   const standardizedData = {
@@ -1859,7 +1985,10 @@ function createStandardizedPatreonData(patreonId, userData, membershipData, enti
       willPayAmountDollars: willPayAmountDollars,
       lastChargeDate: lastChargeDate,
       nextChargeDate: nextChargeDate,
-      lastUpdated: admin.database.ServerValue.TIMESTAMP
+      lastUpdated: admin.database.ServerValue.TIMESTAMP,
+      hasEvilTriviaCampaign: hasEvilTriviaCampaign,
+      evilTriviaCampaignTiers: campaignTiers.length > 0 ? campaignTiers : null,
+      matchingTier: matchingTierInfo
     }
   };
   
@@ -1988,6 +2117,9 @@ exports.fixPatreonData = functions.https.onRequest(async (req, res) => {
           willPayAmountDollars: standardizedData.patreon.willPayAmountDollars,
           lastChargeDate: standardizedData.patreon.lastChargeDate,
           nextChargeDate: standardizedData.patreon.nextChargeDate,
+          hasEvilTriviaCampaign: standardizedData.patreon.hasEvilTriviaCampaign,
+          evilTriviaCampaignTiers: standardizedData.patreon.evilTriviaCampaignTiers,
+          matchingTier: standardizedData.patreon.matchingTier,
           lastUpdated: admin.database.ServerValue.TIMESTAMP,
           // Keep existing detailed data
           membershipData: patreonData.membershipData || standardizedData.patreon.membershipData,
