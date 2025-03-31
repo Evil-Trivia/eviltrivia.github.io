@@ -783,6 +783,113 @@
         flex-direction: column;
       }
     }
+    
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 999;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0, 0, 0, 0.7);
+    }
+    
+    .modal-content {
+      background-color: #121212;
+      margin: 5% auto;
+      padding: 20px;
+      border: 1px solid #0288d1;
+      border-radius: 8px;
+      width: 80%;
+      max-width: 800px;
+      max-height: 80vh;
+      overflow-y: auto;
+      color: #e0e0e0;
+    }
+    
+    .close {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    
+    .close:hover,
+    .close:focus {
+      color: #fff;
+      text-decoration: none;
+    }
+    
+    /* Category tables and tabs */
+    .category-stats-container {
+      margin-top: 30px;
+    }
+    
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #0288d1;
+      margin-bottom: 15px;
+      overflow-x: auto;
+    }
+    
+    .tab-button {
+      background-color: transparent;
+      color: #e0e0e0;
+      border: none;
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.3s;
+      border-bottom: 3px solid transparent;
+    }
+    
+    .tab-button:hover {
+      background-color: rgba(2, 136, 209, 0.2);
+    }
+    
+    .tab-button.active {
+      border-bottom: 3px solid #0288d1;
+      font-weight: bold;
+    }
+    
+    .tab-content {
+      display: none;
+      padding: 15px 0;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    .category-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    
+    .category-table th, .category-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #333;
+    }
+    
+    .category-table th {
+      background-color: #1A1A1A;
+      color: #0288d1;
+      font-weight: bold;
+    }
+    
+    .category-table tr:nth-child(even) {
+      background-color: #1E1E1E;
+    }
+    
+    .category-table tr:hover {
+      background-color: #2A2A2A;
+    }
   </style>
 </head>
 <body>
@@ -1084,6 +1191,8 @@
   <!-- Audio elements for sound effects -->
   <audio id="buzz-sound" src="/sounds/buzz.mp3" preload="auto"></audio>
   <audio id="times-up-sound" src="/sounds/timesup.mp3" preload="auto"></audio>
+  <audio id="correct-sound" src="/sounds/correct.mp3" preload="auto"></audio>
+  <audio id="incorrect-sound" src="/sounds/incorrect.mp3" preload="auto"></audio>
   
   <!-- Firebase -->
   <script type="module">
@@ -1175,53 +1284,72 @@
     // Sound Elements
     const buzzSound = document.getElementById('buzz-sound');
     const timesUpSound = document.getElementById('times-up-sound');
+    const correctSound = document.getElementById('correct-sound');
+    const incorrectSound = document.getElementById('incorrect-sound');
     
     // Game state variables
-    let jeopardyData = {};
-    let availableDates = [];
-    let currentDate = null;
-    let currentQuestions = [];
+    let userData = null;
+    let questions = [];
     let filteredQuestions = [];
     let currentQuestionIndex = -1;
     let currentQuestion = null;
+    let currentDate = null;
     let buzzedIn = false;
     let buzzInTime = null;
     let enableBuzzInTime = null;
     let questionTimer = null;
     let buzzTimer = null;
     let displayTimer = null;
-    let timerDuration = 0;
-    let isAdmin = false;
-    let userData = null;
-    
-    // Stats variables
     let stats = {
-      questionsAnswered: 0,
+      played: 0,
+      totalPlayTime: 0,
       correct: 0,
       incorrect: 0,
       passed: 0,
-      buzzTimes: [],
+      streakCurrent: 0,
+      streakLongest: 0,
       coryat: 0,
-      // Extended user stats
-      streakCurrent: 0,        // Current streak of correct answers
-      streakLongest: 0,        // Longest streak of correct answers
-      lastPlayedDate: null,    // Last date the user played
-      categoryAccuracy: {},    // Tracking accuracy by category
-      valueAccuracy: {},       // Tracking accuracy by dollar value
-      totalPlayTime: 0,        // Total time spent playing in seconds
-      sessionsPlayed: 0        // Number of game sessions
+      buzzTimes: [],
+      categoryAccuracy: {},
+      valueAccuracy: {}
     };
     
     // Current game stats
     let currentGameStats = {
       questionsAnswered: 0,
-      correct: 0,
-      incorrect: 0,
-      passed: 0,
+      questionsCorrect: 0,
+      questionsIncorrect: 0,
+      questionsPassed: 0,
+      coryatScore: 0,
       buzzTimes: [],
-      coryat: 0,
-      startTime: 0
+      currentStreak: 0,
+      maxStreak: 0,
+      startTime: null,
+      endTime: null
     };
+    
+    // Create a unique session ID for this game
+    let currentGameSessionId = null;
+    
+    // Flag to indicate if game has ended (to prevent duplicate processing)
+    window.gameEnded = false;
+
+    // Function to update the displayed stats
+    function updateStats() {
+      // Update the stats display
+      document.getElementById('stats-questions').textContent = currentGameStats.questionsAnswered;
+      document.getElementById('stats-correct').textContent = currentGameStats.questionsCorrect;
+      document.getElementById('stats-incorrect').textContent = currentGameStats.questionsIncorrect;
+      document.getElementById('stats-passed').textContent = currentGameStats.questionsPassed;
+      document.getElementById('stats-coryat').textContent = `$${currentGameStats.coryatScore}`;
+      
+      // Update streak
+      document.getElementById('stats-streak').textContent = currentGameStats.currentStreak;
+      
+      // Update average buzz time
+      const avgBuzzTime = calculateAverageBuzzTime(currentGameStats.buzzTimes);
+      document.getElementById('stats-avg-buzz').textContent = avgBuzzTime + 'ms';
+    }
     
     // Check if user is authorized
     async function checkUserAuthorization(user) {
@@ -1782,20 +1910,33 @@
     
     // End current game and show summary
     function endCurrentGame() {
-      // Clear any timers
+      // Set a global flag to indicate game is ended
+      window.gameEnded = true;
+      
+      // Clear all timers
       if (questionTimer) {
         clearTimeout(questionTimer);
+        questionTimer = null;
       }
       if (buzzTimer) {
         clearTimeout(buzzTimer);
+        buzzTimer = null;
       }
+      if (displayTimer) {
+        clearTimeout(displayTimer);
+        displayTimer = null;
+      }
+      
+      // Reset state to prevent further interactions
+      buzzedIn = false;
+      enableBuzzInTime = null;
       
       // Calculate game duration
       const gameDuration = Math.floor((Date.now() - currentGameStats.startTime) / 1000);
       stats.totalPlayTime += gameDuration;
       
-      // Save comprehensive game summary with final stats
-      if (userData && userData.uid && currentDate) {
+      // Save comprehensive game summary with final stats - but only if visible
+      if (userData && userData.uid && currentDate && document.visibilityState === 'visible') {
         // Final game data with complete stats
         const finalGameData = {
           date: currentDate,
@@ -1809,14 +1950,14 @@
         set(ref(db, `users/${userData.uid}/scores/jeopardy/completed/${currentDate}`), finalGameData)
           .then(() => console.log('Final game data saved as completed'))
           .catch(error => console.error('Error saving final game data:', error));
+          
+        // Save stats to Firebase
+        saveUserStats();
+        
+        // Clear saved game progress
+        deleteSavedProgress();
       }
 
-      // Save stats to Firebase
-      saveUserStats();
-      
-      // Clear saved game progress
-      deleteSavedProgress();
-      
       // Hide game play section
       gamePlaySection.style.display = 'none';
       
@@ -2016,6 +2157,12 @@
     
     // Next question function
     function nextQuestion() {
+      // Don't proceed if game is ended
+      if (window.gameEnded) {
+        console.log('Game has ended - not proceeding to next question');
+        return;
+      }
+      
       // Clear previous timers if they exist
       if (questionTimer) {
         clearTimeout(questionTimer);
@@ -2086,8 +2233,8 @@
       
       // Enable buzz-in after display time
       displayTimer = setTimeout(() => {
-        // Only proceed if document is visible
-        if (document.visibilityState === 'visible') {
+        // Only proceed if document is visible and game hasn't ended
+        if (document.visibilityState === 'visible' && !window.gameEnded) {
           enableBuzzInTime = performance.now();
           buzzBtn.disabled = false;
           buzzBtn.textContent = "BUZZ IN (SPACE)";
@@ -2104,8 +2251,8 @@
           
           // Start timer for auto-reveal (8 seconds after buzz-in is enabled)
           questionTimer = setTimeout(() => {
-            // Only proceed if document is visible
-            if (document.visibilityState === 'visible') {
+            // Only proceed if document is visible and game hasn't ended
+            if (document.visibilityState === 'visible' && !window.gameEnded) {
               // Play times up sound
               timesUpSound.play();
               
@@ -2114,7 +2261,7 @@
               
               // If not buzzed in, wait 2 seconds and then move to next question
               setTimeout(() => {
-                if (!buzzedIn && document.visibilityState === 'visible') {
+                if (!buzzedIn && document.visibilityState === 'visible' && !window.gameEnded) {
                   scoreAnswer('pass');
                 }
               }, 2000);
@@ -2150,6 +2297,12 @@
     
     // Save game progress
     function saveGameProgress() {
+      // Don't save if game has ended
+      if (window.gameEnded) {
+        console.log('Game has ended - not saving game progress');
+        return;
+      }
+      
       if (userData && userData.uid && currentDate && currentQuestionIndex >= 0) {
         // Only save if the document is visible (tab is active)
         if (document.visibilityState !== 'visible') {
@@ -2188,119 +2341,185 @@
       }
     }
     
-    // Score answer function
-    function scoreAnswer(result) {
-      if (!currentQuestion) return;
+    // Save individual question data
+    function saveQuestionData(result, buzzTime) {
+      // Don't save if game has ended or user data isn't available
+      if (window.gameEnded || !userData || !userData.uid || !currentQuestion) {
+        console.log('Cannot save question data - game ended or missing user data');
+        return;
+      }
       
-      // Clear buzz timer if it exists
+      // Skip saving if tab is not visible
+      if (document.visibilityState !== 'visible') {
+        console.log('Skipping question data save - tab not visible');
+        return;
+      }
+      
+      console.log('Saving individual question data...');
+      
+      // Clean the buzz time if it exists
+      const cleanBuzzTime = buzzTime !== null ? cleanUpBuzzTimes([buzzTime])[0] : null;
+      
+      // Create a unique identifier for the question
+      // Use the question ID if available, or create a hash from the question text
+      const questionId = currentQuestion.id || 
+                        btoa(encodeURIComponent(currentQuestion.answer || '')).slice(0, 20);
+      
+      // Create a unique game session ID if not already set
+      if (!currentGameSessionId) {
+        currentGameSessionId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 10);
+      }
+      
+      // Structure the question data
+      const questionData = {
+        questionId: questionId,
+        category: currentQuestion.category || 'Unknown',
+        value: currentQuestion.clue_value || 200,
+        date: currentQuestion.air_date || currentDate || 'Unknown',
+        result: result, // 'correct', 'incorrect', or 'pass'
+        buzzTime: cleanBuzzTime, // Time in ms, or null if passed
+        timestamp: Date.now(),
+        gameSession: currentGameSessionId
+      };
+      
+      // Save to Firebase under the user's question history
+      // Use a compound path that includes the question ID
+      const questionHistoryRef = ref(db, `users/${userData.uid}/questionHistory/jeopardy/${questionId}`);
+      
+      // First get existing data to handle multiple attempts
+      get(questionHistoryRef).then((snapshot) => {
+        // Initialize attempts array
+        let attempts = [];
+        
+        // If we have existing data
+        if (snapshot.exists()) {
+          const existingData = snapshot.val();
+          
+          // If attempts already exists as an array, use it
+          if (Array.isArray(existingData.attempts)) {
+            attempts = existingData.attempts;
+          } 
+          // Otherwise, create a new array with the existing data as the first attempt
+          else {
+            attempts = [existingData];
+          }
+        }
+        
+        // Add the new attempt
+        attempts.push(questionData);
+        
+        // Update the history with all attempts
+        return set(questionHistoryRef, {
+          questionId: questionId,
+          category: currentQuestion.category || 'Unknown',
+          // Save the question text and answer
+          clueText: currentQuestion.answer || 'Unknown', // This is the clue shown to contestants
+          correctResponse: currentQuestion.question || 'Unknown', // This is what contestants should respond with
+          lastPlayed: Date.now(),
+          attempts: attempts
+        });
+      })
+      .then(() => {
+        console.log('Question data saved successfully');
+      })
+      .catch(error => {
+        console.error('Error saving question data:', error);
+      });
+    }
+
+    // Score an answer (correct, incorrect, pass)
+    function scoreAnswer(result) {
+      // Don't process if game has ended
+      if (window.gameEnded) {
+        console.log('Game has ended - not scoring answer');
+        return;
+      }
+      
+      // Clear any timers
+      if (questionTimer) {
+        clearTimeout(questionTimer);
+      }
       if (buzzTimer) {
         clearTimeout(buzzTimer);
       }
       
-      stats.questionsAnswered++;
+      // Determine buzz time and value
+      let value = currentQuestion.clue_value || 200;
+      let buzzTime = null;
+      
+      // Calculate buzz time if user buzzed in
+      if (result !== 'pass' && buzzInTime !== null && enableBuzzInTime !== null) {
+        buzzTime = buzzInTime - enableBuzzInTime;
+      }
+      
+      // Save the individual question data
+      saveQuestionData(result, buzzTime);
+      
+      // Update current game stats
       currentGameStats.questionsAnswered++;
       
-      const questionValue = currentQuestion.clue_value || 200;
-      const category = currentQuestion.category || "Unknown";
-      
-      // Initialize category tracking if it doesn't exist yet
-      if (!stats.categoryAccuracy[category]) {
-        stats.categoryAccuracy[category] = { total: 0, correct: 0 };
-      }
-      
-      // Initialize value tracking if it doesn't exist yet
-      // FIXED: Use 'value_' prefix instead of $ which is an invalid Firebase key
-      const valueKey = `value_${questionValue}`;
-      if (!stats.valueAccuracy[valueKey]) {
-        stats.valueAccuracy[valueKey] = { total: 0, correct: 0 };
-      }
-      
-      // Update category and value stats
-      stats.categoryAccuracy[category].total++;
-      stats.valueAccuracy[valueKey].total++;
-      
-      // Process the result
       if (result === 'correct') {
-        stats.correct++;
-        stats.streakCurrent++;
-        stats.categoryAccuracy[category].correct++;
-        stats.valueAccuracy[valueKey].correct++;
-        currentGameStats.correct++;
+        // Play correct sound
+        correctSound.play();
         
-        // Update longest streak if current streak is longer
-        if (stats.streakCurrent > stats.streakLongest) {
-          stats.streakLongest = stats.streakCurrent;
+        // Update stats
+        currentGameStats.questionsCorrect++;
+        currentGameStats.coryatScore += value;
+        
+        // If there is a valid buzz time, add it to the array
+        if (buzzTime !== null && buzzTime >= 0 && buzzTime < 10000) {
+          currentGameStats.buzzTimes.push(buzzTime);
         }
         
-        // Add the value to Coryat score
-        stats.coryat += questionValue;
-        currentGameStats.coryat += questionValue;
+        // Increment streak and update max streak
+        currentGameStats.currentStreak++;
+        currentGameStats.maxStreak = Math.max(currentGameStats.maxStreak, currentGameStats.currentStreak);
+      } 
+      else if (result === 'incorrect') {
+        // Play incorrect sound
+        incorrectSound.play();
         
-        // Apply correct answer styling
-        const container = document.querySelector('.question-container');
-        if (container) {
-          container.style.boxShadow = '0 0 20px rgba(0, 255, 0, 0.6)';
+        // Update stats
+        currentGameStats.questionsIncorrect++;
+        currentGameStats.coryatScore -= value;
+        
+        // If there is a valid buzz time, add it to the array
+        if (buzzTime !== null && buzzTime >= 0 && buzzTime < 10000) {
+          currentGameStats.buzzTimes.push(buzzTime);
         }
         
-        // Update displayed stats
-        document.getElementById('stats-correct').textContent = currentGameStats.correct;
-        document.getElementById('stats-coryat').textContent = `$${currentGameStats.coryat}`;
-      } else if (result === 'incorrect') {
-        stats.incorrect++;
-        stats.streakCurrent = 0;
-        currentGameStats.incorrect++;
-        
-        // Apply incorrect answer styling
-        const container = document.querySelector('.question-container');
-        if (container) {
-          container.style.boxShadow = '0 0 20px rgba(255, 0, 0, 0.6)';
+        // Reset streak
+        currentGameStats.currentStreak = 0;
+      } 
+      else { // pass
+        // Play times up sound if it hasn't been played already
+        if (!timesUpSound.played) {
+          timesUpSound.play();
         }
         
-        // Update displayed stats
-        document.getElementById('stats-incorrect').textContent = currentGameStats.incorrect;
-      } else { // passed
-        stats.passed++;
-        currentGameStats.passed++;
+        // Update stats
+        currentGameStats.questionsPassed++;
         
-        // Apply passed answer styling
-        const container = document.querySelector('.question-container');
-        if (container) {
-          container.style.boxShadow = '0 0 20px rgba(255, 255, 0, 0.6)';
-        }
-        
-        // Update displayed stats
-        document.getElementById('stats-passed').textContent = currentGameStats.passed;
+        // Reset streak
+        currentGameStats.currentStreak = 0;
       }
       
-      // Always update total questions count
-      document.getElementById('stats-questions').textContent = currentGameStats.questionsAnswered;
+      // Update display
+      updateStats();
       
-      // Save stats to Firebase
-      saveUserStats();
+      // Save game progress
+      saveGameProgress();
       
-      // If this was in the middle of a saved game, update the progress
+      // Save detailed game data (just in case)
       saveDetailedGameData();
       
-      // Show the answer
-      answerText.textContent = currentQuestion.question || "No answer available";
-      answerText.classList.remove('hidden');
-      
-      // Update average buzz time display if user buzzed in
-      if (buzzInTime !== null && enableBuzzInTime !== null) {
-        // Update average buzz time display ONLY - don't add the time again
-        const avgBuzzTime = calculateAverageBuzzTime(currentGameStats.buzzTimes);
-        document.getElementById('stats-avg-buzz').textContent = avgBuzzTime + 'ms';
-      }
-      
-      // Proceed to next question after a delay
+      // Move to next question after a delay
       setTimeout(() => {
-        // Reset container appearance
-        const container = document.querySelector('.question-container');
-        if (container) {
-          container.style.boxShadow = '';
+        // Only proceed if document is visible and game hasn't ended
+        if (document.visibilityState === 'visible' && !window.gameEnded) {
+          nextQuestion();
         }
-        nextQuestion();
-      }, 2000);
+      }, 2500);
     }
     
     // Calculate average buzz time
@@ -2497,6 +2716,12 @@
     
     // Save detailed game data with structure that mirrors Jeopardy data
     function saveDetailedGameData() {
+      // Don't save if game has ended
+      if (window.gameEnded) {
+        console.log('Game has ended - not saving detailed game data');
+        return;
+      }
+      
       // Skip saving if tab is not visible
       if (document.visibilityState !== 'visible') {
         console.log('Skipping detailed game data save - tab not visible');
@@ -3026,6 +3251,394 @@
         debugPanel.appendChild(debugButton);
         debugButton.onclick = testFirebaseConnection;
       }
+    }
+    
+    // Get detailed stats from question history
+    function calculateStatsFromQuestionHistory() {
+      if (!userData || !userData.uid) {
+        console.log('Cannot calculate stats - no user data');
+        return Promise.resolve(null);
+      }
+      
+      console.log('Calculating detailed stats from question history...');
+      
+      // Get the question history reference
+      const historyRef = ref(db, `users/${userData.uid}/questionHistory/jeopardy`);
+      
+      return get(historyRef).then((snapshot) => {
+        if (!snapshot.exists()) {
+          console.log('No question history found');
+          return null;
+        }
+        
+        // Initialize stats object
+        const detailedStats = {
+          totalQuestions: 0,
+          correctAnswers: 0,
+          incorrectAnswers: 0,
+          passedQuestions: 0,
+          coryatScore: 0,
+          averageBuzzTime: 0,
+          totalBuzzTimes: [],
+          categoryAccuracy: {},
+          valueAccuracy: {},
+          longestStreak: 0,
+          questionsPerCategory: {},
+          mostPlayedCategories: [],
+          bestCategories: [],
+          worstCategories: []
+        };
+        
+        // Process each question in the history
+        const questions = snapshot.val();
+        let currentStreak = 0;
+        
+        // Track game sessions for streak calculation
+        const gameSessionsMap = {};
+        
+        // Process all questions
+        Object.keys(questions).forEach(questionId => {
+          const questionData = questions[questionId];
+          
+          // Skip if no attempts
+          if (!questionData.attempts || questionData.attempts.length === 0) {
+            return;
+          }
+          
+          // Get category and value
+          const category = questionData.category || 'Unknown';
+          
+          // Process each attempt
+          questionData.attempts.forEach(attempt => {
+            // Skip if it's not a valid attempt
+            if (!attempt.result) return;
+            
+            // Get the game session and value
+            const gameSession = attempt.gameSession || 'unknown';
+            const value = attempt.value || 200;
+            const valueKey = `value_${value}`;
+            
+            // Initialize category tracking if needed
+            if (!detailedStats.categoryAccuracy[category]) {
+              detailedStats.categoryAccuracy[category] = { total: 0, correct: 0 };
+            }
+            
+            // Initialize value tracking if needed
+            if (!detailedStats.valueAccuracy[valueKey]) {
+              detailedStats.valueAccuracy[valueKey] = { total: 0, correct: 0 };
+            }
+            
+            // Initialize game session tracking if needed
+            if (!gameSessionsMap[gameSession]) {
+              gameSessionsMap[gameSession] = { questions: [], lastResult: null };
+            }
+            
+            // Add the question to the game session
+            gameSessionsMap[gameSession].questions.push({
+              questionId: questionId,
+              result: attempt.result,
+              timestamp: attempt.timestamp || 0
+            });
+            
+            // Count the attempt
+            detailedStats.totalQuestions++;
+            detailedStats.categoryAccuracy[category].total++;
+            detailedStats.valueAccuracy[valueKey].total++;
+            
+            // Track questions per category
+            if (!detailedStats.questionsPerCategory[category]) {
+              detailedStats.questionsPerCategory[category] = 0;
+            }
+            detailedStats.questionsPerCategory[category]++;
+            
+            // Process result
+            if (attempt.result === 'correct') {
+              detailedStats.correctAnswers++;
+              detailedStats.categoryAccuracy[category].correct++;
+              detailedStats.valueAccuracy[valueKey].correct++;
+              detailedStats.coryatScore += value;
+              
+              // Add valid buzz time if available
+              if (attempt.buzzTime && attempt.buzzTime >= 0 && attempt.buzzTime < 10000) {
+                detailedStats.totalBuzzTimes.push(attempt.buzzTime);
+              }
+            } else if (attempt.result === 'incorrect') {
+              detailedStats.incorrectAnswers++;
+              detailedStats.coryatScore -= value;
+              
+              // Add valid buzz time if available
+              if (attempt.buzzTime && attempt.buzzTime >= 0 && attempt.buzzTime < 10000) {
+                detailedStats.totalBuzzTimes.push(attempt.buzzTime);
+              }
+            } else if (attempt.result === 'pass') {
+              detailedStats.passedQuestions++;
+            }
+          });
+        });
+        
+        // Calculate streak by ordering each game session's questions by timestamp
+        Object.keys(gameSessionsMap).forEach(sessionId => {
+          const session = gameSessionsMap[sessionId];
+          
+          // Sort questions by timestamp
+          session.questions.sort((a, b) => a.timestamp - b.timestamp);
+          
+          // Calculate streak
+          let sessionStreak = 0;
+          
+          session.questions.forEach(question => {
+            if (question.result === 'correct') {
+              sessionStreak++;
+              detailedStats.longestStreak = Math.max(detailedStats.longestStreak, sessionStreak);
+            } else {
+              sessionStreak = 0;
+            }
+          });
+        });
+        
+        // Calculate average buzz time
+        if (detailedStats.totalBuzzTimes.length > 0) {
+          // Clean up the buzz times
+          const cleanBuzzTimes = cleanUpBuzzTimes(detailedStats.totalBuzzTimes);
+          
+          // Calculate average
+          const sum = cleanBuzzTimes.reduce((a, b) => a + b, 0);
+          detailedStats.averageBuzzTime = Math.round(sum / cleanBuzzTimes.length);
+        }
+        
+        // Calculate category stats
+        const categoryStats = [];
+        Object.keys(detailedStats.categoryAccuracy).forEach(category => {
+          const stat = detailedStats.categoryAccuracy[category];
+          const accuracy = stat.total > 0 ? (stat.correct / stat.total) * 100 : 0;
+          
+          categoryStats.push({
+            category: category,
+            total: stat.total,
+            correct: stat.correct,
+            accuracy: accuracy.toFixed(1)
+          });
+        });
+        
+        // Sort categories by number of questions played
+        detailedStats.mostPlayedCategories = [...categoryStats]
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 10);
+        
+        // Sort categories by accuracy (min 5 questions)
+        detailedStats.bestCategories = [...categoryStats]
+          .filter(cat => cat.total >= 5)
+          .sort((a, b) => b.accuracy - a.accuracy)
+          .slice(0, 10);
+        
+        // Sort categories by worst accuracy (min 5 questions)
+        detailedStats.worstCategories = [...categoryStats]
+          .filter(cat => cat.total >= 5)
+          .sort((a, b) => a.accuracy - b.accuracy)
+          .slice(0, 10);
+        
+        console.log('Detailed stats calculated:', detailedStats);
+        return detailedStats;
+      })
+      .catch(error => {
+        console.error('Error calculating detailed stats:', error);
+        return null;
+      });
+    }
+    
+    // Load user data from Firebase
+    function loadUserData(user) {
+      if (!user) return;
+      
+      userData = user;
+      
+      // Show user info in navbar
+      document.getElementById('user-display-name').textContent = user.displayName || user.email;
+      document.getElementById('profile-link').classList.remove('hidden');
+      document.getElementById('logout-link').classList.remove('hidden');
+      document.querySelectorAll('.login-required').forEach(el => el.classList.remove('hidden'));
+      document.querySelectorAll('.logout-required').forEach(el => el.classList.add('hidden'));
+      
+      // Check if user has any saved stats
+      const userStatsRef = ref(db, `users/${user.uid}/scores/jeopardy/stats`);
+      
+      // First check for the legacy stats format
+      get(userStatsRef).then(snapshot => {
+        if (snapshot.exists()) {
+          // We have legacy stats, use them as a fallback
+          stats = snapshot.val();
+          
+          // Update UI with stats
+          document.getElementById('profile-total-questions').textContent = stats.questionsAnswered || 0;
+          document.getElementById('profile-correct').textContent = stats.correct || 0;
+          document.getElementById('profile-incorrect').textContent = stats.incorrect || 0;
+          document.getElementById('profile-passed').textContent = stats.passed || 0;
+          document.getElementById('profile-coryat').textContent = `$${stats.coryat || 0}`;
+          
+          // Calculate accuracy
+          const accuracy = stats.questionsAnswered > 0 
+            ? ((stats.correct / stats.questionsAnswered) * 100).toFixed(1) 
+            : "0.0";
+          document.getElementById('profile-accuracy').textContent = `${accuracy}%`;
+          
+          // Update streak
+          document.getElementById('profile-streak-current').textContent = stats.streakCurrent || 0;
+          document.getElementById('profile-streak-longest').textContent = stats.streakLongest || 0;
+          
+          // Update average buzz time
+          if (stats.buzzTimes && stats.buzzTimes.length > 0) {
+            // Clean up the buzz times
+            const cleanBuzzTimes = cleanUpBuzzTimes(stats.buzzTimes);
+            
+            if (cleanBuzzTimes.length > 0) {
+              const sum = cleanBuzzTimes.reduce((a, b) => a + b, 0);
+              const avgBuzzTime = Math.round(sum / cleanBuzzTimes.length);
+              document.getElementById('profile-avg-buzz').textContent = `${avgBuzzTime}ms`;
+            } else {
+              document.getElementById('profile-avg-buzz').textContent = 'N/A';
+            }
+          } else {
+            document.getElementById('profile-avg-buzz').textContent = 'N/A';
+          }
+          
+          // Update sessions played
+          document.getElementById('profile-sessions').textContent = stats.sessionsPlayed || 0;
+          
+          // Format total play time
+          const formattedPlayTime = formatTime(stats.totalPlayTime || 0);
+          document.getElementById('profile-play-time').textContent = formattedPlayTime;
+        }
+        
+        // Now get the detailed stats from the question history
+        return calculateStatsFromQuestionHistory();
+      })
+      .then(detailedStats => {
+        if (detailedStats) {
+          // Update the UI with the detailed stats which are more accurate
+          document.getElementById('profile-total-questions').textContent = detailedStats.totalQuestions;
+          document.getElementById('profile-correct').textContent = detailedStats.correctAnswers;
+          document.getElementById('profile-incorrect').textContent = detailedStats.incorrectAnswers;
+          document.getElementById('profile-passed').textContent = detailedStats.passedQuestions;
+          document.getElementById('profile-coryat').textContent = `$${detailedStats.coryatScore}`;
+          
+          // Calculate accuracy
+          const accuracy = detailedStats.totalQuestions > 0 
+            ? ((detailedStats.correctAnswers / detailedStats.totalQuestions) * 100).toFixed(1) 
+            : "0.0";
+          document.getElementById('profile-accuracy').textContent = `${accuracy}%`;
+          
+          // Update streak
+          document.getElementById('profile-streak-longest').textContent = detailedStats.longestStreak;
+          
+          // Update average buzz time
+          if (detailedStats.averageBuzzTime > 0) {
+            document.getElementById('profile-avg-buzz').textContent = `${detailedStats.averageBuzzTime}ms`;
+          }
+          
+          // Populate category stats if available
+          populateCategoryStats(detailedStats);
+        }
+        
+        // Check for any saved game progress
+        return get(ref(db, `users/${user.uid}/scores/jeopardy/progress`));
+      })
+      .then(snapshot => {
+        if (snapshot.exists()) {
+          const progress = snapshot.val();
+          const savedDate = progress.date;
+          const savedIndex = progress.currentQuestionIndex;
+          const timestamp = progress.timestamp;
+          
+          // Only offer to resume if it's less than 3 days old
+          const now = Date.now();
+          const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+          
+          if (now - timestamp < threeDaysMs) {
+            // Show the resume game option
+            document.getElementById('resume-date').textContent = savedDate;
+            document.getElementById('resume-game-container').style.display = 'block';
+            
+            // Setup resume button
+            document.getElementById('resume-game-btn').onclick = () => {
+              currentDate = savedDate;
+              dateSelector.value = savedDate;
+              resumeGame(savedIndex);
+            };
+            
+            // Setup delete button
+            document.getElementById('delete-progress-btn').onclick = () => {
+              if (confirm('Are you sure you want to delete your saved progress?')) {
+                remove(ref(db, `users/${user.uid}/scores/jeopardy/progress`));
+                document.getElementById('resume-game-container').style.display = 'none';
+              }
+            };
+          }
+        }
+      })
+      .catch(error => {
+        console.error('Error loading user data:', error);
+      });
+    }
+    
+    // Populate category stats from detailed stats
+    function populateCategoryStats(detailedStats) {
+      if (!detailedStats) return;
+      
+      // Create function to populate a category table
+      function populateTable(tableId, categories) {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+        
+        // Clear existing rows
+        while (table.rows.length > 1) {
+          table.deleteRow(1);
+        }
+        
+        // Add rows for each category
+        categories.forEach(cat => {
+          const row = table.insertRow();
+          
+          // Category name
+          const nameCell = row.insertCell();
+          nameCell.textContent = cat.category;
+          
+          // Questions
+          const questionsCell = row.insertCell();
+          questionsCell.textContent = cat.total;
+          
+          // Correct
+          const correctCell = row.insertCell();
+          correctCell.textContent = cat.correct;
+          
+          // Accuracy
+          const accuracyCell = row.insertCell();
+          accuracyCell.textContent = `${cat.accuracy}%`;
+        });
+      }
+      
+      // Populate the tables
+      populateTable('most-played-categories', detailedStats.mostPlayedCategories);
+      populateTable('best-categories', detailedStats.bestCategories);
+      populateTable('worst-categories', detailedStats.worstCategories);
+    }
+    
+    // Tab navigation function
+    function openTab(evt, tabName) {
+      // Hide all tab content
+      const tabContents = document.getElementsByClassName('tab-content');
+      for (let i = 0; i < tabContents.length; i++) {
+        tabContents[i].classList.remove('active');
+      }
+      
+      // Remove 'active' class from all tab buttons
+      const tabButtons = document.getElementsByClassName('tab-button');
+      for (let i = 0; i < tabButtons.length; i++) {
+        tabButtons[i].classList.remove('active');
+      }
+      
+      // Show the specific tab content and add 'active' class to the button
+      document.getElementById(tabName).classList.add('active');
+      evt.currentTarget.classList.add('active');
     }
   </script>
 </body>
