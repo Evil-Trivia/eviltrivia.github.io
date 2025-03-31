@@ -21,8 +21,9 @@ admin.initializeApp({
 // Create Express app for Patreon auth
 const app = express();
 
-// Add raw body parser middleware for webhook signature verification
+// Configure body parsing middleware - special handling for webhooks
 app.use((req, res, next) => {
+  // Special handling for webhook requests to capture raw body for signature verification
   if (req.path === '/webhooks/patreon') {
     let data = '';
     req.setEncoding('utf8');
@@ -32,7 +33,10 @@ app.use((req, res, next) => {
     });
     
     req.on('end', () => {
+      // Save the raw body for signature verification
       req.rawBody = data;
+      
+      // Also parse it as JSON if possible
       if (data && data.length > 0) {
         try {
           req.body = JSON.parse(data);
@@ -44,16 +48,8 @@ app.use((req, res, next) => {
       next();
     });
   } else {
-    next();
-  }
-});
-
-// Then use normal JSON parsing for non-webhook routes
-app.use((req, res, next) => {
-  if (req.path !== '/webhooks/patreon') {
+    // For non-webhook routes, use standard express.json() parser
     express.json()(req, res, next);
-  } else {
-    next();
   }
 });
 
@@ -566,94 +562,107 @@ app.get('/fix-trevor', async (req, res) => {
 // Webhook handler for Patreon events
 app.post('/webhooks/patreon', async (req, res) => {
   try {
-    console.log('Received Patreon webhook with event:', req.get('X-Patreon-Event'));
+    console.log('==== PATREON WEBHOOK START ====');
+    const eventType = req.get('X-Patreon-Event');
+    console.log('Received Patreon webhook with event:', eventType);
     
     // Get webhook secret from environment variables
     const webhookSecret = process.env.PATREON_WEBHOOK_SECRET;
-    
-    console.log('Webhook received, webhook secret configured:', !!webhookSecret);
+    console.log('Webhook secret configured:', !!webhookSecret);
     
     // Verify webhook signature if secret is configured
     if (webhookSecret) {
       const signature = req.get('X-Patreon-Signature');
-      // Use the rawBody instead of JSON.stringify(req.body)
       const rawBody = req.rawBody;
       
-      console.log('Validating webhook signature:', signature ? signature.substring(0, 10) + '...' : 'none');
-      
-      const hmac = crypto.createHmac('md5', webhookSecret);
-      hmac.update(rawBody);
-      const expectedSignature = hmac.digest('hex');
-      
-      console.log('Expected signature (first 10 chars):', expectedSignature.substring(0, 10) + '...');
-      console.log('Actual signature (first 10 chars):', signature ? signature.substring(0, 10) + '...' : 'none');
-      
-      if (signature !== expectedSignature) {
-        console.error('Webhook signature verification failed');
-        console.error('Received:', signature);
-        console.error('Expected:', expectedSignature);
-        console.error('Body length:', rawBody.length);
-        return res.status(403).json({ error: 'Invalid signature' });
+      if (!signature) {
+        console.error('Missing X-Patreon-Signature header');
+        return res.status(403).json({ error: 'Missing signature header' });
       }
       
-      console.log('Webhook signature verified successfully');
+      if (!rawBody) {
+        console.error('Missing raw body - this is required for signature verification');
+        return res.status(500).json({ error: 'Internal server error - raw body not captured' });
+      }
+      
+      console.log('Validating webhook signature...');
+      console.log('Signature from header:', signature);
+      
+      // Try multiple hash algorithms to be safe
+      const algorithms = ['md5', 'sha1'];
+      let isValidSignature = false;
+      
+      for (const algorithm of algorithms) {
+        const hmac = crypto.createHmac(algorithm, webhookSecret);
+        hmac.update(rawBody);
+        const calculatedSignature = hmac.digest('hex');
+        
+        console.log(`Calculated ${algorithm} signature:`, calculatedSignature);
+        
+        if (signature === calculatedSignature) {
+          console.log(`✅ Signature verified using ${algorithm}`);
+          isValidSignature = true;
+          break;
+        }
+      }
+      
+      if (!isValidSignature) {
+        console.error('❌ Webhook signature verification failed');
+        console.error('Received signature:', signature);
+        console.error('Raw body length:', rawBody.length);
+        console.error('Raw body preview (first 100 chars):', rawBody.substring(0, 100));
+        return res.status(403).json({ error: 'Invalid signature' });
+      }
     } else {
-      console.warn('No webhook secret configured, skipping signature verification');
+      console.warn('⚠️ No webhook secret configured, skipping signature verification');
     }
     
-    // Process the webhook data
-    const data = req.body.data;
-    const included = req.body.included || [];
-    const event = req.get('X-Patreon-Event');
-    
-    if (!event) {
-      console.error('Missing X-Patreon-Event header');
-      return res.status(400).json({ error: 'Missing event header' });
-    }
-    
-    console.log('Processing Patreon webhook event:', event);
-    
-    if (!data) {
-      console.error('Invalid webhook payload - missing data object');
+    // Verify webhook payload format
+    if (!req.body || !req.body.data) {
+      console.error('❌ Invalid webhook payload - missing data object');
       return res.status(400).json({ error: 'Invalid webhook payload' });
     }
     
-    // Log some details about the payload to help with debugging
+    const data = req.body.data;
+    const included = req.body.included || [];
+    
+    // Log details about the payload
     console.log('Webhook data type:', data.type);
-    console.log('Webhook included items:', included.length);
+    console.log('Included items count:', included.length);
     if (included.length > 0) {
       console.log('Included item types:', included.map(item => item.type).join(', '));
     }
     
     // Handle different event types
-    switch (event) {
+    switch (eventType) {
       case 'members:pledge:create':
       case 'members:pledge:update':
       case 'members:update':
-        console.log(`Processing active member event: ${event}`);
+        console.log(`Processing active member event: ${eventType}`);
         await handleMemberEvent(data, included, true);
         break;
         
       case 'members:pledge:delete':
       case 'members:delete':
-        console.log(`Processing member deletion event: ${event}`);
+        console.log(`Processing member deletion event: ${eventType}`);
         await handleMemberEvent(data, included, false);
         break;
         
       default:
-        console.log(`Unhandled webhook event type: ${event}`);
+        console.log(`⚠️ Unhandled webhook event type: ${eventType}`);
     }
     
-    // Acknowledge receipt with more information
+    console.log('==== PATREON WEBHOOK COMPLETED ====');
+    
+    // Acknowledge receipt
     res.status(200).json({ 
       status: 'success',
-      event: event,
+      event: eventType,
       processedAt: new Date().toISOString() 
     });
     
   } catch (error) {
-    console.error('Error processing webhook:', error);
-    // Add more detailed error logging
+    console.error('❌ Error processing webhook:', error);
     if (error.response) {
       console.error('API response error:', {
         status: error.response.status,
@@ -661,9 +670,13 @@ app.post('/webhooks/patreon', async (req, res) => {
         data: error.response.data
       });
     }
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: error.message
+    
+    // Return a 200 response even for errors to avoid Patreon retrying
+    // This prevents the webhook from being paused due to server errors
+    res.status(200).json({ 
+      status: 'error',
+      message: 'Error processing webhook, but acknowledging receipt to prevent retries',
+      error: error.message
     });
   }
 });
@@ -1368,8 +1381,8 @@ async function handleMemberEvent(data, included, isActive) {
     const user = included.find(item => item.type === 'user');
     
     if (!data.relationships || !data.relationships.user || !data.relationships.user.data) {
-      console.error('Invalid webhook data structure - missing user relationship');
-      return;
+      console.error('❌ Invalid webhook data structure - missing user relationship');
+      throw new Error('Invalid webhook data structure - missing user relationship');
     }
     
     const patreonId = data.relationships.user.data.id;
@@ -1385,68 +1398,70 @@ async function handleMemberEvent(data, included, isActive) {
         console.log(`- Tier ${tier.id}: ${tier.attributes?.title || 'Unnamed'} (${tier.attributes?.amount_cents || 0} cents)`);
       });
     } else {
-      console.log(`No tiers found for user ${patreonId}`);
-      
-      // Check if there are entitled tier relationships that didn't come with full tier objects
-      if (data.relationships && 
-          data.relationships.currently_entitled_tiers && 
-          data.relationships.currently_entitled_tiers.data) {
-        const tierIds = data.relationships.currently_entitled_tiers.data.map(t => t.id);
-        console.log(`Found tier IDs in relationships: ${tierIds.join(', ')}`);
-        
-        // We have tier IDs but no tier objects, we'll need to fetch them
-        if (tierIds.length > 0) {
-          console.log('Tier objects not included in webhook payload. This is normal for some events.');
-          console.log('We will use tier IDs to look up tier information later.');
-        }
-      }
+      console.log(`No tiers found in webhook data for user ${patreonId}`);
     }
     
     // Get existing data to preserve important fields
     const existingPatreonDataSnapshot = await admin.database().ref(`patreonUsers/${patreonId}`).once('value');
     const existingPatreonData = existingPatreonDataSnapshot.exists() ? existingPatreonDataSnapshot.val() : {};
     
-    // If we have tier IDs but no tier objects, try to fetch them
+    // If we have tier IDs but no tier objects, try to fetch them from the API
+    let tierIds = [];
+    let tiersFetched = false;
+    
     if (tiers.length === 0 && 
         data.relationships && 
         data.relationships.currently_entitled_tiers && 
         data.relationships.currently_entitled_tiers.data &&
-        data.relationships.currently_entitled_tiers.data.length > 0 &&
-        existingPatreonData.tokens?.accessToken) {
+        data.relationships.currently_entitled_tiers.data.length > 0) {
       
-      try {
-        const tierIds = data.relationships.currently_entitled_tiers.data.map(t => t.id);
-        console.log(`Attempting to fetch tier details for IDs: ${tierIds.join(', ')}`);
-        
-        // Use the stored access token to fetch tier details
-        const campaignResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/campaigns', {
-          headers: {
-            Authorization: `Bearer ${existingPatreonData.tokens.accessToken}`
-          },
-          params: {
-            'include': 'tiers',
-            'fields[tier]': 'title,amount_cents,description,image_url'
-          }
-        });
-        
-        // Extract tier information
-        if (campaignResponse.data && campaignResponse.data.included) {
-          const fetchedTiers = campaignResponse.data.included
-            .filter(item => item.type === 'tier' && tierIds.includes(item.id));
+      tierIds = data.relationships.currently_entitled_tiers.data.map(t => t.id);
+      console.log(`Found tier IDs in relationships: ${tierIds.join(', ')}`);
+      
+      // Get access token for API calls - need this to fetch tiers
+      const accessToken = existingPatreonData.tokens?.accessToken;
+      
+      if (accessToken && tierIds.length > 0) {
+        try {
+          console.log(`Attempting to fetch tier details from API for IDs: ${tierIds.join(', ')}`);
           
-          if (fetchedTiers.length > 0) {
-            console.log(`Successfully fetched ${fetchedTiers.length} tier details`);
-            fetchedTiers.forEach(tier => {
-              console.log(`- Tier ${tier.id}: ${tier.attributes?.title || 'Unnamed'} (${tier.attributes?.amount_cents || 0} cents)`);
-            });
+          // Use the stored access token to fetch tier details
+          const campaignResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/campaigns', {
+            headers: {
+              Authorization: `Bearer ${accessToken}`
+            },
+            params: {
+              'include': 'tiers',
+              'fields[tier]': 'title,amount_cents,description,image_url'
+            }
+          });
+          
+          // Extract tier information
+          if (campaignResponse.data && campaignResponse.data.included) {
+            const fetchedTiers = campaignResponse.data.included
+              .filter(item => item.type === 'tier' && tierIds.includes(item.id));
             
-            // Use these tiers instead
-            tiers.push(...fetchedTiers);
+            if (fetchedTiers.length > 0) {
+              console.log(`✅ Successfully fetched ${fetchedTiers.length} tier details from API`);
+              fetchedTiers.forEach(tier => {
+                console.log(`- Tier ${tier.id}: ${tier.attributes?.title || 'Unnamed'} (${tier.attributes?.amount_cents || 0} cents)`);
+              });
+              
+              // Use these tiers
+              tiers.push(...fetchedTiers);
+              tiersFetched = true;
+            } else {
+              console.log('⚠️ No matching tiers found in API response');
+            }
+          } else {
+            console.log('⚠️ No included data in API response');
           }
+        } catch (tierError) {
+          console.error('❌ Error fetching tier details:', tierError.message);
+          // Continue processing even if tier fetching fails
         }
-      } catch (tierError) {
-        console.error('Error fetching tier details:', tierError.message);
-        // Continue with the webhook processing even if tier fetching fails
+      } else {
+        console.log(`⚠️ Cannot fetch tier details: ${!accessToken ? 'No access token available' : 'No tier IDs found'}`);
       }
     }
     
@@ -1463,14 +1478,18 @@ async function handleMemberEvent(data, included, isActive) {
       }
     }
     
+    // Get access tokens from existing data
+    const accessToken = existingPatreonData.tokens?.accessToken || null;
+    const refreshToken = existingPatreonData.tokens?.refreshToken || null;
+    
     // Use our standardized data structure creator
     const standardizedData = createStandardizedPatreonData(
       patreonId,
       user,
       data,
       tiers,
-      existingPatreonData.tokens?.accessToken,
-      existingPatreonData.tokens?.refreshToken,
+      accessToken,
+      refreshToken,
       existingUserData
     );
     
@@ -1501,7 +1520,9 @@ async function handleMemberEvent(data, included, isActive) {
       nextChargeDate: standardizedData.patreon.nextChargeDate,
       lastUpdated: admin.database.ServerValue.TIMESTAMP,
       membershipData: data,
+      // Only include tiers if we have them
       entitledTiers: tiers.length > 0 ? tiers : null,
+      entitledTierIds: tierIds.length > 0 ? tierIds : null,
       // Preserve tokens
       tokens: existingPatreonData.tokens || null,
       // Preserve FirebaseUID link
@@ -1548,62 +1569,19 @@ async function handleMemberEvent(data, included, isActive) {
       };
       
       await admin.database().ref(`users/${firebaseUid}`).update(userUpdate);
-      console.log(`Successfully updated Firebase user ${firebaseUid} from webhook`);
-    }
-    
-    // If we have tier IDs but no tier objects, try to fetch them
-    if (tiers.length === 0 && 
-        data.relationships && 
-        data.relationships.currently_entitled_tiers && 
-        data.relationships.currently_entitled_tiers.data &&
-        data.relationships.currently_entitled_tiers.data.length > 0 &&
-        existingPatreonData.tokens?.accessToken) {
-      
-      try {
-        const tierIds = data.relationships.currently_entitled_tiers.data.map(t => t.id);
-        console.log(`Attempting to fetch tier details for IDs: ${tierIds.join(', ')}`);
-        
-        // Use the stored access token to fetch tier details
-        const campaignResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/campaigns', {
-          headers: {
-            Authorization: `Bearer ${existingPatreonData.tokens.accessToken}`
-          },
-          params: {
-            'include': 'tiers',
-            'fields[tier]': 'title,amount_cents,description,image_url'
-          }
-        });
-        
-        // Extract tier information
-        if (campaignResponse.data && campaignResponse.data.included) {
-          const fetchedTiers = campaignResponse.data.included
-            .filter(item => item.type === 'tier' && tierIds.includes(item.id));
-          
-          if (fetchedTiers.length > 0) {
-            console.log(`Successfully fetched ${fetchedTiers.length} tier details`);
-            fetchedTiers.forEach(tier => {
-              console.log(`- Tier ${tier.id}: ${tier.attributes?.title || 'Unnamed'} (${tier.attributes?.amount_cents || 0} cents)`);
-            });
-            
-            // Use these tiers instead
-            tiers.push(...fetchedTiers);
-          }
-        }
-      } catch (tierError) {
-        console.error('Error fetching tier details:', tierError.message);
-        // Continue with the webhook processing even if tier fetching fails
-      }
+      console.log(`✅ Successfully updated Firebase user ${firebaseUid} from webhook`);
     }
     
     return {
       success: true,
       patreonId: patreonId,
       firebaseUid: firebaseUid,
-      isActive: isActive
+      isActive: isActive,
+      tiersFetched: tiersFetched
     };
     
   } catch (error) {
-    console.error('Error handling member event:', error);
+    console.error('❌ Error handling member event:', error);
     throw error;
   }
 }
