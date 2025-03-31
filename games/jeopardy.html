@@ -1265,10 +1265,17 @@
         
         console.log('Loaded complete user data from database');
         
-        // If user is admin, they're authorized
-        if (userData.role === 'admin') {
+        // Check for admin role - now check both role property and roles array
+        if (userData.role === 'admin' || 
+            (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin'))) {
           console.log('User is admin, access granted');
           isAdmin = true;
+          return true;
+        }
+        
+        // Also check for "patron" role in the roles array
+        if (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('patron')) {
+          console.log('User has patron role, access granted');
           return true;
         }
         
@@ -1277,6 +1284,37 @@
           console.log('User has no Patreon ID');
           return false;
         }
+        
+        // Try to load from patreonData in the user record first
+        if (userData.patreonData) {
+          console.log('Found Patreon data in user record');
+          const patreonData = userData.patreonData;
+          
+          // Check if user is active member
+          if (patreonData.isActiveMember) {
+            console.log('User is active Patreon member based on user record');
+            return true;
+          }
+          
+          // Check pledge amount from patreonData
+          const pledgeAmountCents = patreonData.pledgeAmountCents || 0;
+          const membershipData = patreonData.membershipData || {};
+          const attributes = membershipData.attributes || {};
+          
+          // Get Patreon settings - minimum pledge amount
+          const settingsSnapshot = await get(ref(db, 'adminSettings/patreon'));
+          const patreonSettings = settingsSnapshot.exists() ? settingsSnapshot.val() : { requiredAmountCents: 500 };
+          const requiredAmountCents = patreonSettings.requiredAmountCents || 500; // Default to $5 if not set
+          
+          // Check if pledge amount meets minimum requirements
+          if (pledgeAmountCents >= requiredAmountCents && 
+              (patreonData.isActiveMember || attributes.patron_status === 'active_patron')) {
+            console.log('User is active Patreon member with sufficient pledge based on user record');
+            return true;
+          }
+        }
+        
+        // Fall back to legacy patreonUsers path
         
         // Get Patreon settings - minimum pledge amount
         const settingsSnapshot = await get(ref(db, 'adminSettings/patreon'));
@@ -1288,10 +1326,10 @@
         const patreonSettings = settingsSnapshot.val();
         const requiredAmountCents = patreonSettings.requiredAmountCents || 500; // Default to $5 if not set
         
-        // Get Patreon user data
+        // Get Patreon user data from legacy location
         const patreonSnapshot = await get(ref(db, `patreonUsers/${userData.patreonId}`));
         if (!patreonSnapshot.exists()) {
-          console.log('Patreon user data not found');
+          console.log('Patreon user data not found in legacy location');
           return false;
         }
         
@@ -1308,7 +1346,7 @@
         // Check if pledge amount meets minimum requirements
         if (pledgeAmountCents >= requiredAmountCents && 
             (patreonData.isActiveMember || attributes.patron_status === 'active_patron')) {
-          console.log('User is active Patreon member with sufficient pledge');
+          console.log('User is active Patreon member with sufficient pledge from legacy check');
           return true;
         }
         
