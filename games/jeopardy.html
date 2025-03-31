@@ -1935,16 +1935,18 @@
           questionContainer.style.boxShadow = '0 0 20px #27ae60'; // Green glow when buzzed in
         }
         
-        // Calculate buzz time
-        const currentTime = performance.now();
-        buzzInTime = Math.round(currentTime - enableBuzzInTime);
-        
-        // Update stats
-        stats.buzzTimes.push(buzzInTime);
-        currentGameStats.buzzTimes.push(buzzInTime);
-        
-        // Update display
-        statsAvgBuzz.textContent = calculateAverageBuzzTime(stats.buzzTimes) + 'ms';
+        // Calculate buzz time - ONLY if the answer is not already showing
+        if (answerText.classList.contains('hidden')) {
+          const currentTime = performance.now();
+          buzzInTime = Math.round(currentTime - enableBuzzInTime);
+          
+          // Only add to stats if it's a legitimate buzz-in during question presentation
+          stats.buzzTimes.push(buzzInTime);
+          currentGameStats.buzzTimes.push(buzzInTime);
+          
+          // Update display
+          statsAvgBuzz.textContent = calculateAverageBuzzTime(stats.buzzTimes) + 'ms';
+        }
         
         // After buzz in, wait 2000ms and then reveal the answer
         buzzTimer = setTimeout(() => {
@@ -2077,42 +2079,113 @@
         questionContainer.style.boxShadow = '';
       }
       
-      // Save current position in local storage
-      saveGameProgress();
+      // Only save game progress when we've answered questions (not on game start)
+      if (currentGameStats.questionsAnswered > 0) {
+        saveGameProgress();
+      }
       
       // Enable buzz-in after display time
       displayTimer = setTimeout(() => {
-        enableBuzzInTime = performance.now();
-        buzzBtn.disabled = false;
-        buzzBtn.textContent = "BUZZ IN (SPACE)";
-        
-        // Add a timer animation to indicate buzz-in is available
-        buzzBtn.classList.add('buzz-ready');
-        
-        // Add buzz-ready to question container with stronger visual indication
-        if (questionContainer) {
-          questionContainer.classList.add('buzz-ready');
-          // Add additional visual feedback
-          questionContainer.style.boxShadow = '0 0 20px #FFCC33';
+        // Only proceed if document is visible
+        if (document.visibilityState === 'visible') {
+          enableBuzzInTime = performance.now();
+          buzzBtn.disabled = false;
+          buzzBtn.textContent = "BUZZ IN (SPACE)";
+          
+          // Add a timer animation to indicate buzz-in is available
+          buzzBtn.classList.add('buzz-ready');
+          
+          // Add buzz-ready to question container with stronger visual indication
+          if (questionContainer) {
+            questionContainer.classList.add('buzz-ready');
+            // Add additional visual feedback
+            questionContainer.style.boxShadow = '0 0 20px #FFCC33';
+          }
+          
+          // Start timer for auto-reveal (8 seconds after buzz-in is enabled)
+          questionTimer = setTimeout(() => {
+            // Only proceed if document is visible
+            if (document.visibilityState === 'visible') {
+              // Play times up sound
+              timesUpSound.play();
+              
+              // Reveal answer automatically
+              revealAnswer();
+              
+              // If not buzzed in, wait 2 seconds and then move to next question
+              setTimeout(() => {
+                if (!buzzedIn && document.visibilityState === 'visible') {
+                  scoreAnswer('pass');
+                }
+              }, 2000);
+            }
+          }, 8000);
+        }
+      }, displayTime);
+    }
+    
+    // Add visibility change handler to pause game when tab is not active
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        // Pause all timers when tab is hidden
+        if (questionTimer) {
+          clearTimeout(questionTimer);
+          questionTimer = null;
+        }
+        if (buzzTimer) {
+          clearTimeout(buzzTimer);
+          buzzTimer = null;
+        }
+        if (displayTimer) {
+          clearTimeout(displayTimer);
+          displayTimer = null;
+        }
+        console.log('Game paused - tab not visible');
+      } else if (document.visibilityState === 'visible') {
+        // When tab becomes visible again, don't automatically resume
+        // This prevents unexpected game activity when returning to the tab
+        console.log('Tab visible again - game remains paused');
+      }
+    });
+    
+    // Save game progress
+    function saveGameProgress() {
+      if (userData && userData.uid && currentDate && currentQuestionIndex >= 0) {
+        // Only save if the document is visible (tab is active)
+        if (document.visibilityState !== 'visible') {
+          console.log('Skipping game progress save - tab not visible');
+          return;
         }
         
-        // Start timer for auto-reveal (8 seconds after buzz-in is enabled)
-        questionTimer = setTimeout(() => {
-          // Play times up sound
-          timesUpSound.play();
+        // Save to Firebase with better error handling and logging
+        console.log('Saving game progress:', currentDate, currentQuestionIndex);
+        set(ref(db, `users/${userData.uid}/scores/jeopardy/progress`), {
+          date: currentDate,
+          currentQuestionIndex: currentQuestionIndex,
+          timestamp: Date.now()
+        })
+        .then(() => console.log('Game progress saved successfully'))
+        .catch(error => {
+          console.error('Error saving game progress:', error);
+          // Add a visual notification for the user if save fails
+          const notification = document.createElement('div');
+          notification.style.position = 'fixed';
+          notification.style.bottom = '20px';
+          notification.style.right = '20px';
+          notification.style.background = 'rgba(231, 76, 60, 0.9)';
+          notification.style.color = 'white';
+          notification.style.padding = '10px';
+          notification.style.borderRadius = '5px';
+          notification.style.zIndex = '9999';
+          notification.textContent = 'Failed to save progress. Check connection.';
+          document.body.appendChild(notification);
           
-          // Reveal answer automatically
-          revealAnswer();
-          
-          // If not buzzed in, wait 2 seconds and then move to next question
+          // Remove notification after 3 seconds
           setTimeout(() => {
-            if (!buzzedIn) {
-              scoreAnswer('pass');
-            }
-          }, 2000);
-          
-        }, 8000);
-      }, displayTime);
+            document.body.removeChild(notification);
+          }, 3000);
+        });
+      }
     }
     
     // Score answer function
@@ -2212,13 +2285,9 @@
       answerText.textContent = currentQuestion.question || "No answer available";
       answerText.classList.remove('hidden');
       
-      // Add buzz time to stats if user buzzed in
+      // Update average buzz time display if user buzzed in
       if (buzzInTime !== null && enableBuzzInTime !== null) {
-        const buzzTime = buzzInTime - enableBuzzInTime;
-        stats.buzzTimes.push(buzzTime);
-        currentGameStats.buzzTimes.push(buzzTime);
-        
-        // Update average buzz time display
+        // Update average buzz time display ONLY - don't add the time again
         const avgBuzzTime = calculateAverageBuzzTime(currentGameStats.buzzTimes);
         document.getElementById('stats-avg-buzz').textContent = avgBuzzTime + 'ms';
       }
@@ -2234,6 +2303,34 @@
       }, 2000);
     }
     
+    // Calculate average buzz time
+    function calculateAverageBuzzTime(buzzTimes = []) {
+      if (!buzzTimes || buzzTimes.length === 0) {
+        return 0;
+      }
+      
+      // Filter out any invalid buzz times (negative or unreasonably large)
+      const validBuzzTimes = buzzTimes.filter(time => {
+        return time > 0 && time < 10000; // Only accept positive times less than 10 seconds
+      });
+      
+      if (validBuzzTimes.length === 0) {
+        return 0;
+      }
+      
+      const sum = validBuzzTimes.reduce((acc, time) => acc + time, 0);
+      return Math.round(sum / validBuzzTimes.length);
+    }
+    
+    // Function to clean up buzz times before saving
+    function cleanUpBuzzTimes(buzzTimesArray) {
+      // Make a copy to avoid modifying the original
+      const cleanedTimes = [...buzzTimesArray];
+      
+      // Filter out invalid times (negative or too large)
+      return cleanedTimes.filter(time => time > 0 && time < 10000);
+    }
+    
     // Save user stats to Firebase with improved structure
     function saveUserStats() {
       if (!userData || !userData.uid) {
@@ -2241,13 +2338,19 @@
         return;
       }
       
+      // Clean up buzz times before saving
+      const cleanedStats = {
+        ...stats,
+        buzzTimes: cleanUpBuzzTimes(stats.buzzTimes)
+      };
+      
       // Using the correct path specifically for stats - important to keep this targeted
       // to avoid overwriting user data in other paths
       const savePath = `users/${userData.uid}/scores/jeopardy/stats`;
       console.log('Saving stats to path:', savePath);
       
       // ONLY save the stats object to the specific stats path
-      set(ref(db, savePath), stats)
+      set(ref(db, savePath), cleanedStats)
         .then(() => {
           console.log('User stats saved successfully to', savePath);
         })
@@ -2394,34 +2497,18 @@
     
     // Save detailed game data with structure that mirrors Jeopardy data
     function saveDetailedGameData() {
-      console.log('Attempting to save detailed game data...');
-      
-      // Try to recover userData if it's missing
-      if (!userData && auth.currentUser) {
-        console.warn('WARNING: userData is null but user is authenticated. Attempting recovery...');
-        userData = {
-          uid: auth.currentUser.uid,
-          email: auth.currentUser.email,
-          displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
-        };
-        console.log('Created emergency userData with UID:', userData.uid);
-      }
-      
-      if (!userData) {
-        console.error('ERROR: userData is null or undefined. Cannot save detailed game data.');
+      // Skip saving if tab is not visible
+      if (document.visibilityState !== 'visible') {
+        console.log('Skipping detailed game data save - tab not visible');
         return;
       }
       
-      if (!userData.uid) {
-        // Try to recover from auth if available
-        if (auth.currentUser) {
-          console.log('Attempting to recover UID from auth.currentUser for detailed game data');
-          userData.uid = auth.currentUser.uid;
-          console.log('Recovered UID:', userData.uid);
-        } else {
-          console.error('ERROR: userData.uid is missing and cannot be recovered. Cannot save detailed game data.');
-          return;
-        }
+      console.log('Attempting to save detailed game data...');
+      
+      // Ensure we have valid user data
+      if (!userData || !userData.uid) {
+        console.error('ERROR: userData is null or undefined. Cannot save detailed game data.');
+        return;
       }
       
       if (!currentDate) {
@@ -2498,16 +2585,6 @@
       statsPassed.textContent = currentGameStats.passed;
       statsAvgBuzz.textContent = calculateAverageBuzzTime(currentGameStats.buzzTimes) + 'ms';
       statsCoryat.textContent = `$${currentGameStats.coryat}`;
-    }
-    
-    // Calculate average buzz time
-    function calculateAverageBuzzTime(buzzTimes = []) {
-      if (!buzzTimes || buzzTimes.length === 0) {
-        return 0;
-      }
-      
-      const sum = buzzTimes.reduce((acc, time) => acc + time, 0);
-      return Math.round(sum / buzzTimes.length);
     }
     
     // Load user stats
@@ -2680,37 +2757,16 @@
       }
     }
     
-    // Save game progress
-    function saveGameProgress() {
-      if (userData && userData.uid && currentDate && currentQuestionIndex >= 0) {
-        // Save to Firebase with better error handling and logging
-        console.log('Saving game progress:', currentDate, currentQuestionIndex);
-        set(ref(db, `users/${userData.uid}/scores/jeopardy/progress`), {
-          date: currentDate,
-          currentQuestionIndex: currentQuestionIndex,
-          timestamp: Date.now()
-        })
-        .then(() => console.log('Game progress saved successfully'))
-        .catch(error => {
-          console.error('Error saving game progress:', error);
-          // Add a visual notification for the user if save fails
-          const notification = document.createElement('div');
-          notification.style.position = 'fixed';
-          notification.style.bottom = '20px';
-          notification.style.right = '20px';
-          notification.style.background = 'rgba(231, 76, 60, 0.9)';
-          notification.style.color = 'white';
-          notification.style.padding = '10px';
-          notification.style.borderRadius = '5px';
-          notification.style.zIndex = '9999';
-          notification.textContent = 'Failed to save progress. Check connection.';
-          document.body.appendChild(notification);
-          
-          // Remove notification after 3 seconds
-          setTimeout(() => {
-            document.body.removeChild(notification);
-          }, 3000);
-        });
+    // Delete saved progress
+    function deleteSavedProgress() {
+      if (userData && userData.uid) {
+        set(ref(db, `users/${userData.uid}/scores/jeopardy/progress`), null)
+          .then(() => {
+            console.log("Saved game progress has been deleted successfully.");
+          })
+          .catch(error => {
+            console.error("Error deleting saved progress:", error);
+          });
       }
     }
     
@@ -2935,19 +2991,6 @@
       }
       
       alert("Statistics have been reset successfully.");
-    }
-    
-    // Delete saved progress
-    function deleteSavedProgress() {
-      if (userData && userData.uid) {
-        set(ref(db, `users/${userData.uid}/scores/jeopardy/progress`), null)
-          .then(() => {
-            console.log("Saved game progress has been deleted successfully.");
-          })
-          .catch(error => {
-            console.error("Error deleting saved progress:", error);
-          });
-      }
     }
     
     // Helper function to show debug errors
