@@ -1046,18 +1046,90 @@
                         
                         // Get tier information
                         let tierDisplay = 'None';
-                        if (patreonData.entitledTiers && patreonData.entitledTiers.length > 0) {
-                            const tier = patreonData.entitledTiers[0];
-                            if (tier.attributes && tier.attributes.title) {
-                                tierDisplay = tier.attributes.title;
+                        const campaignId = "24216420"; // Evil Trivia campaign ID
+                        
+                        if (patreonData.entitledTiers && Array.isArray(patreonData.entitledTiers) && patreonData.entitledTiers.length > 0) {
+                            // Look for tiers associated with the Evil Trivia campaign
+                            const campaignTiers = patreonData.entitledTiers.filter(tier => {
+                                // Check if this tier is linked to campaign ID 24216420
+                                // Need to check ID directly (old format) or the relationships field (newer format)
+                                if (tier.relationships && 
+                                    tier.relationships.campaign && 
+                                    tier.relationships.campaign.data && 
+                                    tier.relationships.campaign.data.id === campaignId) {
+                                    return true;
+                                }
+                                return false;
+                            });
+                            
+                            if (campaignTiers.length > 0) {
+                                console.log(`Found ${campaignTiers.length} tiers for campaign ${campaignId}`);
+                                
+                                // If we have a user-level pledge amount, try to find a matching tier
+                                if (userData.patreonPledgeAmount || patreonData.pledgeAmountDollars) {
+                                    const pledgeAmount = userData.patreonPledgeAmount || patreonData.pledgeAmountDollars;
+                                    const pledgeAmountCents = Math.round(parseFloat(pledgeAmount) * 100);
+                                    
+                                    // Find tier that matches the pledge amount
+                                    const matchingTier = campaignTiers.find(tier => {
+                                        return tier.attributes && 
+                                               tier.attributes.amount_cents && 
+                                               Math.abs(tier.attributes.amount_cents - pledgeAmountCents) < 1; // Allow for tiny rounding errors
+                                    });
+                                    
+                                    if (matchingTier && matchingTier.attributes && matchingTier.attributes.title) {
+                                        tierDisplay = matchingTier.attributes.title;
+                                        console.log(`Found matching tier: ${tierDisplay}`);
+                                    } else if (campaignTiers[0].attributes && campaignTiers[0].attributes.title) {
+                                        // If no matching tier found, use the first one
+                                        tierDisplay = campaignTiers[0].attributes.title;
+                                        console.log(`No matching tier found, using first tier: ${tierDisplay}`);
+                                    }
+                                } else if (campaignTiers.length === 1 && campaignTiers[0].attributes && campaignTiers[0].attributes.title) {
+                                    // Only one tier, use it
+                                    tierDisplay = campaignTiers[0].attributes.title;
+                                } else {
+                                    // Multiple tiers, use highest amount one
+                                    const highestTier = campaignTiers.reduce((highest, current) => {
+                                        const currentAmount = current.attributes?.amount_cents || 0;
+                                        const highestAmount = highest.attributes?.amount_cents || 0;
+                                        return currentAmount > highestAmount ? current : highest;
+                                    }, campaignTiers[0]);
+                                    
+                                    if (highestTier && highestTier.attributes && highestTier.attributes.title) {
+                                        tierDisplay = highestTier.attributes.title;
+                                        console.log(`Using highest tier: ${tierDisplay}`);
+                                    }
+                                }
+                            } else {
+                                // No campaign-specific tiers found, fall back to first tier title
+                                const firstTier = patreonData.entitledTiers[0];
+                                if (firstTier && firstTier.attributes && firstTier.attributes.title) {
+                                    tierDisplay = firstTier.attributes.title;
+                                }
                             }
+                        } else if (patreonData.matchingTier && patreonData.matchingTier.title) {
+                            // Use the matchingTier object created by our standardized data function
+                            tierDisplay = patreonData.matchingTier.title;
                         } else if (patreonData.membershipData && 
                                   patreonData.membershipData.relationships && 
                                   patreonData.membershipData.relationships.currently_entitled_tiers &&
                                   patreonData.membershipData.relationships.currently_entitled_tiers.data) {
                             const tierData = patreonData.membershipData.relationships.currently_entitled_tiers.data;
                             if (tierData.length > 0) {
-                                tierDisplay = `Tier ID: ${tierData[0].id}`;
+                                // Try to find the campaign tier
+                                const campaignTier = tierData.find(tier => {
+                                    return tier.relationships && 
+                                           tier.relationships.campaign && 
+                                           tier.relationships.campaign.data && 
+                                           tier.relationships.campaign.data.id === campaignId;
+                                });
+                                
+                                if (campaignTier) {
+                                    tierDisplay = campaignTier.attributes?.title || `Tier ID: ${campaignTier.id}`;
+                                } else {
+                                    tierDisplay = `Tier ID: ${tierData[0].id}`;
+                                }
                             }
                         }
                         
