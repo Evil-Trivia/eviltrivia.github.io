@@ -844,12 +844,44 @@
         let tierTitle = 'Patron';
         
         // Find highest paid tier for display
-        if (entitledTiers && Array.isArray(entitledTiers) && entitledTiers.length > 0) {
+        // First check if we have the new tierDetails structure
+        if (patreonUserData.tierDetails && Array.isArray(patreonUserData.tierDetails) && patreonUserData.tierDetails.length > 0) {
+          console.log('Found tierDetails array, checking for Evil Trivia tier');
+          const campaignId = "24216420"; // Evil Trivia campaign ID
+          
+          // Look for the tier with id 24216420
+          const evilTriviaTier = patreonUserData.tierDetails.find(tier => tier.id === campaignId);
+          
+          if (evilTriviaTier) {
+            // Found the Evil Trivia tier
+            tierTitle = evilTriviaTier.title || `Tier ${campaignId}`;
+            console.log(`Found Evil Trivia tier in tierDetails: ${tierTitle}`);
+            
+            // Override the status with the tier name for better display
+            patronStatus = tierTitle;
+          } else {
+            // No Evil Trivia tier found
+            console.log(`Evil Trivia tier (${campaignId}) not found in tierDetails`);
+            
+            // Fall back to the first tier
+            if (patreonUserData.tierDetails[0].title) {
+              tierTitle = patreonUserData.tierDetails[0].title;
+              console.log(`Using first available tier: ${tierTitle}`);
+              
+              // Override the status with the tier name for better display
+              patronStatus = tierTitle;
+            }
+          }
+        } else if (entitledTiers && Array.isArray(entitledTiers) && entitledTiers.length > 0) {
           // First, check if any tiers are for the Evil Trivia campaign (ID: 24216420)
           const campaignId = "24216420"; // Evil Trivia campaign ID
           
           // Look for tiers associated with the Evil Trivia campaign
           const campaignTiers = entitledTiers.filter(tier => {
+            // Check if ID is directly the campaign ID
+            if (tier.id === campaignId) {
+              return true;
+            }
             // Check the relationships data if available
             if (tier.relationships && 
                 tier.relationships.campaign && 
@@ -901,13 +933,33 @@
         // Set pledge amount - get amount from specific tier instead of summing all
         let pledgeAmountCents = 0;
         
-        // Try to get from entitled tiers first, looking for Evil Trivia campaign tiers specifically
-        if (entitledTiers && Array.isArray(entitledTiers) && entitledTiers.length > 0) {
+        // First check if we have the new tierDetails structure
+        if (patreonUserData.tierDetails && Array.isArray(patreonUserData.tierDetails) && patreonUserData.tierDetails.length > 0) {
+          const campaignId = "24216420"; // Evil Trivia campaign ID
+          
+          // Look for the tier with id 24216420
+          const evilTriviaTier = patreonUserData.tierDetails.find(tier => tier.id === campaignId);
+          
+          if (evilTriviaTier && evilTriviaTier.amount_cents) {
+            // Found the Evil Trivia tier with amount
+            pledgeAmountCents = evilTriviaTier.amount_cents;
+            console.log(`Using pledge amount from tierDetails: ${pledgeAmountCents} cents`);
+          } else if (patreonUserData.tierDetails[0].amount_cents) {
+            // Fall back to the first tier's amount
+            pledgeAmountCents = patreonUserData.tierDetails[0].amount_cents;
+            console.log(`Using first tier amount from tierDetails: ${pledgeAmountCents} cents`);
+          }
+        }
+        // If no amount found in tierDetails, try to get from entitled tiers
+        else if (entitledTiers && Array.isArray(entitledTiers) && entitledTiers.length > 0) {
           const campaignId = "24216420"; // Evil Trivia campaign ID
           
           // Look for tiers associated with the Evil Trivia campaign
           const campaignTiers = entitledTiers.filter(tier => {
             // Check the relationships data if available
+            if (tier.id === campaignId) {
+              return true;
+            }
             if (tier.relationships && 
                 tier.relationships.campaign && 
                 tier.relationships.campaign.data && 
