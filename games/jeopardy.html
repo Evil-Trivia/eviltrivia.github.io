@@ -1217,53 +1217,88 @@
     // Check if user is authorized
     async function checkUserAuthorization(user) {
       try {
+        console.log('============= CHECKING USER AUTHORIZATION =============');
+        console.log(`AUTH UID: ${user.uid} | EMAIL: ${user.email}`);
+        
         // Create a variable for basic authentication info, but don't assign it to userData yet
         const basicAuthInfo = {
           uid: user.uid,
           email: user.email,
-          displayName: user.displayName
+          displayName: user.displayName || user.email.split('@')[0]
         };
         
         console.log('Retrieved basic auth info with UID:', user.uid);
         
         // Check if user exists in database
         const userSnapshot = await get(ref(db, `users/${user.uid}`));
+        console.log('User exists in database:', userSnapshot.exists());
+        
+        if (userSnapshot.exists()) {
+          // Show what data we found
+          console.log('FOUND USER DATA:', JSON.stringify(userSnapshot.val()).substring(0, 200) + '...');
+        }
+        
+        // Prepare userData to either be a new user or existing user
+        let tempUserData;
+        
         if (!userSnapshot.exists()) {
           console.log('User not found in database, creating basic record');
           
           // Create a basic user record
           const basicUserData = {
+            uid: user.uid, // Explicitly include UID
             email: user.email,
             displayName: user.displayName || user.email.split('@')[0],
             createdAt: new Date().toISOString(),
             role: 'member'
           };
           
-          // Attempt to save basic user data
+          console.log('Basic user data prepared:', JSON.stringify(basicUserData));
+          
+          // Attempt to save basic user data using update instead of set to prevent overwriting
           try {
             await update(ref(db, `users/${user.uid}`), basicUserData);
             console.log('Created basic user record');
+            
+            // Double-check that the data was saved correctly
+            const verifySnapshot = await get(ref(db, `users/${user.uid}`));
+            if (verifySnapshot.exists()) {
+              console.log('Verified user data was saved correctly');
+              console.log('SAVED DATA:', JSON.stringify(verifySnapshot.val()).substring(0, 200) + '...');
+            } else {
+              console.error('Failed to verify user data was saved');
+            }
           } catch (error) {
             console.error('Error creating user record:', error);
           }
           
-          // Initialize userData with merged data - ONLY if user doesn't exist
-          userData = { ...basicAuthInfo, ...basicUserData };
+          // Initialize tempUserData for new user
+          tempUserData = { ...basicAuthInfo, ...basicUserData };
+          
+          // Now assign to global userData
+          userData = tempUserData;
+          console.log('ASSIGNED NEW USER DATA:', JSON.stringify(userData).substring(0, 200) + '...');
           return false;
         }
         
-        // Get the existing user data and DO NOT LOSE any properties
+        // For existing user, get the database data
         const dbUserData = userSnapshot.val();
         
-        // Make sure dbUserData contains the uid from auth (it might be missing in the database)
-        if (!dbUserData.uid) {
-          dbUserData.uid = user.uid;
-        }
+        // Create a complete user record that preserves all existing data
+        // but ensures critical auth fields are definitely present
+        tempUserData = {
+          ...dbUserData,
+          uid: user.uid,  // Always ensure uid from auth
+          email: dbUserData.email || user.email,
+          displayName: dbUserData.displayName || user.displayName || user.email.split('@')[0]
+        };
         
-        // Directly assign the complete database user data to userData
-        userData = dbUserData;
+        // Now safely assign to the global userData
+        userData = tempUserData;
         
-        console.log('Loaded complete user data from database');
+        console.log('Loaded complete user data from database with uid:', userData.uid);
+        console.log('ASSIGNED EXISTING USER DATA:', JSON.stringify(userData).substring(0, 200) + '...');
+        console.log('============= END USER AUTHORIZATION CHECK =============');
         
         // Check for admin role - now check both role property and roles array
         if (userData.role === 'admin' || 
