@@ -1048,11 +1048,33 @@
                         let tierDisplay = 'None';
                         const campaignId = "24216420"; // Evil Trivia campaign ID
                         
-                        if (patreonData.entitledTiers && Array.isArray(patreonData.entitledTiers) && patreonData.entitledTiers.length > 0) {
-                            // Look for tiers associated with the Evil Trivia campaign
+                        // First check if we have tierDetails structure (preferred method)
+                        if (patreonData.tierDetails && Array.isArray(patreonData.tierDetails)) {
+                            // Look for the tier with id 24216420
+                            const evilTriviaTier = patreonData.tierDetails.find(tier => tier.id === campaignId);
+                            
+                            if (evilTriviaTier) {
+                                // Found the Evil Trivia tier
+                                tierDisplay = evilTriviaTier.title || `Tier ${campaignId}`;
+                                console.log(`Found Evil Trivia tier in tierDetails: ${tierDisplay}`);
+                            } else {
+                                // No Evil Trivia tier found
+                                console.log(`Evil Trivia tier (${campaignId}) not found in tierDetails`);
+                                
+                                // Fall back to the first tier
+                                if (patreonData.tierDetails.length > 0 && patreonData.tierDetails[0].title) {
+                                    tierDisplay = patreonData.tierDetails[0].title;
+                                    console.log(`Using first available tier: ${tierDisplay}`);
+                                }
+                            }
+                        } else if (patreonData.entitledTiers && Array.isArray(patreonData.entitledTiers) && patreonData.entitledTiers.length > 0) {
+                            // Legacy format: Look for tiers associated with the Evil Trivia campaign
                             const campaignTiers = patreonData.entitledTiers.filter(tier => {
                                 // Check if this tier is linked to campaign ID 24216420
                                 // Need to check ID directly (old format) or the relationships field (newer format)
+                                if (tier.id === campaignId) {
+                                    return true;
+                                }
                                 if (tier.relationships && 
                                     tier.relationships.campaign && 
                                     tier.relationships.campaign.data && 
@@ -1118,12 +1140,7 @@
                             const tierData = patreonData.membershipData.relationships.currently_entitled_tiers.data;
                             if (tierData.length > 0) {
                                 // Try to find the campaign tier
-                                const campaignTier = tierData.find(tier => {
-                                    return tier.relationships && 
-                                           tier.relationships.campaign && 
-                                           tier.relationships.campaign.data && 
-                                           tier.relationships.campaign.data.id === campaignId;
-                                });
+                                const campaignTier = tierData.find(tier => tier.id === campaignId);
                                 
                                 if (campaignTier) {
                                     tierDisplay = campaignTier.attributes?.title || `Tier ID: ${campaignTier.id}`;
