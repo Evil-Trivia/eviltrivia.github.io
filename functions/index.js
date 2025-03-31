@@ -21,6 +21,42 @@ admin.initializeApp({
 // Create Express app for Patreon auth
 const app = express();
 
+// Add raw body parser middleware for webhook signature verification
+app.use((req, res, next) => {
+  if (req.path === '/webhooks/patreon') {
+    let data = '';
+    req.setEncoding('utf8');
+    
+    req.on('data', (chunk) => {
+      data += chunk;
+    });
+    
+    req.on('end', () => {
+      req.rawBody = data;
+      if (data && data.length > 0) {
+        try {
+          req.body = JSON.parse(data);
+        } catch (e) {
+          console.error('Failed to parse webhook JSON body:', e);
+          req.body = {};
+        }
+      }
+      next();
+    });
+  } else {
+    next();
+  }
+});
+
+// Then use normal JSON parsing for non-webhook routes
+app.use((req, res, next) => {
+  if (req.path !== '/webhooks/patreon') {
+    express.json()(req, res, next);
+  } else {
+    next();
+  }
+});
+
 /**
  * SECURITY MIDDLEWARE
  * Only allow requests from your domain and Patreon
@@ -99,7 +135,6 @@ app.use(cors({
     'https://patreonauth-vapvabofwq-uc.a.run.app'
   ]
 }));
-app.use(express.json());
 
 // Apply security middleware
 app.use(securityMiddleware);
@@ -541,8 +576,8 @@ app.post('/webhooks/patreon', async (req, res) => {
     // Verify webhook signature if secret is configured
     if (webhookSecret) {
       const signature = req.get('X-Patreon-Signature');
-      // Important: Use the raw body for signature verification
-      const rawBody = JSON.stringify(req.body);
+      // Use the rawBody instead of JSON.stringify(req.body)
+      const rawBody = req.rawBody;
       
       console.log('Validating webhook signature:', signature ? signature.substring(0, 10) + '...' : 'none');
       
@@ -551,11 +586,13 @@ app.post('/webhooks/patreon', async (req, res) => {
       const expectedSignature = hmac.digest('hex');
       
       console.log('Expected signature (first 10 chars):', expectedSignature.substring(0, 10) + '...');
+      console.log('Actual signature (first 10 chars):', signature ? signature.substring(0, 10) + '...' : 'none');
       
       if (signature !== expectedSignature) {
         console.error('Webhook signature verification failed');
         console.error('Received:', signature);
         console.error('Expected:', expectedSignature);
+        console.error('Body length:', rawBody.length);
         return res.status(403).json({ error: 'Invalid signature' });
       }
       
@@ -1012,7 +1049,7 @@ async function refreshPatreonUserData(patreonId, accessToken) {
         'include': 'memberships,memberships.currently_entitled_tiers,memberships.campaign,memberships.campaign.tiers',
         'fields[user]': 'email,full_name,image_url',
         'fields[member]': 'currently_entitled_amount_cents,patron_status,last_charge_date,last_charge_status,next_charge_date,is_free_trial,will_pay_amount_cents',
-        'fields[tier]': 'title,amount_cents,description,discord_role_ids,discord_server_id,published,published_at,image_url'
+        'fields[tier]': 'title,amount_cents,description,published,published_at,image_url'
       }
     });
     
@@ -1577,7 +1614,7 @@ function createStandardizedPatreonData(patreonId, userData, membershipData, enti
   let pledgeAmountCents = 0;
   let patronStatus = 'former_patron';
   let isFreeTrial = false;
-  let isGift = false;
+  let isGift = false; // Keep for compatibility, but don't rely on Patreon API for this value
   let willPayAmountCents = 0;
   let lastChargeDate = null;
   let nextChargeDate = null;
@@ -1600,9 +1637,11 @@ function createStandardizedPatreonData(patreonId, userData, membershipData, enti
       isFreeTrial = true;
     }
     
-    // Check for gift membership
-    if (membershipData.attributes.is_gift !== undefined) {
-      isGift = membershipData.attributes.is_gift;
+    // Check for gift membership - this field may be deprecated, so handle carefully
+    // Rather than rely on is_gift which may be deprecated, just use it if present but don't error if not
+    if (existingData.isGift !== undefined) {
+      // Prefer existing data if available
+      isGift = existingData.isGift;
     }
     
     // Get will_pay_amount if available
