@@ -1092,6 +1092,15 @@
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
     import { getDatabase, ref, get, set, push, update } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
     
+    /*
+    * IMPORTANT FIREBASE DATA SAFETY RULES:
+    * 1. NEVER use set() on the main user record at users/${uid} - this will overwrite all user data.
+    * 2. ALWAYS use update() when modifying any part of the main user record.
+    * 3. ONLY use set() on specific paths like scores/jeopardy/stats that don't contain other important data.
+    * 4. ALWAYS read existing data before writing, to avoid overwriting important fields.
+    * 5. NEVER modify a user's Patreon or role data in game logic.
+    */
+    
     // Force hide the modal immediately when the script starts
     const settingsModalEarly = document.getElementById('settings-modal');
     if (settingsModalEarly) {
@@ -1217,188 +1226,66 @@
     // Check if user is authorized
     async function checkUserAuthorization(user) {
       try {
-        console.log('============= CHECKING USER AUTHORIZATION =============');
-        console.log(`AUTH UID: ${user.uid} | EMAIL: ${user.email}`);
+        // Simple authentication check - only read user data, never modify the main user record
+        const userSnapshot = await get(ref(db, `users/${user.uid}`));
         
-        // Create a variable for basic authentication info, but don't assign it to userData yet
-        const basicAuthInfo = {
+        // If the user exists, load their data without changing anything
+        if (userSnapshot.exists()) {
+          // Get the user data and preserve all fields exactly as they are
+          const dbUserData = userSnapshot.val();
+          
+          // Just ensure the uid is available for operations
+          userData = {
+            ...dbUserData,
+            uid: user.uid  // Only add uid if it's missing
+          };
+          
+          // Check for admin role
+          if (userData.role === 'admin' || 
+              (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin'))) {
+            isAdmin = true;
+            return true;
+          }
+          
+          // Check for patron role
+          if (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('patron')) {
+            return true;
+          }
+          
+          // Check for Patreon membership
+          if (userData.patreonData && userData.patreonData.isActiveMember) {
+            return true;
+          }
+          
+          // Fall back to legacy patreonUsers path for authorization only
+          if (userData.patreonId) {
+            const patreonSnapshot = await get(ref(db, `patreonUsers/${userData.patreonId}`));
+            if (patreonSnapshot.exists()) {
+              const patreonData = patreonSnapshot.val();
+              if (patreonData.isActiveMember) {
+                return true;
+              }
+            }
+          }
+          
+          return false;
+        } else {
+          // For users that don't exist yet, we'll just keep minimal data in memory without writing
+          userData = {
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName || user.email.split('@')[0]
+          };
+          return false;
+        }
+      } catch (error) {
+        console.error('Error checking authorization:', error);
+        // Set minimal data for fallback
+        userData = {
           uid: user.uid,
           email: user.email,
           displayName: user.displayName || user.email.split('@')[0]
         };
-        
-        console.log('Retrieved basic auth info with UID:', user.uid);
-        
-        // Check if user exists in database
-        const userSnapshot = await get(ref(db, `users/${user.uid}`));
-        console.log('User exists in database:', userSnapshot.exists());
-        
-        if (userSnapshot.exists()) {
-          // Show what data we found
-          console.log('FOUND USER DATA:', JSON.stringify(userSnapshot.val()).substring(0, 200) + '...');
-        }
-        
-        // Prepare userData to either be a new user or existing user
-        let tempUserData;
-        
-        if (!userSnapshot.exists()) {
-          console.log('User not found in database, creating basic record');
-          
-          // Create a basic user record
-          const basicUserData = {
-            uid: user.uid, // Explicitly include UID
-            email: user.email,
-            displayName: user.displayName || user.email.split('@')[0],
-            createdAt: new Date().toISOString(),
-            role: 'member'
-          };
-          
-          console.log('Basic user data prepared:', JSON.stringify(basicUserData));
-          
-          // Attempt to save basic user data using update instead of set to prevent overwriting
-          try {
-            await update(ref(db, `users/${user.uid}`), basicUserData);
-            console.log('Created basic user record');
-            
-            // Double-check that the data was saved correctly
-            const verifySnapshot = await get(ref(db, `users/${user.uid}`));
-            if (verifySnapshot.exists()) {
-              console.log('Verified user data was saved correctly');
-              console.log('SAVED DATA:', JSON.stringify(verifySnapshot.val()).substring(0, 200) + '...');
-            } else {
-              console.error('Failed to verify user data was saved');
-            }
-          } catch (error) {
-            console.error('Error creating user record:', error);
-          }
-          
-          // Initialize tempUserData for new user
-          tempUserData = { ...basicAuthInfo, ...basicUserData };
-          
-          // Now assign to global userData
-          userData = tempUserData;
-          console.log('ASSIGNED NEW USER DATA:', JSON.stringify(userData).substring(0, 200) + '...');
-          return false;
-        }
-        
-        // For existing user, get the database data
-        const dbUserData = userSnapshot.val();
-        
-        // Create a complete user record that preserves all existing data
-        // but ensures critical auth fields are definitely present
-        tempUserData = {
-          ...dbUserData,
-          uid: user.uid,  // Always ensure uid from auth
-          email: dbUserData.email || user.email,
-          displayName: dbUserData.displayName || user.displayName || user.email.split('@')[0]
-        };
-        
-        // Now safely assign to the global userData
-        userData = tempUserData;
-        
-        console.log('Loaded complete user data from database with uid:', userData.uid);
-        console.log('ASSIGNED EXISTING USER DATA:', JSON.stringify(userData).substring(0, 200) + '...');
-        console.log('============= END USER AUTHORIZATION CHECK =============');
-        
-        // Check for admin role - now check both role property and roles array
-        if (userData.role === 'admin' || 
-            (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin'))) {
-          console.log('User is admin, access granted');
-          isAdmin = true;
-          return true;
-        }
-        
-        // Also check for "patron" role in the roles array
-        if (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('patron')) {
-          console.log('User has patron role, access granted');
-          return true;
-        }
-        
-        // Check if user has Patreon ID
-        if (!userData.patreonId) {
-          console.log('User has no Patreon ID');
-          return false;
-        }
-        
-        // Try to load from patreonData in the user record first
-        if (userData.patreonData) {
-          console.log('Found Patreon data in user record');
-          const patreonData = userData.patreonData;
-          
-          // Check if user is active member
-          if (patreonData.isActiveMember) {
-            console.log('User is active Patreon member based on user record');
-            return true;
-          }
-          
-          // Check pledge amount from patreonData
-          const pledgeAmountCents = patreonData.pledgeAmountCents || 0;
-          const membershipData = patreonData.membershipData || {};
-          const attributes = membershipData.attributes || {};
-          
-          // Get Patreon settings - minimum pledge amount
-          const settingsSnapshot = await get(ref(db, 'adminSettings/patreon'));
-          const patreonSettings = settingsSnapshot.exists() ? settingsSnapshot.val() : { requiredAmountCents: 500 };
-          const requiredAmountCents = patreonSettings.requiredAmountCents || 500; // Default to $5 if not set
-          
-          // Check if pledge amount meets minimum requirements
-          if (pledgeAmountCents >= requiredAmountCents && 
-              (patreonData.isActiveMember || attributes.patron_status === 'active_patron')) {
-            console.log('User is active Patreon member with sufficient pledge based on user record');
-            return true;
-          }
-        }
-        
-        // Fall back to legacy patreonUsers path
-        
-        // Get Patreon settings - minimum pledge amount
-        const settingsSnapshot = await get(ref(db, 'adminSettings/patreon'));
-        if (!settingsSnapshot.exists()) {
-          console.log('Patreon settings not found');
-          return false;
-        }
-        
-        const patreonSettings = settingsSnapshot.val();
-        const requiredAmountCents = patreonSettings.requiredAmountCents || 500; // Default to $5 if not set
-        
-        // Get Patreon user data from legacy location
-        const patreonSnapshot = await get(ref(db, `patreonUsers/${userData.patreonId}`));
-        if (!patreonSnapshot.exists()) {
-          console.log('Patreon user data not found in legacy location');
-          return false;
-        }
-        
-        const patreonData = patreonSnapshot.val();
-        
-        // Check if user is active member with sufficient pledge
-        const membershipData = patreonData.membershipData || {};
-        const attributes = membershipData.attributes || {};
-        
-        // Check pledge amount
-        const pledgeAmountCents = patreonData.pledgeAmountCents || 
-                                  attributes.currently_entitled_amount_cents || 0;
-        
-        // Check if pledge amount meets minimum requirements
-        if (pledgeAmountCents >= requiredAmountCents && 
-            (patreonData.isActiveMember || attributes.patron_status === 'active_patron')) {
-          console.log('User is active Patreon member with sufficient pledge from legacy check');
-          return true;
-        }
-        
-        console.log('User Patreon membership does not meet requirements');
-        return false;
-        
-      } catch (error) {
-        console.error('Error checking authorization:', error);
-        // Still ensure userData is set with minimum info
-        if (!userData) {
-          userData = {
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName
-          };
-          console.log('Set fallback userData during error:', userData.uid);
-        }
         return false;
       }
     }
@@ -1488,9 +1375,6 @@
         
         // 4. Load user stats if available
         await loadUserStats();
-        
-        // Check write permissions after loading stats
-        checkWritePermission();
         
         // 5. Check if user has a saved game in progress
         if (userData && userData.uid) {
@@ -2352,41 +2236,8 @@
     
     // Save user stats to Firebase with improved structure
     function saveUserStats() {
-      console.log('==== ATTEMPTING TO SAVE USER STATS ====');
-      console.log('Current timestamp:', new Date().toISOString());
-      
-      // Try to recover userData if it's missing
-      if (!userData && auth.currentUser) {
-        console.warn('WARNING: userData is null but user is authenticated. Attempting recovery...');
-        userData = {
-          uid: auth.currentUser.uid,
-          email: auth.currentUser.email,
-          displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
-        };
-        console.log('Created emergency userData with UID:', userData.uid);
-      }
-      
-      if (!userData) {
-        console.error('ERROR: userData is null or undefined. Cannot save stats.');
-        
-        // Show error to user
-        const notification = document.createElement('div');
-        notification.style.position = 'fixed';
-        notification.style.bottom = '20px';
-        notification.style.right = '20px';
-        notification.style.background = 'rgba(231, 76, 60, 0.9)'; // Red
-        notification.style.color = 'white';
-        notification.style.padding = '10px';
-        notification.style.borderRadius = '5px';
-        notification.style.zIndex = '9999';
-        notification.textContent = 'Error: User data missing. Please refresh the page and try again.';
-        document.body.appendChild(notification);
-        
-        // Remove notification after 5 seconds
-        setTimeout(() => {
-          document.body.removeChild(notification);
-        }, 5000);
-        
+      if (!userData || !userData.uid) {
+        console.error('ERROR: Cannot save stats - userData is missing or has no UID');
         return;
       }
       
@@ -2395,96 +2246,13 @@
       const savePath = `users/${userData.uid}/scores/jeopardy/stats`;
       console.log('Saving stats to path:', savePath);
       
-      // First test that we can read the user record before saving
-      // This is just a verification step to ensure permissions
-      get(ref(db, `users/${userData.uid}`))
-        .then(snapshot => {
-          console.log('TEST: Can read user record:', snapshot.exists());
-        })
-        .catch(error => {
-          console.error('TEST FAILED: Cannot read user record:', error.message);
-        });
-      
-      // Save only the stats to the specific stats path - NOT to the entire user record
+      // ONLY save the stats object to the specific stats path
       set(ref(db, savePath), stats)
         .then(() => {
-          console.log('SUCCESS: User stats saved to ' + savePath);
-          
-          // Verify the data was actually written by reading it back
-          return get(ref(db, savePath));
-        })
-        .then((snapshot) => {
-          if (snapshot && snapshot.exists()) {
-            console.log('VERIFICATION SUCCESS: Data was found at path after saving');
-            console.log('Saved data sample:', JSON.stringify(snapshot.val()).substring(0, 100) + '...');
-            
-            // Show a temporary success message to the user
-            const notification = document.createElement('div');
-            notification.style.position = 'fixed';
-            notification.style.bottom = '20px';
-            notification.style.right = '20px';
-            notification.style.background = 'rgba(46, 204, 113, 0.9)'; // Green
-            notification.style.color = 'white';
-            notification.style.padding = '10px';
-            notification.style.borderRadius = '5px';
-            notification.style.zIndex = '9999';
-            notification.textContent = 'Game progress saved successfully';
-            document.body.appendChild(notification);
-            
-            // Remove notification after 3 seconds
-            setTimeout(() => {
-              document.body.removeChild(notification);
-            }, 3000);
-          } else {
-            console.error('VERIFICATION FAILED: Data was not found after saving');
-            
-            // Show error notification
-            const notification = document.createElement('div');
-            notification.style.position = 'fixed';
-            notification.style.bottom = '20px';
-            notification.style.right = '20px';
-            notification.style.background = 'rgba(231, 76, 60, 0.9)'; // Red
-            notification.style.color = 'white';
-            notification.style.padding = '10px';
-            notification.style.borderRadius = '5px';
-            notification.style.zIndex = '9999';
-            notification.textContent = 'Error: Could not verify that your progress was saved.';
-            document.body.appendChild(notification);
-            
-            // Remove notification after 5 seconds
-            setTimeout(() => {
-              document.body.removeChild(notification);
-            }, 5000);
-          }
+          console.log('User stats saved successfully to', savePath);
         })
         .catch(error => {
-          console.error('==== ERROR SAVING USER STATS ====');
-          console.error('Error code:', error.code);
-          console.error('Error message:', error.message);
-          console.error('Full error:', error);
-          
-          // Show error notification to user
-          const notification = document.createElement('div');
-          notification.style.position = 'fixed';
-          notification.style.bottom = '20px';
-          notification.style.right = '20px';
-          notification.style.background = 'rgba(231, 76, 60, 0.9)'; // Red
-          notification.style.color = 'white';
-          notification.style.padding = '10px';
-          notification.style.borderRadius = '5px';
-          notification.style.zIndex = '9999';
-          notification.textContent = `Error saving progress: ${error.message}`;
-          document.body.appendChild(notification);
-          
-          // Remove notification after 5 seconds
-          setTimeout(() => {
-            document.body.removeChild(notification);
-          }, 5000);
-          
-          // Check if this is a permission error
-          if (error.code === 'PERMISSION_DENIED') {
-            checkWritePermission();
-          }
+          console.error('Error saving user stats:', error.message);
         });
     }
     
@@ -2745,13 +2513,13 @@
     // Load user stats
     async function loadUserStats() {
       if (userData && userData.uid) {
-        // Fix the path to match where data is being saved in saveUserStats function
+        // Only read from the specific stats path
         const userStatsSnapshot = await get(ref(db, `users/${userData.uid}/scores/jeopardy/stats`));
         if (userStatsSnapshot.exists()) {
-          // Only update stats-related properties without losing other user data
+          // Load the existing stats
           const existingStats = userStatsSnapshot.val();
           
-          // Only merge stats data, preserve all other user data properties
+          // Only update the stats object, not the user data
           stats = {
             questionsAnswered: existingStats.questionsAnswered || 0,
             correct: existingStats.correct || 0,
@@ -2768,7 +2536,7 @@
             sessionsPlayed: existingStats.sessionsPlayed || 0
           };
           
-          console.log('Loaded user stats from database without modifying other user data');
+          console.log('Loaded user stats from database');
         } else {
           console.log('No existing stats found, using default values');
           // Keep using the default stats initialized at the top of the file
@@ -3193,6 +2961,28 @@
       // Hide other sections
       loadingSection.classList.add('hidden');
       jeopardyAuthorized.style.display = 'none';
+    }
+    
+    // Set up debug panel for admin users
+    function setupDebugPanel() {
+      // Only show to admin users
+      if (isAdmin) {
+        const debugPanel = document.getElementById('debug-panel');
+        if (!debugPanel) return;
+        
+        // Clear existing buttons
+        debugPanel.innerHTML = '';
+        
+        // Add debug button for Firebase testing
+        const debugButton = document.createElement('button');
+        debugButton.id = 'debug-firebase-btn';
+        debugButton.className = 'btn btn-info';
+        debugButton.style.marginRight = '10px';
+        debugButton.textContent = 'Test Firebase';
+        
+        debugPanel.appendChild(debugButton);
+        debugButton.onclick = testFirebaseConnection;
+      }
     }
   </script>
 </body>
