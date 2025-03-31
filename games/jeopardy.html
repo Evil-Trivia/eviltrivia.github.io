@@ -1411,49 +1411,30 @@
     // Initialize the Jeopardy app
     async function initializeJeopardyApp() {
       try {
-        // Make sure settings modal is hidden on initialization (with both class and style)
-        if (settingsModal) {
-          settingsModal.classList.add('hidden');
-          settingsModal.style.display = 'none';
-          console.log('Ensuring settings modal is hidden on initialization');
-        }
+        console.log('Initializing Jeopardy app...');
         
-        // Test Firebase connection at initialization
-        testFirebaseConnection();
-        
-        // Set up close button handler immediately with multiple methods
-        if (closeModalBtn) {
-          // Remove any existing listeners to prevent duplicates
-          closeModalBtn.removeEventListener('click', closeSettingsModal);
-          closeModalBtn.addEventListener('click', closeSettingsModal);
-          
-          // Add direct style for visibility
-          closeModalBtn.style.cursor = 'pointer';
-          closeModalBtn.style.fontSize = '30px';
-          closeModalBtn.style.fontWeight = 'bold';
-          closeModalBtn.style.color = '#333';
-          
-          console.log('Set up close modal button handler on initialization');
-        }
-        
-        // 1. Load available dates from the database
+        // 1. Load Jeopardy data from Firebase
         const jeopardySnapshot = await get(ref(db, 'tools/jeopardy'));
         if (!jeopardySnapshot.exists()) {
-          console.error('Jeopardy data not found');
-          showDebugError('Jeopardy data not found at path: tools/jeopardy');
-          return;
+          throw new Error('Jeopardy data not found');
         }
         
-        // Store the entire jeopardy data for later use
         jeopardyData = jeopardySnapshot.val();
+        console.log('Loaded Jeopardy data');
         
-        // Extract dates for the date selector
+        // Extract available dates (convert keys to date objects for sorting)
         availableDates = Object.keys(jeopardyData)
-                          .filter(key => key.match(/^\d{4}-\d{2}-\d{2}$/))
-                          .sort()
-                          .reverse(); // Most recent first
-        
-        console.log('Available dates:', availableDates);
+          .filter(key => {
+            // Check if key is a valid date in format YYYY-MM-DD
+            return /^\d{4}-\d{2}-\d{2}$/.test(key);
+          })
+          .sort((a, b) => {
+            // Sort dates in reverse chronological order (newest first)
+            return new Date(b) - new Date(a);
+          });
+          
+        // Log success or failure
+        console.log(`Found ${availableDates.length} date entries`);
         
         if (availableDates.length === 0) {
           console.error('No Jeopardy dates found');
@@ -1486,12 +1467,6 @@
             resumeGameBtn.disabled = !hasSavedGame;
           }
         }
-        
-        // No need to test permissions again - already called above
-        // if (userData && userData.uid) {
-        //   checkWritePermission();
-        // }
-        
       } catch (error) {
         console.error('Error initializing Jeopardy app:', error);
         showDebugError('Error initializing app: ' + error.message + '\n\nStack: ' + error.stack);
@@ -1726,8 +1701,9 @@
           startTime: Date.now()
         };
         
-        // Save this initial session data
+        // Save this initial session data - ONLY to the stats path, not to the entire user record
         if (userData && userData.uid) {
+          // Use the specific path for stats to avoid overwriting other user data
           set(ref(db, `users/${userData.uid}/scores/jeopardy/stats`), stats);
         }
         
@@ -2379,49 +2355,13 @@
         return;
       }
       
-      if (!userData.uid) {
-        console.error('ERROR: userData.uid is missing. Cannot save stats.');
-        
-        // Try to recover from auth if available
-        if (auth.currentUser) {
-          console.log('Attempting to recover UID from auth.currentUser');
-          userData.uid = auth.currentUser.uid;
-          console.log('Recovered UID:', userData.uid);
-        } else {
-          console.error('Cannot recover UID - auth.currentUser also not available');
-          
-          // Show error to user
-          const notification = document.createElement('div');
-          notification.style.position = 'fixed';
-          notification.style.bottom = '20px';
-          notification.style.right = '20px';
-          notification.style.background = 'rgba(231, 76, 60, 0.9)'; // Red
-          notification.style.color = 'white';
-          notification.style.padding = '10px';
-          notification.style.borderRadius = '5px';
-          notification.style.zIndex = '9999';
-          notification.textContent = 'Error: User ID missing. Please log out and log back in.';
-          document.body.appendChild(notification);
-          
-          // Remove notification after 5 seconds
-          setTimeout(() => {
-            document.body.removeChild(notification);
-          }, 5000);
-          
-          return;
-        }
-      }
-      
-      console.log('User authenticated:', !!auth.currentUser);
-      console.log('User email:', auth.currentUser ? auth.currentUser.email : 'not available');
-      console.log('User ID:', userData.uid);
-      console.log('Current stats object:', JSON.stringify(stats).substring(0, 200) + '...');
-      
-      // IMPORTANT: Use lowercase "jeopardy" to match the user's expected path
+      // Using the correct path specifically for stats - important to keep this targeted
+      // to avoid overwriting user data in other paths
       const savePath = `users/${userData.uid}/scores/jeopardy/stats`;
-      console.log('Attempting to save to path:', savePath);
+      console.log('Saving stats to path:', savePath);
       
-      // DEBUG: Check current Firebase permissions
+      // First test that we can read the user record before saving
+      // This is just a verification step to ensure permissions
       get(ref(db, `users/${userData.uid}`))
         .then(snapshot => {
           console.log('TEST: Can read user record:', snapshot.exists());
@@ -2430,7 +2370,7 @@
           console.error('TEST FAILED: Cannot read user record:', error.message);
         });
       
-      // Save overall stats to the authorized path with lowercase 'jeopardy'
+      // Save only the stats to the specific stats path - NOT to the entire user record
       set(ref(db, savePath), stats)
         .then(() => {
           console.log('SUCCESS: User stats saved to ' + savePath);
@@ -2461,9 +2401,9 @@
               document.body.removeChild(notification);
             }, 3000);
           } else {
-            console.error('VERIFICATION FAILED: Data was not found at path after saving');
+            console.error('VERIFICATION FAILED: Data was not found after saving');
             
-            // Show error notification to user
+            // Show error notification
             const notification = document.createElement('div');
             notification.style.position = 'fixed';
             notification.style.bottom = '20px';
@@ -2473,18 +2413,13 @@
             notification.style.padding = '10px';
             notification.style.borderRadius = '5px';
             notification.style.zIndex = '9999';
-            notification.textContent = 'Warning: Failed to verify saved data';
+            notification.textContent = 'Error: Could not verify that your progress was saved.';
             document.body.appendChild(notification);
             
-            // Remove notification after 3 seconds
+            // Remove notification after 5 seconds
             setTimeout(() => {
               document.body.removeChild(notification);
-            }, 3000);
-            
-            // Try another path as a test
-            const testPath = `users/${userData.uid}/test_write`;
-            console.log('Attempting to write to test path:', testPath);
-            return set(ref(db, testPath), { test: true, timestamp: Date.now() });
+            }, 5000);
           }
         })
         .catch(error => {
@@ -2513,28 +2448,7 @@
           
           // Check if this is a permission error
           if (error.code === 'PERMISSION_DENIED') {
-            console.error('This appears to be a permissions issue. Checking alternative paths...');
-            
-            // Try writing to a different path to test permissions
-            const testPath = `users/${userData.uid}/test_write`;
-            console.log('Attempting to write to test path:', testPath);
-            set(ref(db, testPath), { test: true, timestamp: Date.now() })
-              .then(() => {
-                console.log('TEST SUCCESS: Could write to test path, but not to stats path. This suggests a rules issue.');
-                
-                // Try writing to the root of scores
-                set(ref(db, `users/${userData.uid}/scores/test`), { test: true, timestamp: Date.now() })
-                  .then(() => {
-                    console.log('TEST SUCCESS: Can write to scores/test path.');
-                  })
-                  .catch(error => {
-                    console.error('TEST FAILED: Cannot write to scores/test path:', error.message);
-                  });
-              })
-              .catch(testError => {
-                console.error('TEST FAILED: Could not write to test path either:', testError.message);
-                console.error('This suggests a more general authentication or connection issue.');
-              });
+            checkWritePermission();
           }
         });
     }
@@ -2799,16 +2713,30 @@
         // Fix the path to match where data is being saved in saveUserStats function
         const userStatsSnapshot = await get(ref(db, `users/${userData.uid}/scores/jeopardy/stats`));
         if (userStatsSnapshot.exists()) {
-          stats = userStatsSnapshot.val();
+          // Only update stats-related properties without losing other user data
+          const existingStats = userStatsSnapshot.val();
           
-          // Ensure all required properties exist
-          stats.categoryAccuracy = stats.categoryAccuracy || {};
-          stats.valueAccuracy = stats.valueAccuracy || {};
-          stats.buzzTimes = stats.buzzTimes || [];
-          stats.streakCurrent = stats.streakCurrent || 0;
-          stats.streakLongest = stats.streakLongest || 0;
-          stats.totalPlayTime = stats.totalPlayTime || 0;
-          stats.sessionsPlayed = stats.sessionsPlayed || 0;
+          // Only merge stats data, preserve all other user data properties
+          stats = {
+            questionsAnswered: existingStats.questionsAnswered || 0,
+            correct: existingStats.correct || 0,
+            incorrect: existingStats.incorrect || 0,
+            passed: existingStats.passed || 0,
+            buzzTimes: existingStats.buzzTimes || [],
+            coryat: existingStats.coryat || 0,
+            streakCurrent: existingStats.streakCurrent || 0,
+            streakLongest: existingStats.streakLongest || 0,
+            lastPlayedDate: existingStats.lastPlayedDate || null,
+            categoryAccuracy: existingStats.categoryAccuracy || {},
+            valueAccuracy: existingStats.valueAccuracy || {},
+            totalPlayTime: existingStats.totalPlayTime || 0,
+            sessionsPlayed: existingStats.sessionsPlayed || 0
+          };
+          
+          console.log('Loaded user stats from database without modifying other user data');
+        } else {
+          console.log('No existing stats found, using default values');
+          // Keep using the default stats initialized at the top of the file
         }
       }
     }
