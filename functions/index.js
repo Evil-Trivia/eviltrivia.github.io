@@ -531,30 +531,37 @@ app.get('/fix-trevor', async (req, res) => {
 // Webhook handler for Patreon events
 app.post('/webhooks/patreon', async (req, res) => {
   try {
-    // Get webhook secret from Firebase config instead of environment variables
-    const webhookSecret = functions.config().patreon?.webhook_secret || process.env.PATREON_WEBHOOK_SECRET;
+    console.log('Received Patreon webhook with event:', req.get('X-Patreon-Event'));
+    
+    // Get webhook secret from environment variables
+    const webhookSecret = process.env.PATREON_WEBHOOK_SECRET;
     
     console.log('Webhook received, webhook secret configured:', !!webhookSecret);
     
     // Verify webhook signature if secret is configured
     if (webhookSecret) {
       const signature = req.get('X-Patreon-Signature');
-      const payload = JSON.stringify(req.body);
+      // Important: Use the raw body for signature verification
+      const rawBody = JSON.stringify(req.body);
       
       console.log('Validating webhook signature:', signature ? signature.substring(0, 10) + '...' : 'none');
       
       const hmac = crypto.createHmac('md5', webhookSecret);
-      hmac.update(payload);
+      hmac.update(rawBody);
       const expectedSignature = hmac.digest('hex');
       
       console.log('Expected signature (first 10 chars):', expectedSignature.substring(0, 10) + '...');
       
       if (signature !== expectedSignature) {
-        console.error('Invalid webhook signature');
+        console.error('Webhook signature verification failed');
+        console.error('Received:', signature);
+        console.error('Expected:', expectedSignature);
         return res.status(403).json({ error: 'Invalid signature' });
       }
       
       console.log('Webhook signature verified successfully');
+    } else {
+      console.warn('No webhook secret configured, skipping signature verification');
     }
     
     // Process the webhook data
@@ -562,11 +569,23 @@ app.post('/webhooks/patreon', async (req, res) => {
     const included = req.body.included || [];
     const event = req.get('X-Patreon-Event');
     
-    console.log('Received Patreon webhook event:', event);
-    console.log('Webhook payload:', JSON.stringify(req.body).substring(0, 200) + '...');
+    if (!event) {
+      console.error('Missing X-Patreon-Event header');
+      return res.status(400).json({ error: 'Missing event header' });
+    }
+    
+    console.log('Processing Patreon webhook event:', event);
     
     if (!data) {
+      console.error('Invalid webhook payload - missing data object');
       return res.status(400).json({ error: 'Invalid webhook payload' });
+    }
+    
+    // Log some details about the payload to help with debugging
+    console.log('Webhook data type:', data.type);
+    console.log('Webhook included items:', included.length);
+    if (included.length > 0) {
+      console.log('Included item types:', included.map(item => item.type).join(', '));
     }
     
     // Handle different event types
@@ -574,29 +593,41 @@ app.post('/webhooks/patreon', async (req, res) => {
       case 'members:pledge:create':
       case 'members:pledge:update':
       case 'members:update':
-      case 'members:create':
-        // Handle member events with active status
-        console.log('Processing member event with active status:', event);
+        console.log(`Processing active member event: ${event}`);
         await handleMemberEvent(data, included, true);
         break;
         
       case 'members:pledge:delete':
       case 'members:delete':
-        // Handle member deletion events
-        console.log('Processing member deletion event:', event);
+        console.log(`Processing member deletion event: ${event}`);
         await handleMemberEvent(data, included, false);
         break;
         
       default:
-        console.log('Unhandled webhook event type:', event);
+        console.log(`Unhandled webhook event type: ${event}`);
     }
     
-    // Acknowledge receipt
-    res.status(200).json({ status: 'success' });
+    // Acknowledge receipt with more information
+    res.status(200).json({ 
+      status: 'success',
+      event: event,
+      processedAt: new Date().toISOString() 
+    });
     
   } catch (error) {
     console.error('Error processing webhook:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    // Add more detailed error logging
+    if (error.response) {
+      console.error('API response error:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      });
+    }
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: error.message
+    });
   }
 });
 
@@ -978,9 +1009,10 @@ async function refreshPatreonUserData(patreonId, accessToken) {
         Authorization: `Bearer ${accessToken}`
       },
       params: {
-        'include': 'memberships,memberships.currently_entitled_tiers',
+        'include': 'memberships,memberships.currently_entitled_tiers,memberships.campaign,memberships.campaign.tiers',
         'fields[user]': 'email,full_name,image_url',
-        'fields[member]': 'currently_entitled_amount_cents,patron_status,last_charge_date,last_charge_status,next_charge_date,is_free_trial,will_pay_amount_cents'
+        'fields[member]': 'currently_entitled_amount_cents,patron_status,last_charge_date,last_charge_status,next_charge_date,is_free_trial,will_pay_amount_cents',
+        'fields[tier]': 'title,amount_cents,description,discord_role_ids,discord_server_id,published,published_at,image_url'
       }
     });
     
@@ -997,6 +1029,50 @@ async function refreshPatreonUserData(patreonId, accessToken) {
         activeMembership = item;
       } else if (item.type === 'tier') {
         entitledTiers.push(item);
+      }
+    }
+    
+    // If we have tier IDs but no tier objects, try to fetch them
+    if (entitledTiers.length === 0 && 
+        activeMembership && 
+        activeMembership.relationships && 
+        activeMembership.relationships.currently_entitled_tiers && 
+        activeMembership.relationships.currently_entitled_tiers.data &&
+        activeMembership.relationships.currently_entitled_tiers.data.length > 0) {
+      
+      try {
+        const tierIds = activeMembership.relationships.currently_entitled_tiers.data.map(t => t.id);
+        console.log(`Attempting to fetch tier details for IDs: ${tierIds.join(', ')}`);
+        
+        // Use the access token to fetch tier details
+        const campaignResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/campaigns', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          },
+          params: {
+            'include': 'tiers',
+            'fields[tier]': 'title,amount_cents,description,image_url'
+          }
+        });
+        
+        // Extract tier information
+        if (campaignResponse.data && campaignResponse.data.included) {
+          const fetchedTiers = campaignResponse.data.included
+            .filter(item => item.type === 'tier' && tierIds.includes(item.id));
+          
+          if (fetchedTiers.length > 0) {
+            console.log(`Successfully fetched ${fetchedTiers.length} tier details`);
+            fetchedTiers.forEach(tier => {
+              console.log(`- Tier ${tier.id}: ${tier.attributes?.title || 'Unnamed'} (${tier.attributes?.amount_cents || 0} cents)`);
+            });
+            
+            // Use these tiers instead
+            entitledTiers.push(...fetchedTiers);
+          }
+        }
+      } catch (tierError) {
+        console.error('Error fetching tier details:', tierError.message);
+        // Continue with the refresh even if tier fetching fails
       }
     }
     
@@ -1255,19 +1331,87 @@ async function handleMemberEvent(data, included, isActive) {
     const user = included.find(item => item.type === 'user');
     
     if (!data.relationships || !data.relationships.user || !data.relationships.user.data) {
-      console.error('Invalid webhook data structure');
+      console.error('Invalid webhook data structure - missing user relationship');
       return;
     }
     
     const patreonId = data.relationships.user.data.id;
-    console.log(`Processing member event for user ID: ${patreonId}`);
+    console.log(`Processing member event for Patreon user ID: ${patreonId}`);
     
     // Find tiers if available
     const tiers = included.filter(item => item.type === 'tier');
     
+    // Log tier information for debugging
+    if (tiers.length > 0) {
+      console.log(`Found ${tiers.length} tiers for user ${patreonId}:`);
+      tiers.forEach(tier => {
+        console.log(`- Tier ${tier.id}: ${tier.attributes?.title || 'Unnamed'} (${tier.attributes?.amount_cents || 0} cents)`);
+      });
+    } else {
+      console.log(`No tiers found for user ${patreonId}`);
+      
+      // Check if there are entitled tier relationships that didn't come with full tier objects
+      if (data.relationships && 
+          data.relationships.currently_entitled_tiers && 
+          data.relationships.currently_entitled_tiers.data) {
+        const tierIds = data.relationships.currently_entitled_tiers.data.map(t => t.id);
+        console.log(`Found tier IDs in relationships: ${tierIds.join(', ')}`);
+        
+        // We have tier IDs but no tier objects, we'll need to fetch them
+        if (tierIds.length > 0) {
+          console.log('Tier objects not included in webhook payload. This is normal for some events.');
+          console.log('We will use tier IDs to look up tier information later.');
+        }
+      }
+    }
+    
     // Get existing data to preserve important fields
     const existingPatreonDataSnapshot = await admin.database().ref(`patreonUsers/${patreonId}`).once('value');
     const existingPatreonData = existingPatreonDataSnapshot.exists() ? existingPatreonDataSnapshot.val() : {};
+    
+    // If we have tier IDs but no tier objects, try to fetch them
+    if (tiers.length === 0 && 
+        data.relationships && 
+        data.relationships.currently_entitled_tiers && 
+        data.relationships.currently_entitled_tiers.data &&
+        data.relationships.currently_entitled_tiers.data.length > 0 &&
+        existingPatreonData.tokens?.accessToken) {
+      
+      try {
+        const tierIds = data.relationships.currently_entitled_tiers.data.map(t => t.id);
+        console.log(`Attempting to fetch tier details for IDs: ${tierIds.join(', ')}`);
+        
+        // Use the stored access token to fetch tier details
+        const campaignResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/campaigns', {
+          headers: {
+            Authorization: `Bearer ${existingPatreonData.tokens.accessToken}`
+          },
+          params: {
+            'include': 'tiers',
+            'fields[tier]': 'title,amount_cents,description,image_url'
+          }
+        });
+        
+        // Extract tier information
+        if (campaignResponse.data && campaignResponse.data.included) {
+          const fetchedTiers = campaignResponse.data.included
+            .filter(item => item.type === 'tier' && tierIds.includes(item.id));
+          
+          if (fetchedTiers.length > 0) {
+            console.log(`Successfully fetched ${fetchedTiers.length} tier details`);
+            fetchedTiers.forEach(tier => {
+              console.log(`- Tier ${tier.id}: ${tier.attributes?.title || 'Unnamed'} (${tier.attributes?.amount_cents || 0} cents)`);
+            });
+            
+            // Use these tiers instead
+            tiers.push(...fetchedTiers);
+          }
+        }
+      } catch (tierError) {
+        console.error('Error fetching tier details:', tierError.message);
+        // Continue with the webhook processing even if tier fetching fails
+      }
+    }
     
     let firebaseUser = null;
     let existingUserData = {};
@@ -1368,6 +1512,50 @@ async function handleMemberEvent(data, included, isActive) {
       
       await admin.database().ref(`users/${firebaseUid}`).update(userUpdate);
       console.log(`Successfully updated Firebase user ${firebaseUid} from webhook`);
+    }
+    
+    // If we have tier IDs but no tier objects, try to fetch them
+    if (tiers.length === 0 && 
+        data.relationships && 
+        data.relationships.currently_entitled_tiers && 
+        data.relationships.currently_entitled_tiers.data &&
+        data.relationships.currently_entitled_tiers.data.length > 0 &&
+        existingPatreonData.tokens?.accessToken) {
+      
+      try {
+        const tierIds = data.relationships.currently_entitled_tiers.data.map(t => t.id);
+        console.log(`Attempting to fetch tier details for IDs: ${tierIds.join(', ')}`);
+        
+        // Use the stored access token to fetch tier details
+        const campaignResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/campaigns', {
+          headers: {
+            Authorization: `Bearer ${existingPatreonData.tokens.accessToken}`
+          },
+          params: {
+            'include': 'tiers',
+            'fields[tier]': 'title,amount_cents,description,image_url'
+          }
+        });
+        
+        // Extract tier information
+        if (campaignResponse.data && campaignResponse.data.included) {
+          const fetchedTiers = campaignResponse.data.included
+            .filter(item => item.type === 'tier' && tierIds.includes(item.id));
+          
+          if (fetchedTiers.length > 0) {
+            console.log(`Successfully fetched ${fetchedTiers.length} tier details`);
+            fetchedTiers.forEach(tier => {
+              console.log(`- Tier ${tier.id}: ${tier.attributes?.title || 'Unnamed'} (${tier.attributes?.amount_cents || 0} cents)`);
+            });
+            
+            // Use these tiers instead
+            tiers.push(...fetchedTiers);
+          }
+        }
+      } catch (tierError) {
+        console.error('Error fetching tier details:', tierError.message);
+        // Continue with the webhook processing even if tier fetching fails
+      }
     }
     
     return {
