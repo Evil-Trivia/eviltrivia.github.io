@@ -1242,19 +1242,52 @@ exports.refreshPatreonManual = functions.https.onRequest(async (req, res) => {
       return res.status(400).json({ error: 'Missing patreonId parameter' });
     }
     
+    console.log(`Manually refreshing data for Patreon user ${patreonId}`);
+    
     // Get the Patreon user data
     const patreonUserSnap = await admin.database().ref(`patreonUsers/${patreonId}`).once('value');
     const patreonUserData = patreonUserSnap.val();
     
     if (!patreonUserData) {
+      console.error(`Patreon user ${patreonId} not found`);
       return res.status(404).json({ error: 'Patreon user not found' });
     }
     
-    // Get access token
-    const accessToken = patreonUserData.tokens?.accessToken;
+    // Get access token - this may be in different places depending on the data structure
+    let accessToken = null;
+    
+    // First try to get from the tokens object
+    if (patreonUserData.tokens && patreonUserData.tokens.accessToken) {
+      accessToken = patreonUserData.tokens.accessToken;
+    } 
+    // Then check the top level accessToken
+    else if (patreonUserData.accessToken) {
+      accessToken = patreonUserData.accessToken;
+    }
     
     if (!accessToken) {
-      return res.status(400).json({ error: 'No access token available for this user' });
+      console.error(`No access token found for Patreon user ${patreonId}`);
+      
+      // Check if there's a Firebase user associated with this Patreon ID
+      const firebaseUid = patreonUserData.firebaseUid;
+      if (firebaseUid) {
+        // Check if there's token data in the user object
+        const userSnapshot = await admin.database().ref(`users/${firebaseUid}`).once('value');
+        const userData = userSnapshot.val();
+        
+        if (userData && userData.patreon && userData.patreon.tokens && userData.patreon.tokens.accessToken) {
+          accessToken = userData.patreon.tokens.accessToken;
+          console.log(`Found access token in user data for Firebase user ${firebaseUid}`);
+        }
+      }
+      
+      // If we still don't have a token, return an error
+      if (!accessToken) {
+        return res.status(400).json({ 
+          error: 'No access token available for this user',
+          message: 'The access token for this user is missing. They may need to reconnect their Patreon account.'
+        });
+      }
     }
     
     // Call the refresh function
@@ -1268,9 +1301,18 @@ exports.refreshPatreonManual = functions.https.onRequest(async (req, res) => {
     
   } catch (error) {
     console.error('Error refreshing Patreon data:', error);
+    
+    // Provide more helpful error message
+    let errorMessage = 'Failed to refresh Patreon data';
+    if (error.response && error.response.data) {
+      errorMessage += `: ${JSON.stringify(error.response.data)}`;
+    } else if (error.message) {
+      errorMessage += `: ${error.message}`;
+    }
+    
     res.status(500).json({ 
-      error: 'Failed to refresh Patreon data',
-      message: error.message
+      error: errorMessage,
+      message: 'There was an error refreshing the Patreon data. The token may be expired or invalid.'
     });
   }
 });
