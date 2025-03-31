@@ -2203,7 +2203,8 @@
       }
       
       // Initialize value tracking if it doesn't exist yet
-      const valueKey = `$${questionValue}`;
+      // FIXED: Use 'value_' prefix instead of $ which is an invalid Firebase key
+      const valueKey = `value_${questionValue}`;
       if (!stats.valueAccuracy[valueKey]) {
         stats.valueAccuracy[valueKey] = { total: 0, correct: 0 };
       }
@@ -2212,65 +2213,84 @@
       stats.categoryAccuracy[category].total++;
       stats.valueAccuracy[valueKey].total++;
       
-      switch(result) {
-        case 'correct':
-          stats.correct++;
-          stats.coryat += questionValue;
-          stats.categoryAccuracy[category].correct++;
-          stats.valueAccuracy[valueKey].correct++;
-          
-          currentGameStats.correct++;
-          currentGameStats.coryat += questionValue;
-          
-          // Update streak
-          stats.streakCurrent++;
-          if (stats.streakCurrent > stats.streakLongest) {
-            stats.streakLongest = stats.streakCurrent;
-          }
-          
-          // Visual feedback
-          const questionContainer = document.querySelector('.question-container');
-          if (questionContainer) {
-            questionContainer.style.boxShadow = '0 0 20px #27ae60'; // Green flash for correct
-          }
-          break;
-        case 'wrong':
-          stats.incorrect++;
-          stats.coryat -= questionValue;
-          stats.streakCurrent = 0; // Reset streak on wrong answer
-          
-          currentGameStats.incorrect++;
-          currentGameStats.coryat -= questionValue;
-          
-          // Visual feedback
-          const wrongContainer = document.querySelector('.question-container');
-          if (wrongContainer) {
-            wrongContainer.style.boxShadow = '0 0 20px #e74c3c'; // Red flash for wrong
-          }
-          break;
-        case 'pass':
-          stats.passed++;
-          stats.streakCurrent = 0; // Reset streak on pass
-          
-          currentGameStats.passed++;
-          break;
+      // Process the result
+      if (result === 'correct') {
+        stats.correct++;
+        stats.streakCurrent++;
+        stats.categoryAccuracy[category].correct++;
+        stats.valueAccuracy[valueKey].correct++;
+        currentGameStats.correct++;
+        
+        // Update longest streak if current streak is longer
+        if (stats.streakCurrent > stats.streakLongest) {
+          stats.streakLongest = stats.streakCurrent;
+        }
+        
+        // Add the value to Coryat score
+        stats.coryat += questionValue;
+        currentGameStats.coryat += questionValue;
+        
+        // Apply correct answer styling
+        const container = document.querySelector('.question-container');
+        if (container) {
+          container.style.boxShadow = '0 0 20px rgba(0, 255, 0, 0.6)';
+        }
+        
+        // Update displayed stats
+        document.getElementById('stats-correct').textContent = currentGameStats.correct;
+        document.getElementById('stats-coryat').textContent = `$${currentGameStats.coryat}`;
+      } else if (result === 'incorrect') {
+        stats.incorrect++;
+        stats.streakCurrent = 0;
+        currentGameStats.incorrect++;
+        
+        // Apply incorrect answer styling
+        const container = document.querySelector('.question-container');
+        if (container) {
+          container.style.boxShadow = '0 0 20px rgba(255, 0, 0, 0.6)';
+        }
+        
+        // Update displayed stats
+        document.getElementById('stats-incorrect').textContent = currentGameStats.incorrect;
+      } else { // passed
+        stats.passed++;
+        currentGameStats.passed++;
+        
+        // Apply passed answer styling
+        const container = document.querySelector('.question-container');
+        if (container) {
+          container.style.boxShadow = '0 0 20px rgba(255, 255, 0, 0.6)';
+        }
+        
+        // Update displayed stats
+        document.getElementById('stats-passed').textContent = currentGameStats.passed;
       }
       
-      // Update play time if we have a session start time
-      if (stats.sessionStartTime) {
-        const sessionTime = Math.floor((Date.now() - stats.sessionStartTime) / 1000);
-        stats.totalPlayTime += Math.min(sessionTime, 300); // Cap at 5 minutes per question as sanity check
-        stats.sessionStartTime = Date.now(); // Reset for next question
-      }
+      // Always update total questions count
+      document.getElementById('stats-questions').textContent = currentGameStats.questionsAnswered;
       
-      // Update stats display
-      updateStatsDisplay();
-      
-      // Save stats to Firebase with better structure
+      // Save stats to Firebase
       saveUserStats();
+      
+      // If this was in the middle of a saved game, update the progress
       saveDetailedGameData();
       
-      // Move to next question
+      // Show the answer
+      answerText.textContent = currentQuestion.question || "No answer available";
+      answerText.classList.remove('hidden');
+      
+      // Add buzz time to stats if user buzzed in
+      if (buzzInTime !== null && enableBuzzInTime !== null) {
+        const buzzTime = buzzInTime - enableBuzzInTime;
+        stats.buzzTimes.push(buzzTime);
+        currentGameStats.buzzTimes.push(buzzTime);
+        
+        // Update average buzz time display
+        const avgBuzzTime = calculateAverageBuzzTime(currentGameStats.buzzTimes);
+        document.getElementById('stats-avg-buzz').textContent = avgBuzzTime + 'ms';
+      }
+      
+      // Proceed to next question after a delay
       setTimeout(() => {
         // Reset container appearance
         const container = document.querySelector('.question-container');
@@ -3085,22 +3105,24 @@
         
         // Check if we have value data
         if (stats.valueAccuracy && Object.keys(stats.valueAccuracy).length > 0) {
-          // Sort values by clue value
+          // Sort values by clue value (remove 'value_' prefix for sorting)
           const sortedValues = Object.entries(stats.valueAccuracy)
             .sort((a, b) => {
-              const aValue = parseInt(a[0].replace('$', ''));
-              const bValue = parseInt(b[0].replace('$', ''));
+              const aValue = parseInt(a[0].replace('value_', ''));
+              const bValue = parseInt(b[0].replace('value_', ''));
               return aValue - bValue;
             });
           
           // Generate HTML for each value
-          sortedValues.forEach(([value, data]) => {
+          sortedValues.forEach(([valueKey, data]) => {
+            // Display with $ for UI but keep as value_X in the database
+            const displayValue = `$${valueKey.replace('value_', '')}`;
             const accuracy = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
             
             const valueElement = document.createElement('div');
             valueElement.className = 'stats-value';
             valueElement.innerHTML = `
-              <div class="value-name">${value}</div>
+              <div class="value-name">${displayValue}</div>
               <div class="progress-bar-container">
                 <div class="progress-bar" style="width: ${accuracy}%"></div>
               </div>

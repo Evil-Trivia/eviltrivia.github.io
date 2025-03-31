@@ -1136,6 +1136,201 @@
     document.addEventListener('DOMContentLoaded', () => {
       console.log('Document loaded, initializing authentication');
       
+      // Add the missing auth state change handler
+      auth.onAuthStateChanged(async (user) => {
+        // First, check for "Not Authorized" message and replace it if found
+        if (document.body.innerText.includes('Not Authorized') && 
+            document.body.innerText.includes('is not authorized to view the requested page')) {
+          console.log('Detected "Not Authorized" message - replacing with login form');
+          
+          // Reload the page instead of trying to modify DOM - this is simpler and more reliable
+          window.location.href = window.location.pathname;
+          return;
+        }
+        
+        if (user) {
+          // User is signed in
+          console.log('User is signed in:', user.uid);
+          
+          // Show Patreon card when user is logged in
+          document.getElementById('patreon-card').style.display = 'block';
+          
+          try {
+            // Check if user exists in our database (is authorized)
+            const userSnapshot = await db.ref(`users/${user.uid}`).once('value');
+            
+            if (!userSnapshot.exists()) {
+              console.warn('User authenticated but not found in database - creating minimal record');
+              // Create a minimal user record if they don't exist in our database
+              await db.ref(`users/${user.uid}`).set({
+                email: user.email,
+                role: 'member', // Default role
+                createdAt: new Date().toISOString()
+              });
+            }
+            
+            // Display Evil Trivia user info
+            await displayTriviaUserInfo(user);
+            
+            // Check for Patreon connection
+            const userData = userSnapshot.val() || {};
+            if (userData.patreonId) {
+              console.log('User has Patreon connection:', userData.patreonId);
+              loadPatreonData(userData.patreonId);
+            } else {
+              // Also check localStorage for Patreon ID as fallback
+              const patreonId = localStorage.getItem('patreonUserId');
+              if (patreonId) {
+                console.log('Found Patreon ID in localStorage:', patreonId);
+                
+                // Update user data with Patreon ID if not already set
+                if (!userData.patreonId) {
+                  console.log('Updating user with Patreon ID from localStorage');
+                  await db.ref(`users/${user.uid}/patreonId`).set(patreonId);
+                }
+                
+                // Load Patreon data
+                loadPatreonData(patreonId);
+              } else {
+                // No Patreon connection
+                patreonLoading.classList.add('hidden');
+                patreonNotConnected.classList.remove('hidden');
+                patreonConnected.classList.add('hidden');
+              }
+            }
+          } catch (error) {
+            console.error('Error checking user authorization:', error);
+            // Show login section in case of error
+            triviaLoading.classList.add('hidden');
+            triviaLoggedIn.classList.add('hidden');
+            triviaNotLoggedIn.classList.remove('hidden');
+          }
+        } else {
+          // User is signed out, show sign-in options for both services
+          console.log('User is signed out, showing sign-in options');
+          
+          // Hide Patreon card when user is not logged in
+          document.getElementById('patreon-card').style.display = 'none';
+          
+          // Show Evil Trivia sign-in option
+          triviaLoading.classList.add('hidden');
+          triviaLoggedIn.classList.add('hidden');
+          triviaNotLoggedIn.classList.remove('hidden');
+          
+          // Ensure initial options view is shown by default
+          document.getElementById('initial-auth-choice').style.display = 'block';
+          document.getElementById('login-form-section').style.display = 'none';
+          document.getElementById('signup-form-section').style.display = 'none';
+        }
+      });
+      
+      // Add the missing checkUrlParams function
+      function checkUrlParams() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const authSuccess = urlParams.get('auth_success');
+        const patreonId = urlParams.get('patreon_id');
+        const firebaseToken = urlParams.get('firebase_token');
+        const tokenError = urlParams.get('token_error');
+        
+        // Additional Patreon user information that might be included
+        const patreonName = urlParams.get('patreon_name');
+        const patreonEmail = urlParams.get('patreon_email');
+        const patreonImage = urlParams.get('patreon_image');
+        const patreonTier = urlParams.get('patreon_tier');
+        const patreonPledge = urlParams.get('patreon_pledge');
+        
+        // Log parameters for debugging
+        console.log('URL parameters:', {
+          authSuccess,
+          patreonId: patreonId ? patreonId.substring(0, 5) + '...' : null, // Show truncated ID for privacy
+          hasFirebaseToken: !!firebaseToken,
+          tokenError,
+          hasPatreonInfo: !!(patreonName || patreonEmail || patreonImage)
+        });
+        
+        // Check for auth errors
+        const authError = urlParams.get('auth_error');
+        const errorReason = urlParams.get('reason');
+        if (authError === 'true') {
+          console.error('Patreon auth error:', errorReason);
+          // Show error message to user
+          alert(`There was an error connecting your Patreon account: ${errorReason || 'Unknown error'}. Please try again.`);
+          
+          // Clean URL parameters
+          const newUrl = new URL(window.location.href);
+          newUrl.search = '';
+          window.history.replaceState({}, document.title, newUrl.toString());
+          return;
+        }
+        
+        if (authSuccess === 'true' && patreonId) {
+          console.log('Patreon auth successful with ID:', patreonId);
+          // Store Patreon ID
+          localStorage.setItem('patreonUserId', patreonId);
+          localStorage.setItem('patreonAuthenticated', 'true');
+          
+          // Store additional Patreon user info if available
+          if (patreonName) localStorage.setItem('patreonFullName', patreonName);
+          if (patreonEmail) localStorage.setItem('patreonEmail', patreonEmail);
+          if (patreonImage) localStorage.setItem('patreonImageUrl', patreonImage);
+          if (patreonTier) localStorage.setItem('patreonTier', patreonTier);
+          if (patreonPledge) localStorage.setItem('patreonPledgeAmount', patreonPledge);
+          
+          // Check if user was logged in before Patreon redirect
+          const wasLoggedIn = localStorage.getItem('wasLoggedInBeforePatreon') === 'true';
+          localStorage.removeItem('wasLoggedInBeforePatreon'); // Clean up
+          
+          // Show loading state immediately
+          triviaLoading.classList.add('hidden');
+          patreonLoading.classList.remove('hidden');
+          patreonNotConnected.classList.add('hidden');
+          
+          // If we have a Firebase token, sign in with it
+          if (firebaseToken) {
+            console.log('Attempting to sign in with custom token');
+            auth.signInWithCustomToken(firebaseToken)
+              .then(() => {
+                console.log('Signed in with custom token');
+                // Immediately check for user data
+                if (auth.currentUser) {
+                  displayTriviaUserInfo(auth.currentUser);
+                }
+              })
+              .catch(error => {
+                console.error('Error signing in with custom token:', error);
+                handleTokenError(patreonId);
+              });
+          } else if (tokenError === 'true') {
+            // Handle the case where the server couldn't generate a token
+            console.log('Server could not generate a custom token, using fallback authentication');
+            handleTokenError(patreonId);
+          } else if (!wasLoggedIn) {
+            // User wasn't logged in before and we don't have a token
+            // Just load Patreon data without Evil Trivia login
+            console.log('Loading Patreon data for non-logged-in user');
+            patreonLoading.classList.remove('hidden');
+            loadPatreonData(patreonId);
+          } else {
+            // User was logged in but we don't have a token
+            console.log('User was logged in before, reconnecting with stored auth');
+            // If user reconnects soon after redirect, they may still be logged in
+            if (auth.currentUser) {
+              handleTokenError(patreonId);
+            } else {
+              // Store as pending connection
+              localStorage.setItem('pendingPatreonConnect', 'true');
+              localStorage.setItem('pendingPatreonId', patreonId);
+              window.location.reload();
+            }
+          }
+          
+          // Clean URL parameters
+          const newUrl = new URL(window.location.href);
+          newUrl.search = '';
+          window.history.replaceState({}, document.title, newUrl.toString());
+        }
+      }
+      
       // Check URL parameters for auth callbacks immediately
       checkUrlParams();
       
