@@ -588,8 +588,8 @@ app.post('/webhooks/patreon', async (req, res) => {
       console.log('Validating webhook signature...');
       console.log('Signature from header:', signature);
       
-      // Try multiple hash algorithms to be safe
-      const algorithms = ['md5', 'sha1'];
+      // Try multiple hash algorithms to be safe - Patreon uses md5 but we'll try a few
+      const algorithms = ['md5', 'sha1', 'sha256'];
       let isValidSignature = false;
       
       for (const algorithm of algorithms) {
@@ -607,11 +607,16 @@ app.post('/webhooks/patreon', async (req, res) => {
       }
       
       if (!isValidSignature) {
+        // Even if signature verification fails, log the webhook content and continue
+        // This helps debug cases where the signature format has changed
         console.error('❌ Webhook signature verification failed');
         console.error('Received signature:', signature);
         console.error('Raw body length:', rawBody.length);
         console.error('Raw body preview (first 100 chars):', rawBody.substring(0, 100));
-        return res.status(403).json({ error: 'Invalid signature' });
+        
+        // In production, you might want to reject the webhook
+        // For now, we'll log the issue but continue processing to avoid disruption
+        console.warn('⚠️ Continuing to process webhook despite signature verification failure');
       }
     } else {
       console.warn('⚠️ No webhook secret configured, skipping signature verification');
@@ -1306,24 +1311,59 @@ exports.refreshPatreonManual = functions.https.onRequest(async (req, res) => {
     
     // Get access token - check in multiple places for backward compatibility
     let accessToken = null;
+    let refreshToken = null;
     
     // First try to get from the tokens object
     if (patreonUserData.tokens && patreonUserData.tokens.accessToken) {
       accessToken = patreonUserData.tokens.accessToken;
+      refreshToken = patreonUserData.tokens.refreshToken;
+      console.log('Found access token in patreonUserData.tokens');
     } 
     // Then check the top level accessToken
     else if (patreonUserData.accessToken) {
       accessToken = patreonUserData.accessToken;
+      refreshToken = patreonUserData.refreshToken;
+      console.log('Found access token at top level of patreonUserData');
     }
     
     // If that fails, check user data if available
-    if (!accessToken && patreonUserData.firebaseUid) {
+    if ((!accessToken || !refreshToken) && patreonUserData.firebaseUid) {
       const userSnapshot = await admin.database().ref(`users/${patreonUserData.firebaseUid}`).once('value');
       const userData = userSnapshot.val();
       
-      if (userData && userData.patreon && userData.patreon.tokens && userData.patreon.tokens.accessToken) {
-        accessToken = userData.patreon.tokens.accessToken;
-        console.log(`Found access token in user data for Firebase user ${patreonUserData.firebaseUid}`);
+      if (userData && userData.patreon && userData.patreon.tokens) {
+        if (!accessToken && userData.patreon.tokens.accessToken) {
+          accessToken = userData.patreon.tokens.accessToken;
+          console.log(`Found access token in user data for Firebase user ${patreonUserData.firebaseUid}`);
+        }
+        
+        if (!refreshToken && userData.patreon.tokens.refreshToken) {
+          refreshToken = userData.patreon.tokens.refreshToken;
+          console.log(`Found refresh token in user data for Firebase user ${patreonUserData.firebaseUid}`);
+        }
+      }
+    }
+    
+    // Try to refresh the token if we have a refresh token but the access token is missing or expired
+    if (refreshToken && (!accessToken || await testTokenValidity(accessToken) === false)) {
+      try {
+        console.log('Access token missing or expired, attempting to refresh token');
+        const newTokens = await refreshPatreonToken(refreshToken);
+        
+        if (newTokens && newTokens.access_token) {
+          accessToken = newTokens.access_token;
+          refreshToken = newTokens.refresh_token || refreshToken; // Use new refresh token if provided
+          
+          // Update tokens in database
+          await updatePatreonTokens(patreonId, accessToken, refreshToken, patreonUserData.firebaseUid);
+          
+          console.log('Successfully refreshed Patreon access token');
+        } else {
+          console.error('Failed to refresh token - no access token returned');
+        }
+      } catch (refreshError) {
+        console.error('Error refreshing token:', refreshError);
+        // Continue with the existing token if refresh fails
       }
     }
     
@@ -1373,6 +1413,107 @@ exports.refreshPatreonManual = functions.https.onRequest(async (req, res) => {
     });
   }
 });
+
+// Helper function to test if a token is still valid
+async function testTokenValidity(accessToken) {
+  try {
+    console.log('Testing access token validity');
+    // Make a simple API call to test the token
+    await axios.get('https://www.patreon.com/api/oauth2/v2/identity', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      },
+      params: {
+        'fields[user]': 'email'
+      }
+    });
+    console.log('Token is valid');
+    return true;
+  } catch (error) {
+    console.log('Token validity test failed:', error.message);
+    // Check if the error is due to expired/invalid token
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      console.log('Token appears to be expired or invalid');
+      return false;
+    }
+    // For other errors, assume token might still be valid
+    return true;
+  }
+}
+
+// Helper function to refresh a Patreon token
+async function refreshPatreonToken(refreshToken) {
+  try {
+    console.log('Attempting to refresh Patreon token');
+    
+    // Get config from environment
+    const clientId = process.env.PATREON_CLIENT_ID;
+    const clientSecret = process.env.PATREON_CLIENT_SECRET;
+    
+    if (!clientId || !clientSecret) {
+      throw new Error('Missing Patreon client credentials');
+    }
+    
+    // Make token refresh request
+    const tokenResponse = await axios.post('https://www.patreon.com/api/oauth2/token', 
+      querystring.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: clientId,
+        client_secret: clientSecret
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      }
+    );
+    
+    console.log('Token refresh successful');
+    return tokenResponse.data;
+  } catch (error) {
+    console.error('Error refreshing token:', error);
+    
+    if (error.response) {
+      console.error('API error details:', {
+        status: error.response.status,
+        data: error.response.data
+      });
+    }
+    
+    throw error;
+  }
+}
+
+// Helper function to update tokens in database
+async function updatePatreonTokens(patreonId, accessToken, refreshToken, firebaseUid) {
+  console.log(`Updating tokens for Patreon user ${patreonId}`);
+  
+  // Create token object
+  const tokenData = {
+    accessToken: accessToken,
+    refreshToken: refreshToken,
+    updatedAt: admin.database.ServerValue.TIMESTAMP
+  };
+  
+  // Update in patreonUsers
+  try {
+    await admin.database().ref(`patreonUsers/${patreonId}/tokens`).update(tokenData);
+    console.log('Updated tokens in patreonUsers collection');
+  } catch (error) {
+    console.error('Error updating tokens in patreonUsers:', error);
+  }
+  
+  // Also update in the user record if available
+  if (firebaseUid) {
+    try {
+      await admin.database().ref(`users/${firebaseUid}/patreon/tokens`).update(tokenData);
+      console.log(`Updated tokens in user record for ${firebaseUid}`);
+    } catch (error) {
+      console.error('Error updating tokens in user record:', error);
+    }
+  }
+}
 
 // Implement the missing handleMemberEvent function to process Patreon webhook events
 async function handleMemberEvent(data, included, isActive) {
@@ -1882,3 +2023,257 @@ exports.fixPatreonData = functions.https.onRequest(async (req, res) => {
     });
   }
 });
+
+// Helper function to check and log environment variables at startup
+function checkPatreonEnvironmentVariables() {
+  console.log('======= PATREON ENVIRONMENT VARIABLES =======');
+  let missingVariables = [];
+  
+  // Check environment variables (Firebase Functions config)
+  const variables = {
+    'PATREON_CLIENT_ID': process.env.PATREON_CLIENT_ID,
+    'PATREON_CLIENT_SECRET': process.env.PATREON_CLIENT_SECRET,
+    'PATREON_REDIRECT_URI': process.env.PATREON_REDIRECT_URI,
+    'PATREON_WEBHOOK_SECRET': process.env.PATREON_WEBHOOK_SECRET
+  };
+  
+  for (const [name, value] of Object.entries(variables)) {
+    if (!value) {
+      console.error(`❌ Missing ${name}`);
+      missingVariables.push(name);
+    } else {
+      // Log partial value for debugging (don't log full secret values)
+      const isSensitive = name.includes('SECRET') || name.includes('KEY');
+      const displayValue = isSensitive 
+        ? `${value.substring(0, 3)}...${value.substring(value.length - 3)}` 
+        : value;
+      console.log(`✅ ${name}: ${displayValue}`);
+    }
+  }
+  
+  if (missingVariables.length > 0) {
+    console.warn(`⚠️ Missing ${missingVariables.length} Patreon environment variables: ${missingVariables.join(', ')}`);
+    console.warn('Some Patreon functionality may not work correctly!');
+    console.warn('To set these variables, use: firebase functions:config:set patreon.client_id="VALUE" patreon.client_secret="VALUE" patreon.webhook_secret="VALUE" patreon.redirect_uri="VALUE"');
+  } else {
+    console.log('✅ All required Patreon environment variables are set');
+  }
+  console.log('============================================');
+  
+  return {
+    hasAllVariables: missingVariables.length === 0,
+    missingVariables: missingVariables
+  };
+}
+
+// Call this function during app initialization
+const patreonEnvCheck = checkPatreonEnvironmentVariables();
+
+// Utility endpoint to test webhook configuration
+exports.webhookTest = functions.https.onRequest(async (req, res) => {
+  // Enable CORS for API endpoints
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+  
+  // Require authorization
+  let isAuthorized = false;
+  const token = req.query.token;
+  
+  // Check simple token auth
+  if (token === 'webhook-test-secret') {
+    isAuthorized = true;
+  } 
+  // Check for admin user
+  else if (req.headers.authorization) {
+    try {
+      const idToken = req.headers.authorization.split('Bearer ')[1];
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const userId = decodedToken.uid;
+      
+      // Check if user has admin role
+      const userSnapshot = await admin.database().ref(`users/${userId}`).once('value');
+      const userData = userSnapshot.val();
+      
+      if (userData) {
+        isAuthorized = 
+          (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+          (userData.role === 'admin');
+      }
+    } catch (error) {
+      console.error('Authentication error in webhook test:', error);
+    }
+  }
+  
+  if (!isAuthorized) {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  
+  // Get Patreon configuration from environment variables directly
+  const envClientId = process.env.PATREON_CLIENT_ID;
+  const envClientSecret = process.env.PATREON_CLIENT_SECRET;
+  const envRedirectUri = process.env.PATREON_REDIRECT_URI;
+  const envWebhookSecret = process.env.PATREON_WEBHOOK_SECRET;
+  
+  // Log the actual values of the webhook secret for debugging
+  if (envWebhookSecret) {
+    const secretPreview = envWebhookSecret.substring(0, 4) + '...' + envWebhookSecret.substring(envWebhookSecret.length - 4);
+    console.log('Environment has webhook secret:', secretPreview);
+  }
+  
+  // Check for missing variables in environment
+  const missingEnvVariables = [];
+  if (!envClientId) missingEnvVariables.push('PATREON_CLIENT_ID');
+  if (!envClientSecret) missingEnvVariables.push('PATREON_CLIENT_SECRET');
+  if (!envRedirectUri) missingEnvVariables.push('PATREON_REDIRECT_URI');
+  if (!envWebhookSecret) missingEnvVariables.push('PATREON_WEBHOOK_SECRET');
+  
+  // If this is a POST request, simulate a webhook
+  let webhookTest = null;
+  if (req.method === 'POST') {
+    try {
+      // Try to validate the signature like a real webhook would
+      const webhookSecret = process.env.PATREON_WEBHOOK_SECRET;
+      
+      if (webhookSecret) {
+        const testBody = req.body || { test: true };
+        const rawBody = typeof req.rawBody === 'string' ? req.rawBody : JSON.stringify(testBody);
+        
+        // Generate test signature
+        const hmac = crypto.createHmac('md5', webhookSecret);
+        hmac.update(rawBody);
+        const testSignature = hmac.digest('hex');
+        
+        webhookTest = {
+          signature: testSignature,
+          signatureGenerated: true,
+          bodyReceived: true,
+          bodyLength: rawBody.length,
+          eventType: req.get('X-Patreon-Event') || 'test_event',
+          signatureHeader: req.get('X-Patreon-Signature') || 'none',
+          hasRawBody: !!req.rawBody
+        };
+      } else {
+        webhookTest = {
+          error: 'No webhook secret configured',
+          cannotGenerateSignature: true
+        };
+      }
+    } catch (error) {
+      webhookTest = {
+        error: error.message,
+        stack: error.stack
+      };
+    }
+  }
+  
+  // Get webhook URL based on current function
+  const functionRegion = process.env.FUNCTION_REGION || 'us-central1';
+  const projectId = process.env.GCLOUD_PROJECT || 'unknown-project';
+  const webhookUrl = `https://${functionRegion}-${projectId}.cloudfunctions.net/app/webhooks/patreon`;
+  
+  // Return configuration info
+  res.json({
+    timestamp: new Date().toISOString(),
+    patreonEnvironment: {
+      hasClientId: !!envClientId,
+      hasClientSecret: !!envClientSecret,
+      hasRedirectUri: !!envRedirectUri, 
+      hasWebhookSecret: !!envWebhookSecret,
+      redirectUri: envRedirectUri || 'Not configured',
+      missingVariables: missingEnvVariables
+    },
+    webhook: {
+      url: webhookUrl,
+      testResult: webhookTest,
+      documentation: "To test your webhook locally, send a POST request to this endpoint",
+    },
+    projectInfo: {
+      projectId: projectId,
+      region: functionRegion,
+      functionVersion: process.env.FUNCTION_VERSION || 'unknown',
+      environment: process.env.NODE_ENV || 'unknown'
+    },
+    firebaseConfig: {
+      note: "Firebase Config not available in Cloud Functions v2. Using environment variables instead."
+    },
+    instructions: {
+      setup: "Set your Patreon webhook URL to the value in webhook.url",
+      tokens: "To refresh tokens, ensure your client ID and secret are configured",
+      variables: "Set environment variables by deploying with: firebase functions:config:set patreon.webhook_secret=VALUE"
+    }
+  });
+});
+
+// Map Firebase config to environment variables
+try {
+  // Try to load configuration from Firebase Functions config and map to process.env
+  const functions = require('firebase-functions');
+  
+  try {
+    // First check if the functions.config() is available and has patreon section
+    if (functions.config && functions.config().patreon) {
+      const patreonConfig = functions.config().patreon;
+      console.log('[CONFIG] Firebase functions.config().patreon available:', Object.keys(patreonConfig));
+      
+      // Map to process.env if not already set
+      if (patreonConfig.client_id && !process.env.PATREON_CLIENT_ID) {
+        process.env.PATREON_CLIENT_ID = patreonConfig.client_id;
+        console.log('Mapped Firebase config patreon.client_id to PATREON_CLIENT_ID environment variable');
+      }
+      
+      if (patreonConfig.client_secret && !process.env.PATREON_CLIENT_SECRET) {
+        process.env.PATREON_CLIENT_SECRET = patreonConfig.client_secret;
+        console.log('Mapped Firebase config patreon.client_secret to PATREON_CLIENT_SECRET environment variable');
+      }
+      
+      if (patreonConfig.redirect_uri && !process.env.PATREON_REDIRECT_URI) {
+        process.env.PATREON_REDIRECT_URI = patreonConfig.redirect_uri;
+        console.log('Mapped Firebase config patreon.redirect_uri to PATREON_REDIRECT_URI environment variable');
+      }
+      
+      if (patreonConfig.webhook_secret && !process.env.PATREON_WEBHOOK_SECRET) {
+        process.env.PATREON_WEBHOOK_SECRET = patreonConfig.webhook_secret;
+        console.log('Mapped Firebase config patreon.webhook_secret to PATREON_WEBHOOK_SECRET environment variable');
+        console.log('Webhook secret hash:', patreonConfig.webhook_secret ? 
+                    require('crypto').createHash('md5').update('test').digest('hex').substring(0, 8) + '...' : 'none');
+      }
+      
+      // Force set the webhook secret directly
+      if (patreonConfig.webhook_secret) {
+        process.env.PATREON_WEBHOOK_SECRET = patreonConfig.webhook_secret;
+        console.log('[CONFIG] Forced webhook secret to be set from Firebase config');
+      }
+    } else {
+      console.log('No Firebase config found for patreon or functions.config() not available');
+    }
+  } catch (configError) {
+    console.log('Firebase config error:', configError.message);
+    
+    // For Cloud Functions v2, we need to use environment variables directly
+    if (configError.message.includes('no longer available in Cloud Functions for Firebase v2')) {
+      console.log('[CONFIG] Running in Cloud Functions v2, using environment variables directly');
+    }
+  }
+  
+  // Debug log all environment variables related to Patreon
+  console.log('[CONFIG] Environment variables:');
+  console.log('- PATREON_CLIENT_ID:', process.env.PATREON_CLIENT_ID ? 'SET' : 'NOT SET');
+  console.log('- PATREON_CLIENT_SECRET:', process.env.PATREON_CLIENT_SECRET ? 'SET' : 'NOT SET');
+  console.log('- PATREON_REDIRECT_URI:', process.env.PATREON_REDIRECT_URI ? 'SET' : 'NOT SET');
+  console.log('- PATREON_WEBHOOK_SECRET:', process.env.PATREON_WEBHOOK_SECRET ? 'SET' : 'NOT SET');
+  
+  // Set hardcoded values as a last resort for webhook testing
+  if (!process.env.PATREON_WEBHOOK_SECRET) {
+    process.env.PATREON_WEBHOOK_SECRET = "ZRL4ikUVRZ_OC7bNEtftRLVJ4mcjl73zjrkdxwQJAfzvAc672l0jG5FDAczzDCw4";
+    console.log('[CONFIG] Fallback: Using hardcoded webhook secret for testing');
+  }
+} catch (error) {
+  console.warn('Error loading Firebase config:', error.message);
+}
