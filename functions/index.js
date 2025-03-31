@@ -953,10 +953,26 @@ exports.migratePatreonToUsers = functions.https.onRequest(async (req, res) => {
 
 // Helper function to refresh a single Patreon user's data
 async function refreshPatreonUserData(patreonId, accessToken) {
+  console.log(`Refreshing Patreon data for user ${patreonId}`);
+  
   try {
-    console.log(`Starting refresh for Patreon user ${patreonId}`);
+    // Get existing patreon user data to merge with the new data
+    const existingPatreonDataSnapshot = await admin.database().ref(`patreonUsers/${patreonId}`).once('value');
+    const existingPatreonData = existingPatreonDataSnapshot.exists() ? existingPatreonDataSnapshot.val() : {};
     
-    // Get fresh Patreon user info and membership data
+    // Get Firebase user data if available
+    let firebaseUser = null;
+    let existingUserData = {};
+    if (existingPatreonData.firebaseUid) {
+      const firebaseUserSnapshot = await admin.database().ref(`users/${existingPatreonData.firebaseUid}`).once('value');
+      if (firebaseUserSnapshot.exists()) {
+        firebaseUser = firebaseUserSnapshot.val();
+        existingUserData = firebaseUser.patreon || {};
+      }
+    }
+    
+    // Fetch user data from Patreon
+    console.log(`Fetching data for Patreon user ${patreonId}`);
     const userResponse = await axios.get('https://www.patreon.com/api/oauth2/v2/identity', {
       headers: {
         Authorization: `Bearer ${accessToken}`
@@ -964,250 +980,127 @@ async function refreshPatreonUserData(patreonId, accessToken) {
       params: {
         'include': 'memberships,memberships.currently_entitled_tiers',
         'fields[user]': 'email,full_name,image_url',
-        'fields[member]': 'currently_entitled_amount_cents,patron_status,last_charge_date,last_charge_status,next_charge_date,is_free_trial,is_gift,will_pay_amount_cents',
-        'fields[tier]': 'title,amount_cents,description'
+        'fields[member]': 'currently_entitled_amount_cents,patron_status,last_charge_date,last_charge_status,next_charge_date,is_free_trial,will_pay_amount_cents'
       }
     });
-    
-    console.log('Patreon API response received');
     
     const userData = userResponse.data.data;
     const included = userResponse.data.included || [];
     
-    // Find active membership if any
+    // Find any active memberships
     let activeMembership = null;
+    const entitledTiers = [];
+    
+    // First pass: extract the membership and tiers
     for (const item of included) {
       if (item.type === 'member') {
         activeMembership = item;
-        break;
+      } else if (item.type === 'tier') {
+        entitledTiers.push(item);
       }
     }
     
-    // Find entitled tiers if any
-    const entitledTiers = included.filter(item => item.type === 'tier');
+    // Use our standardized function to create consistent data
+    const standardizedData = createStandardizedPatreonData(
+      patreonId,
+      userData,
+      activeMembership,
+      entitledTiers,
+      accessToken,
+      existingPatreonData.tokens?.refreshToken,
+      existingUserData
+    );
     
-    // Get pledge amount from membership data if available
-    let pledgeAmountCents = 0;
-    let patronStatus = 'former_patron';
-    let isFreeTrial = false;
-    let isGift = false;
-    let willPayAmountCents = 0;
-    let lastChargeDate = null;
-    let nextChargeDate = null;
-    
-    if (activeMembership && activeMembership.attributes) {
-      // First try to get from currently_entitled_amount_cents
-      if (activeMembership.attributes.currently_entitled_amount_cents !== undefined) {
-        pledgeAmountCents = activeMembership.attributes.currently_entitled_amount_cents;
-      }
+    // Special handling for existing API v1 pledge data that might be missing
+    if (standardizedData.patreon.pledgeAmountCents === 0 && existingPatreonData.pledgeAmountCents > 0) {
+      console.log(`Using existing pledge amount for user ${patreonId}: ${existingPatreonData.pledgeAmountCents} cents`);
+      standardizedData.patreon.pledgeAmountCents = existingPatreonData.pledgeAmountCents;
+      standardizedData.patreon.pledgeAmountDollars = (existingPatreonData.pledgeAmountCents / 100).toFixed(2);
       
-      // If that's zero but there are entitled tiers, use the highest tier amount
-      if (pledgeAmountCents === 0 && entitledTiers.length > 0) {
-        const highestTier = entitledTiers.reduce((highest, current) => {
-          return (current.attributes?.amount_cents > highest.attributes?.amount_cents) ? current : highest;
-        }, entitledTiers[0]);
-        
-        pledgeAmountCents = highestTier.attributes?.amount_cents || 0;
-      }
-      
-      // Get patron status
-      if (activeMembership.attributes.patron_status) {
-        patronStatus = activeMembership.attributes.patron_status;
-      }
-      
-      // Check for free trial
-      if (activeMembership.attributes.is_free_trial) {
-        isFreeTrial = true;
-      }
-      
-      // Check for gift membership
-      if (activeMembership.attributes.is_gift) {
-        isGift = true;
-      }
-      
-      // Get will_pay_amount if available
-      if (activeMembership.attributes.will_pay_amount_cents !== undefined) {
-        willPayAmountCents = activeMembership.attributes.will_pay_amount_cents;
-      }
-      
-      // Get charge dates
-      if (activeMembership.attributes.last_charge_date) {
-        lastChargeDate = activeMembership.attributes.last_charge_date;
-      }
-      
-      if (activeMembership.attributes.next_charge_date) {
-        nextChargeDate = activeMembership.attributes.next_charge_date;
+      // If the user was previously active, maintain their status
+      if (existingPatreonData.isActiveMember) {
+        standardizedData.patreon.isActiveMember = true;
+        standardizedData.patreon.patronStatus = 'active_patron';
+        standardizedData.patronStatus = 'active';
       }
     }
     
-    // Special case handler for known patrons with specific pledge amounts
-    const knownPledgeAmounts = {
-      '78553748': 500, // Trevor Ballou - $5.00
+    // Save updates to patreonUsers collection
+    const patreonUserUpdate = {
+      // Core data
+      email: standardizedData.patreon.email,
+      fullName: standardizedData.patreon.fullName,
+      imageUrl: standardizedData.patreon.imageUrl,
+      isActiveMember: standardizedData.patreon.isActiveMember,
+      patronStatus: standardizedData.patreon.patronStatus,
+      pledgeAmountCents: standardizedData.patreon.pledgeAmountCents,
+      pledgeAmountDollars: standardizedData.patreon.pledgeAmountDollars,
+      // API data
+      membershipData: activeMembership,
+      entitledTiers: entitledTiers.length > 0 ? entitledTiers : null,
+      // Tokens (preserve refresh token)
+      tokens: {
+        accessToken: accessToken,
+        refreshToken: existingPatreonData.tokens?.refreshToken || null,
+        createdAt: admin.database.ServerValue.TIMESTAMP
+      },
+      // Metadata
+      lastUpdated: admin.database.ServerValue.TIMESTAMP
     };
     
-    // If this is a known patron but the pledge amount is wrong, use the known correct amount
-    if (pledgeAmountCents === 0 && knownPledgeAmounts[patreonId]) {
-      pledgeAmountCents = knownPledgeAmounts[patreonId];
-    }
+    console.log(`Updating patreonUsers/${patreonId} with refreshed data`);
+    await admin.database().ref(`patreonUsers/${patreonId}`).update(patreonUserUpdate);
     
-    // Check for valid status and amount
-    let isActive = patronStatus === 'active_patron';
-    
-    // Special handling for known active patrons
-    if (patreonId in knownPledgeAmounts) {
-      isActive = true;
-      patronStatus = 'active_patron';
-    }
-    
-    // Convert to dollars for readability
-    const pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
-    const willPayAmountDollars = (willPayAmountCents / 100).toFixed(2);
-    
-    // Find the associated Firebase user
-    const firebaseUidSnapshot = await admin.database().ref(`patreonUsers/${patreonId}/firebaseUid`).once('value');
-    const firebaseUid = firebaseUidSnapshot.val();
-    
-    if (!firebaseUid) {
-      // During migration, update the patreonUsers branch for backward compatibility
-      const patreonUpdateData = {
-        email: userData.attributes.email,
-        fullName: userData.attributes.full_name,
-        imageUrl: userData.attributes.image_url,
-        lastUpdated: admin.database.ServerValue.TIMESTAMP,
-        isActiveMember: isActive,
-        pledgeAmountCents: pledgeAmountCents,
-        pledgeAmountDollars: pledgeAmountDollars,
-        patronStatus: patronStatus,
-        isFreeTrial: isFreeTrial,
-        isGift: isGift,
-        willPayAmountCents: willPayAmountCents,
-        willPayAmountDollars: willPayAmountDollars,
-        lastChargeDate: lastChargeDate,
-        nextChargeDate: nextChargeDate,
-        membershipData: activeMembership,
-        entitledTiers: entitledTiers.length > 0 ? entitledTiers : null
+    // If there's a linked Firebase user, update their data
+    if (firebaseUser && existingPatreonData.firebaseUid) {
+      const firebaseUid = existingPatreonData.firebaseUid;
+      console.log(`Updating Firebase user ${firebaseUid} with Patreon data`);
+      
+      // Handle roles
+      let roles = [];
+      if (firebaseUser.roles && Array.isArray(firebaseUser.roles)) {
+        roles = [...firebaseUser.roles]; // Clone array
+      } else if (firebaseUser.role && typeof firebaseUser.role === 'string') {
+        roles = [firebaseUser.role]; // Convert single role to array
+      }
+      
+      // Add/remove patron role based on active status
+      if (standardizedData.patreon.isActiveMember && !roles.includes('patron')) {
+        roles.push('patron');
+        console.log(`Added patron role to user ${firebaseUid}`);
+      } else if (!standardizedData.patreon.isActiveMember && roles.includes('patron')) {
+        roles = roles.filter(r => r !== 'patron');
+        console.log(`Removed patron role from user ${firebaseUid}`);
+      }
+      
+      // Get the first role as primary
+      const primaryRole = roles.length > 0 ? roles[0] : 'member';
+      
+      // Update the user record
+      const userUpdate = {
+        patreonId: patreonId,
+        patronStatus: standardizedData.patronStatus,
+        patreonPledgeAmount: standardizedData.patreonPledgeAmount,
+        lastPatreonUpdate: admin.database.ServerValue.TIMESTAMP,
+        lastPatronStatusUpdate: admin.database.ServerValue.TIMESTAMP,
+        patreon: standardizedData.patreon,
+        roles: roles,
+        role: primaryRole
       };
       
-      await admin.database().ref(`patreonUsers/${patreonId}`).update(patreonUpdateData);
-      return true;
+      await admin.database().ref(`users/${firebaseUid}`).update(userUpdate);
+      console.log(`Successfully updated Firebase user ${firebaseUid}`);
     }
     
-    // First, get existing user data to avoid overwriting good data with bad
-    const userSnapshot = await admin.database().ref(`users/${firebaseUid}`).once('value');
-    const currentUserData = userSnapshot.val() || {};
-    const existingPatreonData = currentUserData.patreon || {};
-    
-    // If existing data has non-zero pledge but new data shows zero, keep the existing amount
-    if (pledgeAmountCents === 0 && existingPatreonData.pledgeAmountCents > 0 && existingPatreonData.isActiveMember) {
-      pledgeAmountCents = existingPatreonData.pledgeAmountCents;
-      pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
-      isActive = true;
-      patronStatus = 'active_patron';
-    }
-    
-    // Create tier details array for easier access
-    const tierDetails = entitledTiers.map(tier => ({
-      id: tier.id,
-      title: tier.attributes?.title || 'Unknown Tier',
-      amountCents: tier.attributes?.amount_cents || 0,
-      amountDollars: tier.attributes?.amount_cents ? (tier.attributes.amount_cents / 100).toFixed(2) : '0.00',
-      description: tier.attributes?.description || ''
-    }));
-    
-    // Prepare Patreon user data for update
-    const patreonUserData = {
-      // Primary Patreon data object
-      patreon: {
-        id: patreonId,
-        isActiveMember: isActive,
-        pledgeAmountCents: pledgeAmountCents,
-        pledgeAmountDollars: pledgeAmountDollars,
-        patronStatus: patronStatus,
-        isFreeTrial: isFreeTrial,
-        isGift: isGift,
-        willPayAmountCents: willPayAmountCents,
-        willPayAmountDollars: willPayAmountDollars,
-        lastChargeDate: lastChargeDate,
-        nextChargeDate: nextChargeDate,
-        lastUpdated: admin.database.ServerValue.TIMESTAMP,
-        email: userData.attributes.email,
-        fullName: userData.attributes.full_name,
-        imageUrl: userData.attributes.image_url,
-        membershipData: activeMembership,
-        entitledTiers: entitledTiers.length > 0 ? entitledTiers : null,
-        tierDetails: tierDetails.length > 0 ? tierDetails : null,
-        // Store tokens securely for future API calls
-        tokens: {
-          accessToken: accessToken,
-          // Preserve existing refresh token if it exists
-          refreshToken: existingPatreonData.tokens?.refreshToken || null,
-          createdAt: admin.database.ServerValue.TIMESTAMP
-        }
-      },
-      // User level fields for backward compatibility
-      patronStatus: isActive ? 'active' : 'inactive',
-      patreonPledgeAmount: pledgeAmountDollars,
-      patreonId: patreonId // Keep this field for backward compatibility
+    return {
+      success: true,
+      patreonId: patreonId,
+      isActive: standardizedData.patreon.isActiveMember,
+      patronStatus: standardizedData.patreon.patronStatus,
+      pledgeAmount: standardizedData.patreon.pledgeAmountDollars
     };
-    
-    // Update user roles
-    let roles = [];
-    if (currentUserData.roles && Array.isArray(currentUserData.roles)) {
-      roles = [...currentUserData.roles]; // Clone array
-    } else if (currentUserData.role && typeof currentUserData.role === 'string') {
-      roles = [currentUserData.role]; // Convert single role to array
-    }
-    
-    // Add patron role if active and not already there
-    if (isActive && !roles.includes('patron')) {
-      roles.push('patron');
-    } 
-    // Remove patron role if not active but it exists
-    else if (!isActive && roles.includes('patron')) {
-      roles = roles.filter(r => r !== 'patron');
-    }
-    
-    // Set roles in update data
-    patreonUserData.roles = roles;
-    patreonUserData.role = roles[0] || 'member'; // Set primary role for backward compatibility
-    
-    // Update the user with Patreon data
-    await admin.database().ref(`users/${firebaseUid}`).update(patreonUserData);
-    
-    // During migration, we'll also update the existing patreonUsers branch for backwards compatibility
-    const patreonUpdateData = {
-      isActiveMember: patreonUserData.patreon.isActiveMember,
-      patronStatus: patreonUserData.patreon.patronStatus,
-      pledgeAmountCents: patreonUserData.patreon.pledgeAmountCents,
-      pledgeAmountDollars: patreonUserData.patreon.pledgeAmountDollars,
-      isFreeTrial: patreonUserData.patreon.isFreeTrial,
-      isGift: patreonUserData.patreon.isGift,
-      willPayAmountCents: patreonUserData.patreon.willPayAmountCents,
-      willPayAmountDollars: patreonUserData.patreon.willPayAmountDollars,
-      lastChargeDate: patreonUserData.patreon.lastChargeDate,
-      nextChargeDate: patreonUserData.patreon.nextChargeDate,
-      lastUpdated: patreonUserData.patreon.lastUpdated,
-      firebaseUid: firebaseUid // Ensure the link is established
-    };
-    
-    if (userData.attributes) {
-      patreonUpdateData.email = userData.attributes.email;
-      patreonUpdateData.fullName = userData.attributes.full_name;
-      patreonUpdateData.imageUrl = userData.attributes.image_url;
-    }
-    
-    await admin.database().ref(`patreonUsers/${patreonId}`).update(patreonUpdateData);
-    
-    return true;
   } catch (error) {
-    console.error(`Error refreshing data for Patreon user ${patreonId}:`, error);
-    if (error.response) {
-      console.error('API error response:', {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        data: error.response.data
-      });
-    }
+    console.error(`Error refreshing Patreon data for user ${patreonId}:`, error);
     throw error;
   }
 }
@@ -1229,20 +1122,52 @@ exports.refreshPatreonManual = functions.https.onRequest(async (req, res) => {
   }
   
   try {
-    // Authenticate request with a simple token for now
-    // In production, you should use proper Firebase authentication
+    console.log(`Manual refresh request for Patreon data: ${req.query.patreonId || 'no ID provided'}`);
+    
+    // Authenticate request with a simple token or admin user
     const token = req.query.token;
-    if (token !== 'refresh-patreon-data-secret') {
-      return res.status(403).json({ error: 'Unauthorized' });
+    let isAuthorized = token === 'refresh-patreon-data-secret';
+    
+    // If not using token auth, check if user is admin
+    if (!isAuthorized && req.headers.authorization) {
+      try {
+        const idToken = req.headers.authorization.split('Bearer ')[1];
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const userId = decodedToken.uid;
+        
+        // Check if user has admin role
+        const userSnapshot = await admin.database().ref(`users/${userId}`).once('value');
+        const userData = userSnapshot.val();
+        
+        if (userData) {
+          const isAdmin = 
+            (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+            (userData.role === 'admin');
+          
+          const hasToolsAccess =
+            (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('tools')) ||
+            (userData.role === 'tools');
+          
+          isAuthorized = isAdmin || hasToolsAccess;
+        }
+      } catch (authError) {
+        console.error('Authentication error:', authError);
+      }
+    }
+    
+    if (!isAuthorized) {
+      console.error('Unauthorized refresh attempt');
+      return res.status(403).json({ error: 'Unauthorized. Requires admin access.' });
     }
     
     // Get the Patreon ID from query params
     const patreonId = req.query.patreonId;
     if (!patreonId) {
+      console.error('Missing patreonId parameter');
       return res.status(400).json({ error: 'Missing patreonId parameter' });
     }
     
-    console.log(`Manually refreshing data for Patreon user ${patreonId}`);
+    console.log(`Refreshing data for Patreon user ${patreonId}`);
     
     // Get the Patreon user data
     const patreonUserSnap = await admin.database().ref(`patreonUsers/${patreonId}`).once('value');
@@ -1253,7 +1178,7 @@ exports.refreshPatreonManual = functions.https.onRequest(async (req, res) => {
       return res.status(404).json({ error: 'Patreon user not found' });
     }
     
-    // Get access token - this may be in different places depending on the data structure
+    // Get access token - check in multiple places for backward compatibility
     let accessToken = null;
     
     // First try to get from the tokens object
@@ -1265,38 +1190,32 @@ exports.refreshPatreonManual = functions.https.onRequest(async (req, res) => {
       accessToken = patreonUserData.accessToken;
     }
     
-    if (!accessToken) {
-      console.error(`No access token found for Patreon user ${patreonId}`);
+    // If that fails, check user data if available
+    if (!accessToken && patreonUserData.firebaseUid) {
+      const userSnapshot = await admin.database().ref(`users/${patreonUserData.firebaseUid}`).once('value');
+      const userData = userSnapshot.val();
       
-      // Check if there's a Firebase user associated with this Patreon ID
-      const firebaseUid = patreonUserData.firebaseUid;
-      if (firebaseUid) {
-        // Check if there's token data in the user object
-        const userSnapshot = await admin.database().ref(`users/${firebaseUid}`).once('value');
-        const userData = userSnapshot.val();
-        
-        if (userData && userData.patreon && userData.patreon.tokens && userData.patreon.tokens.accessToken) {
-          accessToken = userData.patreon.tokens.accessToken;
-          console.log(`Found access token in user data for Firebase user ${firebaseUid}`);
-        }
-      }
-      
-      // If we still don't have a token, return an error
-      if (!accessToken) {
-        return res.status(400).json({ 
-          error: 'No access token available for this user',
-          message: 'The access token for this user is missing. They may need to reconnect their Patreon account.'
-        });
+      if (userData && userData.patreon && userData.patreon.tokens && userData.patreon.tokens.accessToken) {
+        accessToken = userData.patreon.tokens.accessToken;
+        console.log(`Found access token in user data for Firebase user ${patreonUserData.firebaseUid}`);
       }
     }
     
-    // Call the refresh function
-    await refreshPatreonUserData(patreonId, accessToken);
+    if (!accessToken) {
+      return res.status(400).json({ 
+        error: 'No access token available',
+        message: 'The user needs to reconnect their Patreon account to refresh their data.'
+      });
+    }
     
-    // Return success
+    // Call the improved refresh function
+    const result = await refreshPatreonUserData(patreonId, accessToken);
+    
+    // Return success with details
     res.json({ 
       success: true, 
-      message: `Successfully refreshed Patreon data for user ${patreonId}` 
+      message: `Successfully refreshed Patreon data for user ${patreonId}`,
+      result: result
     });
     
   } catch (error) {
@@ -1304,13 +1223,25 @@ exports.refreshPatreonManual = functions.https.onRequest(async (req, res) => {
     
     // Provide more helpful error message
     let errorMessage = 'Failed to refresh Patreon data';
-    if (error.response && error.response.data) {
-      errorMessage += `: ${JSON.stringify(error.response.data)}`;
+    let statusCode = 500;
+    
+    if (error.response) {
+      // For API errors, extract more detailed information
+      statusCode = error.response.status || 500;
+      errorMessage += `: API Error ${statusCode}`;
+      
+      if (error.response.data) {
+        if (typeof error.response.data === 'string') {
+          errorMessage += ` - ${error.response.data.substring(0, 100)}`;
+        } else {
+          errorMessage += ` - ${JSON.stringify(error.response.data).substring(0, 100)}`;
+        }
+      }
     } else if (error.message) {
       errorMessage += `: ${error.message}`;
     }
     
-    res.status(500).json({ 
+    res.status(statusCode).json({ 
       error: errorMessage,
       message: 'There was an error refreshing the Patreon data. The token may be expired or invalid.'
     });
@@ -1333,208 +1264,416 @@ async function handleMemberEvent(data, included, isActive) {
     
     // Find tiers if available
     const tiers = included.filter(item => item.type === 'tier');
-    if (tiers.length > 0) {
-      console.log(`User has ${tiers.length} entitled tiers`);
-    }
     
-    // Get pledge amount from attributes if available
-    let pledgeAmountCents = 0;
-    let patronStatus = 'former_patron';
-    let isFreeTrial = false;
-    let isGift = false;
-    let willPayAmountCents = 0;
-    let lastChargeDate = null;
-    let nextChargeDate = null;
+    // Get existing data to preserve important fields
+    const existingPatreonDataSnapshot = await admin.database().ref(`patreonUsers/${patreonId}`).once('value');
+    const existingPatreonData = existingPatreonDataSnapshot.exists() ? existingPatreonDataSnapshot.val() : {};
     
-    if (data.attributes) {
-      // Try to get from currently_entitled_amount_cents
-      if (data.attributes.currently_entitled_amount_cents !== undefined) {
-        pledgeAmountCents = data.attributes.currently_entitled_amount_cents;
-      }
-      
-      // If that's zero but there are entitled tiers, use the tier amount
-      if (pledgeAmountCents === 0 && tiers.length > 0) {
-        // Find the highest tier
-        const highestTier = tiers.reduce((highest, current) => {
-          const currentAmount = current.attributes?.amount_cents || 0;
-          const highestAmount = highest.attributes?.amount_cents || 0;
-          return currentAmount > highestAmount ? current : highest;
-        }, tiers[0]);
-        
-        if (highestTier && highestTier.attributes && highestTier.attributes.amount_cents) {
-          pledgeAmountCents = highestTier.attributes.amount_cents;
-        }
-      }
-      
-      // Get patron status
-      if (data.attributes.patron_status) {
-        patronStatus = data.attributes.patron_status;
-      } else if (isActive) {
-        patronStatus = 'active_patron'; // Default for active members
-      }
-      
-      // Check for free trial
-      if (data.attributes.is_free_trial) {
-        isFreeTrial = true;
-      }
-      
-      // Check for gift membership
-      if (data.attributes.is_gift) {
-        isGift = true;
-      }
-      
-      // Get will_pay_amount if available
-      if (data.attributes.will_pay_amount_cents !== undefined) {
-        willPayAmountCents = data.attributes.will_pay_amount_cents;
-      }
-      
-      // Get charge dates
-      if (data.attributes.last_charge_date) {
-        lastChargeDate = data.attributes.last_charge_date;
-      }
-      
-      if (data.attributes.next_charge_date) {
-        nextChargeDate = data.attributes.next_charge_date;
+    let firebaseUser = null;
+    let existingUserData = {};
+    
+    // Check if there's a linked Firebase user
+    const firebaseUid = existingPatreonData.firebaseUid;
+    if (firebaseUid) {
+      const userSnapshot = await admin.database().ref(`users/${firebaseUid}`).once('value');
+      if (userSnapshot.exists()) {
+        firebaseUser = userSnapshot.val();
+        existingUserData = firebaseUser.patreon || {};
       }
     }
     
-    // Convert cents to dollars for readability
-    const pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
-    const willPayAmountDollars = (willPayAmountCents / 100).toFixed(2);
+    // Use our standardized data structure creator
+    const standardizedData = createStandardizedPatreonData(
+      patreonId,
+      user,
+      data,
+      tiers,
+      existingPatreonData.tokens?.accessToken,
+      existingPatreonData.tokens?.refreshToken,
+      existingUserData
+    );
     
-    // Special case handler for known patrons with specific pledge amounts
-    const knownPledgeAmounts = {
-      '78553748': 500, // Trevor Ballou - $5.00
-    };
+    // Override active status based on the webhook event type
+    standardizedData.patreon.isActiveMember = isActive;
+    standardizedData.patronStatus = isActive ? 'active' : 'inactive';
     
-    // If this is a known patron but the pledge amount is wrong, use the known correct amount
-    if (isActive && pledgeAmountCents === 0 && knownPledgeAmounts[patreonId]) {
-      pledgeAmountCents = knownPledgeAmounts[patreonId];
-      pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
+    if (isActive) {
+      standardizedData.patreon.patronStatus = 'active_patron';
+    } else if (standardizedData.patreon.patronStatus === 'active_patron') {
+      standardizedData.patreon.patronStatus = 'former_patron';
     }
     
-    // First, find the associated Firebase user
-    const firebaseUidSnapshot = await admin.database().ref(`patreonUsers/${patreonId}/firebaseUid`).once('value');
-    const firebaseUid = firebaseUidSnapshot.val();
-    
-    if (!firebaseUid) {
-      console.error(`No Firebase user found for Patreon ID ${patreonId}`);
-      return;
-    }
-    
-    // Get current user data
-    const userSnapshot = await admin.database().ref(`users/${firebaseUid}`).once('value');
-    const userData = userSnapshot.val() || {};
-    const existingPatreonData = userData.patreon || {};
-    
-    // If existing data has non-zero pledge but new data shows zero, keep the existing amount
-    if (pledgeAmountCents === 0 && existingPatreonData.pledgeAmountCents > 0 && existingPatreonData.isActiveMember) {
-      pledgeAmountCents = existingPatreonData.pledgeAmountCents;
-      pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
-      isActive = true;
-      patronStatus = 'active_patron';
-    }
-    
-    // Create tier details array for easier access
-    const tierDetails = tiers.map(tier => ({
-      id: tier.id,
-      title: tier.attributes?.title || 'Unknown Tier',
-      amountCents: tier.attributes?.amount_cents || 0,
-      amountDollars: tier.attributes?.amount_cents ? (tier.attributes.amount_cents / 100).toFixed(2) : '0.00',
-      description: tier.attributes?.description || ''
-    }));
-    
-    // Prepare user data update with Patreon information
-    const patreonUserData = {
-      // Primary Patreon info for each user
-      patreon: {
-        id: patreonId,
-        isActiveMember: isActive,
-        pledgeAmountCents: pledgeAmountCents,
-        pledgeAmountDollars: pledgeAmountDollars,
-        patronStatus: patronStatus,
-        isFreeTrial: isFreeTrial,
-        isGift: isGift,
-        willPayAmountCents: willPayAmountCents,
-        willPayAmountDollars: willPayAmountDollars,
-        lastChargeDate: lastChargeDate,
-        nextChargeDate: nextChargeDate,
-        lastUpdated: admin.database.ServerValue.TIMESTAMP,
-        tierDetails: tierDetails.length > 0 ? tierDetails : null
-      },
-      // Update additional user fields
-      patronStatus: isActive ? 'active' : 'inactive',
-      patreonPledgeAmount: pledgeAmountDollars,
-      patreonId: patreonId // Keep field for backward compatibility
-    };
-    
-    // If we have user data from included, add that too
-    if (user && user.attributes) {
-      patreonUserData.patreon.email = user.attributes.email;
-      patreonUserData.patreon.fullName = user.attributes.full_name;
-      patreonUserData.patreon.imageUrl = user.attributes.image_url;
-      
-      // Add member data
-      patreonUserData.patreon.membershipData = data;
-      
-      // Add entitled tiers if available
-      if (tiers.length > 0) {
-        patreonUserData.patreon.entitledTiers = tiers;
-      }
-    }
-    
-    // Update user roles
-    let roles = [];
-    if (userData.roles && Array.isArray(userData.roles)) {
-      roles = [...userData.roles]; // Clone array
-    } else if (userData.role && typeof userData.role === 'string') {
-      roles = [userData.role]; // Convert single role to array
-    }
-    
-    // Add 'patron' role if active and not already there
-    if (isActive && !roles.includes('patron')) {
-      roles.push('patron');
-    } 
-    // Remove patron role if not active but it exists
-    else if (!isActive && roles.includes('patron')) {
-      roles = roles.filter(r => r !== 'patron');
-    }
-    
-    // Update with new roles
-    patreonUserData.roles = roles;
-    patreonUserData.role = roles[0] || 'member'; // Keep primary role for backward compatibility
-    
-    // Update the user data
-    await admin.database().ref(`users/${firebaseUid}`).update(patreonUserData);
-    console.log(`Updated user ${firebaseUid} with Patreon data`);
-    
-    // During migration, we'll also update the existing patreonUsers branch for backwards compatibility
+    // Update patreonUsers collection
     const patreonUpdateData = {
-      isActiveMember: patreonUserData.patreon.isActiveMember,
-      patronStatus: patreonUserData.patreon.patronStatus,
-      pledgeAmountCents: patreonUserData.patreon.pledgeAmountCents,
-      pledgeAmountDollars: patreonUserData.patreon.pledgeAmountDollars,
-      isFreeTrial: patreonUserData.patreon.isFreeTrial,
-      isGift: patreonUserData.patreon.isGift,
-      willPayAmountCents: patreonUserData.patreon.willPayAmountCents,
-      willPayAmountDollars: patreonUserData.patreon.willPayAmountDollars,
-      lastChargeDate: patreonUserData.patreon.lastChargeDate,
-      nextChargeDate: patreonUserData.patreon.nextChargeDate,
-      lastUpdated: patreonUserData.patreon.lastUpdated,
-      firebaseUid: firebaseUid // Ensure the link is established
+      email: standardizedData.patreon.email,
+      fullName: standardizedData.patreon.fullName,
+      imageUrl: standardizedData.patreon.imageUrl,
+      isActiveMember: standardizedData.patreon.isActiveMember,
+      patronStatus: standardizedData.patreon.patronStatus,
+      pledgeAmountCents: standardizedData.patreon.pledgeAmountCents,
+      pledgeAmountDollars: standardizedData.patreon.pledgeAmountDollars,
+      isFreeTrial: standardizedData.patreon.isFreeTrial,
+      isGift: standardizedData.patreon.isGift,
+      willPayAmountCents: standardizedData.patreon.willPayAmountCents,
+      willPayAmountDollars: standardizedData.patreon.willPayAmountDollars,
+      lastChargeDate: standardizedData.patreon.lastChargeDate,
+      nextChargeDate: standardizedData.patreon.nextChargeDate,
+      lastUpdated: admin.database.ServerValue.TIMESTAMP,
+      membershipData: data,
+      entitledTiers: tiers.length > 0 ? tiers : null,
+      // Preserve tokens
+      tokens: existingPatreonData.tokens || null,
+      // Preserve FirebaseUID link
+      firebaseUid: firebaseUid
     };
     
-    if (user && user.attributes) {
-      patreonUpdateData.email = user.attributes.email;
-      patreonUpdateData.fullName = user.attributes.full_name;
-      patreonUpdateData.imageUrl = user.attributes.image_url;
+    console.log(`Updating patreonUsers/${patreonId} from webhook event`);
+    await admin.database().ref(`patreonUsers/${patreonId}`).update(patreonUpdateData);
+    
+    // If there's a linked Firebase user, update their record too
+    if (firebaseUid) {
+      console.log(`Updating Firebase user ${firebaseUid} from webhook event`);
+      
+      // Handle roles
+      let roles = [];
+      if (firebaseUser && firebaseUser.roles && Array.isArray(firebaseUser.roles)) {
+        roles = [...firebaseUser.roles]; // Clone array
+      } else if (firebaseUser && firebaseUser.role && typeof firebaseUser.role === 'string') {
+        roles = [firebaseUser.role]; // Convert single role to array
+      }
+      
+      // Add/remove patron role based on active status
+      if (isActive && !roles.includes('patron')) {
+        roles.push('patron');
+        console.log(`Added patron role to user ${firebaseUid}`);
+      } else if (!isActive && roles.includes('patron')) {
+        roles = roles.filter(r => r !== 'patron');
+        console.log(`Removed patron role from user ${firebaseUid}`);
+      }
+      
+      // Get the first role as primary
+      const primaryRole = roles.length > 0 ? roles[0] : 'member';
+      
+      // Update the user record
+      const userUpdate = {
+        patreonId: patreonId,
+        patronStatus: standardizedData.patronStatus,
+        patreonPledgeAmount: standardizedData.patreonPledgeAmount,
+        lastPatreonUpdate: admin.database.ServerValue.TIMESTAMP,
+        lastPatronStatusUpdate: admin.database.ServerValue.TIMESTAMP,
+        patreon: standardizedData.patreon,
+        roles: roles,
+        role: primaryRole
+      };
+      
+      await admin.database().ref(`users/${firebaseUid}`).update(userUpdate);
+      console.log(`Successfully updated Firebase user ${firebaseUid} from webhook`);
     }
     
-    await admin.database().ref(`patreonUsers/${patreonId}`).update(patreonUpdateData);
-    console.log(`Updated patreonUsers branch for backward compatibility`);
+    return {
+      success: true,
+      patreonId: patreonId,
+      firebaseUid: firebaseUid,
+      isActive: isActive
+    };
     
   } catch (error) {
     console.error('Error handling member event:', error);
     throw error;
   }
 }
+
+// Helper function to create standardized Patreon data structure
+function createStandardizedPatreonData(patreonId, userData, membershipData, entitledTiers, accessToken, refreshToken, existingData = {}) {
+  // Set default values
+  let pledgeAmountCents = 0;
+  let patronStatus = 'former_patron';
+  let isFreeTrial = false;
+  let isGift = false;
+  let willPayAmountCents = 0;
+  let lastChargeDate = null;
+  let nextChargeDate = null;
+  let isActiveMember = false;
+  
+  // Get data from membership if available
+  if (membershipData && membershipData.attributes) {
+    // Get pledge amount
+    if (membershipData.attributes.currently_entitled_amount_cents !== undefined) {
+      pledgeAmountCents = membershipData.attributes.currently_entitled_amount_cents;
+    }
+    
+    // Get patron status
+    if (membershipData.attributes.patron_status) {
+      patronStatus = membershipData.attributes.patron_status;
+    }
+    
+    // Check for free trial
+    if (membershipData.attributes.is_free_trial) {
+      isFreeTrial = true;
+    }
+    
+    // Check for gift membership
+    if (membershipData.attributes.is_gift !== undefined) {
+      isGift = membershipData.attributes.is_gift;
+    }
+    
+    // Get will_pay_amount if available
+    if (membershipData.attributes.will_pay_amount_cents !== undefined) {
+      willPayAmountCents = membershipData.attributes.will_pay_amount_cents;
+    }
+    
+    // Get charge dates
+    if (membershipData.attributes.last_charge_date) {
+      lastChargeDate = membershipData.attributes.last_charge_date;
+    }
+    
+    if (membershipData.attributes.next_charge_date) {
+      nextChargeDate = membershipData.attributes.next_charge_date;
+    }
+  }
+  
+  // If pledge amount is zero but there are entitled tiers, use the highest tier amount
+  if (pledgeAmountCents === 0 && entitledTiers && entitledTiers.length > 0) {
+    // Find the highest tier
+    const highestTier = entitledTiers.reduce((highest, current) => {
+      const currentAmount = current.attributes?.amount_cents || 0;
+      const highestAmount = highest.attributes?.amount_cents || 0;
+      return currentAmount > highestAmount ? current : highest;
+    }, entitledTiers[0]);
+    
+    if (highestTier && highestTier.attributes && highestTier.attributes.amount_cents) {
+      pledgeAmountCents = highestTier.attributes.amount_cents;
+    }
+  }
+  
+  // Special case handler for known patrons with specific pledge amounts
+  const knownPatrons = {
+    '78553748': { // Trevor Ballou
+      pledgeAmountCents: 500,
+      pledgeAmountDollars: '5.00',
+      isActive: true,
+      patronStatus: 'active_patron'
+    }
+  };
+  
+  // Apply special case handling if needed
+  if (knownPatrons[patreonId]) {
+    const special = knownPatrons[patreonId];
+    
+    // Only override if current data looks incorrect
+    if (pledgeAmountCents === 0 || patronStatus === 'former_patron') {
+      pledgeAmountCents = special.pledgeAmountCents;
+      patronStatus = special.patronStatus;
+      isActiveMember = special.isActive;
+    }
+  }
+  
+  // Determine active status based on patron status 
+  if (patronStatus === 'active_patron') {
+    isActiveMember = true;
+  }
+  
+  // If existing data has non-zero pledge but new data shows zero, keep the existing amount
+  if (existingData && pledgeAmountCents === 0 && existingData.pledgeAmountCents > 0 && existingData.isActiveMember) {
+    pledgeAmountCents = existingData.pledgeAmountCents;
+    isActiveMember = true;
+    patronStatus = 'active_patron';
+  }
+  
+  // Convert cents to dollars for readability
+  const pledgeAmountDollars = (pledgeAmountCents / 100).toFixed(2);
+  const willPayAmountDollars = (willPayAmountCents / 100).toFixed(2);
+  
+  // Create tier details array for easier access
+  const tierDetails = entitledTiers ? entitledTiers.map(tier => ({
+    id: tier.id,
+    title: tier.attributes?.title || 'Unknown Tier',
+    amountCents: tier.attributes?.amount_cents || 0,
+    amountDollars: tier.attributes?.amount_cents ? (tier.attributes.amount_cents / 100).toFixed(2) : '0.00',
+    description: tier.attributes?.description || ''
+  })) : [];
+  
+  // Build the standardized data structure
+  const standardizedData = {
+    // User-level fields for backward compatibility
+    patreonId: patreonId,
+    patronStatus: isActiveMember ? 'active' : 'inactive',
+    patreonPledgeAmount: pledgeAmountDollars,
+    
+    // Comprehensive patreon object with all details
+    patreon: {
+      id: patreonId,
+      isActiveMember: isActiveMember,
+      pledgeAmountCents: pledgeAmountCents,
+      pledgeAmountDollars: pledgeAmountDollars,
+      patronStatus: patronStatus,
+      isFreeTrial: isFreeTrial,
+      isGift: isGift,
+      willPayAmountCents: willPayAmountCents,
+      willPayAmountDollars: willPayAmountDollars,
+      lastChargeDate: lastChargeDate,
+      nextChargeDate: nextChargeDate,
+      lastUpdated: admin.database.ServerValue.TIMESTAMP
+    }
+  };
+  
+  // Add user data if available
+  if (userData && userData.attributes) {
+    standardizedData.patreon.email = userData.attributes.email;
+    standardizedData.patreon.fullName = userData.attributes.full_name;
+    standardizedData.patreon.imageUrl = userData.attributes.image_url;
+  }
+  
+  // Add membership data if available
+  if (membershipData) {
+    standardizedData.patreon.membershipData = membershipData;
+  }
+  
+  // Add entitled tiers if available
+  if (entitledTiers && entitledTiers.length > 0) {
+    standardizedData.patreon.entitledTiers = entitledTiers;
+    standardizedData.patreon.tierDetails = tierDetails;
+  }
+  
+  // Add tokens if available
+  if (accessToken || refreshToken || (existingData && existingData.tokens)) {
+    standardizedData.patreon.tokens = {
+      accessToken: accessToken || (existingData && existingData.tokens ? existingData.tokens.accessToken : null),
+      refreshToken: refreshToken || (existingData && existingData.tokens ? existingData.tokens.refreshToken : null),
+      createdAt: admin.database.ServerValue.TIMESTAMP
+    };
+  }
+  
+  return standardizedData;
+}
+
+// Add a function to fix up all users' Patreon data
+exports.fixPatreonData = functions.https.onRequest(async (req, res) => {
+  try {
+    // Security check - use a simple token for authentication
+    const token = req.query.token;
+    if (token !== 'fix-patreon-data-secret') {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    console.log('Starting Patreon data fix operation...');
+    
+    // Get all Patreon users
+    const patreonUsersSnapshot = await admin.database().ref('patreonUsers').once('value');
+    const patreonUsers = patreonUsersSnapshot.val() || {};
+    
+    console.log(`Found ${Object.keys(patreonUsers).length} Patreon users to process`);
+    
+    const results = {
+      total: Object.keys(patreonUsers).length,
+      processed: 0,
+      updated: 0,
+      skipped: 0,
+      errors: []
+    };
+    
+    // Process each Patreon user
+    for (const [patreonId, patreonData] of Object.entries(patreonUsers)) {
+      try {
+        console.log(`Processing Patreon user: ${patreonId}`);
+        results.processed++;
+        
+        // Get the Firebase UID for this Patreon user
+        const firebaseUid = patreonData.firebaseUid;
+        
+        if (!firebaseUid) {
+          console.log(`No Firebase UID for Patreon user ${patreonId}, skipping`);
+          results.skipped++;
+          continue;
+        }
+        
+        // Get the user data from Firebase
+        const userSnapshot = await admin.database().ref(`users/${firebaseUid}`).once('value');
+        const userData = userSnapshot.val() || {};
+        
+        // Create standardized data structure
+        const standardizedData = createStandardizedPatreonData(
+          patreonId,
+          { attributes: { email: patreonData.email, full_name: patreonData.fullName, image_url: patreonData.imageUrl } },
+          patreonData.membershipData, 
+          patreonData.entitledTiers,
+          patreonData.tokens?.accessToken,
+          patreonData.tokens?.refreshToken,
+          userData.patreon || {}
+        );
+        
+        // Update user roles
+        let roles = [];
+        if (userData.roles && Array.isArray(userData.roles)) {
+          roles = [...userData.roles]; // Clone array
+        } else if (userData.role && typeof userData.role === 'string') {
+          roles = [userData.role]; // Convert single role to array
+        }
+        
+        // Add patron role if active and not already there
+        if (standardizedData.patreon.isActiveMember && !roles.includes('patron')) {
+          roles.push('patron');
+        } 
+        // Remove patron role if not active but it exists
+        else if (!standardizedData.patreon.isActiveMember && roles.includes('patron')) {
+          roles = roles.filter(r => r !== 'patron');
+        }
+        
+        // Set roles in update data
+        standardizedData.roles = roles;
+        standardizedData.role = roles[0] || 'member'; // Set primary role for backward compatibility
+        
+        // Update the user with standardized data
+        await admin.database().ref(`users/${firebaseUid}`).update(standardizedData);
+        
+        // Update the patreonUsers collection with synced data
+        const patreonUpdateData = {
+          firebaseUid: firebaseUid,
+          email: standardizedData.patreon.email,
+          fullName: standardizedData.patreon.fullName,
+          imageUrl: standardizedData.patreon.imageUrl,
+          isActiveMember: standardizedData.patreon.isActiveMember,
+          patronStatus: standardizedData.patreon.patronStatus,
+          pledgeAmountCents: standardizedData.patreon.pledgeAmountCents,
+          pledgeAmountDollars: standardizedData.patreon.pledgeAmountDollars,
+          isFreeTrial: standardizedData.patreon.isFreeTrial,
+          isGift: standardizedData.patreon.isGift,
+          willPayAmountCents: standardizedData.patreon.willPayAmountCents,
+          willPayAmountDollars: standardizedData.patreon.willPayAmountDollars,
+          lastChargeDate: standardizedData.patreon.lastChargeDate,
+          nextChargeDate: standardizedData.patreon.nextChargeDate,
+          lastUpdated: admin.database.ServerValue.TIMESTAMP,
+          // Keep existing detailed data
+          membershipData: patreonData.membershipData || standardizedData.patreon.membershipData,
+          entitledTiers: patreonData.entitledTiers || standardizedData.patreon.entitledTiers,
+          tokens: patreonData.tokens || standardizedData.patreon.tokens
+        };
+        
+        await admin.database().ref(`patreonUsers/${patreonId}`).update(patreonUpdateData);
+        
+        console.log(`Successfully standardized data for Patreon user ${patreonId} and Firebase user ${firebaseUid}`);
+        results.updated++;
+        
+      } catch (error) {
+        console.error(`Error processing Patreon user ${patreonId}:`, error);
+        results.errors.push({ patreonId, error: error.message });
+      }
+    }
+    
+    console.log('Fix operation completed with results:', results);
+    
+    // Return the results
+    res.json({
+      success: true,
+      message: 'Patreon data fix completed',
+      results: results
+    });
+    
+  } catch (error) {
+    console.error('Patreon data fix failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
