@@ -1217,14 +1217,44 @@
     // Check if user is authorized
     async function checkUserAuthorization(user) {
       try {
+        // Initialize userData with basic user info from auth, regardless of database status
+        userData = {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName
+        };
+        
+        console.log('Initial userData set with UID:', userData.uid);
+        
         // Check if user exists in database
         const userSnapshot = await get(ref(db, `users/${user.uid}`));
         if (!userSnapshot.exists()) {
-          console.log('User not found in database');
+          console.log('User not found in database, creating basic record');
+          
+          // Create a basic user record
+          const basicUserData = {
+            email: user.email,
+            displayName: user.displayName || user.email.split('@')[0],
+            createdAt: new Date().toISOString(),
+            role: 'member'
+          };
+          
+          // Attempt to save basic user data
+          try {
+            await set(ref(db, `users/${user.uid}`), basicUserData);
+            console.log('Created basic user record');
+          } catch (error) {
+            console.error('Error creating user record:', error);
+          }
+          
+          // Merge with userData
+          userData = { ...userData, ...basicUserData };
           return false;
         }
         
-        userData = userSnapshot.val();
+        // Get the existing user data and merge with auth data
+        const dbUserData = userSnapshot.val();
+        userData = { ...userData, ...dbUserData };
         
         // If user is admin, they're authorized
         if (userData.role === 'admin') {
@@ -1278,6 +1308,15 @@
         
       } catch (error) {
         console.error('Error checking authorization:', error);
+        // Still ensure userData is set with minimum info
+        if (!userData) {
+          userData = {
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName
+          };
+          console.log('Set fallback userData during error:', userData.uid);
+        }
         return false;
       }
     }
@@ -2236,27 +2275,93 @@
     // Save user stats to Firebase with improved structure
     function saveUserStats() {
       console.log('==== ATTEMPTING TO SAVE USER STATS ====');
+      console.log('Current timestamp:', new Date().toISOString());
+      
+      // Try to recover userData if it's missing
+      if (!userData && auth.currentUser) {
+        console.warn('WARNING: userData is null but user is authenticated. Attempting recovery...');
+        userData = {
+          uid: auth.currentUser.uid,
+          email: auth.currentUser.email,
+          displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
+        };
+        console.log('Created emergency userData with UID:', userData.uid);
+      }
       
       if (!userData) {
         console.error('ERROR: userData is null or undefined. Cannot save stats.');
+        
+        // Show error to user
+        const notification = document.createElement('div');
+        notification.style.position = 'fixed';
+        notification.style.bottom = '20px';
+        notification.style.right = '20px';
+        notification.style.background = 'rgba(231, 76, 60, 0.9)'; // Red
+        notification.style.color = 'white';
+        notification.style.padding = '10px';
+        notification.style.borderRadius = '5px';
+        notification.style.zIndex = '9999';
+        notification.textContent = 'Error: User data missing. Please refresh the page and try again.';
+        document.body.appendChild(notification);
+        
+        // Remove notification after 5 seconds
+        setTimeout(() => {
+          document.body.removeChild(notification);
+        }, 5000);
+        
         return;
       }
       
       if (!userData.uid) {
         console.error('ERROR: userData.uid is missing. Cannot save stats.');
-        return;
+        
+        // Try to recover from auth if available
+        if (auth.currentUser) {
+          console.log('Attempting to recover UID from auth.currentUser');
+          userData.uid = auth.currentUser.uid;
+          console.log('Recovered UID:', userData.uid);
+        } else {
+          console.error('Cannot recover UID - auth.currentUser also not available');
+          
+          // Show error to user
+          const notification = document.createElement('div');
+          notification.style.position = 'fixed';
+          notification.style.bottom = '20px';
+          notification.style.right = '20px';
+          notification.style.background = 'rgba(231, 76, 60, 0.9)'; // Red
+          notification.style.color = 'white';
+          notification.style.padding = '10px';
+          notification.style.borderRadius = '5px';
+          notification.style.zIndex = '9999';
+          notification.textContent = 'Error: User ID missing. Please log out and log back in.';
+          document.body.appendChild(notification);
+          
+          // Remove notification after 5 seconds
+          setTimeout(() => {
+            document.body.removeChild(notification);
+          }, 5000);
+          
+          return;
+        }
       }
       
       console.log('User authenticated:', !!auth.currentUser);
+      console.log('User email:', auth.currentUser ? auth.currentUser.email : 'not available');
       console.log('User ID:', userData.uid);
+      console.log('Current stats object:', JSON.stringify(stats).substring(0, 200) + '...');
       
       // IMPORTANT: Use lowercase "jeopardy" to match the user's expected path
       const savePath = `users/${userData.uid}/scores/jeopardy/stats`;
-      console.log('Saving to path:', savePath);
-      console.log('Stats data:', JSON.stringify(stats).substring(0, 200) + '...');
+      console.log('Attempting to save to path:', savePath);
       
-      // Log current database rules status
-      console.log('Checking if user can write to this path...');
+      // DEBUG: Check current Firebase permissions
+      get(ref(db, `users/${userData.uid}`))
+        .then(snapshot => {
+          console.log('TEST: Can read user record:', snapshot.exists());
+        })
+        .catch(error => {
+          console.error('TEST FAILED: Cannot read user record:', error.message);
+        });
       
       // Save overall stats to the authorized path with lowercase 'jeopardy'
       set(ref(db, savePath), stats)
@@ -2349,6 +2454,15 @@
             set(ref(db, testPath), { test: true, timestamp: Date.now() })
               .then(() => {
                 console.log('TEST SUCCESS: Could write to test path, but not to stats path. This suggests a rules issue.');
+                
+                // Try writing to the root of scores
+                set(ref(db, `users/${userData.uid}/scores/test`), { test: true, timestamp: Date.now() })
+                  .then(() => {
+                    console.log('TEST SUCCESS: Can write to scores/test path.');
+                  })
+                  .catch(error => {
+                    console.error('TEST FAILED: Cannot write to scores/test path:', error.message);
+                  });
               })
               .catch(testError => {
                 console.error('TEST FAILED: Could not write to test path either:', testError.message);
@@ -2360,17 +2474,82 @@
     
     // Check permission to write
     function checkWritePermission() {
-      console.log('Testing Firebase write permissions...');
+      console.log('===== TESTING FIREBASE WRITE PERMISSIONS =====');
+      console.log('Timestamp:', new Date().toISOString());
       
-      if (!userData || !userData.uid) {
+      // Try to recover userData if it's missing
+      if (!userData && auth.currentUser) {
+        console.warn('WARNING: userData is null but user is authenticated. Attempting recovery for permission check...');
+        userData = {
+          uid: auth.currentUser.uid,
+          email: auth.currentUser.email,
+          displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
+        };
+        console.log('Created emergency userData with UID for permission check:', userData.uid);
+      }
+      
+      if (!userData) {
         console.error('No user data available to test permissions');
+        // Show a message to the user
+        const notification = document.createElement('div');
+        notification.style.position = 'fixed';
+        notification.style.top = '70px';
+        notification.style.right = '20px';
+        notification.style.background = 'rgba(231, 76, 60, 0.9)'; // Red
+        notification.style.color = 'white';
+        notification.style.padding = '10px';
+        notification.style.borderRadius = '5px';
+        notification.style.zIndex = '9999';
+        notification.style.maxWidth = '300px';
+        notification.innerHTML = `<strong>Error:</strong> User data missing. Please refresh and try again.`;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+          document.body.removeChild(notification);
+        }, 5000);
         return;
       }
+      
+      if (!userData.uid) {
+        // Try to recover from auth if available
+        if (auth.currentUser) {
+          console.log('Attempting to recover UID from auth.currentUser for permission check');
+          userData.uid = auth.currentUser.uid;
+          console.log('Recovered UID:', userData.uid);
+        } else {
+          console.error('No user ID available to test permissions');
+          return;
+        }
+      }
+      
+      console.log('User UID:', userData.uid);
+      console.log('Auth status:', !!auth.currentUser);
+      if (auth.currentUser) {
+        console.log('Email:', auth.currentUser.email);
+        console.log('Display name:', auth.currentUser.displayName);
+      }
+      
+      // First, test reading user data
+      get(ref(db, `users/${userData.uid}`))
+        .then(snapshot => {
+          if (snapshot.exists()) {
+            console.log('✅ Can READ user data:', userData.uid);
+            const data = snapshot.val();
+            console.log('User role:', data.role || 'none');
+            console.log('User roles array:', data.roles ? JSON.stringify(data.roles) : 'none');
+          } else {
+            console.error('❌ User data does not exist');
+          }
+        })
+        .catch(error => {
+          console.error('❌ Cannot read user data:', error.message);
+        });
       
       // Test paths we'll need to write to
       const testPaths = [
         `users/${userData.uid}`,
         `users/${userData.uid}/scores`,
+        `users/${userData.uid}/scores/test`,
         `users/${userData.uid}/scores/jeopardy`,
         `users/${userData.uid}/scores/jeopardy/stats`,
         `users/${userData.uid}/scores/jeopardy/progress`,
@@ -2389,8 +2568,17 @@
         set(ref(db, path), testData)
           .then(() => {
             console.log(`✅ PERMISSION TEST PASSED: Can write to ${path}`);
-            // Clean up test data
-            set(ref(db, path), null);
+            // Read back the data to verify
+            return get(ref(db, path));
+          })
+          .then((snapshot) => {
+            if (snapshot && snapshot.exists()) {
+              console.log(`✅ VERIFIED: Data successfully written to ${path}`);
+              // Clean up test data
+              set(ref(db, path), null);
+            } else {
+              console.error(`❌ VERIFICATION FAILED: Data not found after write to ${path}`);
+            }
           })
           .catch(error => {
             console.error(`❌ PERMISSION TEST FAILED: Cannot write to ${path}`);
@@ -2424,9 +2612,32 @@
     function saveDetailedGameData() {
       console.log('Attempting to save detailed game data...');
       
-      if (!userData || !userData.uid) {
-        console.error('ERROR: userData or uid is missing');
+      // Try to recover userData if it's missing
+      if (!userData && auth.currentUser) {
+        console.warn('WARNING: userData is null but user is authenticated. Attempting recovery...');
+        userData = {
+          uid: auth.currentUser.uid,
+          email: auth.currentUser.email,
+          displayName: auth.currentUser.displayName || auth.currentUser.email.split('@')[0]
+        };
+        console.log('Created emergency userData with UID:', userData.uid);
+      }
+      
+      if (!userData) {
+        console.error('ERROR: userData is null or undefined. Cannot save detailed game data.');
         return;
+      }
+      
+      if (!userData.uid) {
+        // Try to recover from auth if available
+        if (auth.currentUser) {
+          console.log('Attempting to recover UID from auth.currentUser for detailed game data');
+          userData.uid = auth.currentUser.uid;
+          console.log('Recovered UID:', userData.uid);
+        } else {
+          console.error('ERROR: userData.uid is missing and cannot be recovered. Cannot save detailed game data.');
+          return;
+        }
       }
       
       if (!currentDate) {
