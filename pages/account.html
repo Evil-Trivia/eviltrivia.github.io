@@ -550,7 +550,155 @@
       }
     }
     
-    // Load Patreon user data
+    // Migration function to move Patreon data to user records
+    async function migratePatreonData() {
+      try {
+        // Check if user is an admin
+        if (!auth.currentUser) {
+          console.error('Must be logged in to run migration');
+          return;
+        }
+        
+        const userSnapshot = await db.ref(`users/${auth.currentUser.uid}`).once('value');
+        const userData = userSnapshot.val() || {};
+        const isAdmin = 
+          (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+          (userData.role === 'admin');
+        
+        if (!isAdmin) {
+          console.error('Must be an admin to run migration');
+          return;
+        }
+        
+        console.log('Starting Patreon data migration...');
+        
+        // Get all Patreon users
+        const patreonSnapshot = await db.ref('patreonUsers').once('value');
+        const patreonUsers = patreonSnapshot.val() || {};
+        
+        console.log(`Found ${Object.keys(patreonUsers).length} Patreon user records to migrate`);
+        
+        // Get all users
+        const usersSnapshot = await db.ref('users').once('value');
+        const users = usersSnapshot.val() || {};
+        
+        let migratedCount = 0;
+        let skippedCount = 0;
+        let errorCount = 0;
+        
+        // For each Patreon user, move data to corresponding Firebase user
+        for (const [patreonId, patreonData] of Object.entries(patreonUsers)) {
+          try {
+            // Skip if no Firebase UID
+            if (!patreonData.firebaseUid) {
+              console.log(`Skipping Patreon ID ${patreonId}: No linked Firebase user`);
+              skippedCount++;
+              continue;
+            }
+            
+            const firebaseUid = patreonData.firebaseUid;
+            
+            // Skip if user doesn't exist
+            if (!users[firebaseUid]) {
+              console.log(`Skipping Patreon ID ${patreonId}: Firebase user ${firebaseUid} not found`);
+              skippedCount++;
+              continue;
+            }
+            
+            console.log(`Migrating Patreon ID ${patreonId} to user ${firebaseUid}`);
+            
+            // Prepare Patreon data structure to store under user
+            const patreonUserData = {
+              patreonId: patreonId,
+              fullName: patreonData.fullName || '',
+              email: patreonData.email || '',
+              imageUrl: patreonData.imageUrl || '',
+              isActiveMember: patreonData.isActiveMember || false,
+              pledgeAmountCents: patreonData.pledgeAmountCents || 0,
+              pledgeAmountDollars: patreonData.pledgeAmountDollars || '0.00',
+              entitledTiers: patreonData.entitledTiers || [],
+              membershipData: patreonData.membershipData || {},
+              lastUpdated: patreonData.lastUpdated || new Date().toISOString()
+            };
+            
+            // Update user record with Patreon data
+            await db.ref(`users/${firebaseUid}/patreonData`).set(patreonUserData);
+            
+            // Ensure patreonId field is set (for backward compatibility)
+            await db.ref(`users/${firebaseUid}/patreonId`).set(patreonId);
+            
+            migratedCount++;
+          } catch (error) {
+            console.error(`Error migrating Patreon ID ${patreonId}:`, error);
+            errorCount++;
+          }
+        }
+        
+        console.log(`Migration complete: ${migratedCount} migrated, ${skippedCount} skipped, ${errorCount} errors`);
+        
+        return {
+          success: true,
+          migratedCount,
+          skippedCount,
+          errorCount
+        };
+      } catch (error) {
+        console.error('Migration failed:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    }
+    
+    // Function to clean up patreonAuthStates after migration
+    async function cleanUpPatreonAuthStates() {
+      try {
+        // Check if user is an admin
+        if (!auth.currentUser) {
+          console.error('Must be logged in to clean up auth states');
+          return;
+        }
+        
+        const userSnapshot = await db.ref(`users/${auth.currentUser.uid}`).once('value');
+        const userData = userSnapshot.val() || {};
+        const isAdmin = 
+          (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+          (userData.role === 'admin');
+        
+        if (!isAdmin) {
+          console.error('Must be an admin to clean up auth states');
+          return;
+        }
+        
+        console.log('Cleaning up Patreon auth states...');
+        
+        // Get all auth states
+        const authStatesSnapshot = await db.ref('patreonAuthStates').once('value');
+        const authStates = authStatesSnapshot.val() || {};
+        
+        const count = Object.keys(authStates).length;
+        console.log(`Found ${count} Patreon auth states to clean up`);
+        
+        // Remove all auth states
+        await db.ref('patreonAuthStates').remove();
+        
+        console.log(`Removed ${count} Patreon auth states`);
+        
+        return {
+          success: true,
+          count
+        };
+      } catch (error) {
+        console.error('Clean up failed:', error);
+        return {
+          success: false,
+          error: error.message
+        };
+      }
+    }
+    
+    // Update the loadPatreonData function to use the new structure
     async function loadPatreonData(patreonId) {
       try {
         console.log('Loading Patreon data for ID:', patreonId);
@@ -575,35 +723,58 @@
         let loadedFromFirebase = false;
         let patreonUserData = null;
         
-        // Get Patreon user info from the database
-        try {
-          const snapshot = await db.ref(`patreonUsers/${patreonId}`).once('value');
-          patreonUserData = snapshot.val();
-          console.log('Patreon data from database:', patreonUserData);
-          
-          if (patreonUserData) {
-            loadedFromFirebase = true;
-            
-            // Update localStorage with fresh data
-            localStorage.setItem('patreonAuthenticated', 'true');
-            localStorage.setItem('patreonUserId', patreonId);
-            
-            if (patreonUserData.fullName) localStorage.setItem('patreonFullName', patreonUserData.fullName);
-            if (patreonUserData.email) localStorage.setItem('patreonEmail', patreonUserData.email);
-            if (patreonUserData.imageUrl) localStorage.setItem('patreonImageUrl', patreonUserData.imageUrl);
-            
-            if (patreonUserData.pledgeAmountDollars) {
-              localStorage.setItem('patreonPledgeAmount', patreonUserData.pledgeAmountDollars);
+        // Try the new structure first - check if we have the current user
+        if (auth.currentUser) {
+          try {
+            const userSnapshot = await db.ref(`users/${auth.currentUser.uid}/patreonData`).once('value');
+            if (userSnapshot.exists()) {
+              patreonUserData = userSnapshot.val();
+              console.log('Patreon data from user record:', patreonUserData);
+              loadedFromFirebase = true;
+            } else {
+              // Fall back to legacy structure if needed
+              console.log('No Patreon data in user record, checking legacy patreonUsers');
+              const legacySnapshot = await db.ref(`patreonUsers/${patreonId}`).once('value');
+              if (legacySnapshot.exists()) {
+                patreonUserData = legacySnapshot.val();
+                console.log('Patreon data from legacy database:', patreonUserData);
+                loadedFromFirebase = true;
+              }
             }
-            
-            if (patreonUserData.membershipData && patreonUserData.membershipData.attributes) {
-              const status = patreonUserData.membershipData.attributes.patron_status || 'Connected';
-              localStorage.setItem('patreonTier', status);
-            }
+          } catch (dbError) {
+            console.warn('Error accessing patreon data:', dbError.message);
           }
-        } catch (dbError) {
-          console.warn('Could not access patreonUsers database:', dbError.message);
-          // Continue with localStorage data if available
+        } else {
+          // No current user, try legacy structure
+          try {
+            const legacySnapshot = await db.ref(`patreonUsers/${patreonId}`).once('value');
+            if (legacySnapshot.exists()) {
+              patreonUserData = legacySnapshot.val();
+              console.log('Patreon data from legacy database (no auth):', patreonUserData);
+              loadedFromFirebase = true;
+            }
+          } catch (dbError) {
+            console.warn('Error accessing legacy patreon data:', dbError.message);
+          }
+        }
+        
+        // Update localStorage with fresh data if we found it
+        if (loadedFromFirebase && patreonUserData) {
+          localStorage.setItem('patreonAuthenticated', 'true');
+          localStorage.setItem('patreonUserId', patreonId);
+          
+          if (patreonUserData.fullName) localStorage.setItem('patreonFullName', patreonUserData.fullName);
+          if (patreonUserData.email) localStorage.setItem('patreonEmail', patreonUserData.email);
+          if (patreonUserData.imageUrl) localStorage.setItem('patreonImageUrl', patreonUserData.imageUrl);
+          
+          if (patreonUserData.pledgeAmountDollars) {
+            localStorage.setItem('patreonPledgeAmount', patreonUserData.pledgeAmountDollars);
+          }
+          
+          if (patreonUserData.membershipData && patreonUserData.membershipData.attributes) {
+            const status = patreonUserData.membershipData.attributes.patron_status || 'Connected';
+            localStorage.setItem('patreonTier', status);
+          }
         }
         
         // If we couldn't get data from Firebase but have localStorage data
@@ -834,7 +1005,7 @@
       });
     });
     
-    // Handle Patreon disconnect
+    // Handle Patreon disconnect - update for new structure
     disconnectPatreonBtn.addEventListener('click', async () => {
       try {
         // Check if user is signed in
@@ -844,8 +1015,11 @@
           const patreonId = snapshot.val();
           
           if (patreonId) {
-            // Remove the connection in Firebase
+            // Remove the connection in the user record
             await db.ref(`users/${auth.currentUser.uid}/patreonId`).remove();
+            await db.ref(`users/${auth.currentUser.uid}/patreonData`).remove();
+            
+            // For backward compatibility, also try to clean up legacy patreonUsers record
             try {
               await db.ref(`patreonUsers/${patreonId}/firebaseUid`).remove();
             } catch (error) {
@@ -861,6 +1035,11 @@
         // Always remove from local storage regardless of signed in state
         localStorage.removeItem('patreonUserId');
         localStorage.removeItem('patreonAuthenticated');
+        localStorage.removeItem('patreonFullName');
+        localStorage.removeItem('patreonEmail');
+        localStorage.removeItem('patreonImageUrl');
+        localStorage.removeItem('patreonTier');
+        localStorage.removeItem('patreonPledgeAmount');
         
         console.log('Patreon account disconnected');
         
@@ -871,202 +1050,7 @@
       }
     });
     
-    // Listen for auth state changes
-    auth.onAuthStateChanged(async (user) => {
-      // First, check for "Not Authorized" message and replace it if found
-      if (document.body.innerText.includes('Not Authorized') && 
-          document.body.innerText.includes('is not authorized to view the requested page')) {
-        console.log('Detected "Not Authorized" message - replacing with login form');
-        
-        // Reload the page instead of trying to modify DOM - this is simpler and more reliable
-        window.location.href = window.location.pathname;
-        return;
-      }
-      
-      if (user) {
-        // User is signed in
-        console.log('User is signed in:', user.uid);
-        
-        // Show Patreon card when user is logged in
-        document.getElementById('patreon-card').style.display = 'block';
-        
-        try {
-          // Check if user exists in our database (is authorized)
-          const userSnapshot = await db.ref(`users/${user.uid}`).once('value');
-          
-          if (!userSnapshot.exists()) {
-            console.warn('User authenticated but not found in database - creating minimal record');
-            // Create a minimal user record if they don't exist in our database
-            await db.ref(`users/${user.uid}`).set({
-              email: user.email,
-              role: 'member', // Default role
-              createdAt: new Date().toISOString()
-            });
-          }
-          
-          // Display Evil Trivia user info
-          await displayTriviaUserInfo(user);
-          
-          // Check for Patreon connection
-          const userData = userSnapshot.val() || {};
-          if (userData.patreonId) {
-            console.log('User has Patreon connection:', userData.patreonId);
-            loadPatreonData(userData.patreonId);
-          } else {
-            // Also check localStorage for Patreon ID as fallback
-            const patreonId = localStorage.getItem('patreonUserId');
-            if (patreonId) {
-              console.log('Found Patreon ID in localStorage:', patreonId);
-              
-              // Update user data with Patreon ID if not already set
-              if (!userData.patreonId) {
-                console.log('Updating user with Patreon ID from localStorage');
-                await db.ref(`users/${user.uid}/patreonId`).set(patreonId);
-              }
-              
-              // Load Patreon data
-              loadPatreonData(patreonId);
-            } else {
-              // No Patreon connection
-              patreonLoading.classList.add('hidden');
-              patreonNotConnected.classList.remove('hidden');
-              patreonConnected.classList.add('hidden');
-            }
-          }
-        } catch (error) {
-          console.error('Error checking user authorization:', error);
-          // Show login section in case of error
-          triviaLoading.classList.add('hidden');
-          triviaLoggedIn.classList.add('hidden');
-          triviaNotLoggedIn.classList.remove('hidden');
-        }
-      } else {
-        // User is signed out, show sign-in options for both services
-        console.log('User is signed out, showing sign-in options');
-        
-        // Hide Patreon card when user is not logged in
-        document.getElementById('patreon-card').style.display = 'none';
-        
-        // Show Evil Trivia sign-in option
-        triviaLoading.classList.add('hidden');
-        triviaLoggedIn.classList.add('hidden');
-        triviaNotLoggedIn.classList.remove('hidden');
-        
-        // Ensure initial options view is shown by default
-        document.getElementById('initial-auth-choice').style.display = 'block';
-        document.getElementById('login-form-section').style.display = 'none';
-        document.getElementById('signup-form-section').style.display = 'none';
-      }
-    });
-    
-    // Check for Patreon auth callback
-    function checkUrlParams() {
-      const urlParams = new URLSearchParams(window.location.search);
-      const authSuccess = urlParams.get('auth_success');
-      const patreonId = urlParams.get('patreon_id');
-      const firebaseToken = urlParams.get('firebase_token');
-      const tokenError = urlParams.get('token_error');
-      
-      // Additional Patreon user information that might be included
-      const patreonName = urlParams.get('patreon_name');
-      const patreonEmail = urlParams.get('patreon_email');
-      const patreonImage = urlParams.get('patreon_image');
-      const patreonTier = urlParams.get('patreon_tier');
-      const patreonPledge = urlParams.get('patreon_pledge');
-      
-      // Log parameters for debugging
-      console.log('URL parameters:', {
-        authSuccess,
-        patreonId: patreonId ? patreonId.substring(0, 5) + '...' : null, // Show truncated ID for privacy
-        hasFirebaseToken: !!firebaseToken,
-        tokenError,
-        hasPatreonInfo: !!(patreonName || patreonEmail || patreonImage)
-      });
-      
-      // Check for auth errors
-      const authError = urlParams.get('auth_error');
-      const errorReason = urlParams.get('reason');
-      if (authError === 'true') {
-        console.error('Patreon auth error:', errorReason);
-        // Show error message to user
-        alert(`There was an error connecting your Patreon account: ${errorReason || 'Unknown error'}. Please try again.`);
-        
-        // Clean URL parameters
-        const newUrl = new URL(window.location.href);
-        newUrl.search = '';
-        window.history.replaceState({}, document.title, newUrl.toString());
-        return;
-      }
-      
-      if (authSuccess === 'true' && patreonId) {
-        console.log('Patreon auth successful with ID:', patreonId);
-        // Store Patreon ID
-        localStorage.setItem('patreonUserId', patreonId);
-        localStorage.setItem('patreonAuthenticated', 'true');
-        
-        // Store additional Patreon user info if available
-        if (patreonName) localStorage.setItem('patreonFullName', patreonName);
-        if (patreonEmail) localStorage.setItem('patreonEmail', patreonEmail);
-        if (patreonImage) localStorage.setItem('patreonImageUrl', patreonImage);
-        if (patreonTier) localStorage.setItem('patreonTier', patreonTier);
-        if (patreonPledge) localStorage.setItem('patreonPledgeAmount', patreonPledge);
-        
-        // Check if user was logged in before Patreon redirect
-        const wasLoggedIn = localStorage.getItem('wasLoggedInBeforePatreon') === 'true';
-        localStorage.removeItem('wasLoggedInBeforePatreon'); // Clean up
-        
-        // Show loading state immediately
-        triviaLoading.classList.add('hidden');
-        patreonLoading.classList.remove('hidden');
-        patreonNotConnected.classList.add('hidden');
-        
-        // If we have a Firebase token, sign in with it
-        if (firebaseToken) {
-          console.log('Attempting to sign in with custom token');
-          auth.signInWithCustomToken(firebaseToken)
-            .then(() => {
-              console.log('Signed in with custom token');
-              // Immediately check for user data
-              if (auth.currentUser) {
-                displayTriviaUserInfo(auth.currentUser);
-              }
-            })
-            .catch(error => {
-              console.error('Error signing in with custom token:', error);
-              handleTokenError(patreonId);
-            });
-        } else if (tokenError === 'true') {
-          // Handle the case where the server couldn't generate a token
-          console.log('Server could not generate a custom token, using fallback authentication');
-          handleTokenError(patreonId);
-        } else if (!wasLoggedIn) {
-          // User wasn't logged in before and we don't have a token
-          // Just load Patreon data without Evil Trivia login
-          console.log('Loading Patreon data for non-logged-in user');
-          patreonLoading.classList.remove('hidden');
-          loadPatreonData(patreonId);
-        } else {
-          // User was logged in but we don't have a token
-          console.log('User was logged in before, reconnecting with stored auth');
-          // If user reconnects soon after redirect, they may still be logged in
-          if (auth.currentUser) {
-            handleTokenError(patreonId);
-          } else {
-            // Store as pending connection
-            localStorage.setItem('pendingPatreonConnect', 'true');
-            localStorage.setItem('pendingPatreonId', patreonId);
-            window.location.reload();
-          }
-        }
-        
-        // Clean URL parameters
-        const newUrl = new URL(window.location.href);
-        newUrl.search = '';
-        window.history.replaceState({}, document.title, newUrl.toString());
-      }
-    }
-    
-    // Handle the case where we can't get a custom token but still have Patreon auth
+    // Update handleTokenError function for the new structure
     async function handleTokenError(patreonId) {
       // Check if user is already signed in
       if (auth.currentUser) {
@@ -1100,13 +1084,12 @@
             lastPatreonUpdate: new Date().toISOString() // Add timestamp for tracking
           });
           
-          // Also update the patreonUsers table with this connection
+          // For backwards compatibility, also update the patreonUsers table
           try {
             await db.ref(`patreonUsers/${patreonId}/firebaseUid`).set(auth.currentUser.uid);
             console.log('Successfully updated both users and patreonUsers tables');
           } catch (dbError) {
             console.warn('Could not update patreonUsers table, but user record was updated:', dbError.message);
-            // Continue anyway since we already updated the user record
           }
           
           console.log('Added Patreon ID to existing user and updated roles');
@@ -1519,6 +1502,76 @@
           });
         }
       });
+      
+      // Add migration UI for admins
+      if (auth.currentUser) {
+        db.ref(`users/${auth.currentUser.uid}`).once('value').then(snapshot => {
+          const userData = snapshot.val() || {};
+          const isAdmin = 
+            (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+            (userData.role === 'admin');
+          
+          if (isAdmin) {
+            // Create migration UI
+            const adminSection = document.createElement('div');
+            adminSection.style.marginTop = '50px';
+            adminSection.style.padding = '20px';
+            adminSection.style.backgroundColor = '#f5f5f5';
+            adminSection.style.borderRadius = '8px';
+            adminSection.style.border = '1px solid #ddd';
+            
+            adminSection.innerHTML = `
+              <h3 style="margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;">Database Migration Tools</h3>
+              <p style="margin-bottom: 20px;">Use these tools to migrate Patreon data to the new structure.</p>
+              
+              <div style="margin-bottom: 20px;">
+                <button id="migrate-patreon-btn" class="btn" style="background-color: #FF8C00; width: 100%;">Migrate Patreon Data to User Records</button>
+                <div id="migrate-status" style="margin-top: 5px; font-size: 14px; color: #666;"></div>
+              </div>
+              
+              <div style="margin-bottom: 20px;">
+                <button id="cleanup-auth-states-btn" class="btn" style="background-color: #8B0000; width: 100%;">Clean Up Patreon Auth States</button>
+                <div id="cleanup-status" style="margin-top: 5px; font-size: 14px; color: #666;"></div>
+              </div>
+            `;
+            
+            // Add to the page
+            const container = document.querySelector('.container');
+            container.appendChild(adminSection);
+            
+            // Add event listeners
+            document.getElementById('migrate-patreon-btn').addEventListener('click', async () => {
+              if (confirm('This will migrate all Patreon data to user records. Continue?')) {
+                const migrateStatus = document.getElementById('migrate-status');
+                migrateStatus.textContent = 'Starting migration...';
+                
+                const result = await migratePatreonData();
+                
+                if (result.success) {
+                  migrateStatus.textContent = `Migration complete: ${result.migratedCount} migrated, ${result.skippedCount} skipped, ${result.errorCount} errors`;
+                } else {
+                  migrateStatus.textContent = `Migration failed: ${result.error}`;
+                }
+              }
+            });
+            
+            document.getElementById('cleanup-auth-states-btn').addEventListener('click', async () => {
+              if (confirm('This will remove all Patreon auth states. Continue?')) {
+                const cleanupStatus = document.getElementById('cleanup-status');
+                cleanupStatus.textContent = 'Starting cleanup...';
+                
+                const result = await cleanUpPatreonAuthStates();
+                
+                if (result.success) {
+                  cleanupStatus.textContent = `Cleanup complete: Removed ${result.count} auth states`;
+                } else {
+                  cleanupStatus.textContent = `Cleanup failed: ${result.error}`;
+                }
+              }
+            });
+          }
+        });
+      }
     });
   </script>
 </body>
