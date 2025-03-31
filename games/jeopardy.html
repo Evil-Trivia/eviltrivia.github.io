@@ -1401,10 +1401,10 @@
           }
         }
         
-        // Test write permissions early in initialization
-        if (userData && userData.uid) {
-          checkWritePermission();
-        }
+        // No need to test permissions again - already called above
+        // if (userData && userData.uid) {
+        //   checkWritePermission();
+        // }
         
       } catch (error) {
         console.error('Error initializing Jeopardy app:', error);
@@ -2360,36 +2360,62 @@
     
     // Check permission to write
     function checkWritePermission() {
+      console.log('Testing Firebase write permissions...');
+      
       if (!userData || !userData.uid) {
-        console.error('Cannot check permissions - no user data');
+        console.error('No user data available to test permissions');
         return;
       }
-
-      console.log('Checking Firebase write permissions...');
       
-      // Test multiple paths to see where we have write access
-      const paths = [
+      // Test paths we'll need to write to
+      const testPaths = [
         `users/${userData.uid}`,
         `users/${userData.uid}/scores`,
         `users/${userData.uid}/scores/jeopardy`,
-        `users/${userData.uid}/scores/Jeopardy`, // Test capitalized version
+        `users/${userData.uid}/scores/jeopardy/stats`,
+        `users/${userData.uid}/scores/jeopardy/progress`,
         `users/${userData.uid}/test_write`
       ];
       
-      paths.forEach(path => {
-        const testValue = { 
-          test: true, 
+      // Test each path
+      testPaths.forEach(path => {
+        const testData = {
+          test: 'permission_check',
           timestamp: Date.now(),
           path: path
         };
         
-        console.log(`Testing write to: ${path}`);
-        set(ref(db, path), testValue)
+        console.log(`Testing write permission for: ${path}`);
+        set(ref(db, path), testData)
           .then(() => {
-            console.log(`✓ SUCCESS: Can write to ${path}`);
+            console.log(`✅ PERMISSION TEST PASSED: Can write to ${path}`);
+            // Clean up test data
+            set(ref(db, path), null);
           })
           .catch(error => {
-            console.error(`✗ FAILED: Cannot write to ${path}`, error.message);
+            console.error(`❌ PERMISSION TEST FAILED: Cannot write to ${path}`);
+            console.error(`Error: ${error.code} - ${error.message}`);
+            
+            // Show alert for admin users
+            if (isAdmin) {
+              const notification = document.createElement('div');
+              notification.style.position = 'fixed';
+              notification.style.top = '70px';
+              notification.style.right = '20px';
+              notification.style.background = 'rgba(255, 152, 0, 0.9)'; // Orange
+              notification.style.color = 'white';
+              notification.style.padding = '10px';
+              notification.style.borderRadius = '5px';
+              notification.style.zIndex = '9999';
+              notification.style.maxWidth = '300px';
+              notification.innerHTML = `<strong>Admin Notice:</strong> Firebase permission issue detected.<br>Path: ${path}<br>Error: ${error.message}`;
+              document.body.appendChild(notification);
+              
+              // Remove notification after 10 seconds
+              setTimeout(() => {
+                document.body.removeChild(notification);
+              }, 10000);
+            }
           });
       });
     }
@@ -2924,64 +2950,6 @@
       // Hide other sections
       loadingSection.classList.add('hidden');
       jeopardyAuthorized.style.display = 'none';
-    }
-    
-    // Check Firebase write permissions early during initialization
-    function checkWritePermission() {
-      console.log('Testing Firebase write permissions...');
-      
-      if (!userData || !userData.uid) {
-        console.error('No user data available to test permissions');
-        return;
-      }
-      
-      // Test paths we'll need to write to
-      const testPaths = [
-        `users/${userData.uid}/scores/test`,
-        `users/${userData.uid}/scores/jeopardy/stats`,
-        `users/${userData.uid}/scores/jeopardy/progress`
-      ];
-      
-      // Test each path
-      testPaths.forEach(path => {
-        const testData = {
-          test: 'permission_check',
-          timestamp: Date.now()
-        };
-        
-        console.log(`Testing write permission for: ${path}`);
-        set(ref(db, path), testData)
-          .then(() => {
-            console.log(`✅ PERMISSION TEST PASSED: Can write to ${path}`);
-            // Clean up test data
-            set(ref(db, path), null);
-          })
-          .catch(error => {
-            console.error(`❌ PERMISSION TEST FAILED: Cannot write to ${path}`);
-            console.error(`Error: ${error.code} - ${error.message}`);
-            
-            // Show alert for admin users
-            if (isAdmin) {
-              const notification = document.createElement('div');
-              notification.style.position = 'fixed';
-              notification.style.top = '70px';
-              notification.style.right = '20px';
-              notification.style.background = 'rgba(255, 152, 0, 0.9)'; // Orange
-              notification.style.color = 'white';
-              notification.style.padding = '10px';
-              notification.style.borderRadius = '5px';
-              notification.style.zIndex = '9999';
-              notification.style.maxWidth = '300px';
-              notification.innerHTML = `<strong>Admin Notice:</strong> Firebase permission issue detected.<br>Path: ${path}<br>Error: ${error.message}`;
-              document.body.appendChild(notification);
-              
-              // Remove notification after 10 seconds
-              setTimeout(() => {
-                document.body.removeChild(notification);
-              }, 10000);
-            }
-          });
-      });
     }
   </script>
 </body>
