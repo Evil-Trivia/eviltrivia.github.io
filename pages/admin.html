@@ -620,51 +620,8 @@
                 }
 
                 try {
-                    console.log("Loading availability for session:", sessionId);
-                    // Get availability settings for this session
-                    const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
-                    console.log("Availability snapshot:", availabilitySnap.val());
-                    const availability = availabilitySnap.exists() ? availabilitySnap.val() : {};
-
-                    // Populate rounds container (always show rounds 1-3)
-                    const container = document.getElementById('roundsContainer');
-                    console.log("Found rounds container:", container);
-                    if (container) {
-                        container.innerHTML = [1, 2, 3].map(round => `
-                            <div style="margin: 10px 0;">
-                                <input type="checkbox" id="round_${round}" 
-                                    ${availability[round] === true ? 'checked' : ''}>
-                                <label for="round_${round}">Round ${round}</label>
-                            </div>
-                        `).join('');
-                    } else {
-                        console.error("Rounds container not found!");
-                    }
-
-                    // Show the Final Challenge section
-                    const finalSection = document.getElementById('finalChallengeSection');
-                    console.log("Found final section:", finalSection);
-                    if (finalSection) {
-                        finalSection.style.display = 'block';
-
-                        // Set Final Challenge radio based on saved value, default to 'disable'
-                        const finalChallenge = availability.finalChallenge || 'disable';
-                        const finalRadio = document.querySelector(`input[name="finalChallenge"][value="${finalChallenge}"]`);
-                        if (finalRadio) {
-                            finalRadio.checked = true;
-                        }
-                    } else {
-                        console.error("Final challenge section not found!");
-                    }
-
-                    // Show the save button
-                    const saveButton = document.getElementById('saveAvailability');
-                    if (saveButton) {
-                        saveButton.style.display = 'block';
-                    } else {
-                        console.error("Save button not found!");
-                    }
-
+                    // Load the rounds dynamically from the trivia data
+                    await loadRoundsForSession(sessionId);
                 } catch (error) {
                     console.error("Error loading availability settings:", error);
                     console.error(error.stack);
@@ -683,14 +640,20 @@
                 try {
                     console.log("Saving availability for session:", sessionId);
                     
-                    // Get the state of all checkboxes and radio buttons
-                    const availability = {
-                        1: document.getElementById('round_1').checked,
-                        2: document.getElementById('round_2').checked,
-                        3: document.getElementById('round_3').checked,
-                        finalChallenge: document.querySelector('input[name="finalChallenge"]:checked').value
-                    };
-
+                    // Get all round checkboxes (dynamically, not just rounds 1-3)
+                    const roundCheckboxes = document.querySelectorAll('[id^="round_"]');
+                    const availability = {};
+                    
+                    // Process each checkbox
+                    roundCheckboxes.forEach(checkbox => {
+                        // Extract the round number from the ID (format: round_X)
+                        const roundNum = checkbox.id.split('_')[1];
+                        availability[roundNum] = checkbox.checked;
+                    });
+                    
+                    // Add final challenge setting
+                    availability.finalChallenge = document.querySelector('input[name="finalChallenge"]:checked').value;
+                    
                     console.log("Saving availability settings:", availability);
 
                     // Save to Firebase
@@ -854,19 +817,29 @@
             try {
                 // Get session info
                 const sessionSnap = await get(ref(db, `grading/${sessionId}`));
-                if (!sessionSnap.exists()) return;
+                if (!sessionSnap.exists()) {
+                    console.error("Session not found:", sessionId);
+                    return;
+                }
                 
                 const session = sessionSnap.val();
                 const triviaNumber = session.triviaNumber;
+                console.log(`Loading rounds for trivia #${triviaNumber}`);
 
                 // Get trivia info from archive
                 const triviaSnap = await get(ref(db, `trivia-archive/archive/${triviaNumber}/trivia`));
-                if (!triviaSnap.exists()) return;
+                if (!triviaSnap.exists()) {
+                    console.error("Trivia not found:", triviaNumber);
+                    return;
+                }
 
                 // Get all round numbers that exist in the archive
-                const rounds = Object.keys(triviaSnap.val())
-                    .filter(key => !isNaN(key))
-                    .sort((a, b) => Number(a) - Number(b));
+                const triviaData = triviaSnap.val();
+                const rounds = Object.keys(triviaData)
+                    .filter(key => !isNaN(parseInt(key)))
+                    .sort((a, b) => parseInt(a) - parseInt(b));
+                
+                console.log("Available rounds:", rounds);
 
                 // Get current availability settings
                 const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
@@ -877,17 +850,24 @@
                 const finalRadio = document.getElementById(`final${finalChallenge.charAt(0).toUpperCase() + finalChallenge.slice(1)}`);
                 if (finalRadio) {
                     finalRadio.checked = true;
+                } else {
+                    // Default to disabled if the radio doesn't exist
+                    document.getElementById('finalDisabled').checked = true;
                 }
 
                 // Populate rounds container
                 const container = document.getElementById('roundsContainer');
-                container.innerHTML = rounds.map(round => `
-                    <div style="margin: 10px 0;">
-                        <input type="checkbox" id="round_${round}" 
-                            ${availability[round] ? 'checked' : ''}>
-                        <label for="round_${round}">Round ${round}</label>
-                    </div>
-                `).join('');
+                if (rounds.length === 0) {
+                    container.innerHTML = '<p>No rounds found for this trivia.</p>';
+                } else {
+                    container.innerHTML = rounds.map(round => `
+                        <div style="margin: 10px 0;">
+                            <input type="checkbox" id="round_${round}" 
+                                ${availability[round] ? 'checked' : ''}>
+                            <label for="round_${round}">Round ${round}</label>
+                        </div>
+                    `).join('');
+                }
 
                 // Show the save button and final challenge section
                 document.getElementById('finalChallengeSection').style.display = 'block';
@@ -895,6 +875,7 @@
 
             } catch (error) {
                 console.error("Error loading rounds:", error);
+                console.error(error.stack);
                 alert("Error loading rounds. Please try again.");
             }
         }
