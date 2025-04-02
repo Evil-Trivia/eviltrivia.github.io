@@ -54,7 +54,7 @@
         .table-responsive {
             width: 100%;  /* Take up full width of parent */
             margin: 0 auto;
-            overflow-x: auto;
+            overflow-x: auto;  /* Enable horizontal scrolling */
         }
         .table-responsive table {
             width: 100%;
@@ -579,6 +579,31 @@
         .toast-notification.success {
             background-color: rgba(50, 180, 50, 0.9);
         }
+
+        /* Make table horizontally scrollable when many rounds exist */
+        .rounds-table-container {
+            overflow-x: auto;
+            max-width: 95vw; /* Prevent table from going beyond screen */
+        }
+        
+        /* Keep rank, team name, and size columns visible when scrolling horizontally */
+        .table-responsive th:nth-child(1),
+        .table-responsive th:nth-child(2),
+        .table-responsive th:nth-child(3),
+        .table-responsive td:nth-child(1),
+        .table-responsive td:nth-child(2),
+        .table-responsive td:nth-child(3) {
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            background-color: white;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+        
+        .table-responsive th:nth-child(3),
+        .table-responsive td:nth-child(3) {
+            border-right: 2px solid #aaa;
+        }
     </style>
 </head>
 <body>
@@ -670,15 +695,17 @@
             <button id="btnReturnToTeamInfo">Return to Team Information</button>
             <button class="switch-session-btn" id="btnSwitchSession">Switch Session</button>
         </div>
-        <div class="table-responsive">
-            <table>
-                <thead id="scoresTableHead">
-                    <!-- Headers will be inserted here -->
-                </thead>
-                <tbody id="scoresTableBody">
-                    <!-- Scores will be inserted here -->
-                </tbody>
-            </table>
+        <div class="rounds-table-container">
+            <div class="table-responsive">
+                <table>
+                    <thead id="scoresTableHead">
+                        <!-- Headers will be inserted here -->
+                    </thead>
+                    <tbody id="scoresTableBody">
+                        <!-- Scores will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -1271,14 +1298,32 @@
                 if (!teamsSnap.exists()) return;
                 const teams = teamsSnap.val();
 
-                const tableHeaders = `
+                // Get trivia data to determine number of rounds
+                const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia`));
+                if (!triviaSnap.exists()) {
+                    console.error("Trivia not found for session:", session.triviaNumber);
+                    return;
+                }
+                
+                const triviaData = triviaSnap.val();
+                const roundNumbers = Object.keys(triviaData).sort((a, b) => parseInt(a) - parseInt(b));
+                console.log("Available rounds:", roundNumbers);
+
+                // Create the table headers
+                let tableHeaders = `
                     <tr>
                         <th>Rank</th>
                         <th>Team Name</th>
                         <th>Size</th>
-                        <th>Round 1</th>
-                        <th>Round 2</th>
-                        <th>Round 3</th>
+                `;
+                
+                // Add a column for each round
+                roundNumbers.forEach(roundNum => {
+                    tableHeaders += `<th>Round ${roundNum}</th>`;
+                });
+                
+                // Add remaining columns
+                tableHeaders += `
                         <th class="narrow-col">IG<br>Challenge</th>
                         <th class="narrow-col">Team<br>Name<br>Bonus</th>
                         ${showFinalChallenge ? '<th class="narrow-col">Final<br>Challenge</th>' : ''}
@@ -1289,11 +1334,11 @@
 
                 // Create array of teams with their scores
                 let teamScores = Object.entries(teams).map(([teamId, team]) => {
-                    const roundScores = [
-                        parseFloat(team.round1?.total || 0),
-                        parseFloat(team.round2?.total || 0),
-                        parseFloat(team.round3?.total || 0)
-                    ];
+                    // Get scores for all available rounds
+                    const roundScores = roundNumbers.map(roundNum => {
+                        const roundKey = `round${roundNum}`;
+                        return parseFloat(team[roundKey]?.total || 0);
+                    });
                     
                     const igChallenge = parseInt(team.igChallenge || 0);
                     const teamNameBonus = parseInt(team.teamNameBonus || 0);
@@ -1412,6 +1457,15 @@
                 const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
                 const session = sessionSnap.val();
                 const availability = session.availability || { "1": true };  // Default to round 1 if no settings
+                
+                // Get the list of available rounds from the trivia data
+                const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia`));
+                if (!triviaSnap.exists()) {
+                    throw new Error("Trivia not found");
+                }
+                
+                const triviaData = triviaSnap.val();
+                const availableRounds = Object.keys(triviaData).sort((a, b) => parseInt(a) - parseInt(b));
 
                 roundDialog = document.createElement('div');
                 roundDialog.className = 'round-dialog';
@@ -1420,7 +1474,7 @@
                     <div>
                         <label>Round #:</label>
                         <select id="roundSelectInput">
-                            ${[1, 2, 3].map(round => 
+                            ${availableRounds.map(round => 
                                 availability[round] ? 
                                     `<option value="${round}">Round ${round}</option>` : 
                                     ''
