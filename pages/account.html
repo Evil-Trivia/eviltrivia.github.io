@@ -1119,16 +1119,23 @@
     patreonLoginBtn.addEventListener('click', (e) => {
       e.preventDefault();
       
+      // Detect if on mobile
+      const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      console.log('Patreon login clicked, mobile device:', isMobile);
+      
       // Store the current auth state in localStorage
       const isLoggedIn = !!auth.currentUser;
       localStorage.setItem('wasLoggedInBeforePatreon', isLoggedIn ? 'true' : 'false');
+      
+      // Mobile parameter to help the server optimize for mobile
+      const mobileParam = isMobile ? '&mobile=true' : '';
       
       // Show loading state
       patreonLoading.classList.remove('hidden');
       patreonNotConnected.classList.add('hidden');
       
-      // Redirect to Patreon OAuth
-      window.location.href = `https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon?returnUrl=${encodeURIComponent(window.location.href)}`;
+      // Redirect to Patreon OAuth with returnUrl and mobile flag
+      window.location.href = `https://patreonauth-vapvabofwq-uc.a.run.app/auth/patreon?returnUrl=${encodeURIComponent(window.location.href)}${mobileParam}`;
     });
     
     // Handle logout
@@ -1187,8 +1194,13 @@
       }
     });
     
-    // Update handleTokenError function for the new structure
+    // Update handleTokenError function for the new structure and improve mobile handling
     async function handleTokenError(patreonId) {
+      console.log(`Handling token error for Patreon ID: ${patreonId}`);
+      
+      // Check if we're on mobile
+      const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
       // Check if user is already signed in
       if (auth.currentUser) {
         // Add patreonId to user data
@@ -1240,6 +1252,11 @@
           
           // Try to display the user info anyway
           displayTriviaUserInfo(auth.currentUser);
+          
+          // On mobile, show a notification
+          if (isMobile) {
+            alert('Your Patreon account was connected, but there was an issue updating your profile. Please refresh the page.');
+          }
         }
       } else {
         // No user is signed in
@@ -1252,15 +1269,25 @@
           localStorage.setItem('pendingPatreonConnect', 'true');
           localStorage.setItem('pendingPatreonId', patreonId);
           
-          // Try to sign in anonymously if needed
+          // Try to sign in anonymously if needed - more important on mobile
           try {
             await auth.signInAnonymously();
             console.log('Signed in anonymously to maintain session');
           } catch (anonError) {
             console.warn('Could not sign in anonymously:', anonError.message);
+            
+            // Mobile browsers have more restrictive policies around anonymous auth
+            if (isMobile) {
+              alert('Authentication issue. Please try logging in again before connecting Patreon.');
+            }
           }
           
-          window.location.reload();
+          // Special handling for mobile to avoid excessive redirects
+          if (isMobile) {
+            loadPatreonData(patreonId);
+          } else {
+            window.location.reload();
+          }
         } else {
           // User was not logged in before, just show Patreon data
           console.log('User was not logged in before, showing Patreon data without login');
@@ -1368,6 +1395,7 @@
         const patreonId = urlParams.get('patreon_id');
         const firebaseToken = urlParams.get('firebase_token');
         const tokenError = urlParams.get('token_error');
+        const isMobile = urlParams.get('mobile') === 'true';
         
         // Additional Patreon user information that might be included
         const patreonName = urlParams.get('patreon_name');
@@ -1382,7 +1410,8 @@
           patreonId: patreonId ? patreonId.substring(0, 5) + '...' : null, // Show truncated ID for privacy
           hasFirebaseToken: !!firebaseToken,
           tokenError,
-          hasPatreonInfo: !!(patreonName || patreonEmail || patreonImage)
+          hasPatreonInfo: !!(patreonName || patreonEmail || patreonImage),
+          isMobile
         });
         
         // Check for auth errors
@@ -1390,8 +1419,24 @@
         const errorReason = urlParams.get('reason');
         if (authError === 'true') {
           console.error('Patreon auth error:', errorReason);
-          // Show error message to user
-          alert(`There was an error connecting your Patreon account: ${errorReason || 'Unknown error'}. Please try again.`);
+          // Show error message to user - use alert for mobile to ensure visibility
+          if (isMobile) {
+            alert(`There was an error connecting your Patreon account: ${errorReason || 'Unknown error'}. Please try again.`);
+          } else {
+            // On desktop, we could use a nicer notification
+            const errorDiv = document.createElement('div');
+            errorDiv.style.padding = '15px';
+            errorDiv.style.backgroundColor = '#ffeeee';
+            errorDiv.style.border = '1px solid #ffaaaa';
+            errorDiv.style.borderRadius = '5px';
+            errorDiv.style.margin = '20px 0';
+            errorDiv.style.color = '#cc0000';
+            errorDiv.textContent = `Patreon connection error: ${errorReason || 'Unknown error'}`;
+            
+            // Insert at top of page
+            const container = document.querySelector('.container');
+            container.insertBefore(errorDiv, container.firstChild);
+          }
           
           // Clean URL parameters
           const newUrl = new URL(window.location.href);
@@ -1402,6 +1447,35 @@
         
         if (authSuccess === 'true' && patreonId) {
           console.log('Patreon auth successful with ID:', patreonId);
+          
+          // For mobile, show immediate feedback
+          if (isMobile) {
+            document.getElementById('patreon-loading').classList.remove('hidden');
+            document.getElementById('patreon-not-connected').classList.add('hidden');
+            
+            // On mobile, also show a brief confirmation
+            const confirmDiv = document.createElement('div');
+            confirmDiv.style.padding = '10px';
+            confirmDiv.style.backgroundColor = '#eeffee';
+            confirmDiv.style.border = '1px solid #aaffaa';
+            confirmDiv.style.borderRadius = '5px';
+            confirmDiv.style.margin = '10px 0';
+            confirmDiv.style.color = '#006600';
+            confirmDiv.style.textAlign = 'center';
+            confirmDiv.textContent = 'Patreon connected successfully!';
+            
+            // Auto-fade after 3 seconds
+            setTimeout(() => {
+              confirmDiv.style.opacity = '0';
+              confirmDiv.style.transition = 'opacity 1s';
+              setTimeout(() => confirmDiv.remove(), 1000);
+            }, 3000);
+            
+            // Insert at top of page
+            const container = document.querySelector('.container');
+            container.insertBefore(confirmDiv, container.firstChild);
+          }
+          
           // Store Patreon ID
           localStorage.setItem('patreonUserId', patreonId);
           localStorage.setItem('patreonAuthenticated', 'true');
@@ -1435,7 +1509,25 @@
               })
               .catch(error => {
                 console.error('Error signing in with custom token:', error);
-                handleTokenError(patreonId);
+                // Special handling for mobile token errors
+                if (isMobile) {
+                  console.log('Mobile token error, using special handling');
+                  // On mobile, we need to be more aggressive with authentication fallbacks
+                  setTimeout(() => {
+                    // Try anonymous auth as a last resort
+                    auth.signInAnonymously()
+                      .then(() => {
+                        console.log('Signed in anonymously as fallback');
+                        handleTokenError(patreonId);
+                      })
+                      .catch(anonError => {
+                        console.error('Anonymous auth fallback failed:', anonError);
+                        alert('Authentication error. Please try refreshing the page.');
+                      });
+                  }, 500);
+                } else {
+                  handleTokenError(patreonId);
+                }
               });
           } else if (tokenError === 'true') {
             // Handle the case where the server couldn't generate a token
