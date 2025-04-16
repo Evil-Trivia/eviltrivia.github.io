@@ -1586,6 +1586,618 @@
         jeopardyAuthorized.style.display = 'none';
       }
     });
+    
+    // Setup online/offline detection and status indicator
+    function setupOnlineStatusDetection() {
+      // Create a status indicator in the corner
+      const statusIndicator = document.createElement('div');
+      statusIndicator.id = 'network-status';
+      statusIndicator.style.position = 'fixed';
+      statusIndicator.style.bottom = '10px';
+      statusIndicator.style.right = '10px';
+      statusIndicator.style.padding = '5px 10px';
+      statusIndicator.style.borderRadius = '4px';
+      statusIndicator.style.fontSize = '12px';
+      statusIndicator.style.fontWeight = 'bold';
+      statusIndicator.style.zIndex = '9999';
+      document.body.appendChild(statusIndicator);
+      
+      // Function to update status display
+      function updateOnlineStatus() {
+        if (navigator.onLine) {
+          statusIndicator.textContent = 'Online';
+          statusIndicator.style.backgroundColor = '#27ae60';
+          statusIndicator.style.color = 'white';
+          
+          // If we were previously in offline mode, attempt to sync
+          if (isOfflineMode) {
+            syncOfflineData();
+          }
+        } else {
+          statusIndicator.textContent = 'Offline';
+          statusIndicator.style.backgroundColor = '#e74c3c';
+          statusIndicator.style.color = 'white';
+          
+          // Enter offline mode
+          enterOfflineMode();
+        }
+      }
+      
+      // Set initial status
+      updateOnlineStatus();
+      
+      // Add event listeners for changes
+      window.addEventListener('online', updateOnlineStatus);
+      window.addEventListener('offline', updateOnlineStatus);
+      
+      // Show offline banner for logged-in users
+      if (auth.currentUser) {
+        setupOfflineBanner();
+      }
+    }
+    
+    // Call this after Firebase is initialized
+    setupOnlineStatusDetection();
+    
+    // Setup the offline banner and functionality
+    function setupOfflineBanner() {
+      const offlineBanner = document.getElementById('offline-banner');
+      const offlineMessage = document.getElementById('offline-message');
+      const offlineActionBtn = document.getElementById('offline-action-btn');
+      const offlineProgress = document.getElementById('offline-progress');
+      const offlineProgressBar = document.getElementById('offline-progress-bar');
+      
+      if (!offlineBanner) {
+        console.warn('Offline banner element not found');
+        return;
+      }
+      
+      // Check if offline questions are already available
+      checkOfflineAvailability().then(available => {
+        hasOfflineQuestions = available;
+        
+        if (available) {
+          offlineBanner.style.display = 'block';
+          offlineMessage.textContent = 'Offline mode ready! You can play without internet.';
+          offlineActionBtn.textContent = 'Update Offline Questions';
+        } else if (navigator.onLine) {
+          // Only show enable option if online
+          offlineBanner.style.display = 'block';
+        }
+      }).catch(err => {
+        console.error('Error checking offline availability:', err);
+      });
+      
+      // Add click handler for the action button
+      if (offlineActionBtn) {
+        offlineActionBtn.addEventListener('click', () => {
+          if (offlineActionBtn.classList.contains('disabled')) return;
+          
+          if (hasOfflineQuestions) {
+            // Update existing offline questions
+            downloadQuestionsForOffline(true);
+          } else {
+            // Enable offline mode first time
+            downloadQuestionsForOffline(false);
+          }
+        });
+      }
+    }
+    
+    // Check if offline questions are available
+    async function checkOfflineAvailability() {
+      try {
+        // Check if IndexedDB is available
+        if (!window.indexedDB) {
+          console.error('IndexedDB not supported by browser');
+          return false;
+        }
+        
+        // Open our database
+        const dbPromise = await new Promise((resolve, reject) => {
+          const request = indexedDB.open('jeopardyOfflineDB', 1);
+          
+          request.onerror = event => {
+            console.error('Error opening database:', event.target.error);
+            reject(event.target.error);
+          };
+          
+          request.onupgradeneeded = event => {
+            const db = event.target.result;
+            
+            // Create necessary object stores if they don't exist
+            if (!db.objectStoreNames.contains('questions')) {
+              db.createObjectStore('questions', { keyPath: 'id' });
+              console.log('Created questions store');
+            }
+            
+            if (!db.objectStoreNames.contains('stats')) {
+              db.createObjectStore('stats', { keyPath: 'timestamp' });
+              console.log('Created stats store');
+            }
+            
+            if (!db.objectStoreNames.contains('pendingUploads')) {
+              db.createObjectStore('pendingUploads', { keyPath: 'id', autoIncrement: true });
+              console.log('Created pendingUploads store');
+            }
+          };
+          
+          request.onsuccess = event => {
+            resolve(event.target.result);
+          };
+        });
+        
+        // Check if we have questions stored
+        const transaction = dbPromise.transaction(['questions'], 'readonly');
+        const store = transaction.objectStore('questions');
+        
+        const count = await new Promise((resolve, reject) => {
+          const countRequest = store.count();
+          countRequest.onsuccess = () => resolve(countRequest.result);
+          countRequest.onerror = event => {
+            console.error('Error counting questions:', event.target.error);
+            reject(event.target.error);
+          };
+        });
+        
+        console.log(`Found ${count} questions in offline storage`);
+        return count > 0;
+      } catch (error) {
+        console.error('Error checking offline availability:', error);
+        return false;
+      }
+    }
+    
+    // Enter offline mode
+    function enterOfflineMode() {
+      console.log('Entering offline mode');
+      isOfflineMode = true;
+      
+      // Update UI to show offline mode
+      const offlineBanner = document.getElementById('offline-banner');
+      if (!offlineBanner) return;
+      
+      const offlineMessage = document.getElementById('offline-message');
+      const offlineActionBtn = document.getElementById('offline-action-btn');
+      
+      // Show the offline banner with appropriate message
+      offlineBanner.style.display = 'block';
+      offlineBanner.classList.add('offline');
+      
+      if (hasOfflineQuestions) {
+        offlineMessage.textContent = 'You are offline. Using downloaded questions.';
+        offlineActionBtn.style.display = 'none';
+      } else {
+        offlineMessage.textContent = 'You are offline. No offline questions available.';
+        offlineActionBtn.style.display = 'none';
+      }
+    }
+    
+    // Download questions for offline use
+    async function downloadQuestionsForOffline(isUpdate) {
+      // Exit early if no jeopardy data or offline banner
+      if (!jeopardyData || Object.keys(jeopardyData).length === 0) {
+        console.error('No Jeopardy data available to download');
+        return;
+      }
+      
+      const offlineBanner = document.getElementById('offline-banner');
+      if (!offlineBanner) return;
+      
+      const offlineMessage = document.getElementById('offline-message');
+      const offlineActionBtn = document.getElementById('offline-action-btn');
+      const offlineProgress = document.getElementById('offline-progress');
+      const offlineProgressBar = document.getElementById('offline-progress-bar');
+      
+      try {
+        // Disable the button and show progress
+        offlineActionBtn.classList.add('disabled');
+        offlineActionBtn.textContent = 'Downloading...';
+        offlineMessage.textContent = isUpdate ? 'Updating offline questions...' : 'Downloading questions for offline play...';
+        offlineProgress.style.display = 'block';
+        offlineProgressBar.style.width = '0%';
+        
+        // Get dates to download (limit to 10 most recent)
+        const datesToDownload = availableDates.slice(0, 10);
+        let downloadedCount = 0;
+        
+        // Open database
+        const dbPromise = await new Promise((resolve, reject) => {
+          const request = indexedDB.open('jeopardyOfflineDB', 1);
+          
+          request.onerror = event => {
+            reject(event.target.error);
+          };
+          
+          request.onupgradeneeded = event => {
+            const db = event.target.result;
+            
+            // Create necessary object stores if they don't exist
+            if (!db.objectStoreNames.contains('questions')) {
+              db.createObjectStore('questions', { keyPath: 'id' });
+            }
+            
+            if (!db.objectStoreNames.contains('stats')) {
+              db.createObjectStore('stats', { keyPath: 'timestamp' });
+            }
+            
+            if (!db.objectStoreNames.contains('pendingUploads')) {
+              db.createObjectStore('pendingUploads', { keyPath: 'id', autoIncrement: true });
+            }
+          };
+          
+          request.onsuccess = event => {
+            resolve(event.target.result);
+          };
+        });
+        
+        // Process each date
+        for (const date of datesToDownload) {
+          try {
+            // Fetch questions for this date
+            const dateData = jeopardyData[date];
+            if (!dateData) {
+              console.warn(`No data found for date: ${date}`);
+              continue;
+            }
+            
+            // Process all games for this date
+            const gameNumbers = Object.keys(dateData);
+            const dateQuestions = [];
+            
+            // Process each game
+            for (const gameNumber of gameNumbers) {
+              const gameData = dateData[gameNumber];
+              const categories = Object.keys(gameData);
+              
+              // Process categories
+              for (const category of categories) {
+                const categoryData = gameData[category];
+                const dollarValues = Object.keys(categoryData);
+                
+                // Process values
+                for (const value of dollarValues) {
+                  const questionsAtValue = categoryData[value];
+                  const questionIndices = Object.keys(questionsAtValue);
+                  
+                  // Process questions
+                  for (const index of questionIndices) {
+                    const questionData = questionsAtValue[index];
+                    
+                    // Create a question object
+                    const question = {
+                      ...questionData,
+                      id: `${date}_${gameNumber}_${category}_${value}_${index}`,
+                      category: category,
+                      date: date,
+                      gameNumber: gameNumber,
+                      clue_value: parseInt(value, 10) || 200,
+                      index: index
+                    };
+                    
+                    dateQuestions.push(question);
+                  }
+                }
+              }
+            }
+            
+            // Store these questions in IndexedDB
+            const transaction = dbPromise.transaction(['questions'], 'readwrite');
+            const store = transaction.objectStore('questions');
+            
+            // Store each question
+            for (const question of dateQuestions) {
+              store.put(question);
+            }
+            
+            // Update progress
+            downloadedCount++;
+            const progress = Math.round((downloadedCount / datesToDownload.length) * 100);
+            offlineProgressBar.style.width = `${progress}%`;
+            
+            // Wait for the transaction to complete
+            await new Promise((resolve, reject) => {
+              transaction.oncomplete = resolve;
+              transaction.onerror = (e) => reject(e.target.error);
+            });
+            
+            console.log(`Downloaded ${dateQuestions.length} questions for date: ${date}`);
+          } catch (error) {
+            console.error(`Error downloading questions for date ${date}:`, error);
+          }
+        }
+        
+        // Update UI when complete
+        hasOfflineQuestions = true;
+        offlineMessage.textContent = 'Offline mode ready! You can play without internet.';
+        offlineActionBtn.textContent = 'Update Offline Questions';
+        offlineActionBtn.classList.remove('disabled');
+        
+        // Fade out progress bar
+        setTimeout(() => {
+          offlineProgress.style.display = 'none';
+        }, 2000);
+        
+        console.log('Offline questions download complete!');
+      } catch (error) {
+        console.error('Error downloading questions for offline use:', error);
+        offlineMessage.textContent = 'Error enabling offline mode. Please try again.';
+        offlineActionBtn.textContent = 'Retry';
+        offlineActionBtn.classList.remove('disabled');
+        offlineProgress.style.display = 'none';
+      }
+    }
+
+    // Sync offline data function
+    async function syncOfflineData() {
+      // Only proceed if we were in offline mode
+      if (!isOfflineMode) return;
+      
+      console.log('Syncing offline data');
+      isOfflineMode = false;
+      
+      const offlineBanner = document.getElementById('offline-banner');
+      if (!offlineBanner) return;
+      
+      const offlineMessage = document.getElementById('offline-message');
+      const offlineActionBtn = document.getElementById('offline-action-btn');
+      
+      // Show syncing message
+      offlineBanner.style.display = 'block';
+      offlineBanner.classList.remove('offline');
+      offlineBanner.classList.add('sync');
+      offlineMessage.textContent = 'Syncing your data...';
+      offlineActionBtn.style.display = 'none';
+      
+      try {
+        // Check if we have any data to sync
+        const db = await new Promise((resolve, reject) => {
+          const request = indexedDB.open('jeopardyOfflineDB', 1);
+          request.onsuccess = event => resolve(event.target.result);
+          request.onerror = event => reject(event.target.error);
+        });
+        
+        // Get all pending uploads
+        const transaction = db.transaction(['pendingUploads'], 'readwrite');
+        const store = transaction.objectStore('pendingUploads');
+        
+        const pendingUploads = await new Promise((resolve, reject) => {
+          const request = store.getAll();
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = event => reject(event.target.error);
+        });
+        
+        if (pendingUploads.length > 0) {
+          console.log(`Found ${pendingUploads.length} pending uploads to sync`);
+          
+          // Process each pending upload
+          for (const upload of pendingUploads) {
+            try {
+              if (!upload.path || !upload.data || !upload.type) {
+                console.warn('Invalid upload data:', upload);
+                continue;
+              }
+              
+              // Perform the Firebase write
+              await set(ref(db, upload.path), upload.data);
+              console.log(`Successfully synced data to ${upload.path}`);
+              
+              // Delete from pending uploads
+              await new Promise((resolve, reject) => {
+                const deleteRequest = store.delete(upload.id);
+                deleteRequest.onsuccess = resolve;
+                deleteRequest.onerror = event => {
+                  console.error('Error deleting synced item:', event.target.error);
+                  reject(event.target.error);
+                };
+              });
+            } catch (error) {
+              console.error('Error syncing data:', error);
+            }
+          }
+          
+          offlineMessage.textContent = 'Your data has been synced successfully!';
+        } else {
+          console.log('No pending uploads to sync');
+          offlineMessage.textContent = 'No data to sync.';
+        }
+        
+        // Reset banner after a delay
+        setTimeout(() => {
+          offlineBanner.classList.remove('sync');
+          if (hasOfflineQuestions) {
+            offlineMessage.textContent = 'Offline mode ready! You can play without internet.';
+            offlineActionBtn.textContent = 'Update Offline Questions';
+            offlineActionBtn.style.display = 'inline-block';
+          } else {
+            offlineBanner.style.display = 'none';
+          }
+        }, 3000);
+      } catch (error) {
+        console.error('Error syncing data:', error);
+        offlineMessage.textContent = 'Error syncing data. Please try again later.';
+        
+        // Reset banner after a delay
+        setTimeout(() => {
+          offlineBanner.classList.remove('sync');
+          if (hasOfflineQuestions) {
+            offlineMessage.textContent = 'Offline mode ready! You can play without internet.';
+            offlineActionBtn.textContent = 'Update Offline Questions';
+            offlineActionBtn.style.display = 'inline-block';
+          } else {
+            offlineBanner.style.display = 'none';
+          }
+        }, 3000);
+      }
+    }
+
+    // Save data to offline storage for later sync
+    async function saveOfflineData(type, path, data) {
+      try {
+        console.log(`Saving ${type} data offline for later sync`);
+        
+        // Open database
+        const db = await new Promise((resolve, reject) => {
+          const request = indexedDB.open('jeopardyOfflineDB', 1);
+          request.onsuccess = event => resolve(event.target.result);
+          request.onerror = event => reject(event.target.error);
+          
+          request.onupgradeneeded = event => {
+            const db = event.target.result;
+            
+            // Create stores if they don't exist
+            if (!db.objectStoreNames.contains('pendingUploads')) {
+              db.createObjectStore('pendingUploads', { keyPath: 'id', autoIncrement: true });
+            }
+          };
+        });
+        
+        // Add to pending uploads
+        const transaction = db.transaction(['pendingUploads'], 'readwrite');
+        const store = transaction.objectStore('pendingUploads');
+        
+        const upload = {
+          type: type,
+          path: path,
+          data: data,
+          timestamp: Date.now()
+        };
+        
+        await new Promise((resolve, reject) => {
+          const request = store.add(upload);
+          request.onsuccess = resolve;
+          request.onerror = event => reject(event.target.error);
+        });
+        
+        console.log('Data saved offline successfully');
+      } catch (error) {
+        console.error('Error saving offline data:', error);
+      }
+    }
+    
+    // Load questions from offline storage
+    async function loadOfflineQuestions(date) {
+      try {
+        console.log('Loading questions from offline storage for date:', date);
+        
+        // Open database
+        const db = await new Promise((resolve, reject) => {
+          const request = indexedDB.open('jeopardyOfflineDB', 1);
+          request.onsuccess = event => resolve(event.target.result);
+          request.onerror = event => reject(event.target.error);
+        });
+        
+        // Read questions
+        const transaction = db.transaction(['questions'], 'readonly');
+        const store = transaction.objectStore('questions');
+        
+        const allQuestions = await new Promise((resolve, reject) => {
+          const request = store.getAll();
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = event => reject(event.target.error);
+        });
+        
+        // Filter for requested date
+        let dateQuestions = allQuestions.filter(q => q.date === date);
+        
+        if (dateQuestions.length === 0) {
+          console.warn(`No offline questions found for date: ${date}`);
+          
+          // Try to load any available questions if none for this date
+          if (allQuestions.length > 0) {
+            console.log('Loading questions from any available date');
+            
+            // Group by date
+            const questionsByDate = {};
+            allQuestions.forEach(q => {
+              if (!questionsByDate[q.date]) {
+                questionsByDate[q.date] = [];
+              }
+              questionsByDate[q.date].push(q);
+            });
+            
+            // Get first available date with questions
+            const availableDates = Object.keys(questionsByDate);
+            if (availableDates.length > 0) {
+              const firstDate = availableDates[0];
+              dateQuestions = questionsByDate[firstDate];
+              console.log(`Using questions from date: ${firstDate}`);
+            }
+          }
+        }
+        
+        if (dateQuestions.length === 0) {
+          throw new Error('No offline questions available');
+        }
+        
+        console.log(`Loaded ${dateQuestions.length} offline questions`);
+        currentQuestions = dateQuestions;
+        return dateQuestions;
+      } catch (error) {
+        console.error('Error loading offline questions:', error);
+        throw error;
+      }
+    }
+    
+    // Modified function to save game progress with offline support
+    function saveGameProgress() {
+      // Don't save if game has ended
+      if (window.gameEnded) {
+        console.log('Game has ended - not saving game progress');
+        return;
+      }
+      
+      if (userData && userData.uid && currentDate && currentQuestionIndex >= 0) {
+        // Only save if the document is visible (tab is active)
+        if (document.visibilityState !== 'visible') {
+          console.log('Skipping game progress save - tab not visible');
+          return;
+        }
+        
+        const gameProgressData = {
+          date: currentDate,
+          currentQuestionIndex: currentQuestionIndex,
+          timestamp: Date.now()
+        };
+        
+        const savePath = `users/${userData.uid}/scores/jeopardy/progress`;
+        
+        // If we're offline, store for later sync
+        if (!navigator.onLine) {
+          console.log('Offline - saving game progress locally');
+          return saveOfflineData('gameProgress', savePath, gameProgressData);
+        }
+        
+        // Save to Firebase with better error handling
+        console.log('Saving game progress:', currentDate, currentQuestionIndex);
+        set(ref(db, savePath), gameProgressData)
+          .then(() => console.log('Game progress saved successfully'))
+          .catch(error => {
+            console.error('Error saving game progress:', error);
+            
+            // Try saving offline as fallback
+            saveOfflineData('gameProgress', savePath, gameProgressData);
+            
+            // Add visual notification for the user if save fails
+            const notification = document.createElement('div');
+            notification.style.position = 'fixed';
+            notification.style.bottom = '20px';
+            notification.style.right = '20px';
+            notification.style.background = 'rgba(231, 76, 60, 0.9)';
+            notification.style.color = 'white';
+            notification.style.padding = '10px';
+            notification.style.borderRadius = '5px';
+            notification.style.zIndex = '9999';
+            notification.textContent = 'Failed to save progress. Saving locally instead.';
+            document.body.appendChild(notification);
+            
+            // Remove notification after 3 seconds
+            setTimeout(() => {
+              document.body.removeChild(notification);
+            }, 3000);
+          });
+      }
+    }
   </script>
 </body>
 </html> 
