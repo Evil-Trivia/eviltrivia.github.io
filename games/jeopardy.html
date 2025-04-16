@@ -1975,17 +1975,19 @@
       // Hide game play section
       gamePlaySection.style.display = 'none';
       
+      console.log('Game summary - Current game stats:', JSON.stringify(currentGameStats));
+      
       // Update summary stats
-      document.getElementById('summary-total-questions').textContent = currentGameStats.questionsAnswered;
-      document.getElementById('summary-correct').textContent = currentGameStats.correct;
-      document.getElementById('summary-incorrect').textContent = currentGameStats.incorrect;
-      document.getElementById('summary-passed').textContent = currentGameStats.passed;
+      document.getElementById('summary-total-questions').textContent = currentGameStats.questionsAnswered || 0;
+      document.getElementById('summary-correct').textContent = currentGameStats.questionsCorrect || 0;
+      document.getElementById('summary-incorrect').textContent = currentGameStats.questionsIncorrect || 0;
+      document.getElementById('summary-passed').textContent = currentGameStats.questionsPassed || 0;
       document.getElementById('summary-avg-buzz').textContent = calculateAverageBuzzTime(currentGameStats.buzzTimes) + 'ms';
-      document.getElementById('summary-coryat').textContent = `$${currentGameStats.coryat}`;
+      document.getElementById('summary-coryat').textContent = `$${currentGameStats.coryatScore || 0}`;
       
       // Calculate and display comparison stats
       const gameAccuracy = currentGameStats.questionsAnswered > 0 ? 
-          Math.round((currentGameStats.correct / currentGameStats.questionsAnswered) * 100) : 0;
+          Math.round((currentGameStats.questionsCorrect / currentGameStats.questionsAnswered) * 100) : 0;
       
       const overallAccuracy = stats.questionsAnswered > 0 ?
           Math.round((stats.correct / stats.questionsAnswered) * 100) : 0;
@@ -2073,11 +2075,13 @@
           buzzInTime = Math.round(currentTime - enableBuzzInTime);
           
           // Only add to stats if it's a legitimate buzz-in during question presentation
-          stats.buzzTimes.push(buzzInTime);
-          currentGameStats.buzzTimes.push(buzzInTime);
+          if (buzzInTime >= 0 && buzzInTime < 10000) {
+            stats.buzzTimes.push(buzzInTime);
+            currentGameStats.buzzTimes.push(buzzInTime);
           
-          // Update display
-          statsAvgBuzz.textContent = calculateAverageBuzzTime(stats.buzzTimes) + 'ms';
+            // Update display
+            statsAvgBuzz.textContent = calculateAverageBuzzTime(currentGameStats.buzzTimes) + 'ms';
+          }
         }
         
         // After buzz in, wait 2000ms and then reveal the answer
@@ -2457,6 +2461,7 @@
       
       // Update current game stats
       currentGameStats.questionsAnswered++;
+      stats.questionsAnswered++;
       
       if (result === 'correct') {
         // Play correct sound
@@ -2491,11 +2496,16 @@
         currentGameStats.questionsIncorrect++;
         stats.incorrect++;
         
+        console.log('Scoring incorrect answer - value:', value);
+        console.log('Current coryat before:', currentGameStats.coryatScore);
+        
         // Update coryat score (only if user buzzed in)
         if (buzzedIn) {
           currentGameStats.coryatScore -= value;
           stats.coryat -= value;
         }
+        
+        console.log('Current coryat after:', currentGameStats.coryatScore);
         
         // If there is a valid buzz time, add it to the array
         if (buzzTime !== null && buzzTime >= 0 && buzzTime < 10000) {
