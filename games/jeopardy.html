@@ -1747,12 +1747,15 @@
         // Initialize game stats for this session
         currentGameStats = {
           questionsAnswered: 0,
-          correct: 0,
-          incorrect: 0,
-          passed: 0,
+          questionsCorrect: 0, 
+          questionsIncorrect: 0,
+          questionsPassed: 0,
           buzzTimes: [],
-          coryat: 0,
-          startTime: Date.now()
+          coryatScore: 0,
+          currentStreak: 0,
+          maxStreak: 0,
+          startTime: Date.now(),
+          endTime: null
         };
         
         // Save this initial session data - ONLY to the stats path, not to the entire user record
@@ -1804,11 +1807,15 @@
         // Show game play
         gamePlaySection.style.display = 'block';
         
-        // Initialize game with all questions
-        filteredQuestions = currentQuestions.slice();
+        // Initialize game with all questions and shuffle them for variety
+        filteredQuestions = shuffleArray(currentQuestions.slice());
+        console.log(`Shuffled questions - ready to start game with ${filteredQuestions.length} questions`);
         
         // Set up game event listeners
         setupEventListeners();
+        
+        // Set currentQuestionIndex to -1 so first call to nextQuestion() starts at index 0
+        currentQuestionIndex = -1;
         
         // Start the game
         nextQuestion();
@@ -2173,7 +2180,13 @@
         return;
       }
       
+      // Increment question index and wrap around when we reach the end
       currentQuestionIndex = (currentQuestionIndex + 1) % filteredQuestions.length;
+      
+      // Debug logging to track question progression
+      console.log(`Moving to question ${currentQuestionIndex + 1} of ${filteredQuestions.length}`);
+      
+      // Get the current question
       currentQuestion = filteredQuestions[currentQuestionIndex];
       
       // Update UI with question
@@ -2193,6 +2206,10 @@
       // Calculate display time based on word count
       const wordCount = (currentQuestion.answer || "").split(/\s+/).length;
       const displayTime = Math.max(1200, wordCount * 200); // Minimum 1.2 seconds, 200ms per word
+      
+      // Debug output
+      console.log(`Current question (${currentQuestionIndex}): "${currentQuestion.answer}" - Value: $${valueDisplay}`);
+      console.log(`Word count: ${wordCount}, Display time: ${displayTime}ms`);
       
       // Start timer for reading the question
       buzzBtn.disabled = true;
@@ -2228,10 +2245,13 @@
             questionContainer.style.boxShadow = '0 0 20px #e74c3c';
           }
           
+          console.log('Buzz-in now enabled');
+          
           // Start timer for auto-reveal (2 seconds after buzz-in is enabled)
           questionTimer = setTimeout(() => {
             // Only proceed if document is visible and game hasn't ended
             if (document.visibilityState === 'visible' && !window.gameEnded && !buzzedIn) {
+              console.log('Time expired - auto revealing answer');
               // Play times up sound
               timesUpSound.play();
               
@@ -2241,6 +2261,7 @@
               // If not buzzed in, mark as pass after 2 seconds and move to next question
               setTimeout(() => {
                 if (!buzzedIn && document.visibilityState === 'visible' && !window.gameEnded) {
+                  console.log('Auto passing question');
                   scoreAnswer('pass');
                 }
               }, 2000);
@@ -2443,8 +2464,13 @@
         
         // Update stats
         currentGameStats.questionsCorrect++;
-        currentGameStats.correct++; // This was missing
-        currentGameStats.coryatScore += value;
+        stats.correct++;
+        
+        // Update coryat score (only if user buzzed in)
+        if (buzzedIn) {
+          currentGameStats.coryatScore += value;
+          stats.coryat += value;
+        }
         
         // If there is a valid buzz time, add it to the array
         if (buzzTime !== null && buzzTime >= 0 && buzzTime < 10000) {
@@ -2454,6 +2480,8 @@
         // Increment streak and update max streak
         currentGameStats.currentStreak++;
         currentGameStats.maxStreak = Math.max(currentGameStats.maxStreak, currentGameStats.currentStreak);
+        stats.streakCurrent = currentGameStats.currentStreak;
+        stats.streakLongest = Math.max(stats.streakLongest, currentGameStats.currentStreak);
       } 
       else if (result === 'incorrect') {
         // Play incorrect sound
@@ -2461,8 +2489,13 @@
         
         // Update stats
         currentGameStats.questionsIncorrect++;
-        currentGameStats.incorrect++; // This was missing
-        currentGameStats.coryatScore -= value;
+        stats.incorrect++;
+        
+        // Update coryat score (only if user buzzed in)
+        if (buzzedIn) {
+          currentGameStats.coryatScore -= value;
+          stats.coryat -= value;
+        }
         
         // If there is a valid buzz time, add it to the array
         if (buzzTime !== null && buzzTime >= 0 && buzzTime < 10000) {
@@ -2471,6 +2504,7 @@
         
         // Reset streak
         currentGameStats.currentStreak = 0;
+        stats.streakCurrent = 0;
       } 
       else { // pass
         // Play times up sound if it hasn't been played already
@@ -2480,10 +2514,11 @@
         
         // Update stats
         currentGameStats.questionsPassed++;
-        currentGameStats.passed++; // This was missing
+        stats.passed++;
         
         // Reset streak
         currentGameStats.currentStreak = 0;
+        stats.streakCurrent = 0;
       }
       
       // Update display
@@ -2492,7 +2527,10 @@
       // Save game progress
       saveGameProgress();
       
-      // Save detailed game data (just in case)
+      // Save user stats to Firebase
+      saveUserStats();
+      
+      // Save detailed game data
       saveDetailedGameData();
       
       // Move to next question after a delay
@@ -2501,7 +2539,7 @@
         if (document.visibilityState === 'visible' && !window.gameEnded) {
           nextQuestion();
         }
-      }, 2000); // Changed from 2500ms to 2000ms
+      }, 2000);
     }
     
     // Calculate average buzz time
@@ -3621,6 +3659,15 @@
       // Show the specific tab content and add 'active' class to the button
       document.getElementById(tabName).classList.add('active');
       evt.currentTarget.classList.add('active');
+    }
+
+    // Utility function to shuffle an array (for randomizing questions)
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
     }
   </script>
 </body>
