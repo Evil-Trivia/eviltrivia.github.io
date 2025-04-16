@@ -2025,34 +2025,11 @@
     function buzzIn() {
       console.log('Buzz in attempt:', buzzedIn, !!currentQuestion, !!enableBuzzInTime);
       
-      // If answer is already revealed but next question hasn't started, count as incorrect
+      // If answer is already revealed, this is a second buzz indicating INCORRECT answer
       if (!answerText.classList.contains('hidden') && currentQuestion) {
-        console.log('Buzz in after answer revealed - marking as incorrect');
-        // Add stats for an incorrect answer
-        stats.questionsAnswered++;
-        stats.incorrect++;
-        currentGameStats.questionsAnswered++;
-        currentGameStats.incorrect++;
-        
-        // Update coryat score
-        const questionValue = currentQuestion.clue_value || 200;
-        stats.coryat -= questionValue;
-        currentGameStats.coryat -= questionValue;
-        
-        // Update stats display and save to Firebase
-        updateStatsDisplay();
-        saveUserStats();
-        saveDetailedGameData();
-        
-        // Brief visual feedback
-        const questionContainer = document.querySelector('.question-container');
-        if (questionContainer) {
-          questionContainer.style.boxShadow = '0 0 20px #e74c3c'; // Red flash for wrong
-          setTimeout(() => {
-            questionContainer.style.boxShadow = '';
-          }, 1000);
-        }
-        
+        console.log('Second buzz after answer revealed - marking as incorrect');
+        // Score as incorrect
+        scoreAnswer('incorrect');
         return;
       }
       
@@ -2078,6 +2055,7 @@
         if (questionContainer) {
           questionContainer.classList.remove('buzz-ready');
           questionContainer.style.boxShadow = '0 0 20px #27ae60'; // Green glow when buzzed in
+          questionContainer.style.border = '2px solid #27ae60'; // Green border
         }
         
         // Calculate buzz time - ONLY if the answer is not already showing
@@ -2097,22 +2075,20 @@
         buzzTimer = setTimeout(() => {
           revealAnswer();
           
-          // After revealing, wait for another buzz to score as correct
+          // After revealing, wait for another buzz to score as incorrect
           // or auto-score as correct after a timeout
           setTimeout(() => {
-            if (buzzedIn) {
+            if (buzzedIn && document.visibilityState === 'visible' && !window.gameEnded) {
+              // If no second buzz-in during answer display, consider it correct
               scoreAnswer('correct');
             }
-          }, 4000); // Auto-proceed after 4 seconds if user doesn't buzz again
+          }, 2000); // Auto-proceed after 2 seconds if user doesn't buzz again
           
         }, 2000);
         
         // Immediately save data to ensure buzz is recorded
         saveUserStats();
         saveDetailedGameData();
-      } else if (buzzedIn && !answerText.classList.contains('hidden')) {
-        // If already buzzed in and answer is showing, treat this as confirming the answer is correct
-        scoreAnswer('correct');
       } else {
         console.log('Buzz in rejected:', 
                    'Already buzzed in:', buzzedIn, 
@@ -2217,7 +2193,7 @@
       
       // Calculate display time based on word count
       const wordCount = (currentQuestion.answer || "").split(/\s+/).length;
-      const displayTime = Math.max(1000, wordCount * 200); // Minimum 1 second, 200ms per word
+      const displayTime = Math.max(1200, wordCount * 200); // Minimum 1200ms (changed from 1000ms), 200ms per word
       
       // Start timer for reading the question
       buzzBtn.disabled = true;
@@ -2246,14 +2222,15 @@
           // Add a timer animation to indicate buzz-in is available
           buzzBtn.classList.add('buzz-ready');
           
-          // Add buzz-ready to question container with stronger visual indication
+          // Add buzz-ready to question container with red border visual indication
           if (questionContainer) {
             questionContainer.classList.add('buzz-ready');
-            // Add additional visual feedback
-            questionContainer.style.boxShadow = '0 0 20px #FFCC33';
+            // Change to red border as specified in requirements
+            questionContainer.style.boxShadow = '0 0 20px #e74c3c'; // Red glow
+            questionContainer.style.border = '2px solid #e74c3c'; // Red border
           }
           
-          // Start timer for auto-reveal (8 seconds after buzz-in is enabled)
+          // Start timer for auto-reveal (2000ms after buzz-in is enabled, changed from 8000ms)
           questionTimer = setTimeout(() => {
             // Only proceed if document is visible and game hasn't ended
             if (document.visibilityState === 'visible' && !window.gameEnded) {
@@ -2263,14 +2240,14 @@
               // Reveal answer automatically
               revealAnswer();
               
-              // If not buzzed in, wait 2 seconds and then move to next question
+              // If not buzzed in, wait 2000ms and then move to next question
               setTimeout(() => {
                 if (!buzzedIn && document.visibilityState === 'visible' && !window.gameEnded) {
                   scoreAnswer('pass');
                 }
               }, 2000);
             }
-          }, 8000);
+          }, 2000); // Changed from 8000ms to 2000ms per requirements
         }
       }, displayTime);
     }
@@ -2442,9 +2419,11 @@
       // Clear any timers
       if (questionTimer) {
         clearTimeout(questionTimer);
+        questionTimer = null;
       }
       if (buzzTimer) {
         clearTimeout(buzzTimer);
+        buzzTimer = null;
       }
       
       // Determine buzz time and value
@@ -2452,8 +2431,8 @@
       let buzzTime = null;
       
       // Calculate buzz time if user buzzed in
-      if (result !== 'pass' && buzzInTime !== null && enableBuzzInTime !== null) {
-        buzzTime = buzzInTime - enableBuzzInTime;
+      if (result !== 'pass' && buzzInTime !== null) {
+        buzzTime = buzzInTime;
       }
       
       // Save the individual question data
@@ -2462,13 +2441,22 @@
       // Update current game stats
       currentGameStats.questionsAnswered++;
       
+      const questionContainer = document.querySelector('.question-container');
+      
       if (result === 'correct') {
         // Play correct sound
         correctSound.play();
         
         // Update stats
         currentGameStats.questionsCorrect++;
+        currentGameStats.correct++; // Fix: update both stats locations
         currentGameStats.coryatScore += value;
+        
+        // Visual feedback for correct answer
+        if (questionContainer) {
+          questionContainer.style.boxShadow = '0 0 20px #27ae60'; // Green glow
+          questionContainer.style.border = '2px solid #27ae60'; // Green border
+        }
         
         // If there is a valid buzz time, add it to the array
         if (buzzTime !== null && buzzTime >= 0 && buzzTime < 10000) {
@@ -2485,7 +2473,14 @@
         
         // Update stats
         currentGameStats.questionsIncorrect++;
+        currentGameStats.incorrect++; // Fix: update both stats locations
         currentGameStats.coryatScore -= value;
+        
+        // Visual feedback for incorrect answer
+        if (questionContainer) {
+          questionContainer.style.boxShadow = '0 0 20px #e74c3c'; // Red glow
+          questionContainer.style.border = '2px solid #e74c3c'; // Red border
+        }
         
         // If there is a valid buzz time, add it to the array
         if (buzzTime !== null && buzzTime >= 0 && buzzTime < 10000) {
@@ -2503,6 +2498,13 @@
         
         // Update stats
         currentGameStats.questionsPassed++;
+        currentGameStats.passed++; // Fix: update both stats locations
+        
+        // Visual feedback for pass
+        if (questionContainer) {
+          questionContainer.style.boxShadow = '0 0 20px #95a5a6'; // Gray glow
+          questionContainer.style.border = '2px solid #95a5a6'; // Gray border
+        }
         
         // Reset streak
         currentGameStats.currentStreak = 0;
@@ -2523,7 +2525,7 @@
         if (document.visibilityState === 'visible' && !window.gameEnded) {
           nextQuestion();
         }
-      }, 2500);
+      }, 2000); // Always wait 2000ms before next question
     }
     
     // Calculate average buzz time
