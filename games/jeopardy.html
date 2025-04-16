@@ -1768,6 +1768,9 @@
         currentQuestions = [];
         const gameNumbers = Object.keys(dateData);
         
+        // Create a map of categories to questions for organizing
+        const categoriesMap = {};
+        
         // Loop through each game
         for (const gameNumber of gameNumbers) {
           const gameData = dateData[gameNumber];
@@ -1775,6 +1778,11 @@
           
           // Extract all categories and questions for this game
           for (const category of categories) {
+            // Initialize category array if it doesn't exist
+            if (!categoriesMap[category]) {
+              categoriesMap[category] = [];
+            }
+            
             const categoryData = gameData[category];
             const dollarValues = Object.keys(categoryData);
             
@@ -1796,20 +1804,35 @@
                   index: index
                 };
                 
-                currentQuestions.push(question);
+                // Add to the category map
+                categoriesMap[category].push(question);
               }
             }
           }
         }
         
-        console.log(`Loaded ${currentQuestions.length} questions from ${gameNumbers.length} games on ${currentDate}`);
+        // Sort each category's questions by value (ascending order)
+        for (const category in categoriesMap) {
+          categoriesMap[category].sort((a, b) => a.clue_value - b.clue_value);
+        }
+        
+        // Now flatten the map into a structured array going through each category fully
+        // before moving to the next
+        const categories = Object.keys(categoriesMap);
+        
+        for (const category of categories) {
+          // Add all questions from this category to our final array
+          currentQuestions = currentQuestions.concat(categoriesMap[category]);
+        }
+        
+        console.log(`Organized ${currentQuestions.length} questions from ${gameNumbers.length} games on ${currentDate}`);
+        console.log(`Questions are organized by category (${categories.length} categories)`);
         
         // Show game play
         gamePlaySection.style.display = 'block';
         
-        // Initialize game with all questions and shuffle them for variety
-        filteredQuestions = shuffleArray(currentQuestions.slice());
-        console.log(`Shuffled questions - ready to start game with ${filteredQuestions.length} questions`);
+        // Initialize game with organized questions (NOT shuffled)
+        filteredQuestions = currentQuestions.slice();
         
         // Set up game event listeners
         setupEventListeners();
@@ -2176,7 +2199,7 @@
       buzzBtn.classList.remove('buzz-ready');
       buzzBtn.classList.remove('buzzed-in');
       
-      // Get a random question from filtered questions
+      // Get the next question from filtered questions
       if (filteredQuestions.length === 0) {
         questionText.textContent = "No questions available for the selected date. Please select a different date.";
         questionCategory.textContent = "ERROR";
@@ -2188,7 +2211,12 @@
       currentQuestionIndex = (currentQuestionIndex + 1) % filteredQuestions.length;
       
       // Debug logging to track question progression
+      const currentCategory = filteredQuestions[currentQuestionIndex].category;
+      const nextIndex = (currentQuestionIndex + 1) % filteredQuestions.length;
+      const nextCategory = filteredQuestions[nextIndex].category;
+      
       console.log(`Moving to question ${currentQuestionIndex + 1} of ${filteredQuestions.length}`);
+      console.log(`Current category: ${currentCategory}, Next category: ${nextCategory}`);
       
       // Get the current question
       currentQuestion = filteredQuestions[currentQuestionIndex];
@@ -2439,12 +2467,20 @@
         return;
       }
       
+      console.log(`Scoring answer as ${result} for question ${currentQuestionIndex}`);
+      
       // Clear any timers
       if (questionTimer) {
         clearTimeout(questionTimer);
+        questionTimer = null;
       }
       if (buzzTimer) {
         clearTimeout(buzzTimer);
+        buzzTimer = null;
+      }
+      if (displayTimer) {
+        clearTimeout(displayTimer);
+        displayTimer = null;
       }
       
       // Determine buzz time and value
@@ -2543,10 +2579,14 @@
       // Save detailed game data
       saveDetailedGameData();
       
+      // Keep track of the original state
+      const originalQuestionIndex = currentQuestionIndex;
+      
       // Move to next question after a delay
       setTimeout(() => {
         // Only proceed if document is visible and game hasn't ended
         if (document.visibilityState === 'visible' && !window.gameEnded) {
+          console.log(`Moving from question ${originalQuestionIndex} to next question`);
           nextQuestion();
         }
       }, 2000);
