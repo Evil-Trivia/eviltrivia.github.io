@@ -564,6 +564,16 @@
           Saving to: primary database path
         </div>
         
+        <div class="global-settings" style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
+          <h3>Completion Message</h3>
+          <p>Edit the message that appears when users solve all puzzles:</p>
+          <div class="form-group">
+            <textarea id="completion-message" rows="3" style="width: 100%;" placeholder="Congratulations! You've completed all puzzles!"></textarea>
+          </div>
+          <button id="save-completion-message" class="btn">Save Message</button>
+          <span id="completion-save-indicator" class="save-indicator">Message saved!</span>
+        </div>
+        
         <table id="puzzles-table">
           <thead>
             <tr>
@@ -818,7 +828,7 @@
       // Load all tabs' data
       loadPuzzles();
       loadPlayers();
-      loadSettings();
+      loadCompletionMessage();
       
       // Set up tab switching
       tabPuzzles.addEventListener('click', () => {
@@ -888,6 +898,11 @@
       // Add puzzle button
       document.getElementById('add-puzzle-btn').addEventListener('click', () => {
         addNewPuzzleDirectly();
+      });
+      
+      // Completion message save button
+      document.getElementById('save-completion-message').addEventListener('click', () => {
+        saveCompletionMessage();
       });
     });
     
@@ -1366,52 +1381,57 @@
       }
     }
     
-    // Load settings
-    async function loadSettings() {
+    // Load completion message
+    async function loadCompletionMessage() {
       try {
-        // Try to get total puzzles count
-        const result = await fetchFromPaths(Object.values(DB_PATHS), 'totalPuzzles');
+        const result = await fetchFromPaths(Object.values(DB_PATHS), 'completionMessage');
         
-        if (result.data !== null && !isNaN(parseInt(result.data))) {
-          totalPuzzlesInput.value = result.data;
+        const completionMessageField = document.getElementById('completion-message');
+        if (result.data) {
+          completionMessageField.value = result.data;
         } else {
-          // Default to 10 if not set
-          totalPuzzlesInput.value = 10;
+          // Default message
+          completionMessageField.value = "Congratulations! You've completed all the puzzles!";
         }
       } catch (error) {
-        console.error('Error loading settings:', error);
-        totalPuzzlesInput.value = 10;
+        console.error('Error loading completion message:', error);
       }
     }
     
-    // Save settings
-    async function saveSettings() {
-      const totalPuzzles = parseInt(totalPuzzlesInput.value);
-      
-      // Validate
-      if (isNaN(totalPuzzles) || totalPuzzles < 1 || totalPuzzles > 20) {
-        totalPuzzlesError.classList.remove('hidden');
-        return;
-      }
-      
-      totalPuzzlesError.classList.add('hidden');
-      
-      // Save to database
-      const result = await saveToDatabase(
-        Object.values(DB_PATHS),
-        'totalPuzzles',
-        totalPuzzles,
-        'PUT'
-      );
-      
-      if (result.success) {
-        // Show save indicator
-        settingsSaveIndicator.classList.add('show');
-        setTimeout(() => {
-          settingsSaveIndicator.classList.remove('show');
-        }, 2000);
-      } else {
-        alert('Error saving settings. Please try again.');
+    // Save completion message
+    async function saveCompletionMessage() {
+      try {
+        const completionMessageField = document.getElementById('completion-message');
+        const message = completionMessageField.value.trim();
+        
+        if (!message) {
+          showFeedback('Please enter a completion message.', 'error');
+          return;
+        }
+        
+        // Save to database
+        const result = await saveToDatabase(
+          Object.values(DB_PATHS),
+          'completionMessage',
+          message,
+          'PUT'
+        );
+        
+        if (result.success) {
+          // Show save indicator
+          const saveIndicator = document.getElementById('completion-save-indicator');
+          saveIndicator.classList.add('show');
+          setTimeout(() => {
+            saveIndicator.classList.remove('show');
+          }, 2000);
+          
+          showSuccessToast('Completion message saved!');
+        } else {
+          showFeedback('Error saving completion message. Please try again.', 'error');
+        }
+      } catch (error) {
+        console.error('Error saving completion message:', error);
+        showFeedback('Error saving completion message: ' + error.message, 'error');
       }
     }
     

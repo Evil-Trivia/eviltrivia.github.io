@@ -996,10 +996,37 @@
       screenPuzzle.classList.add('hidden');
       screenComplete.classList.remove('hidden');
       
-      completionMessage.textContent = `Congrats ${userName || 'friend'}! You've solved all the puzzles!`;
+      // Fetch custom completion message if available
+      fetchCompletionMessage().then(message => {
+        document.getElementById('completion-message').textContent = message || `Congrats ${userName || 'friend'}! You've solved all the puzzles!`;
+      });
       
       // Trigger confetti
       startConfetti();
+    }
+    
+    // Fetch the custom completion message from the database
+    async function fetchCompletionMessage() {
+      try {
+        // Try primary path
+        let response = await fetch(`${DB_URL}/wedding/completionMessage.json`);
+        
+        // If primary failed, try backup path
+        if (!response || !response.ok) {
+          response = await fetch(`${DB_URL}/publicAnswers/wedding/completionMessage.json`);
+        }
+        
+        if (response && response.ok) {
+          const message = await response.json();
+          if (message && typeof message === 'string') {
+            return message;
+          }
+        }
+        return null;
+      } catch (error) {
+        console.warn('Could not load completion message:', error);
+        return null;
+      }
     }
     
     // Registration form submission - completely rebuilt without any Firebase Auth
