@@ -20,7 +20,7 @@
     }
     
     .container {
-      max-width: 600px;
+      max-width: 800px;
       width: 90%;
       margin: 0 auto;
     }
@@ -196,6 +196,32 @@
       transform: scale(1.02);
     }
     
+    .clue-gallery {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+      justify-content: center;
+    }
+    
+    .clue-gallery img {
+      max-width: calc(50% - 10px);
+      max-height: 200px;
+      object-fit: contain;
+      border-radius: 4px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      transition: all 0.3s ease;
+    }
+    
+    .clue-gallery img:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    
+    .clue-gallery img:only-child {
+      max-width: 100%;
+    }
+    
     .hint-toast {
       position: fixed;
       bottom: 20px;
@@ -253,7 +279,7 @@
     
     .navigation-controls {
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-start;
       margin-bottom: 20px;
     }
     
@@ -275,13 +301,45 @@
       font-size: 1.1em;
     }
     
-    @media (max-width: 400px) {
+    .clue-content {
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+    
+    .clue-content img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+    
+    .clue-content ul, .clue-content ol {
+      padding-left: 25px;
+      margin: 10px 0;
+    }
+    
+    @media (max-width: 600px) {
       .container {
-        padding: 10px;
+        width: 95%;
+        padding: 0;
       }
       
       .card {
-        padding: 20px;
+        padding: 20px 15px;
+      }
+      
+      h1 {
+        font-size: 1.7rem;
+        margin-bottom: 20px;
+      }
+      
+      h2 {
+        font-size: 1.3rem;
+      }
+      
+      .clue-gallery img {
+        max-width: 100%;
+        margin-bottom: 10px;
       }
       
       .navigation-controls {
@@ -291,6 +349,17 @@
       
       .btn-nav {
         width: 100%;
+      }
+      
+      input[type="text"], 
+      input[type="email"] {
+        padding: 10px;
+        font-size: 15px;
+      }
+      
+      .btn {
+        padding: 10px 16px;
+        font-size: 15px;
       }
     }
   </style>
@@ -339,8 +408,6 @@
       <div id="screen-puzzle" class="hidden">
         <div class="navigation-controls">
           <button id="prev-puzzle-btn" class="btn btn-nav">← Previous</button>
-          <span id="puzzle-number-display">1 / 10</span>
-          <button id="next-puzzle-btn" class="btn btn-nav hidden">Next →</button>
         </div>
         
         <h2 id="puzzle-name">Puzzle #1</h2>
@@ -350,8 +417,8 @@
         </div>
         
         <div id="clue-container">
-          <p id="clue-text">Loading clue...</p>
-          <img id="clue-image" class="clue-image hidden" src="" alt="Puzzle Clue">
+          <div id="clue-content" class="clue-content"></div>
+          <div id="clue-gallery" class="clue-gallery hidden"></div>
         </div>
         
         <form id="answer-form">
@@ -394,7 +461,6 @@
     const infoForm = document.getElementById('info-form');
     const answerForm = document.getElementById('answer-form');
     const puzzleName = document.getElementById('puzzle-name');
-    const puzzleNumberDisplay = document.getElementById('puzzle-number-display');
     const clueText = document.getElementById('clue-text');
     const clueImage = document.getElementById('clue-image');
     const completionMessage = document.getElementById('completion-message');
@@ -574,7 +640,8 @@
           puzzleData = {
             name: `Puzzle ${puzzleNum}`,
             clue: `Puzzle ${puzzleNum} - Unable to load data. Please try again later.`,
-            imageUrl: null,
+            clueHtml: '',
+            imageUrls: [],
             answers: [{ 
               text: "answer",
               questionText: "Your Answer:"
@@ -593,17 +660,41 @@
           delete puzzleData.answer;
         }
         
+        // Convert single imageUrl to imageUrls array if needed
+        if (puzzleData.imageUrl && !puzzleData.imageUrls) {
+          puzzleData.imageUrls = puzzleData.imageUrl ? [puzzleData.imageUrl] : [];
+        }
+        
         // Update puzzle name or use default
         puzzleName.textContent = puzzleData.name || `Puzzle #${puzzleNum}`;
-        puzzleNumberDisplay.textContent = `${puzzleNum} / ${totalPuzzles}`;
-        clueText.textContent = puzzleData.clue || 'No clue provided';
         
-        // Handle image if present
-        if (puzzleData.imageUrl) {
-          clueImage.src = puzzleData.imageUrl;
-          clueImage.classList.remove('hidden');
+        // Display clue content - prefer HTML content if available
+        const clueContent = document.getElementById('clue-content');
+        if (puzzleData.clueHtml) {
+          clueContent.innerHTML = puzzleData.clueHtml;
         } else {
-          clueImage.classList.add('hidden');
+          clueContent.textContent = puzzleData.clue || 'No clue provided';
+        }
+        
+        // Handle images
+        const clueGallery = document.getElementById('clue-gallery');
+        if (puzzleData.imageUrls && puzzleData.imageUrls.length > 0) {
+          // Clear gallery
+          clueGallery.innerHTML = '';
+          
+          // Add all images
+          puzzleData.imageUrls.forEach(url => {
+            if (url && url.trim()) {
+              const img = document.createElement('img');
+              img.src = url.trim();
+              img.alt = "Puzzle Clue";
+              clueGallery.appendChild(img);
+            }
+          });
+          
+          clueGallery.classList.remove('hidden');
+        } else {
+          clueGallery.classList.add('hidden');
         }
         
         // Generate answer fields
@@ -655,7 +746,7 @@
         puzzleData = {
           name: `Puzzle ${puzzleNum}`,
           clue: `Puzzle ${puzzleNum} - Unable to load data. Please try again later.`,
-          imageUrl: null,
+          imageUrls: [],
           answers: [{
             text: "answer",
             questionText: "Your Answer:"
@@ -663,9 +754,8 @@
         };
         
         puzzleName.textContent = puzzleData.name;
-        puzzleNumberDisplay.textContent = `${puzzleNum} / ${totalPuzzles}`;
-        clueText.textContent = puzzleData.clue;
-        clueImage.classList.add('hidden');
+        document.getElementById('clue-content').textContent = puzzleData.clue;
+        document.getElementById('clue-gallery').classList.add('hidden');
         
         // Generate single answer field
         answersContainer.innerHTML = '';
@@ -699,10 +789,6 @@
     function updateNavigationButtons(puzzleNum) {
       // Previous button is always visible except on first puzzle
       prevPuzzleBtn.classList.toggle('hidden', puzzleNum <= 1);
-      
-      // Next button is only visible for solved puzzles
-      const isCurrentPuzzleSolved = solvedPuzzles[puzzleNum];
-      nextPuzzleBtn.classList.toggle('hidden', !isCurrentPuzzleSolved || puzzleNum >= totalPuzzles);
     }
     
     // Display completion screen

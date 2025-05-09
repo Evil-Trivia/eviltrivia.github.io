@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Wedding Admin</title>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <!-- Add rich text editor dependencies -->
+  <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+  <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
   <style>
     body {
       font-family: 'Roboto', Arial, sans-serif;
@@ -15,7 +18,7 @@
     }
     
     .container {
-      max-width: 1000px;
+      max-width: 1200px;
       margin: 40px auto;
       padding: 20px;
     }
@@ -370,6 +373,150 @@
       border-radius: 8px;
     }
     
+    .image-gallery {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    
+    .image-item {
+      position: relative;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #f9f9f9;
+      width: calc(50% - 10px);
+      box-sizing: border-box;
+    }
+    
+    .image-item input {
+      width: 100%;
+      margin-bottom: 5px;
+    }
+    
+    .image-item img {
+      max-width: 100%;
+      max-height: 100px;
+      display: block;
+      margin: 5px auto;
+      border-radius: 4px;
+    }
+    
+    .image-item .image-preview-error {
+      color: #f44336;
+      font-size: 12px;
+      text-align: center;
+      padding: 5px;
+    }
+    
+    .add-image-btn {
+      margin-top: 10px;
+      padding: 8px 12px;
+      background-color: #e0e0e0;
+      color: #333;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .add-image-btn:hover {
+      background-color: #bdbdbd;
+    }
+    
+    .remove-image-btn {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: #ff5252;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    
+    .remove-image-btn:hover {
+      background: #ff1744;
+    }
+    
+    .editor-container {
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    
+    .ql-editor {
+      min-height: 150px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .ql-toolbar.ql-snow {
+      border-top-left-radius: 4px;
+      border-top-right-radius: 4px;
+      background-color: #f9f9f9;
+    }
+    
+    .clue-preview {
+      margin-top: 10px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: white;
+    }
+    
+    .preview-title {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+    
+    .image-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 1100;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    
+    .image-modal.visible {
+      opacity: 1;
+      display: flex;
+    }
+    
+    .image-modal-content {
+      background-color: white;
+      padding: 30px;
+      border-radius: 8px;
+      max-width: 800px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+      transform: translateY(20px);
+      transition: transform 0.3s ease;
+    }
+    
+    .image-modal.visible .image-modal-content {
+      transform: translateY(0);
+    }
+    
     @media (max-width: 768px) {
       .tab-nav {
         flex-direction: column;
@@ -379,6 +526,23 @@
         width: 100%;
         text-align: left;
         margin-bottom: 5px;
+      }
+      
+      .image-item {
+        width: 100%;
+      }
+      
+      .container {
+        padding: 10px;
+        margin: 10px auto;
+      }
+      
+      .card {
+        padding: 15px;
+      }
+      
+      table th, table td {
+        padding: 8px;
       }
     }
   </style>
@@ -406,8 +570,8 @@
             <tr>
               <th style="width: 5%;">#</th>
               <th style="width: 15%;">Name</th>
-              <th style="width: 40%;">Clue</th>
-              <th style="width: 10%;">Image URL</th>
+              <th style="width: 30%;">Clue</th>
+              <th style="width: 20%;">Images</th>
               <th style="width: 30%;">Answers</th>
             </tr>
           </thead>
@@ -498,6 +662,49 @@
     </div>
   </div>
   
+  <!-- Image Edit Modal -->
+  <div id="image-modal" class="image-modal">
+    <div class="image-modal-content">
+      <div class="modal-header">
+        <h3>Edit Images</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      
+      <div id="images-container" class="image-gallery">
+        <!-- Image fields will be added here -->
+      </div>
+      
+      <button id="add-image-btn" class="add-image-btn">+ Add Another Image</button>
+      
+      <div style="margin-top: 20px; text-align: right;">
+        <button id="save-images-btn" class="btn">Save Images</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Rich Text Edit Modal -->
+  <div id="richtext-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Edit Clue Content</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      
+      <div class="editor-container">
+        <div id="richtext-editor"></div>
+      </div>
+      
+      <div class="clue-preview">
+        <div class="preview-title">Preview:</div>
+        <div id="richtext-preview"></div>
+      </div>
+      
+      <div style="margin-top: 20px; text-align: right;">
+        <button id="save-richtext-btn" class="btn">Save Content</button>
+      </div>
+    </div>
+  </div>
+  
   <script>
     // Firebase DB URL
     const DB_URL = "https://eviltrivia-47664-default-rtdb.firebaseio.com";
@@ -538,10 +745,22 @@
     const addAnswerBtn = document.getElementById('add-answer-btn');
     const saveAnswersBtn = document.getElementById('save-answers-btn');
     
+    const imageModal = document.getElementById('image-modal');
+    const imagesContainer = document.getElementById('images-container');
+    const addImageBtn = document.getElementById('add-image-btn');
+    const saveImagesBtn = document.getElementById('save-images-btn');
+    
+    const richtextModal = document.getElementById('richtext-modal');
+    const richtextPreview = document.getElementById('richtext-preview');
+    const saveRichtextBtn = document.getElementById('save-richtext-btn');
+    
     const totalPuzzlesInput = document.getElementById('total-puzzles');
     const saveSettingsBtn = document.getElementById('save-settings-btn');
     const settingsSaveIndicator = document.getElementById('settings-save-indicator');
     const totalPuzzlesError = document.getElementById('total-puzzles-error');
+    
+    // Rich text editor
+    let quill;
     
     // Store timeouts for debounced saves
     const saveTimeouts = {};
@@ -550,9 +769,11 @@
     let successfulPuzzlePath = null;
     let successfulPlayersPath = null;
     
-    // Store current answers being edited
+    // Store current items being edited
     let currentPuzzleBeingEdited = null;
     let currentAnswers = [];
+    let currentImages = [];
+    let currentClueHtml = '';
     
     // Helper function to format date
     function formatDate(timestamp) {
@@ -585,6 +806,28 @@
     
     // Load data when page loads
     document.addEventListener('DOMContentLoaded', function() {
+      // Initialize rich text editor
+      quill = new Quill('#richtext-editor', {
+        theme: 'snow',
+        modules: {
+          toolbar: [
+            ['bold', 'italic', 'underline', 'strike'],
+            ['blockquote', 'code-block'],
+            [{ 'header': 1 }, { 'header': 2 }],
+            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+            [{ 'color': [] }, { 'background': [] }],
+            [{ 'align': [] }],
+            ['link', 'image'],
+            ['clean']
+          ]
+        }
+      });
+      
+      // Update preview when editor content changes
+      quill.on('text-change', function() {
+        richtextPreview.innerHTML = quill.root.innerHTML;
+      });
+      
       // Load all tabs' data
       loadPuzzles();
       loadPlayers();
@@ -626,15 +869,23 @@
         playerDetails.classList.add('hidden');
       });
       
-      // Set up modal close
-      document.querySelector('.modal-close').addEventListener('click', () => {
-        closeModal();
+      // Set up modal closing
+      document.querySelectorAll('.modal-close').forEach(closeBtn => {
+        closeBtn.addEventListener('click', function() {
+          closeAllModals();
+        });
       });
       
-      // Close modal when clicking outside
-      answerModal.addEventListener('click', (e) => {
+      // Close modals when clicking outside
+      window.addEventListener('click', (e) => {
         if (e.target === answerModal) {
-          closeModal();
+          closeModal(answerModal);
+        }
+        if (e.target === imageModal) {
+          closeModal(imageModal);
+        }
+        if (e.target === richtextModal) {
+          closeModal(richtextModal);
         }
       });
       
@@ -643,9 +894,22 @@
         addAnswerField({ text: '', questionText: '' });
       });
       
-      // Save answers button
+      // Add image button
+      addImageBtn.addEventListener('click', () => {
+        addImageField({ url: '' });
+      });
+      
+      // Save buttons
       saveAnswersBtn.addEventListener('click', () => {
         saveAnswers();
+      });
+      
+      saveImagesBtn.addEventListener('click', () => {
+        saveImages();
+      });
+      
+      saveRichtextBtn.addEventListener('click', () => {
+        saveRichtext();
       });
       
       // Save settings button
@@ -727,7 +991,7 @@
         
         // For numbered entries (1-10), order by number
         let keys = Object.keys(puzzlesData)
-          .filter(key => !isNaN(parseInt(key)))
+          .filter(key => !isNaN(parseInt(key)) && parseInt(key) > 0) // Exclude puzzle 0
           .map(key => parseInt(key))
           .sort((a, b) => a - b);
         
@@ -740,7 +1004,8 @@
             defaultPuzzles[i] = {
               name: `Puzzle #${i}`,
               clue: '',
-              imageUrl: '',
+              clueHtml: '',
+              imageUrls: [],
               answers: [{ text: '', questionText: 'Your Answer:' }]
             };
           }
@@ -767,7 +1032,8 @@
           // Initialize puzzleData if it's null or undefined
           const puzzleData = puzzlesData[puzzleNum] || { 
             clue: '',
-            imageUrl: '',
+            clueHtml: '',
+            imageUrls: [],
             answers: [{ text: '', questionText: 'Your Answer:' }],
             name: `Puzzle #${puzzleNum}`
           };
@@ -783,6 +1049,11 @@
               questionText: 'Your Answer:'
             }];
             delete puzzleData.answer;
+          }
+          
+          // Convert single imageUrl to imageUrls array if needed
+          if (puzzleData.imageUrl && !puzzleData.imageUrls) {
+            puzzleData.imageUrls = puzzleData.imageUrl ? [puzzleData.imageUrl] : [];
           }
           
           // Add puzzle number cell
@@ -804,26 +1075,105 @@
           
           // Add clue cell
           const clueCell = document.createElement('td');
-          const clueTextarea = document.createElement('textarea');
-          clueTextarea.value = puzzleData.clue || '';
-          clueTextarea.placeholder = 'Enter clue here...';
-          clueTextarea.addEventListener('input', debounce(() => {
-            savePuzzleField(puzzleNum, 'clue', clueTextarea.value);
-          }, 1000));
-          clueCell.appendChild(clueTextarea);
+          
+          // If we have HTML content, display it
+          if (puzzleData.clueHtml) {
+            const cluePreview = document.createElement('div');
+            cluePreview.className = 'clue-preview';
+            cluePreview.innerHTML = puzzleData.clueHtml;
+            
+            const editBtn = document.createElement('button');
+            editBtn.className = 'btn btn-icon';
+            editBtn.textContent = 'Edit';
+            editBtn.style.marginTop = '10px';
+            editBtn.addEventListener('click', () => {
+              openRichtextModal(puzzleNum, puzzleData.clueHtml || '');
+            });
+            
+            clueCell.appendChild(cluePreview);
+            clueCell.appendChild(editBtn);
+          } else {
+            // Fallback to plain text area
+            const clueTextarea = document.createElement('textarea');
+            clueTextarea.value = puzzleData.clue || '';
+            clueTextarea.placeholder = 'Enter clue here...';
+            clueTextarea.addEventListener('input', debounce(() => {
+              savePuzzleField(puzzleNum, 'clue', clueTextarea.value);
+            }, 1000));
+            
+            const convertBtn = document.createElement('button');
+            convertBtn.className = 'btn btn-secondary';
+            convertBtn.textContent = 'Use Rich Editor';
+            convertBtn.style.marginTop = '10px';
+            convertBtn.style.width = 'auto';
+            convertBtn.addEventListener('click', () => {
+              openRichtextModal(puzzleNum, puzzleData.clue || '');
+            });
+            
+            clueCell.appendChild(clueTextarea);
+            clueCell.appendChild(convertBtn);
+          }
+          
           row.appendChild(clueCell);
           
-          // Add image URL cell
-          const imageCell = document.createElement('td');
-          const imageInput = document.createElement('input');
-          imageInput.type = 'text';
-          imageInput.value = puzzleData.imageUrl || '';
-          imageInput.placeholder = 'Image URL (optional)';
-          imageInput.addEventListener('input', debounce(() => {
-            savePuzzleField(puzzleNum, 'imageUrl', imageInput.value);
-          }, 1000));
-          imageCell.appendChild(imageInput);
-          row.appendChild(imageCell);
+          // Add images cell
+          const imagesCell = document.createElement('td');
+          
+          // Make sure puzzleData.imageUrls exists
+          if (!puzzleData.imageUrls) {
+            puzzleData.imageUrls = [];
+          }
+          
+          // Show image thumbnails if available
+          if (puzzleData.imageUrls.length > 0) {
+            const imageGallery = document.createElement('div');
+            imageGallery.className = 'image-gallery';
+            imageGallery.style.flexDirection = 'column';
+            
+            // Show up to 2 thumbnails
+            const maxThumbnails = Math.min(2, puzzleData.imageUrls.length);
+            
+            for (let i = 0; i < maxThumbnails; i++) {
+              const thumbnail = document.createElement('img');
+              thumbnail.src = puzzleData.imageUrls[i];
+              thumbnail.style.maxHeight = '60px';
+              thumbnail.style.maxWidth = '100%';
+              thumbnail.style.objectFit = 'contain';
+              thumbnail.style.margin = '5px 0';
+              imageGallery.appendChild(thumbnail);
+            }
+            
+            // Show count if more than shown
+            if (puzzleData.imageUrls.length > maxThumbnails) {
+              const countLabel = document.createElement('div');
+              countLabel.textContent = `+ ${puzzleData.imageUrls.length - maxThumbnails} more`;
+              countLabel.style.fontSize = '12px';
+              countLabel.style.fontStyle = 'italic';
+              countLabel.style.marginTop = '5px';
+              imageGallery.appendChild(countLabel);
+            }
+            
+            imagesCell.appendChild(imageGallery);
+          } else {
+            const noImageText = document.createElement('span');
+            noImageText.textContent = 'No images';
+            noImageText.style.fontSize = '14px';
+            noImageText.style.color = '#666';
+            noImageText.style.fontStyle = 'italic';
+            imagesCell.appendChild(noImageText);
+          }
+          
+          // Add edit button
+          const editImagesBtn = document.createElement('button');
+          editImagesBtn.className = 'btn btn-icon';
+          editImagesBtn.textContent = 'Edit';
+          editImagesBtn.style.marginTop = '10px';
+          editImagesBtn.addEventListener('click', () => {
+            openImageModal(puzzleNum, puzzleData.imageUrls || []);
+          });
+          
+          imagesCell.appendChild(editImagesBtn);
+          row.appendChild(imagesCell);
           
           // Add answers cell
           const answersCell = document.createElement('td');
@@ -1132,18 +1482,66 @@
       }
       
       // Show the modal
-      answerModal.style.display = 'flex';
-      setTimeout(() => {
-        answerModal.classList.add('visible');
-      }, 10);
+      openModal(answerModal);
     }
     
-    // Close the answers modal
-    function closeModal() {
-      answerModal.classList.remove('visible');
+    // Open the images modal
+    function openImageModal(puzzleNum, imageUrls) {
+      currentPuzzleBeingEdited = puzzleNum;
+      currentImages = [...(imageUrls || [])];
+      
+      // Clear the container
+      imagesContainer.innerHTML = '';
+      
+      // Add fields for each image
+      if (currentImages && currentImages.length > 0) {
+        currentImages.forEach(url => {
+          addImageField({ url });
+        });
+      } else {
+        // Add at least one empty image field
+        addImageField({ url: '' });
+      }
+      
+      // Show the modal
+      openModal(imageModal);
+    }
+    
+    // Open the richtext modal
+    function openRichtextModal(puzzleNum, content) {
+      currentPuzzleBeingEdited = puzzleNum;
+      
+      // Set editor content
+      quill.root.innerHTML = content;
+      
+      // Update preview
+      richtextPreview.innerHTML = content;
+      
+      // Show the modal
+      openModal(richtextModal);
+    }
+    
+    // Close all modals
+    function closeAllModals() {
+      closeModal(answerModal);
+      closeModal(imageModal);
+      closeModal(richtextModal);
+    }
+    
+    // Close a specific modal
+    function closeModal(modal) {
+      modal.classList.remove('visible');
       setTimeout(() => {
-        answerModal.style.display = 'none';
+        modal.style.display = 'none';
       }, 300);
+    }
+    
+    // Open a specific modal
+    function openModal(modal) {
+      modal.style.display = 'flex';
+      setTimeout(() => {
+        modal.classList.add('visible');
+      }, 10);
     }
     
     // Add an answer field to the modal
@@ -1208,6 +1606,86 @@
       answerTextInput.focus();
     }
     
+    // Add an image field to the modal
+    function addImageField(image = {}) {
+      const imageItem = document.createElement('div');
+      imageItem.className = 'image-item';
+      
+      // Image URL field
+      const urlLabel = document.createElement('label');
+      urlLabel.textContent = 'Image URL:';
+      
+      const urlInput = document.createElement('input');
+      urlInput.type = 'text';
+      urlInput.className = 'image-url';
+      urlInput.value = (image && image.url) || '';
+      urlInput.placeholder = 'Enter image URL here';
+      
+      // Preview section
+      const preview = document.createElement('div');
+      preview.className = 'image-preview';
+      
+      // Check if URL is valid and show preview
+      const updatePreview = () => {
+        const url = urlInput.value.trim();
+        
+        // Clear existing content
+        preview.innerHTML = '';
+        
+        if (url) {
+          // Try to load image
+          const img = document.createElement('img');
+          const errorMsg = document.createElement('div');
+          errorMsg.className = 'image-preview-error';
+          errorMsg.textContent = 'Could not load image';
+          
+          img.onload = () => {
+            // Image loaded successfully
+            preview.innerHTML = '';
+            preview.appendChild(img);
+          };
+          
+          img.onerror = () => {
+            // Image failed to load
+            preview.innerHTML = '';
+            preview.appendChild(errorMsg);
+          };
+          
+          img.src = url;
+        }
+      };
+      
+      // Update preview on input
+      urlInput.addEventListener('input', debounce(updatePreview, 500));
+      
+      // Initial preview
+      setTimeout(updatePreview, 100);
+      
+      // Remove button
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-image-btn';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove this image';
+      removeBtn.addEventListener('click', function() {
+        imageItem.style.opacity = '0';
+        setTimeout(() => {
+          imageItem.remove();
+        }, 300);
+      });
+      
+      // Add everything to the item
+      imageItem.appendChild(removeBtn);
+      imageItem.appendChild(urlLabel);
+      imageItem.appendChild(urlInput);
+      imageItem.appendChild(preview);
+      
+      // Add item to container
+      imagesContainer.appendChild(imageItem);
+      
+      // Focus the new field
+      urlInput.focus();
+    }
+    
     // Save answers from the modal
     async function saveAnswers() {
       try {
@@ -1248,29 +1726,11 @@
         
         if (result.success) {
           // Close modal and refresh data
-          closeModal();
+          closeModal(answerModal);
           loadPuzzles();
           
           // Show a temporary success message
-          const tempMsg = document.createElement('div');
-          tempMsg.style.position = 'fixed';
-          tempMsg.style.bottom = '20px';
-          tempMsg.style.right = '20px';
-          tempMsg.style.padding = '10px 20px';
-          tempMsg.style.backgroundColor = '#4caf50';
-          tempMsg.style.color = 'white';
-          tempMsg.style.borderRadius = '4px';
-          tempMsg.style.zIndex = '9999';
-          tempMsg.textContent = 'Answers saved successfully!';
-          document.body.appendChild(tempMsg);
-          
-          setTimeout(() => {
-            tempMsg.style.opacity = '0';
-            tempMsg.style.transition = 'opacity 0.5s ease';
-            setTimeout(() => {
-              document.body.removeChild(tempMsg);
-            }, 500);
-          }, 2000);
+          showSuccessToast('Answers saved successfully!');
         } else {
           alert('Error saving answers. Please try again.');
         }
@@ -1278,6 +1738,103 @@
         console.error('Error saving answers:', error);
         alert('Error saving answers. Please try again: ' + error.message);
       }
+    }
+    
+    // Save images from the modal
+    async function saveImages() {
+      try {
+        // Collect image URLs from all fields
+        const imageItems = imagesContainer.querySelectorAll('.image-item');
+        const imageUrls = [];
+        
+        imageItems.forEach(item => {
+          try {
+            const url = item.querySelector('.image-url')?.value?.trim() || '';
+            
+            if (url) {  // Only add if there's a URL
+              imageUrls.push(url);
+            }
+          } catch (err) {
+            console.warn('Error processing image item:', err);
+          }
+        });
+        
+        // Save to database
+        const result = await saveToDatabase(
+          Object.values(DB_PATHS),
+          `answers/${currentPuzzleBeingEdited}`,
+          { imageUrls }
+        );
+        
+        if (result.success) {
+          // Close modal and refresh data
+          closeModal(imageModal);
+          loadPuzzles();
+          
+          // Show a temporary success message
+          showSuccessToast('Images saved successfully!');
+        } else {
+          alert('Error saving images. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error saving images:', error);
+        alert('Error saving images. Please try again: ' + error.message);
+      }
+    }
+    
+    // Save richtext content
+    async function saveRichtext() {
+      try {
+        // Get content from editor
+        const content = quill.root.innerHTML;
+        
+        // Save to database
+        const result = await saveToDatabase(
+          Object.values(DB_PATHS),
+          `answers/${currentPuzzleBeingEdited}`,
+          { 
+            clueHtml: content,
+            clue: quill.getText() // Also save plain text version
+          }
+        );
+        
+        if (result.success) {
+          // Close modal and refresh data
+          closeModal(richtextModal);
+          loadPuzzles();
+          
+          // Show a temporary success message
+          showSuccessToast('Clue content saved successfully!');
+        } else {
+          alert('Error saving clue content. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error saving clue content:', error);
+        alert('Error saving clue content. Please try again: ' + error.message);
+      }
+    }
+    
+    // Show a success toast message
+    function showSuccessToast(message) {
+      const tempMsg = document.createElement('div');
+      tempMsg.style.position = 'fixed';
+      tempMsg.style.bottom = '20px';
+      tempMsg.style.right = '20px';
+      tempMsg.style.padding = '10px 20px';
+      tempMsg.style.backgroundColor = '#4caf50';
+      tempMsg.style.color = 'white';
+      tempMsg.style.borderRadius = '4px';
+      tempMsg.style.zIndex = '9999';
+      tempMsg.textContent = message;
+      document.body.appendChild(tempMsg);
+      
+      setTimeout(() => {
+        tempMsg.style.opacity = '0';
+        tempMsg.style.transition = 'opacity 0.5s ease';
+        setTimeout(() => {
+          document.body.removeChild(tempMsg);
+        }, 500);
+      }, 2000);
     }
     
     // Debounce function to limit how often a function is called
