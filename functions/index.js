@@ -562,7 +562,7 @@ exports.webhookTest = functions.https.onRequest(async (req, res) => {
 
 // Callable function to check wedding puzzle answers securely
 exports.checkWeddingAnswer = functions.https.onCall(async (data, context) => {
-  // No authentication check required for wedding puzzles
+  // No authentication required for wedding puzzles
   
   // Validate input data
   if (!data.puzzle || !data.answer) {
@@ -592,8 +592,8 @@ exports.checkWeddingAnswer = functions.https.onCall(async (data, context) => {
     const isCorrect = userAnswer === correctAnswer;
     
     // Log answer attempt (optional)
-    // Use a unique ID if no auth UID is available
-    const uid = context.auth ? context.auth.uid : "anonymous-" + Date.now();
+    // Use provided UID or generate anonymous ID
+    const uid = data.uid || `anon-${Date.now()}`;
     await admin.database().ref(`wedding/attempts/${puzzleNumber}/${uid}`).push({
       answer: userAnswer,
       correct: isCorrect,

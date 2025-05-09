@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Evil Trivia - Wedding Puzzle</title>
-  <script src="/js/components/autoload-banner.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
     body {
@@ -12,7 +11,6 @@
       margin: 0;
       padding: 0;
       background-color: #FFCC00;
-      margin-top: 60px;
       min-height: 100vh;
     }
     
@@ -240,9 +238,8 @@
   <!-- Canvas for confetti -->
   <canvas id="confetti-canvas" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:99;"></canvas>
   
-  <!-- Firebase -->
+  <!-- Only include the Firebase modules we need -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
   
@@ -281,33 +278,39 @@
     const hintToast = document.getElementById('hint-toast');
     
     // Game state
-    let currentUser = null;
     let currentScreen = 0;
     let progressRef = null;
     let wrongAttempts = 0;
     let puzzleData = null;
-    let userUid = null;
+    let userId = null;
     
-    // Initialize the page
+    // Initialize the page - show loading first then check for stored user
     document.addEventListener('DOMContentLoaded', function() {
-      showScreen0();
+      loading.style.display = 'block';
+      
+      // Check for a stored user ID
+      const storedUserId = localStorage.getItem('weddingPuzzleUserId');
+      if (storedUserId) {
+        userId = storedUserId;
+        checkUserProgress(userId);
+      } else {
+        // No stored user, show registration
+        showScreen0();
+      }
     });
     
-    // Load user progress using a session ID or generated ID
-    async function loadUserProgress(uid) {
+    // Check if user has existing progress
+    async function checkUserProgress(id) {
       try {
-        loading.style.display = 'block';
-        screenPuzzle.classList.add('hidden');
-        screen0.classList.add('hidden');
-        screenComplete.classList.add('hidden');
-        
-        progressRef = db.ref(`wedding/progress/${uid}`);
-        const snapshot = await progressRef.once('value');
+        const ref = db.ref(`wedding/progress/${id}`);
+        const snapshot = await ref.once('value');
         const data = snapshot.val();
         
         if (data) {
-          // User already started, load their progress
-          currentScreen = data.currentScreen;
+          // User exists, load their progress
+          progressRef = ref;
+          currentScreen = data.currentScreen || 0;
+          
           if (currentScreen >= 1 && currentScreen <= 10) {
             showPuzzle(currentScreen);
           } else if (currentScreen === 11) {
@@ -316,16 +319,16 @@
             showScreen0();
           }
         } else {
-          // New user, show registration screen
+          // No data for this user
           showScreen0();
         }
       } catch (error) {
-        console.error('Error loading progress:', error);
+        console.error('Error checking user progress:', error);
         showScreen0();
       }
     }
     
-    // Show screen 0 (registration)
+    // Show registration screen
     function showScreen0() {
       loading.style.display = 'none';
       screen0.classList.remove('hidden');
@@ -334,34 +337,24 @@
     }
     
     // Show puzzle screen
-    async function showPuzzle(puzzleNumber) {
+    async function showPuzzle(puzzleNum) {
       try {
+        // Show loading state
         loading.style.display = 'block';
         screen0.classList.add('hidden');
         screenPuzzle.classList.add('hidden');
         screenComplete.classList.add('hidden');
         
-        // Ensure we have user ID
-        if (!userUid) {
-          showScreen0();
-          return;
-        }
-        
         // Load puzzle data
-        const puzzleRef = db.ref(`wedding/answers/${puzzleNumber}`);
+        const puzzleRef = db.ref(`wedding/answers/${puzzleNum}`);
         const snapshot = await puzzleRef.once('value');
-        puzzleData = snapshot.val();
-        
-        if (!puzzleData) {
-          console.error('No puzzle data found for:', puzzleNumber);
-          puzzleData = {
-            clue: `Puzzle ${puzzleNumber} - Please ask the admin to set up this puzzle.`,
-            imageUrl: null
-          };
-        }
+        puzzleData = snapshot.val() || {
+          clue: `Puzzle ${puzzleNum} - Please ask the admin to set up this puzzle.`,
+          imageUrl: null
+        };
         
         // Update UI
-        document.getElementById('puzzle-number').textContent = `Puzzle #${puzzleNumber}`;
+        document.getElementById('puzzle-number').textContent = `Puzzle #${puzzleNum}`;
         clueText.textContent = puzzleData.clue || 'No clue provided';
         
         // Handle optional image
@@ -372,17 +365,18 @@
           clueImage.classList.add('hidden');
         }
         
-        // Reset state for this puzzle
+        // Reset wrong attempts
         wrongAttempts = 0;
         
         // Show the puzzle screen
         loading.style.display = 'none';
         screenPuzzle.classList.remove('hidden');
+        document.getElementById('answer').value = '';
         document.getElementById('answer').focus();
         
       } catch (error) {
         console.error('Error loading puzzle:', error);
-        alert('Error loading puzzle. Please try again.');
+        alert('Error loading puzzle. Please try again later.');
       }
     }
     
@@ -399,7 +393,7 @@
       startConfetti();
     }
     
-    // Handle info form submission (Screen 0)
+    // Handle registration form
     infoForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       
@@ -412,16 +406,17 @@
       }
       
       try {
+        // Show loading
         loading.style.display = 'block';
         screen0.classList.add('hidden');
         
-        // Generate a unique ID based on name and email
-        userUid = btoa(name + ':' + email).replace(/[^a-zA-Z0-9]/g, '');
+        // Generate a simple user ID from name and email
+        userId = btoa(`${name}:${email}`).replace(/[^a-zA-Z0-9]/g, '');
         
-        // Set up progress reference
-        progressRef = db.ref(`wedding/progress/${userUid}`);
+        // Set up database reference
+        progressRef = db.ref(`wedding/progress/${userId}`);
         
-        // Save user info and set currentScreen to 1
+        // Initialize user progress
         await progressRef.set({
           name,
           email,
@@ -429,31 +424,21 @@
           solved: [false, false, false, false, false, false, false, false, false, false, false]
         });
         
-        // Save in localStorage for persistence
-        localStorage.setItem('weddingUserUid', userUid);
+        // Store user ID locally
+        localStorage.setItem('weddingPuzzleUserId', userId);
         
+        // Show first puzzle
         currentScreen = 1;
         showPuzzle(currentScreen);
         
       } catch (error) {
         console.error('Error saving user info:', error);
-        alert('Error saving your information. Please try again.');
+        alert('There was a problem saving your information. Please try again.');
         showScreen0();
       }
     });
     
-    // On page load, check for existing user in localStorage
-    window.addEventListener('load', function() {
-      const savedUid = localStorage.getItem('weddingUserUid');
-      if (savedUid) {
-        userUid = savedUid;
-        loadUserProgress(userUid);
-      } else {
-        showScreen0();
-      }
-    });
-    
-    // Handle answer form submission (Puzzles 1-10)
+    // Handle answer submission
     answerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       
@@ -465,21 +450,27 @@
       }
       
       try {
-        // Call Firebase function to check answer
-        const checkAnswer = functions.httpsCallable('checkWeddingAnswer');
-        const result = await checkAnswer({
-          puzzle: currentScreen,
-          answer: answer,
-          uid: userUid // Pass the user ID for tracking
-        });
+        // Simplest way: Directly check answers in the client
+        // For security, real answers would be checked server-side
+        const ref = db.ref(`wedding/answers/${currentScreen}`);
+        const snapshot = await ref.once('value');
+        const puzzleData = snapshot.val();
         
-        if (result.data.correct) {
-          // Correct answer - update progress
-          const solvedUpdate = {};
-          solvedUpdate[`solved/${currentScreen - 1}`] = true;
-          solvedUpdate['currentScreen'] = currentScreen + 1;
+        if (!puzzleData || !puzzleData.answer) {
+          alert('Unable to check answer. Please try again later.');
+          return;
+        }
+        
+        // Simple case-insensitive check
+        const isCorrect = answer.toLowerCase() === puzzleData.answer.toLowerCase();
+        
+        if (isCorrect) {
+          // Mark as solved and move to next screen
+          const updates = {};
+          updates[`solved/${currentScreen - 1}`] = true; 
+          updates.currentScreen = currentScreen + 1;
           
-          await progressRef.update(solvedUpdate);
+          await progressRef.update(updates);
           
           // Move to next screen
           currentScreen += 1;
@@ -488,11 +479,8 @@
             showPuzzle(currentScreen);
           } else {
             // All puzzles completed
-            const snapshot = await progressRef.once('value');
-            const userData = snapshot.val();
-            showCompletion(userData?.name);
+            showCompletion(document.getElementById('name').value);
           }
-          
         } else {
           // Wrong answer
           wrongAttempts++;
@@ -503,6 +491,7 @@
             card.classList.remove('card-shake');
           }, 500);
           
+          // Clear the input
           document.getElementById('answer').value = '';
           document.getElementById('answer').focus();
           
@@ -514,19 +503,16 @@
             }, 3000);
           }
         }
-        
       } catch (error) {
         console.error('Error checking answer:', error);
-        alert('Error checking your answer. Please try again.');
+        alert('There was a problem checking your answer. Please try again.');
       }
     });
     
     // Handle restart button
     restartBtn.addEventListener('click', async () => {
       try {
-        // Check if we have user ID
-        if (!userUid) {
-          // If no user ID, just show screen 0
+        if (!progressRef) {
           showScreen0();
           return;
         }
@@ -537,21 +523,13 @@
           solved: [false, false, false, false, false, false, false, false, false, false, false]
         });
         
+        // Show first puzzle
         currentScreen = 1;
         showPuzzle(currentScreen);
         
       } catch (error) {
         console.error('Error restarting:', error);
-        alert('Error restarting the puzzle. Please try again.');
-      }
-    });
-    
-    // Keyboard navigation
-    document.addEventListener('keydown', (e) => {
-      if (currentScreen >= 1 && currentScreen <= 10) {
-        if (e.key === 'Enter' && document.activeElement !== document.getElementById('answer')) {
-          document.getElementById('answer').focus();
-        }
+        alert('Error restarting the puzzle. Please refresh the page and try again.');
       }
     });
     
