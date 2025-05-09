@@ -3,22 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Evil Trivia - Wedding Admin</title>
-  <script src="/js/components/autoload-banner.js"></script>
+  <title>Wedding Admin</title>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
     body {
-      font-family: Arial, sans-serif;
+      font-family: 'Roboto', Arial, sans-serif;
       margin: 0;
       padding: 0;
       background-color: #FFCC00;
-      margin-top: 60px;
       min-height: 100vh;
     }
     
     .container {
       max-width: 1000px;
-      margin: 0 auto;
+      margin: 40px auto;
       padding: 20px;
     }
     
@@ -268,18 +266,7 @@
   <div class="container">
     <h1>Wedding Puzzle Admin</h1>
     
-    <div id="loading-screen">
-      <div class="loader"></div>
-      <p style="text-align: center; color: #666;">Loading admin panel...</p>
-    </div>
-    
-    <div id="not-admin-screen" class="card hidden">
-      <h2>Access Denied</h2>
-      <p>You do not have permission to access this page. Please log in with an admin account.</p>
-      <a href="/account" class="btn">Go to Account</a>
-    </div>
-    
-    <div id="admin-panel" class="hidden">
+    <div id="admin-panel">
       <div class="tab-nav">
         <button id="tab-puzzles" class="active">Puzzles</button>
         <button id="tab-players">Players</button>
@@ -295,7 +282,7 @@
               <th style="width: 10%;">#</th>
               <th style="width: 35%;">Answer</th>
               <th style="width: 45%;">Clue</th>
-              <th style="width: 10%;">Actions</th>
+              <th style="width: 10%;">Image URL</th>
             </tr>
           </thead>
           <tbody>
@@ -345,45 +332,11 @@
     </div>
   </div>
   
-  <!-- Player Detail Modal -->
-  <div id="player-modal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2 id="modal-title">Player Details</h2>
-        <button class="modal-close">&times;</button>
-      </div>
-      <div id="modal-body"></div>
-    </div>
-  </div>
-  
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-  
   <script>
-    // Firebase configuration
-    const firebaseConfig = {
-      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-      authDomain: "eviltrivia-47664.firebaseapp.com",
-      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-      projectId: "eviltrivia-47664",
-      storageBucket: "eviltrivia-47664.firebaseapp.com",
-      messagingSenderId: "401826818140",
-      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
-      measurementId: "G-2W6RK96Y34"
-    };
-    
-    // Initialize Firebase
-    firebase.initializeApp(firebaseConfig);
-    const auth = firebase.auth();
-    const db = firebase.database();
+    // Firebase DB URL
+    const DB_URL = "https://eviltrivia-47664-default-rtdb.firebaseio.com";
     
     // DOM Elements
-    const loadingScreen = document.getElementById('loading-screen');
-    const notAdminScreen = document.getElementById('not-admin-screen');
-    const adminPanel = document.getElementById('admin-panel');
-    
     const tabPuzzles = document.getElementById('tab-puzzles');
     const tabPlayers = document.getElementById('tab-players');
     const puzzlesTab = document.getElementById('puzzles-tab');
@@ -402,83 +355,54 @@
     const detailsEmailBtn = document.getElementById('details-email-btn');
     const detailsBackBtn = document.getElementById('details-back-btn');
     
-    // Modal elements
-    const playerModal = document.getElementById('player-modal');
-    const modalClose = document.querySelector('.modal-close');
-    const modalTitle = document.getElementById('modal-title');
-    const modalBody = document.getElementById('modal-body');
-    
     // Store timeouts for debounced saves
     const saveTimeouts = {};
     
     // Helper function to format date
     function formatDate(timestamp) {
       if (!timestamp) return 'N/A';
-      const date = new Date(timestamp);
-      return date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      
+      try {
+        const date = new Date(timestamp);
+        return date.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } catch (e) {
+        return timestamp;
+      }
     }
     
-    // Check if user is admin
-    auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        try {
-          const userSnapshot = await db.ref(`users/${user.uid}`).once('value');
-          const userData = userSnapshot.val() || {};
-          
-          // Check if user has admin role (supports both array and string format)
-          let isAdmin = false;
-          if (userData.roles && Array.isArray(userData.roles)) {
-            isAdmin = userData.roles.includes('admin');
-          } else if (userData.role) {
-            isAdmin = userData.role === 'admin';
-          }
-          
-          if (isAdmin) {
-            // User is admin, show admin panel
-            loadingScreen.classList.add('hidden');
-            notAdminScreen.classList.add('hidden');
-            adminPanel.classList.remove('hidden');
-            
-            // Load data
-            loadPuzzles();
-            loadPlayers();
-          } else {
-            // Not an admin
-            loadingScreen.classList.add('hidden');
-            notAdminScreen.classList.remove('hidden');
-            adminPanel.classList.add('hidden');
-          }
-        } catch (error) {
-          console.error('Error checking admin status:', error);
-          loadingScreen.classList.add('hidden');
-          notAdminScreen.classList.remove('hidden');
-        }
-      } else {
-        // Not logged in
-        window.location.href = '/account';
-      }
-    });
-    
-    // Tab navigation
-    tabPuzzles.addEventListener('click', () => {
-      tabPuzzles.classList.add('active');
-      tabPlayers.classList.remove('active');
-      puzzlesTab.classList.add('active');
-      playersTab.classList.remove('active');
-      playerDetails.classList.add('hidden');
-    });
-    
-    tabPlayers.addEventListener('click', () => {
-      tabPuzzles.classList.remove('active');
-      tabPlayers.classList.add('active');
-      puzzlesTab.classList.remove('active');
-      playersTab.classList.add('active');
+    // Load data when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+      // Load both tabs' data
+      loadPuzzles();
+      loadPlayers();
+      
+      // Set up tab switching
+      tabPuzzles.addEventListener('click', () => {
+        tabPuzzles.classList.add('active');
+        tabPlayers.classList.remove('active');
+        puzzlesTab.classList.add('active');
+        playersTab.classList.remove('active');
+        playerDetails.classList.add('hidden');
+      });
+      
+      tabPlayers.addEventListener('click', () => {
+        tabPuzzles.classList.remove('active');
+        tabPlayers.classList.add('active');
+        puzzlesTab.classList.remove('active');
+        playersTab.classList.add('active');
+      });
+      
+      // Set up back button
+      detailsBackBtn.addEventListener('click', () => {
+        document.querySelector('#players-table').parentNode.style.display = 'block';
+        playerDetails.classList.add('hidden');
+      });
     });
     
     // Load puzzles
@@ -487,14 +411,13 @@
         // Clear table first
         puzzlesTable.innerHTML = '';
         
-        // Get answers data
-        const answersRef = db.ref('wedding/answers');
-        const snapshot = await answersRef.once('value');
-        const data = snapshot.val() || {};
+        // Get puzzles data
+        const response = await fetch(`${DB_URL}/wedding/answers.json`);
+        const data = await response.json() || {};
         
         // Create rows for puzzles 1-10
         for (let i = 1; i <= 10; i++) {
-          const puzzle = data[i] || { answer: '', clue: '' };
+          const puzzle = data[i] || { answer: '', clue: '', imageUrl: '' };
           
           const row = document.createElement('tr');
           row.innerHTML = `
@@ -505,16 +428,14 @@
                 data-puzzle="${i}" 
                 data-field="answer" 
                 value="${escapeHTML(puzzle.answer || '')}" 
-                placeholder="Enter answer..."
-              >
+                placeholder="Enter answer...">
               <span class="save-indicator" id="save-answer-${i}">Saved ✓</span>
             </td>
             <td>
               <textarea 
                 data-puzzle="${i}" 
                 data-field="clue" 
-                placeholder="Enter clue text..."
-              >${escapeHTML(puzzle.clue || '')}</textarea>
+                placeholder="Enter clue text...">${escapeHTML(puzzle.clue || '')}</textarea>
               <span class="save-indicator" id="save-clue-${i}">Saved ✓</span>
             </td>
             <td>
@@ -523,9 +444,7 @@
                 data-puzzle="${i}" 
                 data-field="imageUrl" 
                 value="${escapeHTML(puzzle.imageUrl || '')}" 
-                placeholder="Image URL (optional)"
-                style="margin-bottom: 5px;"
-              >
+                placeholder="Image URL (optional)">
               <span class="save-indicator" id="save-image-${i}">Saved ✓</span>
             </td>
           `;
@@ -568,7 +487,10 @@
         const updateData = {};
         updateData[field] = value;
         
-        await db.ref(`wedding/answers/${puzzle}`).update(updateData);
+        await fetch(`${DB_URL}/wedding/answers/${puzzle}.json`, {
+          method: 'PATCH',
+          body: JSON.stringify(updateData)
+        });
         
         // Show saved indicator
         const indicator = document.getElementById(`save-${field}-${puzzle}`);
@@ -590,12 +512,11 @@
         playersTable.innerHTML = '';
         
         // Get progress data
-        const progressRef = db.ref('wedding/progress');
-        const snapshot = await progressRef.once('value');
-        const data = snapshot.val() || {};
+        const response = await fetch(`${DB_URL}/wedding/progress.json`);
+        const data = await response.json() || {};
         
-        // No players yet
-        if (!snapshot.exists()) {
+        // Check if we have any players
+        if (!data || Object.keys(data).length === 0) {
           const row = document.createElement('tr');
           row.innerHTML = `
             <td colspan="5" style="text-align: center;">No players have started the puzzle yet.</td>
@@ -670,9 +591,8 @@
         playerDetails.classList.remove('hidden');
         
         // Get player data
-        const playerRef = db.ref(`wedding/progress/${userId}`);
-        const snapshot = await playerRef.once('value');
-        const player = snapshot.val();
+        const response = await fetch(`${DB_URL}/wedding/progress/${userId}.json`);
+        const player = await response.json();
         
         if (!player) {
           alert('Player data not found.');
@@ -722,24 +642,6 @@
         alert('Error loading player details. Please try again.');
       }
     }
-    
-    // Back button for player details
-    detailsBackBtn.addEventListener('click', () => {
-      document.querySelector('#players-table').parentNode.style.display = 'block';
-      playerDetails.classList.add('hidden');
-    });
-    
-    // Modal close button
-    modalClose.addEventListener('click', () => {
-      playerModal.style.display = 'none';
-    });
-    
-    // Click outside modal to close
-    window.addEventListener('click', (event) => {
-      if (event.target === playerModal) {
-        playerModal.style.display = 'none';
-      }
-    });
     
     // Utility to escape HTML
     function escapeHTML(str) {
