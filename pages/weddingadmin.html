@@ -249,6 +249,18 @@
       opacity: 1;
     }
     
+    .error-indicator {
+      color: #f44336;
+      font-size: 12px;
+      margin-top: 5px;
+    }
+    
+    .path-indicator {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 15px;
+    }
+    
     @media (max-width: 768px) {
       .tab-nav {
         flex-direction: column;
@@ -275,6 +287,9 @@
       <div id="puzzles-tab" class="tab-content card active">
         <h2>Wedding Puzzles</h2>
         <p>Edit puzzle answers and clues below. Changes are saved automatically.</p>
+        <div id="puzzle-path-indicator" class="path-indicator">
+          Saving to: primary database path
+        </div>
         
         <table id="puzzles-table">
           <thead>
@@ -294,6 +309,9 @@
       <div id="players-tab" class="tab-content card hidden">
         <h2>Players Progress</h2>
         <p>View and manage players' progress through the wedding puzzle.</p>
+        <div id="players-path-indicator" class="path-indicator">
+          Loading from: all database paths
+        </div>
         
         <table id="players-table">
           <thead>
@@ -315,6 +333,7 @@
           <p><strong>Email:</strong> <span id="details-email"></span></p>
           <p><strong>Current Screen:</strong> <span id="details-screen"></span></p>
           <p><strong>Progress:</strong> <span id="details-percentage"></span>%</p>
+          <p><strong>Data Path:</strong> <span id="details-path"></span></p>
           
           <div class="progress-bar">
             <div id="details-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
@@ -336,6 +355,12 @@
     // Firebase DB URL
     const DB_URL = "https://eviltrivia-47664-default-rtdb.firebaseio.com";
     
+    // Database paths for wedding puzzle data
+    const DB_PATHS = {
+      primary: 'wedding',
+      fallback: 'publicAnswers/wedding'
+    };
+    
     // DOM Elements
     const tabPuzzles = document.getElementById('tab-puzzles');
     const tabPlayers = document.getElementById('tab-players');
@@ -354,9 +379,17 @@
     const detailsPuzzleStatus = document.getElementById('details-puzzle-status');
     const detailsEmailBtn = document.getElementById('details-email-btn');
     const detailsBackBtn = document.getElementById('details-back-btn');
+    const detailsPath = document.getElementById('details-path');
+    
+    const puzzlePathIndicator = document.getElementById('puzzle-path-indicator');
+    const playersPathIndicator = document.getElementById('players-path-indicator');
     
     // Store timeouts for debounced saves
     const saveTimeouts = {};
+    
+    // Track successful database paths
+    let successfulPuzzlePath = null;
+    let successfulPlayersPath = null;
     
     // Helper function to format date
     function formatDate(timestamp) {
@@ -374,6 +407,17 @@
       } catch (e) {
         return timestamp;
       }
+    }
+    
+    // Helper for HTML escaping
+    function escapeHTML(str) {
+      if (!str) return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     }
     
     // Load data when page loads
@@ -405,19 +449,82 @@
       });
     });
     
+    // Try fetching data from multiple paths
+    async function fetchFromPaths(paths, endpoint) {
+      for (const path of paths) {
+        try {
+          const response = await fetch(`${DB_URL}/${path}/${endpoint}.json`);
+          if (response.ok) {
+            const data = await response.json();
+            return { data, path };
+          }
+        } catch (error) {
+          console.error(`Error fetching from ${path}/${endpoint}:`, error);
+        }
+      }
+      return { data: null, path: null };
+    }
+    
+    // Save data to the database with fallback paths
+    async function saveToDatabase(paths, endpoint, data, method = 'PATCH') {
+      // Try using previously successful path first
+      if (successfulPuzzlePath) {
+        try {
+          const response = await fetch(`${DB_URL}/${successfulPuzzlePath}/${endpoint}.json`, {
+            method,
+            body: JSON.stringify(data)
+          });
+          
+          if (response.ok) {
+            return { success: true, path: successfulPuzzlePath };
+          }
+        } catch (error) {
+          console.error(`Error saving to ${successfulPuzzlePath}/${endpoint}:`, error);
+        }
+      }
+      
+      // Try each path in sequence
+      for (const path of paths) {
+        try {
+          const response = await fetch(`${DB_URL}/${path}/${endpoint}.json`, {
+            method,
+            body: JSON.stringify(data)
+          });
+          
+          if (response.ok) {
+            successfulPuzzlePath = path;
+            return { success: true, path };
+          }
+        } catch (error) {
+          console.error(`Error saving to ${path}/${endpoint}:`, error);
+        }
+      }
+      
+      return { success: false, path: null };
+    }
+    
     // Load puzzles
     async function loadPuzzles() {
       try {
         // Clear table first
         puzzlesTable.innerHTML = '';
         
-        // Get puzzles data
-        const response = await fetch(`${DB_URL}/wedding/answers.json`);
-        const data = await response.json() || {};
+        // Try multiple database paths for puzzles
+        const paths = [DB_PATHS.primary, DB_PATHS.fallback];
+        const { data, path } = await fetchFromPaths(paths, 'answers');
+        
+        if (path) {
+          successfulPuzzlePath = path;
+          puzzlePathIndicator.textContent = `Loaded from: ${path}/answers`;
+        } else {
+          puzzlePathIndicator.textContent = 'Warning: Could not load puzzle data from any path';
+        }
+        
+        const puzzles = data || {};
         
         // Create rows for puzzles 1-10
         for (let i = 1; i <= 10; i++) {
-          const puzzle = data[i] || { answer: '', clue: '', imageUrl: '' };
+          const puzzle = puzzles[i] || { answer: '', clue: '', imageUrl: '' };
           
           const row = document.createElement('tr');
           row.innerHTML = `
@@ -460,7 +567,13 @@
         
       } catch (error) {
         console.error('Error loading puzzles:', error);
-        alert('Error loading puzzles. Please try again.');
+        puzzlesTable.innerHTML = `
+          <tr>
+            <td colspan="4" style="text-align: center; color: #f44336;">
+              Error loading puzzles. Please refresh the page.
+            </td>
+          </tr>
+        `;
       }
     }
     
@@ -487,171 +600,283 @@
         const updateData = {};
         updateData[field] = value;
         
-        await fetch(`${DB_URL}/wedding/answers/${puzzle}.json`, {
-          method: 'PATCH',
-          body: JSON.stringify(updateData)
-        });
+        // Try saving to multiple paths
+        const paths = [DB_PATHS.primary, DB_PATHS.fallback];
+        const { success, path } = await saveToDatabase(paths, `answers/${puzzle}`, updateData);
         
-        // Show saved indicator
-        const indicator = document.getElementById(`save-${field}-${puzzle}`);
-        indicator.classList.add('show');
-        setTimeout(() => {
-          indicator.classList.remove('show');
-        }, 2000);
-        
+        if (success) {
+          // Show saved indicator
+          const indicator = document.getElementById(`save-${field}-${puzzle}`);
+          indicator.classList.add('show');
+          setTimeout(() => {
+            indicator.classList.remove('show');
+          }, 2000);
+          
+          // Update path indicator
+          puzzlePathIndicator.textContent = `Saved to: ${path}/answers`;
+        } else {
+          throw new Error('Failed to save to any path');
+        }
       } catch (error) {
-        console.error('Error saving puzzle data:', error);
-        alert(`Error saving ${field} for puzzle #${puzzle}. Please try again.`);
+        console.error(`Error saving puzzle ${puzzle} ${field}:`, error);
+        
+        // Show error if save failed
+        const indicator = document.getElementById(`save-${field}-${puzzle}`);
+        indicator.textContent = 'Error! ⚠️';
+        indicator.style.color = '#f44336';
+        indicator.classList.add('show');
+        
+        setTimeout(() => {
+          indicator.textContent = 'Saved ✓';
+          indicator.style.color = '#4caf50';
+          indicator.classList.remove('show');
+        }, 3000);
       }
     }
     
-    // Load players
+    // Load players data from multiple database paths
     async function loadPlayers() {
       try {
         // Clear table first
         playersTable.innerHTML = '';
         
-        // Get progress data
-        const response = await fetch(`${DB_URL}/wedding/progress.json`);
-        const data = await response.json() || {};
+        // Show loading row
+        playersTable.innerHTML = `
+          <tr>
+            <td colspan="5" style="text-align: center;">
+              <div class="loader"></div>
+              <p>Loading players from all database paths...</p>
+            </td>
+          </tr>
+        `;
         
-        // Check if we have any players
-        if (!data || Object.keys(data).length === 0) {
-          const row = document.createElement('tr');
-          row.innerHTML = `
-            <td colspan="5" style="text-align: center;">No players have started the puzzle yet.</td>
+        // Get players data from multiple paths
+        const paths = [DB_PATHS.primary, DB_PATHS.fallback];
+        let allPlayers = {};
+        let successfulPaths = [];
+        
+        // Try each path
+        for (const path of paths) {
+          try {
+            const response = await fetch(`${DB_URL}/${path}/progress.json`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              
+              if (data) {
+                // Mark each player with the path it came from
+                Object.keys(data).forEach(userId => {
+                  if (data[userId]) {
+                    allPlayers[userId] = { 
+                      ...data[userId],
+                      _dataPath: path
+                    };
+                  }
+                });
+                
+                successfulPaths.push(path);
+              }
+            }
+          } catch (error) {
+            console.error(`Error loading players from ${path}:`, error);
+          }
+        }
+        
+        // Update path indicator
+        if (successfulPaths.length > 0) {
+          playersPathIndicator.textContent = `Loaded from: ${successfulPaths.join(', ')}`;
+          successfulPlayersPath = successfulPaths[0]; // Set the first successful path as default
+        } else {
+          playersPathIndicator.textContent = 'Warning: Could not load player data from any path';
+        }
+        
+        // Clear table for fresh content
+        playersTable.innerHTML = '';
+        
+        // Handle empty data
+        if (Object.keys(allPlayers).length === 0) {
+          playersTable.innerHTML = `
+            <tr>
+              <td colspan="5" style="text-align: center;">
+                No players found yet. Players will appear here when they start the puzzle.
+              </td>
+            </tr>
           `;
-          playersTable.appendChild(row);
           return;
         }
         
-        // Create rows for each player
-        Object.entries(data).forEach(([userId, player]) => {
-          if (!player || !player.name) return; // Skip invalid entries
+        // Create rows for players
+        Object.entries(allPlayers).forEach(([userId, player]) => {
+          if (!player.name || !player.currentScreen) return; // Skip invalid entries
           
-          // Calculate completion percentage
-          const currentScreen = player.currentScreen || 0;
-          const solvedCount = player.solved ? player.solved.filter(Boolean).length : 0;
-          const percentage = Math.round((solvedCount / 10) * 100);
+          // Calculate progress percentage
+          const progress = player.currentScreen > 10 ? 100 : (player.currentScreen - 1) * 10;
           
-          // Get status label
-          let status = 'Not Started';
-          let statusClass = 'status-0';
+          // Determine status
+          let statusClass = 'status-inprogress';
+          let statusText = 'In Progress';
           
-          if (currentScreen === 11) {
-            status = 'Completed';
+          if (player.currentScreen > 10) {
             statusClass = 'status-completed';
-          } else if (currentScreen > 1) {
-            status = 'In Progress';
-            statusClass = 'status-inprogress';
+            statusText = 'Completed';
+          } else if (player.currentScreen === 1) {
+            statusClass = 'status-0';
+            statusText = 'Not Started';
           }
           
           const row = document.createElement('tr');
           row.innerHTML = `
             <td>${escapeHTML(player.name)}</td>
-            <td>${escapeHTML(player.email || 'No email')}</td>
+            <td>${escapeHTML(player.email)}</td>
             <td>
-              <div class="progress-bar" style="width: 100%; margin: 0;">
-                <div class="progress-bar-fill" style="width: ${percentage}%;"></div>
-              </div>
-              <div style="text-align: center; font-size: 12px; margin-top: 4px;">${percentage}%</div>
+              <div class="status-pill ${statusClass}">${statusText}</div>
             </td>
+            <td>${player.currentScreen > 10 ? 'Complete' : `Puzzle #${player.currentScreen}`}</td>
             <td>
-              <span class="status-pill ${statusClass}">${status}</span>
-              <div style="font-size: 12px; margin-top: 4px;">Screen ${currentScreen}</div>
-            </td>
-            <td>
-              <button class="btn btn-secondary view-player" data-id="${userId}">View Details</button>
+              <button class="btn" data-userid="${userId}">View Details</button>
             </td>
           `;
+          
+          // Store the player data as a data attribute for easy access
+          row.dataset.player = JSON.stringify(player);
+          row.dataset.userId = userId;
           
           playersTable.appendChild(row);
         });
         
-        // Add event listeners for view buttons
-        const viewButtons = playersTable.querySelectorAll('.view-player');
-        viewButtons.forEach(button => {
-          button.addEventListener('click', () => {
-            const userId = button.dataset.id;
-            viewPlayerDetails(userId);
-          });
+        // Add event listeners for detail buttons
+        const detailButtons = playersTable.querySelectorAll('button');
+        detailButtons.forEach(button => {
+          button.addEventListener('click', showPlayerDetails);
         });
         
       } catch (error) {
         console.error('Error loading players:', error);
-        alert('Error loading players. Please try again.');
+        playersTable.innerHTML = `
+          <tr>
+            <td colspan="5" style="text-align: center; color: #f44336;">
+              Error loading players. Please refresh the page.
+            </td>
+          </tr>
+        `;
       }
     }
     
-    // View player details
-    async function viewPlayerDetails(userId) {
+    // Show player details
+    function showPlayerDetails(e) {
       try {
-        // Hide player list, show details
-        document.querySelector('#players-table').parentNode.style.display = 'none';
-        playerDetails.classList.remove('hidden');
+        const button = e.target;
+        const userId = button.dataset.userid;
         
-        // Get player data
-        const response = await fetch(`${DB_URL}/wedding/progress/${userId}.json`);
-        const player = await response.json();
-        
-        if (!player) {
-          alert('Player data not found.');
+        // Find the row with this player's data
+        const row = button.closest('tr');
+        if (!row || !row.dataset.player) {
+          console.error('Player data not found');
           return;
         }
         
-        // Calculate completion
-        const currentScreen = player.currentScreen || 0;
-        const solvedCount = player.solved ? player.solved.filter(Boolean).length : 0;
-        const percentage = Math.round((solvedCount / 10) * 100);
+        // Parse the player data
+        const player = JSON.parse(row.dataset.player);
         
-        // Update details view
+        // Hide the players table
+        document.querySelector('#players-table').parentNode.style.display = 'none';
+        
+        // Calculate progress percentage
+        const progress = player.currentScreen > 10 ? 100 : (player.currentScreen - 1) * 10;
+        
+        // Update the details panel
         detailsName.textContent = player.name || 'Unknown Player';
         detailsEmail.textContent = player.email || 'No email provided';
-        detailsScreen.textContent = currentScreen;
-        detailsPercentage.textContent = percentage;
-        detailsProgressBar.style.width = `${percentage}%`;
+        detailsScreen.textContent = player.currentScreen > 10 ? 'Completed All Puzzles' : `Puzzle #${player.currentScreen}`;
+        detailsPercentage.textContent = progress;
+        detailsProgressBar.style.width = `${progress}%`;
+        detailsPath.textContent = player._dataPath || 'Unknown';
         
-        // Email button
-        detailsEmailBtn.onclick = () => {
-          const subject = encodeURIComponent('Wedding Puzzle Hint');
-          const body = encodeURIComponent(`Hi ${player.name},\n\nHere's a hint for puzzle #${currentScreen}:\n\n[Insert your hint here]\n\nGood luck!\n\n`);
-          window.open(`mailto:${player.email}?subject=${subject}&body=${body}`);
-        };
-        
-        // Create puzzle status entries
+        // Create puzzle status display
         detailsPuzzleStatus.innerHTML = '';
+        
         for (let i = 1; i <= 10; i++) {
           const solved = player.solved && player.solved[i-1];
-          const statusClass = solved ? 'status-solved' : (i < currentScreen ? 'status-solved' : 'status-0');
-          const statusText = solved ? 'Solved' : (i < currentScreen ? 'Completed' : 'Not Started');
+          const current = player.currentScreen === i;
           
-          const item = document.createElement('div');
-          item.style.margin = '8px 0';
-          item.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+          let statusClass = 'status-0';
+          let statusText = 'Not Attempted';
+          
+          if (solved) {
+            statusClass = 'status-solved';
+            statusText = 'Solved';
+          } else if (current) {
+            statusClass = 'status-inprogress';
+            statusText = 'Current';
+          }
+          
+          const puzzleStatusEl = document.createElement('div');
+          puzzleStatusEl.innerHTML = `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
               <span>Puzzle #${i}</span>
               <span class="status-pill ${statusClass}">${statusText}</span>
             </div>
           `;
           
-          detailsPuzzleStatus.appendChild(item);
+          detailsPuzzleStatus.appendChild(puzzleStatusEl);
         }
         
+        // Set up email button
+        detailsEmailBtn.onclick = () => {
+          const subject = 'Your Wedding Puzzle Hint';
+          const body = `Hi ${player.name},\n\nHere's a hint for your current puzzle (#${player.currentScreen}):\n\n[Add your hint here]\n\nGood luck!`;
+          window.location.href = `mailto:${player.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        };
+        
+        // Store the userId for later use
+        playerDetails.dataset.userId = userId;
+        playerDetails.dataset.path = player._dataPath || DB_PATHS.primary;
+        
+        // Show the details panel
+        playerDetails.classList.remove('hidden');
+        
       } catch (error) {
-        console.error('Error loading player details:', error);
+        console.error('Error showing player details:', error);
         alert('Error loading player details. Please try again.');
       }
     }
     
-    // Utility to escape HTML
-    function escapeHTML(str) {
-      if (!str) return '';
-      return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+    // Reset a player's progress
+    async function resetPlayerProgress(userId, path) {
+      if (!confirm('Are you sure you want to reset this player\'s progress? This cannot be undone.')) {
+        return;
+      }
+      
+      try {
+        // Get current player data
+        const response = await fetch(`${DB_URL}/${path}/progress/${userId}.json`);
+        const player = await response.json();
+        
+        if (!player) {
+          throw new Error('Player data not found');
+        }
+        
+        // Update with reset values
+        const resetData = {
+          ...player,
+          currentScreen: 1,
+          solved: [false, false, false, false, false, false, false, false, false, false]
+        };
+        
+        // Save the reset data
+        await fetch(`${DB_URL}/${path}/progress/${userId}.json`, {
+          method: 'PUT',
+          body: JSON.stringify(resetData)
+        });
+        
+        alert('Player progress has been reset.');
+        loadPlayers();
+        playerDetails.classList.add('hidden');
+        
+      } catch (error) {
+        console.error('Error resetting player progress:', error);
+        alert('Error resetting player progress. Please try again.');
+      }
     }
   </script>
 </body>
