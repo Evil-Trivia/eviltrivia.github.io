@@ -311,17 +311,13 @@
           showScreen0();
         }
       } else {
-        // User is not authenticated, sign in anonymously
-        try {
-          await auth.signInAnonymously();
-          console.log('Signed in anonymously');
-        } catch (error) {
-          console.error('Error signing in:', error);
-          showToast('Error signing in. Please try refreshing the page.');
-        }
+        // User is not authenticated yet, but still show the first screen
+        // We'll authenticate when they submit the form
+        showScreen0();
+        
+        // Hide the loading indicator
+        loadingState.classList.add('hidden');
       }
-      
-      loadingState.classList.add('hidden');
     });
     
     // Event listeners
@@ -375,17 +371,16 @@
       try {
         // Make sure we have a valid user before proceeding
         if (!currentUser) {
-          // Try to sign in again
-          await auth.signInAnonymously();
+          showToast('Signing you in anonymously...');
           
-          // Wait a moment to make sure authentication completes
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Check if we now have a user
-          if (!auth.currentUser) {
-            throw new Error('Authentication failed. Please refresh the page and try again.');
-          } else {
-            currentUser = auth.currentUser;
+          // Try to sign in
+          try {
+            const userCredential = await auth.signInAnonymously();
+            currentUser = userCredential.user;
+            console.log('Signed in anonymously:', currentUser.uid);
+          } catch (authError) {
+            console.error('Authentication error:', authError);
+            throw new Error('Failed to sign in. Please try again or refresh the page.');
           }
         }
         
@@ -396,19 +391,23 @@
           uid: currentUser.uid
         });
         
+        // Create a new solved array with default values
+        const newSolved = Array(11).fill(false);
+        
         const progressRef = db.ref(`wedding/progress/${currentUser.uid}`);
         await progressRef.update({
           name: playerName,
           email: playerEmail,
           currentScreen: 1,
-          solved: solved
+          solved: newSolved
         });
         
+        solved = newSolved;
         currentScreen = 1;
         loadPuzzle(currentScreen);
       } catch (error) {
         console.error('Error saving registration:', error);
-        showToast('Error saving your information: ' + error.message);
+        showToast('Error: ' + error.message);
       }
     }
     
@@ -435,7 +434,7 @@
         
         if (typeof clueData === 'string') {
           // Simple text clue
-          clueText.textContent = clueData;
+          clueText.textContent = clueData || 'No clue available yet. Please check back later!';
           
           // Remove any existing image
           const existingImg = clueContainer.querySelector('img');
@@ -464,7 +463,7 @@
           }
         } else {
           // No clue found
-          clueText.textContent = "Clue not found. Please contact the administrator.";
+          clueText.textContent = "No puzzle content available yet. Please check back later!";
           
           // Remove any existing image
           const existingImg = clueContainer.querySelector('img');
