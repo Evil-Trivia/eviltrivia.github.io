@@ -1,6 +1,10 @@
-# Evil Trivia Website
+# Evil Trivia
 
-This repository contains the code for the Evil Trivia website.
+This is the official repository for Evil Trivia, a collection of trivia games, puzzles, and tools.
+
+## Wedding Puzzle
+
+The wedding puzzle is available without authentication at `/pages/wedding.html`. It uses direct REST API calls to Firebase instead of the Firebase SDK to avoid authentication requirements.
 
 ## Directory Structure
 
