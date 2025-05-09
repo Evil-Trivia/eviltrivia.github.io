@@ -261,7 +261,6 @@
     
     // Initialize Firebase
     firebase.initializeApp(firebaseConfig);
-    const auth = firebase.auth();
     const db = firebase.database();
     const functions = firebase.functions();
     
@@ -287,36 +286,22 @@
     let progressRef = null;
     let wrongAttempts = 0;
     let puzzleData = null;
+    let userUid = null;
     
-    // Check authentication state
-    auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        currentUser = user;
-        loadUserProgress();
-      } else {
-        // If not logged in, redirect to login or automatically sign in anonymously
-        signInAnonymously();
-      }
+    // Initialize the page
+    document.addEventListener('DOMContentLoaded', function() {
+      showScreen0();
     });
     
-    // Sign in anonymously if not logged in
-    function signInAnonymously() {
-      auth.signInAnonymously()
-        .catch((error) => {
-          console.error('Anonymous auth error:', error);
-          showScreen0();
-        });
-    }
-    
-    // Load user progress
-    async function loadUserProgress() {
+    // Load user progress using a session ID or generated ID
+    async function loadUserProgress(uid) {
       try {
         loading.style.display = 'block';
         screenPuzzle.classList.add('hidden');
         screen0.classList.add('hidden');
         screenComplete.classList.add('hidden');
         
-        progressRef = db.ref(`wedding/progress/${currentUser.uid}`);
+        progressRef = db.ref(`wedding/progress/${uid}`);
         const snapshot = await progressRef.once('value');
         const data = snapshot.val();
         
@@ -355,6 +340,12 @@
         screen0.classList.add('hidden');
         screenPuzzle.classList.add('hidden');
         screenComplete.classList.add('hidden');
+        
+        // Ensure we have user ID
+        if (!userUid) {
+          showScreen0();
+          return;
+        }
         
         // Load puzzle data
         const puzzleRef = db.ref(`wedding/answers/${puzzleNumber}`);
@@ -424,6 +415,12 @@
         loading.style.display = 'block';
         screen0.classList.add('hidden');
         
+        // Generate a unique ID based on name and email
+        userUid = btoa(name + ':' + email).replace(/[^a-zA-Z0-9]/g, '');
+        
+        // Set up progress reference
+        progressRef = db.ref(`wedding/progress/${userUid}`);
+        
         // Save user info and set currentScreen to 1
         await progressRef.set({
           name,
@@ -432,12 +429,26 @@
           solved: [false, false, false, false, false, false, false, false, false, false, false]
         });
         
+        // Save in localStorage for persistence
+        localStorage.setItem('weddingUserUid', userUid);
+        
         currentScreen = 1;
         showPuzzle(currentScreen);
         
       } catch (error) {
         console.error('Error saving user info:', error);
         alert('Error saving your information. Please try again.');
+        showScreen0();
+      }
+    });
+    
+    // On page load, check for existing user in localStorage
+    window.addEventListener('load', function() {
+      const savedUid = localStorage.getItem('weddingUserUid');
+      if (savedUid) {
+        userUid = savedUid;
+        loadUserProgress(userUid);
+      } else {
         showScreen0();
       }
     });
@@ -458,7 +469,8 @@
         const checkAnswer = functions.httpsCallable('checkWeddingAnswer');
         const result = await checkAnswer({
           puzzle: currentScreen,
-          answer: answer
+          answer: answer,
+          uid: userUid // Pass the user ID for tracking
         });
         
         if (result.data.correct) {
@@ -512,6 +524,13 @@
     // Handle restart button
     restartBtn.addEventListener('click', async () => {
       try {
+        // Check if we have user ID
+        if (!userUid) {
+          // If no user ID, just show screen 0
+          showScreen0();
+          return;
+        }
+        
         // Reset progress
         await progressRef.update({
           currentScreen: 1,
