@@ -87,4 +87,69 @@ The website now features improved Patreon integration, allowing users to connect
 
 ## Testing Git Commit
 
-This is a small change to test Git commit functionality. 
+This is a small change to test Git commit functionality.
+
+## Wedding Puzzle Game
+
+The Wedding Puzzle feature is a 10-puzzle sequence accessible at `/wedding`. It includes:
+
+- Public page with 12 virtual screens (registration, 10 puzzles, completion)
+- Admin dashboard at `/weddingadmin` for managing puzzles and tracking players
+- Firebase Realtime Database for storage
+- Firebase Cloud Function for secure answer checking
+
+### Setup
+
+1. Deploy the Firebase Cloud Function:
+   ```
+   firebase deploy --only functions:checkWeddingAnswer
+   ```
+
+2. Update the Database Rules:
+   ```
+   firebase deploy --only database
+   ```
+
+3. Deploy the hosting configuration:
+   ```
+   firebase deploy --only hosting
+   ```
+
+### Data Model (Realtime DB)
+
+```
+/wedding/
+  answers/            # set only from admin page
+     1..10:  {answer:"...", clue:"..."}
+  progress/
+     {uid}/
+        name: ""
+        email: ""
+        currentScreen: 0     # 0-11
+        solved: [ false… ]   # index 1-10
+  attempts/           # analytics for admins
+     1..10: [...]     # attempt records
+```
+
+### Authoring Puzzles
+
+1. Log in as an admin and navigate to `/weddingadmin`
+2. Use the Puzzles tab to create/edit puzzles
+3. For each puzzle, set:
+   - Answer (case-insensitive text)
+   - Clue text
+   - Optional image URL (can be external or from `/public/wedding/images/`)
+
+### Player Management
+
+The Players tab in the admin dashboard allows:
+- Viewing all registered players and their progress
+- Sending hint emails to players
+- Resetting player progress if needed
+
+### Security
+
+- Answer checking is done server-side using a Cloud Function
+- Database rules prevent direct access to answers
+- Only the account owner can access their own progress data
+- Admin-only access to player management and puzzle editing 

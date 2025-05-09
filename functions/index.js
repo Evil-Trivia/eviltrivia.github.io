@@ -558,4 +558,66 @@ exports.webhookTest = functions.https.onRequest(async (req, res) => {
       url: `https://us-central1-eviltrivia-47664.cloudfunctions.net/app/webhooks/patreon`
     }
   });
+});
+
+// Wedding Puzzle - Check Answer Function
+exports.checkWeddingAnswer = functions.https.onCall(async (data, context) => {
+  try {
+    // Verify authentication
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        'unauthenticated',
+        'You must be logged in to check answers'
+      );
+    }
+    
+    // Validate input
+    const { puzzleNumber, guess } = data;
+    if (!puzzleNumber || !guess) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'Missing required fields: puzzleNumber and guess'
+      );
+    }
+    
+    if (puzzleNumber < 1 || puzzleNumber > 10) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'Invalid puzzle number. Must be between 1 and 10.'
+      );
+    }
+    
+    // Get the answer from the database (server-side only)
+    const answerRef = admin.database().ref(`wedding/answers/${puzzleNumber}/answer`);
+    const snapshot = await answerRef.once('value');
+    const correctAnswer = snapshot.val();
+    
+    if (!correctAnswer) {
+      throw new functions.https.HttpsError(
+        'not-found',
+        'No answer found for this puzzle'
+      );
+    }
+    
+    // Compare answers (case-insensitive, trim whitespace)
+    const normalizedGuess = guess.trim().toLowerCase();
+    const normalizedAnswer = correctAnswer.trim().toLowerCase();
+    
+    const isCorrect = normalizedGuess === normalizedAnswer;
+    
+    console.log(`Wedding puzzle ${puzzleNumber} check - User: ${context.auth.uid}, Guess: "${guess}", Correct: ${isCorrect}`);
+    
+    // Record the attempt for analytics (optional)
+    await admin.database().ref(`wedding/attempts/${puzzleNumber}`).push({
+      userId: context.auth.uid,
+      guess: guess,
+      correct: isCorrect,
+      timestamp: admin.database.ServerValue.TIMESTAMP
+    });
+    
+    return { correct: isCorrect };
+  } catch (error) {
+    console.error('Error in checkWeddingAnswer:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
 }); 
