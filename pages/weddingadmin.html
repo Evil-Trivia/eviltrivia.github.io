@@ -713,104 +713,151 @@
       try {
         const result = await fetchFromPaths(Object.values(DB_PATHS), 'answers');
         
-        if (result.data) {
+        // Set successful path even if data is null
+        if (result.path) {
           successfulPuzzlePath = result.path;
           puzzlePathIndicator.textContent = `Saving to: ${successfulPuzzlePath}`;
+        }
+        
+        // Clear table first
+        puzzlesTable.innerHTML = '';
+        
+        // Initialize data structure
+        const puzzlesData = result.data || {};
+        
+        // For numbered entries (1-10), order by number
+        let keys = Object.keys(puzzlesData)
+          .filter(key => !isNaN(parseInt(key)))
+          .map(key => parseInt(key))
+          .sort((a, b) => a - b);
+        
+        // If no keys/puzzles found, initialize with defaults 1-10
+        if (keys.length === 0) {
+          const defaultPuzzleCount = 10;
+          // Create default puzzles
+          const defaultPuzzles = {};
+          for (let i = 1; i <= defaultPuzzleCount; i++) {
+            defaultPuzzles[i] = {
+              name: `Puzzle #${i}`,
+              clue: '',
+              imageUrl: '',
+              answers: [{ text: '', questionText: 'Your Answer:' }]
+            };
+          }
           
-          // Clear table first
-          puzzlesTable.innerHTML = '';
-          
-          // For numbered entries (1-10), order by number
-          const orderedData = {};
-          const keys = Object.keys(result.data)
-            .filter(key => !isNaN(parseInt(key)))
-            .map(key => parseInt(key))
-            .sort((a, b) => a - b);
-          
-          // Add rows for each puzzle
-          keys.forEach(puzzleNum => {
-            const puzzleData = result.data[puzzleNum];
-            
-            // Create table row
-            const row = document.createElement('tr');
-            row.dataset.puzzleNumber = puzzleNum;
-            
-            // Migrate old format to new format if needed
-            if (puzzleData.answer && !puzzleData.answers) {
-              puzzleData.answers = [{
-                text: puzzleData.answer,
-                questionText: 'Your Answer:'
-              }];
-              delete puzzleData.answer;
+          // Save defaults to database
+          if (successfulPuzzlePath) {
+            try {
+              await fetch(`${DB_URL}/${successfulPuzzlePath}/answers.json`, {
+                method: 'PATCH',
+                body: JSON.stringify(defaultPuzzles)
+              });
+            } catch (error) {
+              console.error('Error initializing default puzzles:', error);
             }
-            
-            // Add puzzle number cell
-            const numCell = document.createElement('td');
-            numCell.textContent = puzzleNum;
-            row.appendChild(numCell);
-            
-            // Add name cell
-            const nameCell = document.createElement('td');
-            const nameInput = document.createElement('input');
-            nameInput.type = 'text';
-            nameInput.value = puzzleData.name || `Puzzle #${puzzleNum}`;
-            nameInput.placeholder = 'Puzzle Name';
-            nameInput.addEventListener('input', debounce(() => {
-              savePuzzleField(puzzleNum, 'name', nameInput.value);
-            }, 1000));
-            nameCell.appendChild(nameInput);
-            row.appendChild(nameCell);
-            
-            // Add clue cell
-            const clueCell = document.createElement('td');
-            const clueTextarea = document.createElement('textarea');
-            clueTextarea.value = puzzleData.clue || '';
-            clueTextarea.placeholder = 'Enter clue here...';
-            clueTextarea.addEventListener('input', debounce(() => {
-              savePuzzleField(puzzleNum, 'clue', clueTextarea.value);
-            }, 1000));
-            clueCell.appendChild(clueTextarea);
-            row.appendChild(clueCell);
-            
-            // Add image URL cell
-            const imageCell = document.createElement('td');
-            const imageInput = document.createElement('input');
-            imageInput.type = 'text';
-            imageInput.value = puzzleData.imageUrl || '';
-            imageInput.placeholder = 'Image URL (optional)';
-            imageInput.addEventListener('input', debounce(() => {
-              savePuzzleField(puzzleNum, 'imageUrl', imageInput.value);
-            }, 1000));
-            imageCell.appendChild(imageInput);
-            row.appendChild(imageCell);
-            
-            // Add answers cell
-            const answersCell = document.createElement('td');
-            
-            // Show a summary of answers
-            const answersCount = puzzleData.answers ? puzzleData.answers.length : 0;
-            const answerSummary = document.createElement('div');
-            answerSummary.innerHTML = `
-              <strong>${answersCount} Answer${answersCount !== 1 ? 's' : ''}</strong><br>
-              ${answersCount > 0 ? puzzleData.answers.map(a => escapeHTML(a.text)).join('<br>') : 'No answers defined'}
-            `;
-            
-            // Add edit button
-            const editBtn = document.createElement('button');
-            editBtn.className = 'btn btn-icon';
-            editBtn.textContent = 'Edit';
-            editBtn.addEventListener('click', () => {
-              openAnswersModal(puzzleNum, puzzleData.answers || []);
-            });
-            
-            answersCell.appendChild(answerSummary);
-            answersCell.appendChild(editBtn);
-            row.appendChild(answersCell);
-            
-            // Add row to table
-            puzzlesTable.appendChild(row);
+          }
+          
+          // Update local data
+          keys = Array.from({ length: defaultPuzzleCount }, (_, i) => i + 1);
+          Object.assign(puzzlesData, defaultPuzzles);
+        }
+        
+        // Add rows for each puzzle
+        keys.forEach(puzzleNum => {
+          // Initialize puzzleData if it's null or undefined
+          const puzzleData = puzzlesData[puzzleNum] || { 
+            clue: '',
+            imageUrl: '',
+            answers: [{ text: '', questionText: 'Your Answer:' }],
+            name: `Puzzle #${puzzleNum}`
+          };
+          
+          // Create table row
+          const row = document.createElement('tr');
+          row.dataset.puzzleNumber = puzzleNum;
+          
+          // Migrate old format to new format if needed
+          if (puzzleData && puzzleData.answer && !puzzleData.answers) {
+            puzzleData.answers = [{
+              text: puzzleData.answer,
+              questionText: 'Your Answer:'
+            }];
+            delete puzzleData.answer;
+          }
+          
+          // Add puzzle number cell
+          const numCell = document.createElement('td');
+          numCell.textContent = puzzleNum;
+          row.appendChild(numCell);
+          
+          // Add name cell
+          const nameCell = document.createElement('td');
+          const nameInput = document.createElement('input');
+          nameInput.type = 'text';
+          nameInput.value = puzzleData.name || `Puzzle #${puzzleNum}`;
+          nameInput.placeholder = 'Puzzle Name';
+          nameInput.addEventListener('input', debounce(() => {
+            savePuzzleField(puzzleNum, 'name', nameInput.value);
+          }, 1000));
+          nameCell.appendChild(nameInput);
+          row.appendChild(nameCell);
+          
+          // Add clue cell
+          const clueCell = document.createElement('td');
+          const clueTextarea = document.createElement('textarea');
+          clueTextarea.value = puzzleData.clue || '';
+          clueTextarea.placeholder = 'Enter clue here...';
+          clueTextarea.addEventListener('input', debounce(() => {
+            savePuzzleField(puzzleNum, 'clue', clueTextarea.value);
+          }, 1000));
+          clueCell.appendChild(clueTextarea);
+          row.appendChild(clueCell);
+          
+          // Add image URL cell
+          const imageCell = document.createElement('td');
+          const imageInput = document.createElement('input');
+          imageInput.type = 'text';
+          imageInput.value = puzzleData.imageUrl || '';
+          imageInput.placeholder = 'Image URL (optional)';
+          imageInput.addEventListener('input', debounce(() => {
+            savePuzzleField(puzzleNum, 'imageUrl', imageInput.value);
+          }, 1000));
+          imageCell.appendChild(imageInput);
+          row.appendChild(imageCell);
+          
+          // Add answers cell
+          const answersCell = document.createElement('td');
+          
+          // Make sure puzzleData.answers exists
+          if (!puzzleData.answers) {
+            puzzleData.answers = [];
+          }
+          
+          // Show a summary of answers
+          const answersCount = puzzleData.answers.length;
+          const answerSummary = document.createElement('div');
+          answerSummary.innerHTML = `
+            <strong>${answersCount} Answer${answersCount !== 1 ? 's' : ''}</strong><br>
+            ${answersCount > 0 ? puzzleData.answers.map(a => escapeHTML(a.text || '')).join('<br>') : 'No answers defined'}
+          `;
+          
+          // Add edit button
+          const editBtn = document.createElement('button');
+          editBtn.className = 'btn btn-icon';
+          editBtn.textContent = 'Edit';
+          editBtn.addEventListener('click', () => {
+            openAnswersModal(puzzleNum, puzzleData.answers || []);
           });
-        } else {
+          
+          answersCell.appendChild(answerSummary);
+          answersCell.appendChild(editBtn);
+          row.appendChild(answersCell);
+          
+          // Add row to table
+          puzzlesTable.appendChild(row);
+        });
+        
+        if (keys.length === 0) {
           puzzlesTable.innerHTML = '<tr><td colspan="5">No puzzle data found. Add some puzzles to get started.</td></tr>';
         }
       } catch (error) {
@@ -1069,15 +1116,15 @@
     // Open the answers modal
     function openAnswersModal(puzzleNum, answers) {
       currentPuzzleBeingEdited = puzzleNum;
-      currentAnswers = [...answers];
+      currentAnswers = [...(answers || [])];
       
       // Clear the container
       answersContainer.innerHTML = '';
       
       // Add fields for each answer
-      if (answers.length > 0) {
-        answers.forEach(answer => {
-          addAnswerField(answer);
+      if (currentAnswers && currentAnswers.length > 0) {
+        currentAnswers.forEach(answer => {
+          addAnswerField(answer || { text: '', questionText: '' });
         });
       } else {
         // Add at least one empty answer field
@@ -1100,7 +1147,7 @@
     }
     
     // Add an answer field to the modal
-    function addAnswerField(answer) {
+    function addAnswerField(answer = {}) {
       const answerRow = document.createElement('div');
       answerRow.className = 'answer-row';
       
@@ -1114,7 +1161,7 @@
       const answerTextInput = document.createElement('input');
       answerTextInput.type = 'text';
       answerTextInput.className = 'answer-text';
-      answerTextInput.value = answer.text || '';
+      answerTextInput.value = (answer && answer.text) || '';
       answerTextInput.placeholder = 'Correct answer text';
       
       answerTextGroup.appendChild(answerTextLabel);
@@ -1131,7 +1178,7 @@
       const questionTextInput = document.createElement('input');
       questionTextInput.type = 'text';
       questionTextInput.className = 'question-text';
-      questionTextInput.value = answer.questionText || '';
+      questionTextInput.value = (answer && answer.questionText) || '';
       questionTextInput.placeholder = 'Label for the answer field (e.g., "Your Answer:")';
       
       questionTextGroup.appendChild(questionTextLabel);
@@ -1169,16 +1216,28 @@
         const answers = [];
         
         answerRows.forEach(row => {
-          const answerText = row.querySelector('.answer-text').value.trim();
-          const questionText = row.querySelector('.question-text').value.trim();
-          
-          if (answerText) {  // Only add if there's an answer text
-            answers.push({
-              text: answerText,
-              questionText: questionText || 'Your Answer:'
-            });
+          try {
+            const answerText = row.querySelector('.answer-text')?.value?.trim() || '';
+            const questionText = row.querySelector('.question-text')?.value?.trim() || '';
+            
+            if (answerText) {  // Only add if there's an answer text
+              answers.push({
+                text: answerText,
+                questionText: questionText || 'Your Answer:'
+              });
+            }
+          } catch (err) {
+            console.warn('Error processing answer row:', err);
           }
         });
+        
+        // Make sure we have at least one answer
+        if (answers.length === 0) {
+          answers.push({
+            text: '',
+            questionText: 'Your Answer:'
+          });
+        }
         
         // Save to database
         const result = await saveToDatabase(
@@ -1191,12 +1250,33 @@
           // Close modal and refresh data
           closeModal();
           loadPuzzles();
+          
+          // Show a temporary success message
+          const tempMsg = document.createElement('div');
+          tempMsg.style.position = 'fixed';
+          tempMsg.style.bottom = '20px';
+          tempMsg.style.right = '20px';
+          tempMsg.style.padding = '10px 20px';
+          tempMsg.style.backgroundColor = '#4caf50';
+          tempMsg.style.color = 'white';
+          tempMsg.style.borderRadius = '4px';
+          tempMsg.style.zIndex = '9999';
+          tempMsg.textContent = 'Answers saved successfully!';
+          document.body.appendChild(tempMsg);
+          
+          setTimeout(() => {
+            tempMsg.style.opacity = '0';
+            tempMsg.style.transition = 'opacity 0.5s ease';
+            setTimeout(() => {
+              document.body.removeChild(tempMsg);
+            }, 500);
+          }, 2000);
         } else {
           alert('Error saving answers. Please try again.');
         }
       } catch (error) {
         console.error('Error saving answers:', error);
-        alert('Error saving answers. Please try again.');
+        alert('Error saving answers. Please try again: ' + error.message);
       }
     }
     
