@@ -564,68 +564,6 @@
           Saving to: primary database path
         </div>
         
-        <div class="global-settings">
-          <div class="form-group">
-            <label for="total-puzzles">Total Number of Puzzles:</label>
-            <div style="display: flex; gap: 10px;">
-              <input type="number" id="total-puzzles" min="1" max="20" value="10" style="max-width: 100px;">
-              <button id="add-puzzle-btn" class="btn" style="width: auto;">Add New Puzzle</button>
-            </div>
-            <p class="error-indicator hidden" id="total-puzzles-error">Please enter a valid number between 1 and 20.</p>
-          </div>
-          <button id="save-settings-btn" class="btn">Save Settings</button>
-          <span id="settings-save-indicator" class="save-indicator">Settings saved!</span>
-        </div>
-        
-        <div id="puzzle-creator" class="global-settings" style="margin-top: 20px; display: none;">
-          <h3>Create New Puzzle</h3>
-          <p>Fill in the details below to create puzzle #<span id="new-puzzle-number">11</span></p>
-          
-          <div class="form-group">
-            <label for="new-puzzle-name">Puzzle Name:</label>
-            <input type="text" id="new-puzzle-name" placeholder="Enter puzzle name">
-          </div>
-          
-          <div class="form-group">
-            <label for="new-puzzle-clue">Clue Text:</label>
-            <textarea id="new-puzzle-clue" placeholder="Enter puzzle clue"></textarea>
-          </div>
-          
-          <div class="form-group">
-            <label>Answers:</label>
-            <div id="new-puzzle-answers">
-              <div class="answer-row">
-                <div class="form-group">
-                  <label>Answer Text:</label>
-                  <input type="text" class="new-answer-text" placeholder="Correct answer">
-                </div>
-                <div class="form-group">
-                  <label>Question Label:</label>
-                  <input type="text" class="new-answer-question" placeholder="Label for answer field (e.g., 'Your Answer:')">
-                </div>
-              </div>
-            </div>
-            <button id="add-new-answer-btn" class="add-answer-btn" style="margin-top: 10px;">+ Add Another Answer</button>
-          </div>
-          
-          <div class="form-group">
-            <label>Images:</label>
-            <div id="new-puzzle-images">
-              <div class="image-item" style="width: 100%;">
-                <label>Image URL:</label>
-                <input type="text" class="new-image-url" placeholder="Enter image URL">
-                <div class="image-preview"></div>
-              </div>
-            </div>
-            <button id="add-new-image-btn" class="add-answer-btn" style="margin-top: 10px;">+ Add Another Image</button>
-          </div>
-          
-          <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="create-puzzle-btn" class="btn btn-success">Create Puzzle</button>
-            <button id="cancel-create-btn" class="btn btn-secondary">Cancel</button>
-          </div>
-        </div>
-        
         <table id="puzzles-table">
           <thead>
             <tr>
@@ -639,6 +577,13 @@
           <tbody>
             <!-- Puzzle rows will be inserted here -->
           </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5" style="text-align: center; padding: 20px;">
+                <button id="add-puzzle-btn" class="btn">Add New Puzzle</button>
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
       
@@ -801,11 +746,6 @@
     const richtextPreview = document.getElementById('richtext-preview');
     const saveRichtextBtn = document.getElementById('save-richtext-btn');
     
-    const totalPuzzlesInput = document.getElementById('total-puzzles');
-    const saveSettingsBtn = document.getElementById('save-settings-btn');
-    const settingsSaveIndicator = document.getElementById('settings-save-indicator');
-    const totalPuzzlesError = document.getElementById('total-puzzles-error');
-    
     // Rich text editor
     let quill;
     
@@ -945,34 +885,9 @@
         saveRichtext();
       });
       
-      // Save settings button
-      saveSettingsBtn.addEventListener('click', () => {
-        saveSettings();
-      });
-      
       // Add puzzle button
       document.getElementById('add-puzzle-btn').addEventListener('click', () => {
-        showPuzzleCreator();
-      });
-      
-      // Add answer button for new puzzle
-      document.getElementById('add-new-answer-btn').addEventListener('click', () => {
-        addNewAnswerField();
-      });
-      
-      // Add image button for new puzzle
-      document.getElementById('add-new-image-btn').addEventListener('click', () => {
-        addNewImageField();
-      });
-      
-      // Create puzzle button
-      document.getElementById('create-puzzle-btn').addEventListener('click', () => {
-        createNewPuzzle();
-      });
-      
-      // Cancel button
-      document.getElementById('cancel-create-btn').addEventListener('click', () => {
-        hidePuzzleCreator();
+        addNewPuzzleDirectly();
       });
     });
     
@@ -1114,9 +1029,21 @@
             puzzleData.imageUrls = puzzleData.imageUrl ? [puzzleData.imageUrl] : [];
           }
           
-          // Add puzzle number cell
+          // Add puzzle number cell - make it editable
           const numCell = document.createElement('td');
-          numCell.textContent = puzzleNum;
+          const numInput = document.createElement('input');
+          numInput.type = 'number';
+          numInput.min = '1';
+          numInput.style.width = '100%';
+          numInput.value = puzzleNum;
+          numInput.className = 'puzzle-number-input';
+          numInput.addEventListener('change', () => {
+            const newNumber = parseInt(numInput.value);
+            if (!isNaN(newNumber) && newNumber > 0) {
+              reorderPuzzle(puzzleNum, newNumber);
+            }
+          });
+          numCell.appendChild(numInput);
           row.appendChild(numCell);
           
           // Add name cell
@@ -1271,6 +1198,67 @@
       } catch (error) {
         console.error('Error loading puzzles:', error);
         puzzlesTable.innerHTML = '<tr><td colspan="5">Error loading puzzles. Please try refreshing the page.</td></tr>';
+      }
+    }
+    
+    // Reorder a puzzle by changing its number
+    async function reorderPuzzle(oldNumber, newNumber) {
+      try {
+        if (oldNumber === newNumber) return; // No change needed
+        
+        // Fetch all puzzle data
+        const result = await fetchFromPaths(Object.values(DB_PATHS), 'answers');
+        if (!result.data) return;
+        
+        const puzzlesData = result.data;
+        
+        // Check if new number is already taken
+        if (puzzlesData[newNumber]) {
+          // If destination exists, we need to perform a swap operation
+          const oldData = { ...puzzlesData[oldNumber] };
+          const newData = { ...puzzlesData[newNumber] };
+          
+          // Update both puzzles
+          await saveToDatabase(
+            Object.values(DB_PATHS),
+            `answers/${oldNumber}`,
+            newData,
+            'PUT'
+          );
+          
+          await saveToDatabase(
+            Object.values(DB_PATHS),
+            `answers/${newNumber}`,
+            oldData,
+            'PUT'
+          );
+        } else {
+          // Simple move operation - copy to new position and delete old
+          const puzzleData = { ...puzzlesData[oldNumber] };
+          
+          // Save at new position
+          await saveToDatabase(
+            Object.values(DB_PATHS),
+            `answers/${newNumber}`,
+            puzzleData,
+            'PUT'
+          );
+          
+          // Delete from old position
+          await saveToDatabase(
+            Object.values(DB_PATHS),
+            `answers/${oldNumber}`,
+            null,
+            'PUT'
+          );
+        }
+        
+        // Reload puzzles to reflect changes
+        await loadPuzzles();
+        showSuccessToast('Puzzle reordered successfully!');
+      } catch (error) {
+        console.error('Error reordering puzzle:', error);
+        showFeedback('Error reordering puzzle. Please try again.', 'error');
       }
     }
     
@@ -1905,290 +1893,60 @@
       };
     }
     
-    // Show puzzle creator
-    function showPuzzleCreator() {
-      const puzzleCreator = document.getElementById('puzzle-creator');
-      puzzleCreator.style.display = 'block';
-      
-      // Get the next puzzle number
-      const totalPuzzlesInput = document.getElementById('total-puzzles');
-      const nextPuzzleNumber = parseInt(totalPuzzlesInput.value) + 1;
-      
-      // Update the new puzzle number
-      document.getElementById('new-puzzle-number').textContent = nextPuzzleNumber;
-      
-      // Reset form
-      document.getElementById('new-puzzle-name').value = `Puzzle #${nextPuzzleNumber}`;
-      document.getElementById('new-puzzle-clue').value = '';
-      
-      // Reset answers - keep one empty answer
-      const answerContainer = document.getElementById('new-puzzle-answers');
-      answerContainer.innerHTML = '';
-      addNewAnswerField();
-      
-      // Reset images - keep one empty image
-      const imageContainer = document.getElementById('new-puzzle-images');
-      imageContainer.innerHTML = '';
-      addNewImageField();
-      
-      // Scroll to form
-      puzzleCreator.scrollIntoView({ behavior: 'smooth' });
-    }
-    
-    // Hide puzzle creator
-    function hidePuzzleCreator() {
-      document.getElementById('puzzle-creator').style.display = 'none';
-    }
-    
-    // Add a new answer field to the creator
-    function addNewAnswerField() {
-      const answerRow = document.createElement('div');
-      answerRow.className = 'answer-row';
-      
-      // Answer text
-      const answerTextGroup = document.createElement('div');
-      answerTextGroup.className = 'form-group';
-      
-      const answerTextLabel = document.createElement('label');
-      answerTextLabel.textContent = 'Answer Text:';
-      
-      const answerTextInput = document.createElement('input');
-      answerTextInput.type = 'text';
-      answerTextInput.className = 'new-answer-text';
-      answerTextInput.placeholder = 'Correct answer';
-      
-      answerTextGroup.appendChild(answerTextLabel);
-      answerTextGroup.appendChild(answerTextInput);
-      
-      // Question text
-      const questionTextGroup = document.createElement('div');
-      questionTextGroup.className = 'form-group';
-      
-      const questionTextLabel = document.createElement('label');
-      questionTextLabel.textContent = 'Question Label:';
-      
-      const questionTextInput = document.createElement('input');
-      questionTextInput.type = 'text';
-      questionTextInput.className = 'new-answer-question';
-      questionTextInput.placeholder = 'Label for answer field (e.g., \'Your Answer:\')';
-      
-      questionTextGroup.appendChild(questionTextLabel);
-      questionTextGroup.appendChild(questionTextInput);
-      
-      // Remove button
-      const removeBtn = document.createElement('button');
-      removeBtn.className = 'remove-answer-btn';
-      removeBtn.innerHTML = '&times;';
-      removeBtn.title = 'Remove this answer';
-      removeBtn.addEventListener('click', function() {
-        answerRow.style.opacity = '0';
-        setTimeout(() => {
-          answerRow.remove();
-        }, 300);
-      });
-      
-      // Add everything to the row
-      answerRow.appendChild(removeBtn);
-      answerRow.appendChild(answerTextGroup);
-      answerRow.appendChild(questionTextGroup);
-      
-      // Add row to container
-      document.getElementById('new-puzzle-answers').appendChild(answerRow);
-      
-      // Focus new field
-      answerTextInput.focus();
-    }
-    
-    // Add a new image field to the creator
-    function addNewImageField() {
-      const imageItem = document.createElement('div');
-      imageItem.className = 'image-item';
-      imageItem.style.width = '100%';
-      
-      // URL field
-      const urlLabel = document.createElement('label');
-      urlLabel.textContent = 'Image URL:';
-      
-      const urlInput = document.createElement('input');
-      urlInput.type = 'text';
-      urlInput.className = 'new-image-url';
-      urlInput.placeholder = 'Enter image URL';
-      
-      // Preview area
-      const preview = document.createElement('div');
-      preview.className = 'image-preview';
-      
-      // Update preview function
-      const updatePreview = () => {
-        const url = urlInput.value.trim();
-        preview.innerHTML = '';
-        
-        if (url) {
-          const img = document.createElement('img');
-          const errorMsg = document.createElement('div');
-          errorMsg.className = 'image-preview-error';
-          errorMsg.textContent = 'Could not load image';
-          
-          img.onload = () => {
-            preview.innerHTML = '';
-            preview.appendChild(img);
-          };
-          
-          img.onerror = () => {
-            preview.innerHTML = '';
-            preview.appendChild(errorMsg);
-          };
-          
-          img.src = url;
-        }
-      };
-      
-      urlInput.addEventListener('input', debounce(updatePreview, 500));
-      
-      // Remove button
-      const removeBtn = document.createElement('button');
-      removeBtn.className = 'remove-image-btn';
-      removeBtn.innerHTML = '&times;';
-      removeBtn.title = 'Remove this image';
-      removeBtn.addEventListener('click', function() {
-        imageItem.style.opacity = '0';
-        setTimeout(() => {
-          imageItem.remove();
-        }, 300);
-      });
-      
-      // Add everything to item
-      imageItem.appendChild(removeBtn);
-      imageItem.appendChild(urlLabel);
-      imageItem.appendChild(urlInput);
-      imageItem.appendChild(preview);
-      
-      // Add to container
-      document.getElementById('new-puzzle-images').appendChild(imageItem);
-      
-      // Focus field
-      urlInput.focus();
-    }
-    
-    // Create a new puzzle
-    async function createNewPuzzle() {
+    // Add a new puzzle directly to the table without the form
+    async function addNewPuzzleDirectly() {
       try {
-        // Get form values
-        const nextPuzzleNumber = parseInt(document.getElementById('new-puzzle-number').textContent);
-        const name = document.getElementById('new-puzzle-name').value.trim() || `Puzzle #${nextPuzzleNumber}`;
-        const clue = document.getElementById('new-puzzle-clue').value.trim();
+        // Get the highest puzzle number currently in use
+        const result = await fetchFromPaths(Object.values(DB_PATHS), 'answers');
+        const puzzlesData = result.data || {};
         
-        // Get answers
-        const answerElements = document.querySelectorAll('.new-answer-text');
-        const questionElements = document.querySelectorAll('.new-answer-question');
-        const answers = [];
+        const puzzleNumbers = Object.keys(puzzlesData)
+          .filter(key => !isNaN(parseInt(key)))
+          .map(key => parseInt(key));
         
-        for (let i = 0; i < answerElements.length; i++) {
-          const text = answerElements[i].value.trim();
-          const questionText = questionElements[i].value.trim() || 'Your Answer:';
-          
-          if (text) {
-            answers.push({ text, questionText });
-          }
-        }
+        // Find the next available number
+        const nextNumber = puzzleNumbers.length > 0 ? Math.max(...puzzleNumbers) + 1 : 1;
         
-        // Get image URLs
-        const imageUrlElements = document.querySelectorAll('.new-image-url');
-        const imageUrls = [];
-        
-        for (let i = 0; i < imageUrlElements.length; i++) {
-          const url = imageUrlElements[i].value.trim();
-          if (url) {
-            imageUrls.push(url);
-          }
-        }
-        
-        // Validate form
-        if (!clue) {
-          showFeedback('Please enter a clue for the puzzle.', 'error');
-          return;
-        }
-        
-        if (answers.length === 0) {
-          showFeedback('Please add at least one answer.', 'error');
-          return;
-        }
-        
-        // Create puzzle data
-        const puzzleData = {
-          name,
-          clue,
-          answers,
-          imageUrls
+        // Create a default puzzle
+        const newPuzzle = {
+          name: `Puzzle #${nextNumber}`,
+          clue: '',
+          imageUrls: [],
+          answers: [{ text: '', questionText: 'Your Answer:' }]
         };
         
-        // Show loading indicator
-        document.getElementById('create-puzzle-btn').disabled = true;
-        document.getElementById('create-puzzle-btn').textContent = 'Creating...';
-        
-        // Save to database
-        const result = await saveToDatabase(
+        // Add to database
+        const saveResult = await saveToDatabase(
           Object.values(DB_PATHS),
-          `answers/${nextPuzzleNumber}`,
-          puzzleData,
+          `answers/${nextNumber}`,
+          newPuzzle,
           'PUT'
         );
         
-        if (result.success) {
-          // Update total puzzles count
-          const totalPuzzlesInput = document.getElementById('total-puzzles');
-          totalPuzzlesInput.value = nextPuzzleNumber;
-          
-          // Save new total
+        if (saveResult.success) {
+          // Update total puzzles count if needed
+          const totalPuzzleCount = puzzleNumbers.length + 1;
           await saveToDatabase(
             Object.values(DB_PATHS),
             'totalPuzzles',
-            nextPuzzleNumber,
+            totalPuzzleCount,
             'PUT'
           );
           
-          // Success!
-          showFeedback(`Puzzle #${nextPuzzleNumber} created successfully!`, 'success');
+          // Reload puzzles to show the new one
+          await loadPuzzles();
+          showSuccessToast('New puzzle added successfully!');
           
-          // Hide creator and reload puzzles
-          hidePuzzleCreator();
-          loadPuzzles();
+          // Scroll to the bottom of the table to show the new puzzle
+          const table = document.getElementById('puzzles-table');
+          table.scrollIntoView({ behavior: 'smooth', block: 'end' });
         } else {
-          showFeedback('Error creating puzzle. Please try again.', 'error');
+          showFeedback('Error adding new puzzle. Please try again.', 'error');
         }
       } catch (error) {
-        console.error('Error creating puzzle:', error);
-        showFeedback('Error creating puzzle: ' + error.message, 'error');
-      } finally {
-        // Reset button
-        document.getElementById('create-puzzle-btn').disabled = false;
-        document.getElementById('create-puzzle-btn').textContent = 'Create Puzzle';
+        console.error('Error adding new puzzle:', error);
+        showFeedback('Error adding new puzzle: ' + error.message, 'error');
       }
-    }
-    
-    // Show a feedback toast message
-    function showFeedback(message, type) {
-      const tempMsg = document.createElement('div');
-      tempMsg.style.position = 'fixed';
-      tempMsg.style.bottom = '20px';
-      tempMsg.style.right = '20px';
-      tempMsg.style.padding = '15px 25px';
-      tempMsg.style.backgroundColor = type === 'success' ? '#4caf50' : '#f44336';
-      tempMsg.style.color = 'white';
-      tempMsg.style.borderRadius = '8px';
-      tempMsg.style.zIndex = '9999';
-      tempMsg.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-      tempMsg.style.fontWeight = '500';
-      tempMsg.textContent = message;
-      document.body.appendChild(tempMsg);
-      
-      setTimeout(() => {
-        tempMsg.style.opacity = '0';
-        tempMsg.style.transition = 'opacity 0.5s ease';
-        setTimeout(() => {
-          document.body.removeChild(tempMsg);
-        }, 500);
-      }, 3000);
     }
   </script>
 </body>
