@@ -261,7 +261,7 @@
   <canvas id="confetti-canvas" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:99;"></canvas>
   
   <script>
-    // Firebase database URL - Using direct REST API instead of SDK
+    // Firebase database URL - Using only direct REST API
     const DB_URL = "https://eviltrivia-47664-default-rtdb.firebaseio.com";
     
     // DOM Elements
@@ -298,7 +298,7 @@
       const storedId = localStorage.getItem('weddingPuzzleId');
       if (storedId) return storedId;
       
-      // Generate a new anonymous ID
+      // Generate a new anonymous ID - completely local, no Firebase auth
       const newId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       localStorage.setItem('weddingPuzzleId', newId);
       return newId;
@@ -358,7 +358,7 @@
         screenComplete.classList.add('hidden');
         puzzleError.classList.add('hidden');
         
-        // Fetch puzzle data - try multiple paths with fallbacks like in the vine game
+        // Fetch puzzle data - try multiple paths with fallbacks
         let puzzleResponse = null;
         
         // First try primary path
@@ -447,8 +447,8 @@
       startConfetti();
     }
     
-    // Registration form submission
-    infoForm.addEventListener('submit', async (e) => {
+    // Registration form submission - completely rebuilt without any Firebase Auth
+    infoForm.addEventListener('submit', function(e) {
       e.preventDefault();
       
       // Get user info
@@ -460,82 +460,63 @@
         return;
       }
       
-      try {
-        // Show loading
-        loading.style.display = 'block';
-        screen0.classList.add('hidden');
-        registrationError.classList.add('hidden');
-        
-        // Ensure we have a user ID
-        userId = getOrCreateUserId();
-        
-        // Set initial progress
-        currentScreen = 1;
-        
-        // Save progress to localStorage
-        localStorage.setItem('weddingPuzzleName', userName);
-        localStorage.setItem('weddingPuzzleEmail', userEmail);
-        localStorage.setItem('weddingPuzzleScreen', currentScreen);
-        
-        // Save to Firebase with multiple fallbacks
-        const progressData = {
-          name: userName,
-          email: userEmail,
-          currentScreen: currentScreen,
-          solved: [false, false, false, false, false, false, false, false, false, false, false],
-          timestamp: new Date().toISOString()
-        };
-        
-        // Try primary path first
-        let saveSuccess = false;
-        
-        try {
-          const response = await fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
-            method: 'PUT',
-            body: JSON.stringify(progressData)
-          });
-          
-          if (response.ok) {
-            saveSuccess = true;
-            localStorage.setItem('weddingPuzzleSuccessPath', 'wedding/progress');
-          }
-        } catch (error) {
-          console.error('Error saving to primary path:', error);
+      // Show loading
+      loading.style.display = 'block';
+      screen0.classList.add('hidden');
+      registrationError.classList.add('hidden');
+      
+      // Generate unique ID locally (no Firebase auth)
+      userId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem('weddingPuzzleId', userId);
+      
+      // Set initial progress
+      currentScreen = 1;
+      
+      // Save to localStorage first (most important)
+      localStorage.setItem('weddingPuzzleName', userName);
+      localStorage.setItem('weddingPuzzleEmail', userEmail);
+      localStorage.setItem('weddingPuzzleScreen', currentScreen);
+      
+      // Prepare progress data
+      const progressData = {
+        name: userName,
+        email: userEmail,
+        currentScreen: currentScreen,
+        solved: [false, false, false, false, false, false, false, false, false, false, false],
+        timestamp: new Date().toISOString()
+      };
+      
+      // Store locally regardless of what happens with remote saves
+      localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(progressData));
+      
+      // Try saving to primary DB path
+      fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
+        method: 'PUT',
+        body: JSON.stringify(progressData)
+      })
+      .then(response => {
+        if (response.ok) {
+          localStorage.setItem('weddingPuzzleSuccessPath', 'wedding/progress');
+          return true;
         }
-        
-        // Try fallback path if needed
-        if (!saveSuccess) {
-          try {
-            const response = await fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
-              method: 'PUT',
-              body: JSON.stringify(progressData)
-            });
-            
-            if (response.ok) {
-              saveSuccess = true;
-              localStorage.setItem('weddingPuzzleSuccessPath', 'publicAnswers/wedding/progress');
-            }
-          } catch (error) {
-            console.error('Error saving to fallback path:', error);
-          }
+        // Try fallback if primary fails
+        return fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
+          method: 'PUT',
+          body: JSON.stringify(progressData)
+        });
+      })
+      .then(response => {
+        if (response && response !== true && response.ok) {
+          localStorage.setItem('weddingPuzzleSuccessPath', 'publicAnswers/wedding/progress');
         }
-        
-        // If both failed, use localStorage only but continue
-        if (!saveSuccess) {
-          console.warn('Could not save to Firebase, using localStorage only');
-          // Store local copy of progress
-          localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(progressData));
-        }
-        
-        // Load first puzzle regardless of save success
+        // Regardless of DB save outcome, continue to first puzzle
         loadPuzzle(currentScreen);
-        
-      } catch (error) {
-        console.error('Error setting up puzzle:', error);
-        loading.style.display = 'none';
-        screen0.classList.remove('hidden');
-        registrationError.classList.remove('hidden');
-      }
+      })
+      .catch(error => {
+        console.warn('Error saving progress to database:', error);
+        // Continue anyway with local storage data
+        loadPuzzle(currentScreen);
+      });
     });
     
     // Answer submission
@@ -553,60 +534,32 @@
         // Check answer (case-insensitive match)
         const isCorrect = answer.toLowerCase() === puzzleData.answer.toLowerCase();
         
-        // Track attempt in Firebase with fallbacks
+        // Track attempt in localStorage first
         const attemptData = {
           answer: answer,
           correct: isCorrect,
           timestamp: new Date().toISOString()
         };
         
-        // Try to save attempt using the previously successful path first
-        const successPath = localStorage.getItem('weddingPuzzleSuccessPath');
-        
-        if (successPath === 'wedding/progress') {
-          try {
-            await fetch(`${DB_URL}/wedding/attempts/${currentScreen}/${userId}.json`, {
-              method: 'POST',
-              body: JSON.stringify(attemptData)
-            });
-          } catch (error) {
-            console.error('Error logging attempt to primary path:', error);
-          }
-        } else if (successPath === 'publicAnswers/wedding/progress') {
-          try {
-            await fetch(`${DB_URL}/publicAnswers/wedding/attempts/${currentScreen}/${userId}.json`, {
-              method: 'POST',
-              body: JSON.stringify(attemptData)
-            });
-          } catch (error) {
-            console.error('Error logging attempt to fallback path:', error);
-          }
-        } else {
-          // Try both paths if we don't know which works
-          try {
-            await fetch(`${DB_URL}/wedding/attempts/${currentScreen}/${userId}.json`, {
-              method: 'POST',
-              body: JSON.stringify(attemptData)
-            });
-          } catch (error) {
-            console.error('Error logging attempt to primary path:', error);
-            
-            try {
-              await fetch(`${DB_URL}/publicAnswers/wedding/attempts/${currentScreen}/${userId}.json`, {
-                method: 'POST',
-                body: JSON.stringify(attemptData)
-              });
-            } catch (fallbackError) {
-              console.error('Error logging attempt to fallback path:', fallbackError);
-            }
-          }
-        }
-        
-        // Store attempt locally as backup
+        // Always store locally first
         const localAttempts = JSON.parse(localStorage.getItem('weddingPuzzleLocalAttempts') || '{}');
         if (!localAttempts[currentScreen]) localAttempts[currentScreen] = [];
         localAttempts[currentScreen].push(attemptData);
         localStorage.setItem('weddingPuzzleLocalAttempts', JSON.stringify(localAttempts));
+        
+        // Try to save attempt to database (non-blocking)
+        const successPath = localStorage.getItem('weddingPuzzleSuccessPath');
+        if (successPath === 'wedding/progress') {
+          fetch(`${DB_URL}/wedding/attempts/${currentScreen}/${userId}.json`, {
+            method: 'POST',
+            body: JSON.stringify(attemptData)
+          }).catch(err => console.warn('Could not save attempt to primary path:', err));
+        } else if (successPath === 'publicAnswers/wedding/progress') {
+          fetch(`${DB_URL}/publicAnswers/wedding/attempts/${currentScreen}/${userId}.json`, {
+            method: 'POST',
+            body: JSON.stringify(attemptData)
+          }).catch(err => console.warn('Could not save attempt to fallback path:', err));
+        }
         
         if (isCorrect) {
           // Update progress
@@ -623,31 +576,22 @@
             localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           }
           
-          // Try to update Firebase using the known successful path
-          const successPath = localStorage.getItem('weddingPuzzleSuccessPath');
+          // Try to update Firebase using the known successful path (non-blocking)
           const updateData = {
             currentScreen: currentScreen
           };
           updateData[`solved/${currentScreen - 2}`] = true;
           
           if (successPath === 'wedding/progress') {
-            try {
-              await fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
-                method: 'PATCH',
-                body: JSON.stringify(updateData)
-              });
-            } catch (error) {
-              console.error('Error updating progress in primary path:', error);
-            }
+            fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
+              method: 'PATCH',
+              body: JSON.stringify(updateData)
+            }).catch(err => console.warn('Could not update progress in primary path:', err));
           } else if (successPath === 'publicAnswers/wedding/progress') {
-            try {
-              await fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
-                method: 'PATCH',
-                body: JSON.stringify(updateData)
-              });
-            } catch (error) {
-              console.error('Error updating progress in fallback path:', error);
-            }
+            fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
+              method: 'PATCH',
+              body: JSON.stringify(updateData)
+            }).catch(err => console.warn('Could not update progress in fallback path:', err));
           }
           
           // Check if all puzzles completed
