@@ -32,6 +32,16 @@
       box-shadow: 0 4px 15px rgba(0,0,0,0.1);
       margin-bottom: 30px;
       transition: all 0.3s ease;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: fadeInUp 0.5s forwards;
+    }
+    
+    @keyframes fadeInUp {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
     
     .card-shake {
@@ -113,19 +123,77 @@
       font-size: 16px;
       text-decoration: none;
       text-align: center;
-      transition: background-color 0.3s ease;
+      transition: all 0.3s ease;
       width: 100%;
+      position: relative;
+      overflow: hidden;
     }
     
     .btn:hover {
       background-color: #333333;
-      opacity: 0.9;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .btn:active {
+      transform: translateY(0);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .btn::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 5px;
+      height: 5px;
+      background: rgba(255, 255, 255, 0.5);
+      opacity: 0;
+      border-radius: 100%;
+      transform: scale(1, 1) translate(-50%);
+      transform-origin: 50% 50%;
+    }
+    
+    .btn:focus:not(:active)::after {
+      animation: ripple 1s ease-out;
+    }
+    
+    @keyframes ripple {
+      0% {
+        transform: scale(0, 0);
+        opacity: 0.5;
+      }
+      20% {
+        transform: scale(25, 25);
+        opacity: 0.3;
+      }
+      100% {
+        opacity: 0;
+        transform: scale(40, 40);
+      }
+    }
+    
+    .btn-secondary {
+      background-color: #666;
+      margin-top: 10px;
+    }
+    
+    .btn-nav {
+      width: auto;
+      padding: 8px 16px;
+      font-size: 14px;
     }
     
     .clue-image {
       max-width: 100%;
       border-radius: 4px;
       margin-bottom: 20px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      transition: transform 0.3s ease;
+    }
+    
+    .clue-image:hover {
+      transform: scale(1.02);
     }
     
     .hint-toast {
@@ -139,11 +207,11 @@
       border-radius: 4px;
       display: none;
       z-index: 100;
+      animation: fadeIn 0.3s;
     }
     
     .hint-toast.show {
       display: block;
-      animation: fadeIn 0.3s;
     }
     
     @keyframes fadeIn {
@@ -170,6 +238,10 @@
       display: none;
     }
     
+    .fade-in {
+      animation: fadeIn 0.5s ease-in-out;
+    }
+    
     .error-message {
       color: #e53935;
       background-color: #ffebee;
@@ -179,6 +251,30 @@
       text-align: center;
     }
     
+    .navigation-controls {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    
+    .multi-answer-container {
+      margin-bottom: 15px;
+      border-left: 3px solid #f0f0f0;
+      padding-left: 15px;
+      transition: border-color 0.3s ease;
+    }
+    
+    .multi-answer-container.correct {
+      border-left-color: #4CAF50;
+    }
+    
+    .welcome-message {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #444;
+      font-size: 1.1em;
+    }
+    
     @media (max-width: 400px) {
       .container {
         padding: 10px;
@@ -186,6 +282,15 @@
       
       .card {
         padding: 20px;
+      }
+      
+      .navigation-controls {
+        flex-direction: column;
+        gap: 10px;
+      }
+      
+      .btn-nav {
+        width: 100%;
       }
     }
   </style>
@@ -221,9 +326,24 @@
         </form>
       </div>
       
+      <!-- Welcome Back Screen -->
+      <div id="screen-welcome-back" class="hidden">
+        <h2>Welcome Back!</h2>
+        <p id="welcome-back-message" class="welcome-message">It's great to see you again.</p>
+        
+        <button id="continue-btn" class="btn">Continue Your Progress</button>
+        <button id="restart-from-beginning-btn" class="btn btn-secondary">Start from Beginning</button>
+      </div>
+      
       <!-- Screens 1-10: Puzzles -->
       <div id="screen-puzzle" class="hidden">
-        <h2 id="puzzle-number">Puzzle #1</h2>
+        <div class="navigation-controls">
+          <button id="prev-puzzle-btn" class="btn btn-nav">← Previous</button>
+          <span id="puzzle-number-display">1 / 10</span>
+          <button id="next-puzzle-btn" class="btn btn-nav hidden">Next →</button>
+        </div>
+        
+        <h2 id="puzzle-name">Puzzle #1</h2>
         
         <div id="puzzle-error" class="error-message hidden">
           Error loading puzzle. Please refresh the page to try again.
@@ -235,9 +355,8 @@
         </div>
         
         <form id="answer-form">
-          <div class="form-group">
-            <label for="answer">Your Answer:</label>
-            <input type="text" id="answer" required>
+          <div id="answers-container">
+            <!-- Dynamic answer fields will be inserted here -->
           </div>
           
           <button type="submit" class="btn">Submit Answer</button>
@@ -268,12 +387,14 @@
     const loading = document.getElementById('loading');
     const card = document.getElementById('card');
     const screen0 = document.getElementById('screen-0');
+    const screenWelcomeBack = document.getElementById('screen-welcome-back');
     const screenPuzzle = document.getElementById('screen-puzzle');
     const screenComplete = document.getElementById('screen-complete');
     
     const infoForm = document.getElementById('info-form');
     const answerForm = document.getElementById('answer-form');
-    const puzzleNumber = document.getElementById('puzzle-number');
+    const puzzleName = document.getElementById('puzzle-name');
+    const puzzleNumberDisplay = document.getElementById('puzzle-number-display');
     const clueText = document.getElementById('clue-text');
     const clueImage = document.getElementById('clue-image');
     const completionMessage = document.getElementById('completion-message');
@@ -281,14 +402,22 @@
     const hintToast = document.getElementById('hint-toast');
     const registrationError = document.getElementById('registration-error');
     const puzzleError = document.getElementById('puzzle-error');
+    const welcomeBackMessage = document.getElementById('welcome-back-message');
+    const continueBtn = document.getElementById('continue-btn');
+    const restartFromBeginningBtn = document.getElementById('restart-from-beginning-btn');
+    const prevPuzzleBtn = document.getElementById('prev-puzzle-btn');
+    const nextPuzzleBtn = document.getElementById('next-puzzle-btn');
+    const answersContainer = document.getElementById('answers-container');
     
     // Game state
     let currentScreen = 0;
+    let totalPuzzles = 10; // Default
     let wrongAttempts = 0;
     let puzzleData = null;
     let userId = null;
     let userName = '';
     let userEmail = '';
+    let solvedPuzzles = [];
     
     // Show the loading spinner initially
     loading.style.display = 'block';
@@ -319,7 +448,13 @@
         userEmail = storedEmail;
         currentScreen = parseInt(storedScreen);
         
-        if (currentScreen >= 1 && currentScreen <= 10) {
+        // Check if this is a fresh page load (not a form submission)
+        const isPageRefresh = !document.referrer || (document.referrer && document.referrer.split('?')[0] === window.location.href.split('?')[0]);
+        
+        if (isPageRefresh && currentScreen > 0) {
+          // Show welcome back screen
+          showWelcomeBack();
+        } else if (currentScreen >= 1 && currentScreen <= 10) {
           // Continue with a puzzle
           loadPuzzle(currentScreen);
         } else if (currentScreen === 11) {
@@ -333,12 +468,49 @@
         // No saved state, show registration
         showScreen0();
       }
+      
+      // Load total puzzles count
+      loadTotalPuzzles();
     });
+    
+    // Load the total number of puzzles from the database
+    async function loadTotalPuzzles() {
+      try {
+        // Try primary path
+        let response = await fetch(`${DB_URL}/wedding/totalPuzzles.json`);
+        
+        // If primary failed, try backup path
+        if (!response || !response.ok) {
+          response = await fetch(`${DB_URL}/publicAnswers/wedding/totalPuzzles.json`);
+        }
+        
+        if (response && response.ok) {
+          const count = await response.json();
+          if (count && !isNaN(count)) {
+            totalPuzzles = count;
+          }
+        }
+      } catch (error) {
+        console.warn('Could not load total puzzles count, using default:', error);
+      }
+    }
+    
+    // Load the solved puzzles array from localStorage
+    function loadSolvedPuzzles() {
+      const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
+      if (localProgress.solved && Array.isArray(localProgress.solved)) {
+        solvedPuzzles = localProgress.solved;
+      } else {
+        // Initialize with default (first puzzle is 1, so we need 11 elements and ignore index 0)
+        solvedPuzzles = Array(11).fill(false);
+      }
+    }
     
     // Display registration screen
     function showScreen0() {
       loading.style.display = 'none';
       screen0.classList.remove('hidden');
+      screenWelcomeBack.classList.add('hidden');
       screenPuzzle.classList.add('hidden');
       screenComplete.classList.add('hidden');
       registrationError.classList.add('hidden');
@@ -348,15 +520,30 @@
       if (userEmail) document.getElementById('email').value = userEmail;
     }
     
+    // Display welcome back screen
+    function showWelcomeBack() {
+      loading.style.display = 'none';
+      screen0.classList.add('hidden');
+      screenWelcomeBack.classList.remove('hidden');
+      screenPuzzle.classList.add('hidden');
+      screenComplete.classList.add('hidden');
+      
+      welcomeBackMessage.textContent = `Welcome back, ${userName}! You were on puzzle ${currentScreen} of ${totalPuzzles}.`;
+    }
+    
     // Display puzzle screen
     async function loadPuzzle(puzzleNum) {
       try {
         // Show loading
         loading.style.display = 'block';
         screen0.classList.add('hidden');
+        screenWelcomeBack.classList.add('hidden');
         screenPuzzle.classList.add('hidden');
         screenComplete.classList.add('hidden');
         puzzleError.classList.add('hidden');
+        
+        // Load solved puzzles data
+        loadSolvedPuzzles();
         
         // Fetch puzzle data - try multiple paths with fallbacks
         let puzzleResponse = null;
@@ -385,15 +572,30 @@
         // Apply fallback content if needed
         if (!puzzleData) {
           puzzleData = {
+            name: `Puzzle ${puzzleNum}`,
             clue: `Puzzle ${puzzleNum} - Unable to load data. Please try again later.`,
             imageUrl: null,
-            answer: "answer"
+            answers: [{ 
+              text: "answer",
+              questionText: "Your Answer:"
+            }]
           };
           puzzleError.classList.remove('hidden');
         }
         
-        // Update UI
-        puzzleNumber.textContent = `Puzzle #${puzzleNum}`;
+        // Ensure puzzleData has the expected structure
+        if (!puzzleData.answers) {
+          // Convert old format to new format
+          puzzleData.answers = [{
+            text: puzzleData.answer || "answer",
+            questionText: "Your Answer:"
+          }];
+          delete puzzleData.answer;
+        }
+        
+        // Update puzzle name or use default
+        puzzleName.textContent = puzzleData.name || `Puzzle #${puzzleNum}`;
+        puzzleNumberDisplay.textContent = `${puzzleNum} / ${totalPuzzles}`;
         clueText.textContent = puzzleData.clue || 'No clue provided';
         
         // Handle image if present
@@ -404,29 +606,88 @@
           clueImage.classList.add('hidden');
         }
         
+        // Generate answer fields
+        answersContainer.innerHTML = '';
+        puzzleData.answers.forEach((answer, index) => {
+          const multiAnswerDiv = document.createElement('div');
+          multiAnswerDiv.className = 'multi-answer-container';
+          multiAnswerDiv.id = `answer-container-${index}`;
+          
+          const formGroup = document.createElement('div');
+          formGroup.className = 'form-group';
+          
+          const label = document.createElement('label');
+          label.setAttribute('for', `answer-${index}`);
+          label.textContent = answer.questionText || `Answer ${index + 1}:`;
+          
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.id = `answer-${index}`;
+          input.className = 'answer-input';
+          input.required = true;
+          
+          formGroup.appendChild(label);
+          formGroup.appendChild(input);
+          multiAnswerDiv.appendChild(formGroup);
+          answersContainer.appendChild(multiAnswerDiv);
+        });
+        
         // Reset wrong attempts
         wrongAttempts = 0;
+        
+        // Update navigation buttons
+        updateNavigationButtons(puzzleNum);
         
         // Display puzzle screen
         loading.style.display = 'none';
         screenPuzzle.classList.remove('hidden');
         
-        // Focus answer field
-        document.getElementById('answer').value = '';
-        document.getElementById('answer').focus();
+        // Focus first answer field
+        const firstAnswerInput = document.querySelector('.answer-input');
+        if (firstAnswerInput) {
+          firstAnswerInput.value = '';
+          firstAnswerInput.focus();
+        }
         
       } catch (error) {
         console.error('Error loading puzzle:', error);
         // Show error and fallback content
         puzzleData = {
+          name: `Puzzle ${puzzleNum}`,
           clue: `Puzzle ${puzzleNum} - Unable to load data. Please try again later.`,
           imageUrl: null,
-          answer: "answer"
+          answers: [{
+            text: "answer",
+            questionText: "Your Answer:"
+          }]
         };
         
-        puzzleNumber.textContent = `Puzzle #${puzzleNum}`;
+        puzzleName.textContent = puzzleData.name;
+        puzzleNumberDisplay.textContent = `${puzzleNum} / ${totalPuzzles}`;
         clueText.textContent = puzzleData.clue;
         clueImage.classList.add('hidden');
+        
+        // Generate single answer field
+        answersContainer.innerHTML = '';
+        const formGroup = document.createElement('div');
+        formGroup.className = 'form-group';
+        
+        const label = document.createElement('label');
+        label.setAttribute('for', 'answer-0');
+        label.textContent = 'Your Answer:';
+        
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.id = 'answer-0';
+        input.className = 'answer-input';
+        input.required = true;
+        
+        formGroup.appendChild(label);
+        formGroup.appendChild(input);
+        answersContainer.appendChild(formGroup);
+        
+        // Update navigation
+        updateNavigationButtons(puzzleNum);
         
         loading.style.display = 'none';
         screenPuzzle.classList.remove('hidden');
@@ -434,10 +695,21 @@
       }
     }
     
+    // Update navigation buttons based on current puzzle
+    function updateNavigationButtons(puzzleNum) {
+      // Previous button is always visible except on first puzzle
+      prevPuzzleBtn.classList.toggle('hidden', puzzleNum <= 1);
+      
+      // Next button is only visible for solved puzzles
+      const isCurrentPuzzleSolved = solvedPuzzles[puzzleNum];
+      nextPuzzleBtn.classList.toggle('hidden', !isCurrentPuzzleSolved || puzzleNum >= totalPuzzles);
+    }
+    
     // Display completion screen
     function showCompletion() {
       loading.style.display = 'none';
       screen0.classList.add('hidden');
+      screenWelcomeBack.classList.add('hidden');
       screenPuzzle.classList.add('hidden');
       screenComplete.classList.remove('hidden');
       
@@ -477,12 +749,15 @@
       localStorage.setItem('weddingPuzzleEmail', userEmail);
       localStorage.setItem('weddingPuzzleScreen', currentScreen);
       
+      // Initialize solved puzzles array
+      solvedPuzzles = Array(11).fill(false);
+      
       // Prepare progress data
       const progressData = {
         name: userName,
         email: userEmail,
         currentScreen: currentScreen,
-        solved: [false, false, false, false, false, false, false, false, false, false, false],
+        solved: solvedPuzzles,
         timestamp: new Date().toISOString()
       };
       
@@ -519,25 +794,74 @@
       });
     });
     
+    // Welcome back buttons
+    continueBtn.addEventListener('click', function() {
+      loadPuzzle(currentScreen);
+    });
+    
+    restartFromBeginningBtn.addEventListener('click', function() {
+      currentScreen = 1;
+      localStorage.setItem('weddingPuzzleScreen', currentScreen);
+      loadPuzzle(currentScreen);
+    });
+    
+    // Navigation buttons
+    prevPuzzleBtn.addEventListener('click', function() {
+      if (currentScreen > 1) {
+        currentScreen--;
+        localStorage.setItem('weddingPuzzleScreen', currentScreen);
+        loadPuzzle(currentScreen);
+      }
+    });
+    
+    nextPuzzleBtn.addEventListener('click', function() {
+      if (currentScreen < totalPuzzles && solvedPuzzles[currentScreen]) {
+        currentScreen++;
+        localStorage.setItem('weddingPuzzleScreen', currentScreen);
+        loadPuzzle(currentScreen);
+      }
+    });
+    
     // Answer submission
     answerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       
-      const answer = document.getElementById('answer').value.trim();
+      // Collect all answers
+      const answerInputs = document.querySelectorAll('.answer-input');
+      const answers = Array.from(answerInputs).map(input => input.value.trim());
       
-      if (!answer) {
-        alert('Please enter an answer.');
+      if (answers.some(a => !a)) {
+        alert('Please fill in all answer fields.');
         return;
       }
       
       try {
-        // Check answer (case-insensitive match)
-        const isCorrect = answer.toLowerCase() === puzzleData.answer.toLowerCase();
+        // Check if all answers are correct
+        let allCorrect = true;
+        let correctAnswers = 0;
+        
+        // For each answer, check if it matches
+        answers.forEach((answer, index) => {
+          const expectedAnswer = puzzleData.answers[index]?.text || '';
+          const isCorrect = answer.toLowerCase() === expectedAnswer.toLowerCase();
+          
+          // Mark the answer container as correct if it's right
+          const answerContainer = document.getElementById(`answer-container-${index}`);
+          if (answerContainer) {
+            if (isCorrect) {
+              answerContainer.classList.add('correct');
+              correctAnswers++;
+            } else {
+              answerContainer.classList.remove('correct');
+              allCorrect = false;
+            }
+          }
+        });
         
         // Track attempt in localStorage first
         const attemptData = {
-          answer: answer,
-          correct: isCorrect,
+          answers: answers,
+          correct: allCorrect,
           timestamp: new Date().toISOString()
         };
         
@@ -561,26 +885,29 @@
           }).catch(err => console.warn('Could not save attempt to fallback path:', err));
         }
         
-        if (isCorrect) {
+        if (allCorrect) {
           // Update progress
-          currentScreen++;
+          solvedPuzzles[currentScreen] = true;
           
-          // Save progress to localStorage
-          localStorage.setItem('weddingPuzzleScreen', currentScreen);
+          // If this is the current puzzle in sequence, move to next
+          if (currentScreen >= parseInt(localStorage.getItem('weddingPuzzleScreen'))) {
+            currentScreen++;
+            localStorage.setItem('weddingPuzzleScreen', currentScreen);
+          }
           
           // Update solved status in localStorage
           const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
           if (localProgress.solved) {
-            localProgress.solved[currentScreen - 2] = true;
+            localProgress.solved = solvedPuzzles;
             localProgress.currentScreen = currentScreen;
             localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           }
           
           // Try to update Firebase using the known successful path (non-blocking)
           const updateData = {
-            currentScreen: currentScreen
+            currentScreen: currentScreen,
+            solved: solvedPuzzles
           };
-          updateData[`solved/${currentScreen - 2}`] = true;
           
           if (successPath === 'wedding/progress') {
             fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
@@ -595,12 +922,16 @@
           }
           
           // Check if all puzzles completed
-          if (currentScreen > 10) {
+          if (currentScreen > totalPuzzles) {
             // All puzzles completed
             showCompletion();
           } else {
-            // Load next puzzle
-            loadPuzzle(currentScreen);
+            // Load next puzzle with a success animation
+            card.style.animation = 'none';
+            setTimeout(() => {
+              card.style.animation = 'fadeInUp 0.5s forwards';
+              loadPuzzle(currentScreen);
+            }, 10);
           }
           
         } else {
@@ -621,9 +952,20 @@
             }, 5000);
           }
           
-          // Clear answer field
-          document.getElementById('answer').value = '';
-          document.getElementById('answer').focus();
+          // If some answers are correct, keep them highlighted
+          if (correctAnswers > 0) {
+            // Focus the first incorrect answer
+            for (let i = 0; i < answerInputs.length; i++) {
+              if (answers[i].toLowerCase() !== (puzzleData.answers[i]?.text || '').toLowerCase()) {
+                answerInputs[i].focus();
+                break;
+              }
+            }
+          } else {
+            // Clear all answer fields if none are correct
+            answerInputs.forEach(input => input.value = '');
+            answerInputs[0].focus();
+          }
         }
         
       } catch (error) {
