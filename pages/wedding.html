@@ -769,17 +769,14 @@
         currentScreen = parseInt(storedScreen);
         
         // Check if this is a fresh page load (not a form submission)
-        const isPageRefresh = !document.referrer || (document.referrer && document.referrer.split('?')[0] === window.location.href.split('?')[0]);
+        // We'll use sessionStorage to track if we're in the middle of answering puzzles
+        const inPuzzleSession = sessionStorage.getItem('weddingPuzzleSession') === 'active';
         
-        // Check if we have a flag set to bypass welcome back screen
-        const bypassWelcome = sessionStorage.getItem('bypassWelcomeBack') === 'true';
-        sessionStorage.removeItem('bypassWelcomeBack'); // Clear the flag once used
-        
-        if (isPageRefresh && currentScreen > 0 && !bypassWelcome) {
-          // Show welcome back screen
+        if (!inPuzzleSession && currentScreen > 0) {
+          // Show welcome back screen only on initial page load, not after answer submissions
           showWelcomeBack();
         } else if (currentScreen >= 1 && currentScreen <= 10) {
-          // Continue with a puzzle
+          // Continue with a puzzle - either continuing from session or from welcome back
           loadPuzzle(currentScreen);
         } else if (currentScreen === 11) {
           // Show completion screen
@@ -883,6 +880,9 @@
     // Display puzzle screen
     async function loadPuzzle(puzzleNum) {
       try {
+        // Mark that we're in an active puzzle session
+        sessionStorage.setItem('weddingPuzzleSession', 'active');
+        
         // Show loading
         loading.style.display = 'block';
         document.getElementById('success-display').classList.add('hidden');
@@ -1175,6 +1175,9 @@
       // Store locally regardless of what happens with remote saves
       localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(progressData));
       
+      // Mark that we're in an active puzzle session
+      sessionStorage.setItem('weddingPuzzleSession', 'active');
+      
       // Try saving to primary DB path
       fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
         method: 'PUT',
@@ -1207,6 +1210,8 @@
     
     // Welcome back buttons
     continueBtn.addEventListener('click', function() {
+      // Mark that we're in an active puzzle session when continuing
+      sessionStorage.setItem('weddingPuzzleSession', 'active');
       loadPuzzle(currentScreen);
     });
     
@@ -1279,6 +1284,9 @@
     // Answer submission
     answerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+      
+      // Mark that we're in an active puzzle session
+      sessionStorage.setItem('weddingPuzzleSession', 'active');
       
       // Collect all answers
       const answerInputs = document.querySelectorAll('.answer-input');
@@ -1362,9 +1370,6 @@
           localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           localStorage.setItem('weddingPuzzleScreen', nextScreen);
           
-          // Set bypass flag to skip welcome back screen after reloads
-          sessionStorage.setItem('bypassWelcomeBack', 'true');
-          
           // Try to update Firebase using the known successful path (non-blocking)
           const updateData = {
             currentScreen: nextScreen,
@@ -1422,24 +1427,12 @@
             card.classList.remove('card-shake');
           }, 500);
           
-          // Try to fetch custom wrong answer message from the database
-          fetchWrongAnswerMessage(currentScreen)
-            .then(message => {
-              const feedbackText = message || (correctAnswers > 0 ? 
-                `Some answers are wrong. Keep trying!` : 
-                `That's not right. Try again!`);
-              
-              showFeedback(feedbackText, 'error');
-            })
-            .catch(err => {
-              console.warn('Could not fetch wrong answer message:', err);
-              // Show default error feedback
-              if (correctAnswers > 0) {
-                showFeedback(`Some answers are wrong. Keep trying!`, 'error');
-              } else {
-                showFeedback(`That's not right. Try again!`, 'error');
-              }
-            });
+          // Show error feedback
+          if (correctAnswers > 0) {
+            showFeedback(`Some answers are wrong. Keep trying!`, 'error');
+          } else {
+            showFeedback(`That's not right. Try again!`, 'error');
+          }
           
           // Show hint after 3 wrong attempts
           if (wrongAttempts >= 3) {
@@ -1469,30 +1462,6 @@
         showFeedback('There was a problem processing your answer. Please try again.', 'error');
       }
     });
-    
-    // Function to fetch custom wrong answer message from the database
-    async function fetchWrongAnswerMessage(puzzleNum) {
-      try {
-        // Try primary path
-        let response = await fetch(`${DB_URL}/wedding/wrongAnswerMessages/${puzzleNum}.json`);
-        
-        // If primary failed, try backup path
-        if (!response || !response.ok) {
-          response = await fetch(`${DB_URL}/publicAnswers/wedding/wrongAnswerMessages/${puzzleNum}.json`);
-        }
-        
-        if (response && response.ok) {
-          const message = await response.json();
-          if (message && typeof message === 'string') {
-            return message;
-          }
-        }
-        return null;
-      } catch (error) {
-        console.warn('Could not load wrong answer message:', error);
-        return null;
-      }
-    }
     
     // Restart button
     restartBtn.addEventListener('click', () => {
