@@ -769,14 +769,13 @@
         currentScreen = parseInt(storedScreen);
         
         // Check if this is a fresh page load (not a form submission)
-        // We'll use sessionStorage to track if we're in the middle of answering puzzles
-        const inPuzzleSession = sessionStorage.getItem('weddingPuzzleSession') === 'active';
+        const isPageRefresh = !document.referrer || (document.referrer && document.referrer.split('?')[0] === window.location.href.split('?')[0]);
         
-        if (!inPuzzleSession && currentScreen > 0) {
-          // Show welcome back screen only on initial page load, not after answer submissions
+        if (isPageRefresh && currentScreen > 0) {
+          // Show welcome back screen
           showWelcomeBack();
         } else if (currentScreen >= 1 && currentScreen <= 10) {
-          // Continue with a puzzle - either continuing from session or from welcome back
+          // Continue with a puzzle
           loadPuzzle(currentScreen);
         } else if (currentScreen === 11) {
           // Show completion screen
@@ -868,7 +867,7 @@
       // Fetch custom welcome back message if available
       const customMessage = await fetchWelcomeBackMessage();
       if (customMessage) {
-        // Replace placeholder with user name if present
+        // Replace {{name}} placeholder with actual user name
         welcomeBackMessage.innerHTML = customMessage.replace(/\{\{name\}\}/g, userName || 'there');
       } else {
         welcomeBackMessage.textContent = `Welcome back, ${userName}! You were on puzzle ${currentScreen} of ${totalPuzzles}.`;
@@ -880,9 +879,6 @@
     // Display puzzle screen
     async function loadPuzzle(puzzleNum) {
       try {
-        // Mark that we're in an active puzzle session
-        sessionStorage.setItem('weddingPuzzleSession', 'active');
-        
         // Show loading
         loading.style.display = 'block';
         document.getElementById('success-display').classList.add('hidden');
@@ -1175,9 +1171,6 @@
       // Store locally regardless of what happens with remote saves
       localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(progressData));
       
-      // Mark that we're in an active puzzle session
-      sessionStorage.setItem('weddingPuzzleSession', 'active');
-      
       // Try saving to primary DB path
       fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
         method: 'PUT',
@@ -1210,8 +1203,6 @@
     
     // Welcome back buttons
     continueBtn.addEventListener('click', function() {
-      // Mark that we're in an active puzzle session when continuing
-      sessionStorage.setItem('weddingPuzzleSession', 'active');
       loadPuzzle(currentScreen);
     });
     
@@ -1270,11 +1261,8 @@
       const checkmark = document.querySelector('.success-checkmark');
       checkmark.style.display = 'block';
       
-      console.log("Success message shown, scheduling transition to next function:", nextFunction);
-      
       // Transition after delay
       setTimeout(() => {
-        console.log("Executing transition now");
         if (typeof nextFunction === 'function') {
           nextFunction();
         }
@@ -1284,9 +1272,6 @@
     // Answer submission
     answerForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      
-      // Mark that we're in an active puzzle session
-      sessionStorage.setItem('weddingPuzzleSession', 'active');
       
       // Collect all answers
       const answerInputs = document.querySelectorAll('.answer-input');
@@ -1350,30 +1335,27 @@
         }
         
         if (allCorrect) {
-          console.log("All answers correct! Current screen:", currentScreen);
-          
           // Update progress
           solvedPuzzles[currentScreen] = true;
           
           // If this is the current puzzle in sequence, move to next
-          const nextScreen = currentScreen + 1;
-          console.log("Moving to next screen:", nextScreen);
+          if (currentScreen >= parseInt(localStorage.getItem('weddingPuzzleScreen'))) {
+            currentScreen++;
+            localStorage.setItem('weddingPuzzleScreen', currentScreen);
+          }
           
           // Update solved status in localStorage
           const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
-          if (!localProgress.solved) {
-            localProgress.solved = Array(11).fill(false);
+          if (localProgress.solved) {
+            localProgress.solved = solvedPuzzles;
+            localProgress.currentScreen = currentScreen;
+            localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           }
-          
-          localProgress.solved[currentScreen] = true;
-          localProgress.currentScreen = nextScreen;
-          localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
-          localStorage.setItem('weddingPuzzleScreen', nextScreen);
           
           // Try to update Firebase using the known successful path (non-blocking)
           const updateData = {
-            currentScreen: nextScreen,
-            solved: localProgress.solved
+            currentScreen: currentScreen,
+            solved: solvedPuzzles
           };
           
           if (successPath === 'wedding/progress') {
@@ -1389,34 +1371,24 @@
           }
           
           // Check if all puzzles completed
-          if (nextScreen > totalPuzzles) {
+          if (currentScreen > totalPuzzles) {
             // All puzzles completed
-            console.log("All puzzles completed!");
-            // Set the current screen to the next one before showing completion
-            currentScreen = nextScreen;
             showSuccessAndTransition('All puzzles completed! Great job!', showCompletion);
           } else {
-            // Set the current screen to the next one before showing next puzzle
-            const thisScreen = currentScreen; // Save current screen
-            currentScreen = nextScreen; // Update current screen
-            
             // Show success message and then load next puzzle
-            console.log("Preparing to show next puzzle:", currentScreen);
             showSuccessAndTransition('Correct! Moving to the next puzzle...', () => {
-              // Reset the card styles
-              console.log("Success transition callback triggered");
+              // Reset the success display
               document.getElementById('success-display').classList.add('hidden');
               document.getElementById('answer-form').style.display = 'block';
               document.querySelector('.success-checkmark').style.display = 'none';
               
-              // Load the next puzzle with a card animation
-              card.style.animation = 'none';
+              // Load the next puzzle with a new screen transition
               setTimeout(() => {
-                card.style.animation = 'fadeInUp 0.7s forwards';
                 loadPuzzle(currentScreen);
-              }, 10);
+              }, 100);
             });
           }
+          
         } else {
           // Wrong answer
           wrongAttempts++;
