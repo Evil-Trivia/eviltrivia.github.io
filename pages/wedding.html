@@ -771,7 +771,11 @@
         // Check if this is a fresh page load (not a form submission)
         const isPageRefresh = !document.referrer || (document.referrer && document.referrer.split('?')[0] === window.location.href.split('?')[0]);
         
-        if (isPageRefresh && currentScreen > 0) {
+        // Check if we have a flag set to bypass welcome back screen
+        const bypassWelcome = sessionStorage.getItem('bypassWelcomeBack') === 'true';
+        sessionStorage.removeItem('bypassWelcomeBack'); // Clear the flag once used
+        
+        if (isPageRefresh && currentScreen > 0 && !bypassWelcome) {
           // Show welcome back screen
           showWelcomeBack();
         } else if (currentScreen >= 1 && currentScreen <= 10) {
@@ -1358,6 +1362,9 @@
           localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           localStorage.setItem('weddingPuzzleScreen', nextScreen);
           
+          // Set bypass flag to skip welcome back screen after reloads
+          sessionStorage.setItem('bypassWelcomeBack', 'true');
+          
           // Try to update Firebase using the known successful path (non-blocking)
           const updateData = {
             currentScreen: nextScreen,
@@ -1415,12 +1422,24 @@
             card.classList.remove('card-shake');
           }, 500);
           
-          // Show error feedback
-          if (correctAnswers > 0) {
-            showFeedback(`Some answers are wrong. Keep trying!`, 'error');
-          } else {
-            showFeedback(`That's not right. Try again!`, 'error');
-          }
+          // Try to fetch custom wrong answer message from the database
+          fetchWrongAnswerMessage(currentScreen)
+            .then(message => {
+              const feedbackText = message || (correctAnswers > 0 ? 
+                `Some answers are wrong. Keep trying!` : 
+                `That's not right. Try again!`);
+              
+              showFeedback(feedbackText, 'error');
+            })
+            .catch(err => {
+              console.warn('Could not fetch wrong answer message:', err);
+              // Show default error feedback
+              if (correctAnswers > 0) {
+                showFeedback(`Some answers are wrong. Keep trying!`, 'error');
+              } else {
+                showFeedback(`That's not right. Try again!`, 'error');
+              }
+            });
           
           // Show hint after 3 wrong attempts
           if (wrongAttempts >= 3) {
@@ -1450,6 +1469,30 @@
         showFeedback('There was a problem processing your answer. Please try again.', 'error');
       }
     });
+    
+    // Function to fetch custom wrong answer message from the database
+    async function fetchWrongAnswerMessage(puzzleNum) {
+      try {
+        // Try primary path
+        let response = await fetch(`${DB_URL}/wedding/wrongAnswerMessages/${puzzleNum}.json`);
+        
+        // If primary failed, try backup path
+        if (!response || !response.ok) {
+          response = await fetch(`${DB_URL}/publicAnswers/wedding/wrongAnswerMessages/${puzzleNum}.json`);
+        }
+        
+        if (response && response.ok) {
+          const message = await response.json();
+          if (message && typeof message === 'string') {
+            return message;
+          }
+        }
+        return null;
+      } catch (error) {
+        console.warn('Could not load wrong answer message:', error);
+        return null;
+      }
+    }
     
     // Restart button
     restartBtn.addEventListener('click', () => {
