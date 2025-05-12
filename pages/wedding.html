@@ -635,6 +635,9 @@
       <div id="screen-puzzle" class="hidden">
         <div class="navigation-controls">
           <button id="prev-puzzle-btn" class="btn btn-nav">← Previous</button>
+          <div id="puzzle-nav" style="display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto;">
+            <!-- Puzzle navigation buttons will be inserted here -->
+          </div>
         </div>
         
         <h2 id="puzzle-name">Puzzle #1</h2>
@@ -1015,8 +1018,8 @@
         // Reset wrong attempts
         wrongAttempts = 0;
         
-        // Update navigation buttons
-        updateNavigationButtons(puzzleNum);
+        // Update navigation buttons and puzzle navigation
+        updateNavigation(puzzleNum);
         
         // Hide loading and show puzzle screen with animation
         loading.style.display = 'none';
@@ -1068,7 +1071,7 @@
         answersContainer.appendChild(formGroup);
         
         // Update navigation
-        updateNavigationButtons(puzzleNum);
+        updateNavigation(puzzleNum);
         
         loading.style.display = 'none';
         switchScreen(null, screenPuzzle);
@@ -1076,11 +1079,52 @@
       }
     }
     
-    // Update navigation buttons based on current puzzle
-    function updateNavigationButtons(puzzleNum) {
+    // Update navigation buttons and puzzle navigation based on current puzzle and progress
+    function updateNavigation(puzzleNum) {
       // Previous button is always visible except on first puzzle
       prevPuzzleBtn.classList.toggle('hidden', puzzleNum <= 1);
+      
+      // Update puzzle navigation buttons
+      const puzzleNav = document.getElementById('puzzle-nav');
+      puzzleNav.innerHTML = '';
+      
+      // Only show navigation for puzzles that are unlocked (solved or current)
+      for (let i = 1; i <= totalPuzzles; i++) {
+        // A puzzle is available if:
+        // 1. It's already solved, or
+        // 2. It's the current puzzle being worked on, or
+        // 3. It's the next puzzle after the current solved puzzle
+        const isAvailable = solvedPuzzles[i] || i === puzzleNum || 
+                             (i > 1 && i === puzzleNum + 1 && solvedPuzzles[puzzleNum]);
+        
+        if (isAvailable) {
+          const navBtn = document.createElement('button');
+          navBtn.className = 'btn btn-nav' + (i === puzzleNum ? ' active-puzzle' : '');
+          navBtn.textContent = `#${i}`;
+          navBtn.style.minWidth = '40px';
+          navBtn.style.padding = '8px 5px';
+          navBtn.style.backgroundColor = solvedPuzzles[i] ? '#4CAF50' : '#555';
+          
+          navBtn.addEventListener('click', () => {
+            if (i !== puzzleNum) {
+              loadPuzzle(i);
+            }
+          });
+          
+          puzzleNav.appendChild(navBtn);
+        }
+      }
     }
+    
+    // Add some CSS for the active puzzle
+    const style = document.createElement('style');
+    style.textContent = `
+      .btn.btn-nav.active-puzzle {
+        border: 2px solid white;
+        font-weight: bold;
+      }
+    `;
+    document.head.appendChild(style);
     
     // Display completion screen
     function showCompletion() {
@@ -1271,7 +1315,7 @@
     
     // Answer submission
     answerForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
+      e.preventDefault(); // Prevent the default form submission
       
       // Collect all answers
       const answerInputs = document.querySelectorAll('.answer-input');
@@ -1335,22 +1379,23 @@
         }
         
         if (allCorrect) {
-          // Update progress
+          // Mark current puzzle as solved
           solvedPuzzles[currentScreen] = true;
           
-          // If this is the current puzzle in sequence, move to next
-          if (currentScreen >= parseInt(localStorage.getItem('weddingPuzzleScreen'))) {
-            currentScreen++;
+          // Determine next puzzle to go to
+          const nextPuzzle = currentScreen < totalPuzzles ? currentScreen + 1 : currentScreen;
+          
+          // Update current screen to next puzzle if applicable
+          if (currentScreen < totalPuzzles) {
+            currentScreen = nextPuzzle;
             localStorage.setItem('weddingPuzzleScreen', currentScreen);
           }
           
           // Update solved status in localStorage
           const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
-          if (localProgress.solved) {
-            localProgress.solved = solvedPuzzles;
-            localProgress.currentScreen = currentScreen;
-            localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
-          }
+          localProgress.solved = solvedPuzzles;
+          localProgress.currentScreen = currentScreen;
+          localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           
           // Try to update Firebase using the known successful path (non-blocking)
           const updateData = {
@@ -1374,18 +1419,27 @@
           if (currentScreen > totalPuzzles) {
             // All puzzles completed
             showSuccessAndTransition('All puzzles completed! Great job!', showCompletion);
-          } else {
-            // Show success message and then load next puzzle
+          } else if (currentScreen > nextPuzzle - 1) {
+            // Show success message and update puzzle nav
             showSuccessAndTransition('Correct! Moving to the next puzzle...', () => {
               // Reset the success display
               document.getElementById('success-display').classList.add('hidden');
               document.getElementById('answer-form').style.display = 'block';
               document.querySelector('.success-checkmark').style.display = 'none';
               
-              // Load the next puzzle with a new screen transition
-              setTimeout(() => {
-                loadPuzzle(currentScreen);
-              }, 100);
+              // Load the next puzzle
+              loadPuzzle(nextPuzzle);
+            });
+          } else {
+            // Just show success but stay on current puzzle
+            showSuccessAndTransition('Correct! This puzzle is now solved.', () => {
+              // Reset the success display
+              document.getElementById('success-display').classList.add('hidden');
+              document.getElementById('answer-form').style.display = 'block';
+              document.querySelector('.success-checkmark').style.display = 'none';
+              
+              // Update navigation to show the puzzle is solved
+              updateNavigation(currentScreen);
             });
           }
           

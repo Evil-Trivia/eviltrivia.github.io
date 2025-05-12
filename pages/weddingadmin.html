@@ -554,6 +554,53 @@
         padding: 8px;
       }
     }
+    
+    .puzzle-tab-content {
+      display: none;
+      padding: 15px 0;
+    }
+    
+    .puzzle-tab-content.active {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+    
+    .puzzle-preview {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    
+    .puzzle-preview-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .puzzle-preview-label {
+      font-weight: bold;
+      min-width: 80px;
+    }
+    
+    .puzzle-preview-thumbnail {
+      max-width: 60px;
+      max-height: 60px;
+      object-fit: contain;
+    }
+    
+    .action-buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    
+    .btn-edit-all {
+      background-color: #2196F3;
+    }
+    
+    .btn-edit-all:hover {
+      background-color: #0b7dda;
+    }
   </style>
 </head>
 <body>
@@ -602,10 +649,9 @@
           <thead>
             <tr>
               <th style="width: 5%;">#</th>
-              <th style="width: 15%;">Name</th>
-              <th style="width: 30%;">Clue</th>
-              <th style="width: 20%;">Images</th>
-              <th style="width: 30%;">Answers</th>
+              <th style="width: 20%;">Name</th>
+              <th style="width: 45%;">Preview</th>
+              <th style="width: 30%;">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -613,7 +659,7 @@
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="5" style="text-align: center; padding: 20px;">
+              <td colspan="4" style="text-align: center; padding: 20px;">
                 <button id="add-puzzle-btn" class="btn">Add New Puzzle</button>
               </td>
             </tr>
@@ -729,6 +775,61 @@
       
       <div style="margin-top: 20px; text-align: right;">
         <button id="save-richtext-btn" class="btn">Save Content</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Comprehensive Puzzle Edit Modal -->
+  <div id="puzzle-edit-modal" class="modal">
+    <div class="modal-content" style="max-width: 800px; width: 90%;">
+      <div class="modal-header">
+        <h3>Edit Puzzle <span id="edit-puzzle-number"></span></h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      
+      <div class="tab-nav" style="margin-top: 15px;">
+        <button id="puzzle-tab-basic" class="active">Basic Info</button>
+        <button id="puzzle-tab-clue">Clue Content</button>
+        <button id="puzzle-tab-images">Images</button>
+        <button id="puzzle-tab-answers">Answers</button>
+      </div>
+      
+      <div id="puzzle-basic-tab" class="puzzle-tab-content active">
+        <div class="form-group" style="margin-top: 15px;">
+          <label for="edit-puzzle-name">Puzzle Name:</label>
+          <input type="text" id="edit-puzzle-name" placeholder="Enter puzzle name">
+        </div>
+      </div>
+      
+      <div id="puzzle-clue-tab" class="puzzle-tab-content hidden">
+        <div class="editor-container" style="margin-top: 15px;">
+          <div id="edit-puzzle-richtext"></div>
+        </div>
+        
+        <div class="clue-preview" style="margin-top: 15px;">
+          <div class="preview-title">Preview:</div>
+          <div id="edit-puzzle-preview"></div>
+        </div>
+      </div>
+      
+      <div id="puzzle-images-tab" class="puzzle-tab-content hidden">
+        <div id="edit-puzzle-images" class="image-gallery" style="margin-top: 15px;">
+          <!-- Image fields will be added here -->
+        </div>
+        
+        <button id="edit-puzzle-add-image" class="add-image-btn">+ Add Another Image</button>
+      </div>
+      
+      <div id="puzzle-answers-tab" class="puzzle-tab-content hidden">
+        <div id="edit-puzzle-answers" style="margin-top: 15px;">
+          <!-- Answer fields will be added here -->
+        </div>
+        
+        <button id="edit-puzzle-add-answer" class="add-answer-btn">+ Add Another Answer</button>
+      </div>
+      
+      <div style="margin-top: 20px; text-align: right;">
+        <button id="save-puzzle-btn" class="btn">Save Puzzle</button>
       </div>
     </div>
   </div>
@@ -937,6 +1038,9 @@
             }
             if (e.target === richtextModal) {
                 closeModal(richtextModal);
+            }
+            if (e.target === document.getElementById('puzzle-edit-modal')) {
+                closeModal(document.getElementById('puzzle-edit-modal'));
             }
         });
         
@@ -1248,146 +1352,160 @@
           nameCell.appendChild(nameInput);
           row.appendChild(nameCell);
           
-          // Add clue cell
-          const clueCell = document.createElement('td');
+          // Add preview cell
+          const previewCell = document.createElement('td');
+          const previewContainer = document.createElement('div');
+          previewContainer.className = 'puzzle-preview';
           
-          // If we have HTML content, display it
+          // Preview clue
+          const cluePreview = document.createElement('div');
+          cluePreview.className = 'puzzle-preview-item';
+          
+          const clueLabel = document.createElement('div');
+          clueLabel.className = 'puzzle-preview-label';
+          clueLabel.textContent = 'Clue:';
+          
+          const clueText = document.createElement('div');
+          clueText.className = 'puzzle-preview-text';
           if (puzzleData.clueHtml) {
-            const cluePreview = document.createElement('div');
-            cluePreview.className = 'clue-preview';
-            cluePreview.innerHTML = puzzleData.clueHtml;
-            
-            const editBtn = document.createElement('button');
-            editBtn.className = 'btn btn-icon';
-            editBtn.textContent = 'Edit';
-            editBtn.style.marginTop = '10px';
-            editBtn.addEventListener('click', () => {
-              openRichtextModal(puzzleNum, puzzleData.clueHtml || '');
-            });
-            
-            clueCell.appendChild(cluePreview);
-            clueCell.appendChild(editBtn);
+            clueText.innerHTML = puzzleData.clueHtml.length > 100 
+              ? puzzleData.clueHtml.substring(0, 100) + '...' 
+              : puzzleData.clueHtml;
           } else {
-            // Fallback to plain text area
-            const clueTextarea = document.createElement('textarea');
-            clueTextarea.value = puzzleData.clue || '';
-            clueTextarea.placeholder = 'Enter clue here...';
-            clueTextarea.addEventListener('input', debounce(() => {
-              savePuzzleField(puzzleNum, 'clue', clueTextarea.value);
-            }, 1000));
-            
-            const convertBtn = document.createElement('button');
-            convertBtn.className = 'btn btn-secondary';
-            convertBtn.textContent = 'Use Rich Editor';
-            convertBtn.style.marginTop = '10px';
-            convertBtn.style.width = 'auto';
-            convertBtn.addEventListener('click', () => {
-              openRichtextModal(puzzleNum, puzzleData.clue || '');
-            });
-            
-            clueCell.appendChild(clueTextarea);
-            clueCell.appendChild(convertBtn);
+            clueText.textContent = puzzleData.clue 
+              ? (puzzleData.clue.length > 100 ? puzzleData.clue.substring(0, 100) + '...' : puzzleData.clue) 
+              : 'No clue provided';
           }
           
-          row.appendChild(clueCell);
+          cluePreview.appendChild(clueLabel);
+          cluePreview.appendChild(clueText);
+          previewContainer.appendChild(cluePreview);
           
-          // Add images cell
-          const imagesCell = document.createElement('td');
-          
-          // Make sure puzzleData.imageUrls exists
-          if (!puzzleData.imageUrls) {
-            puzzleData.imageUrls = [];
-          }
-          
-          // Show image thumbnails if available
-          if (puzzleData.imageUrls.length > 0) {
-            const imageGallery = document.createElement('div');
-            imageGallery.className = 'image-gallery';
-            imageGallery.style.flexDirection = 'column';
+          // Preview images
+          if (puzzleData.imageUrls && puzzleData.imageUrls.length > 0) {
+            const imagesPreview = document.createElement('div');
+            imagesPreview.className = 'puzzle-preview-item';
             
-            // Show up to 2 thumbnails
-            const maxThumbnails = Math.min(2, puzzleData.imageUrls.length);
+            const imagesLabel = document.createElement('div');
+            imagesLabel.className = 'puzzle-preview-label';
+            imagesLabel.textContent = 'Images:';
+            
+            const imagesContainer = document.createElement('div');
+            imagesContainer.style.display = 'flex';
+            imagesContainer.style.gap = '5px';
+            imagesContainer.style.flexWrap = 'wrap';
+            
+            // Show up to 3 thumbnails
+            const maxThumbnails = Math.min(3, puzzleData.imageUrls.length);
             
             for (let i = 0; i < maxThumbnails; i++) {
               const thumbnail = document.createElement('img');
+              thumbnail.className = 'puzzle-preview-thumbnail';
               thumbnail.src = puzzleData.imageUrls[i];
-              thumbnail.style.maxHeight = '60px';
-              thumbnail.style.maxWidth = '100%';
-              thumbnail.style.objectFit = 'contain';
-              thumbnail.style.margin = '5px 0';
-              imageGallery.appendChild(thumbnail);
+              thumbnail.alt = 'Image thumbnail';
+              imagesContainer.appendChild(thumbnail);
             }
             
             // Show count if more than shown
             if (puzzleData.imageUrls.length > maxThumbnails) {
               const countLabel = document.createElement('div');
-              countLabel.textContent = `+ ${puzzleData.imageUrls.length - maxThumbnails} more`;
+              countLabel.textContent = `+${puzzleData.imageUrls.length - maxThumbnails} more`;
               countLabel.style.fontSize = '12px';
-              countLabel.style.fontStyle = 'italic';
-              countLabel.style.marginTop = '5px';
-              imageGallery.appendChild(countLabel);
+              imagesContainer.appendChild(countLabel);
             }
             
-            imagesCell.appendChild(imageGallery);
-          } else {
-            const noImageText = document.createElement('span');
-            noImageText.textContent = 'No images';
-            noImageText.style.fontSize = '14px';
-            noImageText.style.color = '#666';
-            noImageText.style.fontStyle = 'italic';
-            imagesCell.appendChild(noImageText);
+            imagesPreview.appendChild(imagesLabel);
+            imagesPreview.appendChild(imagesContainer);
+            previewContainer.appendChild(imagesPreview);
           }
           
-          // Add edit button
+          // Preview answers
+          const answersPreview = document.createElement('div');
+          answersPreview.className = 'puzzle-preview-item';
+          
+          const answersLabel = document.createElement('div');
+          answersLabel.className = 'puzzle-preview-label';
+          answersLabel.textContent = 'Answers:';
+          
+          const answersContainer = document.createElement('div');
+          
+          if (puzzleData.answers && puzzleData.answers.length > 0) {
+            const answersList = document.createElement('ul');
+            answersList.style.margin = '0';
+            answersList.style.paddingLeft = '20px';
+            
+            // Show all answers (they're typically short)
+            puzzleData.answers.forEach(answer => {
+              const answerItem = document.createElement('li');
+              answerItem.textContent = answer.text || '(empty)';
+              answersList.appendChild(answerItem);
+            });
+            
+            answersContainer.appendChild(answersList);
+          } else {
+            answersContainer.textContent = 'No answers defined';
+          }
+          
+          answersPreview.appendChild(answersLabel);
+          answersPreview.appendChild(answersContainer);
+          previewContainer.appendChild(answersPreview);
+          
+          previewCell.appendChild(previewContainer);
+          row.appendChild(previewCell);
+          
+          // Add actions cell
+          const actionsCell = document.createElement('td');
+          const actionButtons = document.createElement('div');
+          actionButtons.className = 'action-buttons';
+          
+          // Edit All button
+          const editAllBtn = document.createElement('button');
+          editAllBtn.className = 'btn btn-edit-all';
+          editAllBtn.textContent = 'Edit All';
+          editAllBtn.addEventListener('click', () => {
+            openPuzzleEditModal(puzzleNum, puzzleData);
+          });
+          
+          // Individual edit buttons
+          const editClueBtn = document.createElement('button');
+          editClueBtn.className = 'btn btn-icon';
+          editClueBtn.textContent = 'Edit Clue';
+          editClueBtn.addEventListener('click', () => {
+            openRichtextModal(puzzleNum, puzzleData.clueHtml || puzzleData.clue || '');
+          });
+          
           const editImagesBtn = document.createElement('button');
           editImagesBtn.className = 'btn btn-icon';
-          editImagesBtn.textContent = 'Edit';
-          editImagesBtn.style.marginTop = '10px';
+          editImagesBtn.textContent = 'Edit Images';
           editImagesBtn.addEventListener('click', () => {
             openImageModal(puzzleNum, puzzleData.imageUrls || []);
           });
           
-          imagesCell.appendChild(editImagesBtn);
-          row.appendChild(imagesCell);
-          
-          // Add answers cell
-          const answersCell = document.createElement('td');
-          
-          // Make sure puzzleData.answers exists
-          if (!puzzleData.answers) {
-            puzzleData.answers = [];
-          }
-          
-          // Show a summary of answers
-          const answersCount = puzzleData.answers.length;
-          const answerSummary = document.createElement('div');
-          answerSummary.innerHTML = `
-            <strong>${answersCount} Answer${answersCount !== 1 ? 's' : ''}</strong><br>
-            ${answersCount > 0 ? puzzleData.answers.map(a => escapeHTML(a.text || '')).join('<br>') : 'No answers defined'}
-          `;
-          
-          // Add edit button
-          const editBtn = document.createElement('button');
-          editBtn.className = 'btn btn-icon';
-          editBtn.textContent = 'Edit';
-          editBtn.addEventListener('click', () => {
+          const editAnswersBtn = document.createElement('button');
+          editAnswersBtn.className = 'btn btn-icon';
+          editAnswersBtn.textContent = 'Edit Answers';
+          editAnswersBtn.addEventListener('click', () => {
             openAnswersModal(puzzleNum, puzzleData.answers || []);
           });
           
-          answersCell.appendChild(answerSummary);
-          answersCell.appendChild(editBtn);
-          row.appendChild(answersCell);
+          actionButtons.appendChild(editAllBtn);
+          actionButtons.appendChild(editClueBtn);
+          actionButtons.appendChild(editImagesBtn);
+          actionButtons.appendChild(editAnswersBtn);
+          
+          actionsCell.appendChild(actionButtons);
+          row.appendChild(actionsCell);
           
           // Add row to table
           puzzlesTable.appendChild(row);
         });
         
         if (keys.length === 0) {
-          puzzlesTable.innerHTML = '<tr><td colspan="5">No puzzle data found. Add some puzzles to get started.</td></tr>';
+          puzzlesTable.innerHTML = '<tr><td colspan="4">No puzzle data found. Add some puzzles to get started.</td></tr>';
         }
       } catch (error) {
         console.error('Error loading puzzles:', error);
-        puzzlesTable.innerHTML = '<tr><td colspan="5">Error loading puzzles. Please try refreshing the page.</td></tr>';
+        puzzlesTable.innerHTML = '<tr><td colspan="4">Error loading puzzles. Please try refreshing the page.</td></tr>';
       }
     }
     
@@ -1763,7 +1881,7 @@
       const questionTextInput = document.createElement('input');
       questionTextInput.type = 'text';
       questionTextInput.className = 'question-text';
-      questionTextInput.value = (answer && answer.questionText) || '';
+      questionTextInput.value = (answer && answer.questionText) || 'Your Answer:';
       questionTextInput.placeholder = 'Label for the answer field (e.g., "Your Answer:")';
       
       questionTextGroup.appendChild(questionTextLabel);
@@ -2141,6 +2259,354 @@
       } catch (error) {
         console.error('Error adding new puzzle:', error);
         showFeedback('Error adding new puzzle: ' + error.message, 'error');
+      }
+    }
+    
+    // Open comprehensive puzzle edit modal
+    function openPuzzleEditModal(puzzleNum, puzzleData) {
+      currentPuzzleBeingEdited = puzzleNum;
+      
+      // Set the puzzle number in the header
+      document.getElementById('edit-puzzle-number').textContent = puzzleNum;
+      
+      // Set up tabs
+      document.getElementById('puzzle-tab-basic').classList.add('active');
+      document.getElementById('puzzle-tab-clue').classList.remove('active');
+      document.getElementById('puzzle-tab-images').classList.remove('active');
+      document.getElementById('puzzle-tab-answers').classList.remove('active');
+      
+      document.getElementById('puzzle-basic-tab').classList.add('active');
+      document.getElementById('puzzle-clue-tab').classList.remove('active');
+      document.getElementById('puzzle-images-tab').classList.remove('active');
+      document.getElementById('puzzle-answers-tab').classList.remove('active');
+      
+      // Basic info
+      document.getElementById('edit-puzzle-name').value = puzzleData.name || `Puzzle #${puzzleNum}`;
+      
+      // Set up rich text editor if not already initialized
+      let editQuill = Quill.find(document.getElementById('edit-puzzle-richtext'));
+      if (!editQuill) {
+        editQuill = new Quill('#edit-puzzle-richtext', {
+          theme: 'snow',
+          modules: {
+            toolbar: [
+              ['bold', 'italic', 'underline', 'strike'],
+              ['blockquote', 'code-block'],
+              [{ 'header': 1 }, { 'header': 2 }],
+              [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+              [{ 'color': [] }, { 'background': [] }],
+              [{ 'align': [] }],
+              ['link', 'image'],
+              ['clean']
+            ]
+          }
+        });
+        
+        // Update preview when editor content changes
+        editQuill.on('text-change', function() {
+          document.getElementById('edit-puzzle-preview').innerHTML = editQuill.root.innerHTML;
+        });
+      }
+      
+      // Set clue content
+      editQuill.root.innerHTML = puzzleData.clueHtml || puzzleData.clue || '';
+      document.getElementById('edit-puzzle-preview').innerHTML = editQuill.root.innerHTML;
+      
+      // Set up images
+      const imagesContainer = document.getElementById('edit-puzzle-images');
+      imagesContainer.innerHTML = '';
+      
+      // Add fields for each image
+      if (puzzleData.imageUrls && puzzleData.imageUrls.length > 0) {
+        puzzleData.imageUrls.forEach(url => {
+          addImageFieldToEditModal(url);
+        });
+      } else {
+        // Add at least one empty image field
+        addImageFieldToEditModal('');
+      }
+      
+      // Set up answers
+      const answersContainer = document.getElementById('edit-puzzle-answers');
+      answersContainer.innerHTML = '';
+      
+      // Add fields for each answer
+      if (puzzleData.answers && puzzleData.answers.length > 0) {
+        puzzleData.answers.forEach(answer => {
+          addAnswerFieldToEditModal(answer);
+        });
+      } else {
+        // Add at least one empty answer field
+        addAnswerFieldToEditModal({ text: '', questionText: 'Your Answer:' });
+      }
+      
+      // Set up tab switching
+      document.getElementById('puzzle-tab-basic').addEventListener('click', function() {
+        switchPuzzleTab('basic');
+      });
+      
+      document.getElementById('puzzle-tab-clue').addEventListener('click', function() {
+        switchPuzzleTab('clue');
+      });
+      
+      document.getElementById('puzzle-tab-images').addEventListener('click', function() {
+        switchPuzzleTab('images');
+      });
+      
+      document.getElementById('puzzle-tab-answers').addEventListener('click', function() {
+        switchPuzzleTab('answers');
+      });
+      
+      // Set up add buttons
+      document.getElementById('edit-puzzle-add-image').addEventListener('click', function() {
+        addImageFieldToEditModal('');
+      });
+      
+      document.getElementById('edit-puzzle-add-answer').addEventListener('click', function() {
+        addAnswerFieldToEditModal({ text: '', questionText: 'Your Answer:' });
+      });
+      
+      // Set up save button
+      document.getElementById('save-puzzle-btn').addEventListener('click', function() {
+        savePuzzleFromEditModal();
+      });
+      
+      // Show the modal
+      openModal(document.getElementById('puzzle-edit-modal'));
+    }
+    
+    // Switch between tabs in the puzzle edit modal
+    function switchPuzzleTab(tab) {
+      // Remove active class from all tabs
+      document.getElementById('puzzle-tab-basic').classList.remove('active');
+      document.getElementById('puzzle-tab-clue').classList.remove('active');
+      document.getElementById('puzzle-tab-images').classList.remove('active');
+      document.getElementById('puzzle-tab-answers').classList.remove('active');
+      
+      document.getElementById('puzzle-basic-tab').classList.remove('active');
+      document.getElementById('puzzle-clue-tab').classList.remove('active');
+      document.getElementById('puzzle-images-tab').classList.remove('active');
+      document.getElementById('puzzle-answers-tab').classList.remove('active');
+      
+      // Add active class to selected tab
+      document.getElementById(`puzzle-tab-${tab}`).classList.add('active');
+      document.getElementById(`puzzle-${tab}-tab`).classList.add('active');
+    }
+    
+    // Add an image field to the edit modal
+    function addImageFieldToEditModal(url) {
+      const imageItem = document.createElement('div');
+      imageItem.className = 'image-item';
+      
+      // Image URL field
+      const urlLabel = document.createElement('label');
+      urlLabel.textContent = 'Image URL:';
+      
+      const urlInput = document.createElement('input');
+      urlInput.type = 'text';
+      urlInput.className = 'edit-image-url';
+      urlInput.value = url || '';
+      urlInput.placeholder = 'Enter image URL here';
+      
+      // Preview section
+      const preview = document.createElement('div');
+      preview.className = 'image-preview';
+      
+      // Update preview on input
+      urlInput.addEventListener('input', debounce(() => {
+        const url = urlInput.value.trim();
+        
+        // Clear existing content
+        preview.innerHTML = '';
+        
+        if (url) {
+          // Try to load image
+          const img = document.createElement('img');
+          const errorMsg = document.createElement('div');
+          errorMsg.className = 'image-preview-error';
+          errorMsg.textContent = 'Could not load image';
+          
+          img.onload = () => {
+            preview.innerHTML = '';
+            preview.appendChild(img);
+          };
+          
+          img.onerror = () => {
+            preview.innerHTML = '';
+            preview.appendChild(errorMsg);
+          };
+          
+          img.src = url;
+        }
+      }, 500));
+      
+      // Initial preview
+      setTimeout(() => {
+        const url = urlInput.value.trim();
+        if (url) {
+          const img = document.createElement('img');
+          img.src = url;
+          preview.appendChild(img);
+        }
+      }, 100);
+      
+      // Remove button
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-image-btn';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove this image';
+      removeBtn.addEventListener('click', function() {
+        imageItem.style.opacity = '0';
+        setTimeout(() => {
+          imageItem.remove();
+        }, 300);
+      });
+      
+      // Add everything to the item
+      imageItem.appendChild(removeBtn);
+      imageItem.appendChild(urlLabel);
+      imageItem.appendChild(urlInput);
+      imageItem.appendChild(preview);
+      
+      // Add item to container
+      document.getElementById('edit-puzzle-images').appendChild(imageItem);
+    }
+    
+    // Add an answer field to the edit modal
+    function addAnswerFieldToEditModal(answer) {
+      const answerRow = document.createElement('div');
+      answerRow.className = 'answer-row';
+      
+      // Answer text field
+      const answerTextGroup = document.createElement('div');
+      answerTextGroup.className = 'form-group';
+      
+      const answerTextLabel = document.createElement('label');
+      answerTextLabel.textContent = 'Answer Text:';
+      
+      const answerTextInput = document.createElement('input');
+      answerTextInput.type = 'text';
+      answerTextInput.className = 'edit-answer-text';
+      answerTextInput.value = (answer && answer.text) || '';
+      answerTextInput.placeholder = 'Correct answer text';
+      
+      answerTextGroup.appendChild(answerTextLabel);
+      answerTextGroup.appendChild(answerTextInput);
+      
+      // Question text field
+      const questionTextGroup = document.createElement('div');
+      questionTextGroup.className = 'form-group';
+      questionTextGroup.style.marginTop = '10px';
+      
+      const questionTextLabel = document.createElement('label');
+      questionTextLabel.textContent = 'Question Text:';
+      
+      const questionTextInput = document.createElement('input');
+      questionTextInput.type = 'text';
+      questionTextInput.className = 'edit-question-text';
+      questionTextInput.value = (answer && answer.questionText) || 'Your Answer:';
+      questionTextInput.placeholder = 'Label for the answer field (e.g., "Your Answer:")';
+      
+      questionTextGroup.appendChild(questionTextLabel);
+      questionTextGroup.appendChild(questionTextInput);
+      
+      // Remove button
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-answer-btn';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove this answer';
+      removeBtn.addEventListener('click', function() {
+        answerRow.style.opacity = '0';
+        setTimeout(() => {
+          answerRow.remove();
+        }, 300);
+      });
+      
+      // Add everything to the row
+      answerRow.appendChild(removeBtn);
+      answerRow.appendChild(answerTextGroup);
+      answerRow.appendChild(questionTextGroup);
+      
+      // Add row to container
+      document.getElementById('edit-puzzle-answers').appendChild(answerRow);
+    }
+    
+    // Save puzzle from edit modal
+    async function savePuzzleFromEditModal() {
+      try {
+        // Get all the data from the modal
+        const name = document.getElementById('edit-puzzle-name').value.trim() || `Puzzle #${currentPuzzleBeingEdited}`;
+        
+        // Get clue content
+        const editQuill = Quill.find(document.getElementById('edit-puzzle-richtext'));
+        const clueHtml = editQuill.root.innerHTML;
+        const clue = editQuill.getText().trim();
+        
+        // Get image URLs
+        const imageItems = document.getElementById('edit-puzzle-images').querySelectorAll('.image-item');
+        const imageUrls = [];
+        
+        imageItems.forEach(item => {
+          const url = item.querySelector('.edit-image-url')?.value?.trim() || '';
+          if (url) {
+            imageUrls.push(url);
+          }
+        });
+        
+        // Get answers
+        const answerRows = document.getElementById('edit-puzzle-answers').querySelectorAll('.answer-row');
+        const answers = [];
+        
+        answerRows.forEach(row => {
+          const answerText = row.querySelector('.edit-answer-text')?.value?.trim() || '';
+          const questionText = row.querySelector('.edit-question-text')?.value?.trim() || 'Your Answer:';
+          
+          if (answerText) {
+            answers.push({
+              text: answerText,
+              questionText: questionText
+            });
+          }
+        });
+        
+        // Make sure we have at least one answer
+        if (answers.length === 0) {
+          answers.push({
+            text: '',
+            questionText: 'Your Answer:'
+          });
+        }
+        
+        // Create complete puzzle data
+        const puzzleData = {
+          name,
+          clueHtml,
+          clue,
+          imageUrls,
+          answers
+        };
+        
+        // Save to database
+        const result = await saveToDatabase(
+          Object.values(DB_PATHS),
+          `answers/${currentPuzzleBeingEdited}`,
+          puzzleData,
+          'PUT'
+        );
+        
+        if (result.success) {
+          // Close modal and refresh data
+          closeModal(document.getElementById('puzzle-edit-modal'));
+          loadPuzzles();
+          
+          // Show a temporary success message
+          showSuccessToast('Puzzle saved successfully!');
+        } else {
+          alert('Error saving puzzle. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error saving puzzle:', error);
+        alert('Error saving puzzle. Please try again: ' + error.message);
       }
     }
   </script>
