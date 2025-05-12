@@ -8,7 +8,6 @@
   <!-- Add rich text editor dependencies -->
   <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
   <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
-  <script src="/js/components/autoload-banner.js"></script>
   <style>
     body {
       font-family: 'Roboto', Arial, sans-serif;
@@ -50,6 +49,15 @@
       margin-top: 0;
       font-size: 1.5rem;
       color: #333;
+    }
+    
+    #auth-message {
+      text-align: center;
+      padding: 20px;
+      background-color: white;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      color: #f44336;
     }
     
     .tab-nav {
@@ -546,26 +554,15 @@
         padding: 8px;
       }
     }
-    
-    #authMessage {
-      padding: 20px;
-      margin: 20px auto;
-      background-color: #f8f8f8;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      max-width: 600px;
-      text-align: center;
-      font-size: 16px;
-      line-height: 1.6;
-    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Wedding Puzzle Admin</h1>
     
-    <div id="authMessage">
-      You need to be logged in to manage wedding puzzles.
+    <!-- Auth message for non-admin users -->
+    <div id="auth-message" style="display: none;">
+      You need to be logged in as an admin to access this page. Please <a href="/admin.html">log in</a> first.
     </div>
     
     <div id="admin-panel" style="display: none;">
@@ -589,6 +586,16 @@
           </div>
           <button id="save-completion-message" class="btn">Save Message</button>
           <span id="completion-save-indicator" class="save-indicator">Message saved!</span>
+        </div>
+        
+        <div class="global-settings" style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
+          <h3>Welcome Back Message</h3>
+          <p>Edit the message that appears when users return to continue the puzzle:</p>
+          <div class="form-group">
+            <textarea id="welcome-back-message" rows="3" style="width: 100%;" placeholder="Welcome back! You can continue your puzzle progress."></textarea>
+          </div>
+          <button id="save-welcome-message" class="btn">Save Message</button>
+          <span id="welcome-save-indicator" class="save-indicator">Message saved!</span>
         </div>
         
         <table id="puzzles-table">
@@ -729,19 +736,19 @@
   <script type="module">
     // Import Firebase modules
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
-    import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getDatabase, ref, set, push, get, remove, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
     
     // Firebase configuration
     const firebaseConfig = {
-      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-      authDomain: "eviltrivia-47664.firebaseapp.com",
-      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-      projectId: "eviltrivia-47664",
-      storageBucket: "eviltrivia-47664.appspot.com",
-      messagingSenderId: "401826818140",
-      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
-      measurementId: "G-2W6RK96Y34"
+        apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+        authDomain: "eviltrivia-47664.firebaseapp.com",
+        databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+        projectId: "eviltrivia-47664",
+        storageBucket: "eviltrivia-47664.appspot.com",
+        messagingSenderId: "401826818140",
+        appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+        measurementId: "G-2W6RK96Y34"
     };
     
     // Initialize Firebase
@@ -750,244 +757,54 @@
     const auth = getAuth(app);
     
     // DOM Elements
-    const authMessage = document.getElementById('authMessage');
+    const authMessage = document.getElementById('auth-message');
     const adminPanel = document.getElementById('admin-panel');
+    const tabPuzzles = document.getElementById('tab-puzzles');
+    const tabPlayers = document.getElementById('tab-players');
+    const puzzlesTab = document.getElementById('puzzles-tab');
+    const playersTab = document.getElementById('players-tab');
     
-    // Check if user is logged in
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        console.log("User logged in with UID:", user.uid);
-        
-        // Check admin status
-        const userRef = ref(db, `users/${user.uid}`);
-        get(userRef).then((snapshot) => {
-          const userData = snapshot.val() || {};
-          
-          if (userData.role === 'admin') {
-            console.log("Admin access granted via user role");
-            // User is admin
-            authMessage.style.display = 'none';
-            adminPanel.style.display = 'block';
-            
-            // Initialize the admin interface
-            initializeAdminInterface();
-          } else {
-            console.log("User is not an admin");
-            // Not admin
-            authMessage.innerHTML = 'You do not have admin privileges.';
-          }
-        }).catch((error) => {
-          console.error("Error checking admin status:", error);
-          authMessage.innerHTML = `Error checking admin status: ${error.message}`;
-        });
-      } else {
-        // Not logged in
-        authMessage.innerHTML = 'You need to be logged in to manage wedding puzzles. Please log in on the <a href="/admin.html">admin page</a>.';
-        adminPanel.style.display = 'none';
-      }
-    });
+    const puzzlesTable = document.getElementById('puzzles-table').querySelector('tbody');
+    const playersTable = document.getElementById('players-table').querySelector('tbody');
     
-    // Initialize admin interface once authenticated
-    function initializeAdminInterface() {
-      // Firebase DB URL
-      const DB_URL = "https://eviltrivia-47664-default-rtdb.firebaseio.com";
-      
-      // Database paths for wedding puzzle data
-      const DB_PATHS = {
-        primary: 'wedding',
-        fallback: 'publicAnswers/wedding'
-      };
-      
-      // DOM Elements
-      const tabPuzzles = document.getElementById('tab-puzzles');
-      const tabPlayers = document.getElementById('tab-players');
-      const puzzlesTab = document.getElementById('puzzles-tab');
-      const playersTab = document.getElementById('players-tab');
-      
-      const puzzlesTable = document.getElementById('puzzles-table').querySelector('tbody');
-      const playersTable = document.getElementById('players-table').querySelector('tbody');
-      
-      const playerDetails = document.getElementById('player-details');
-      const detailsName = document.getElementById('details-name');
-      const detailsEmail = document.getElementById('details-email');
-      const detailsScreen = document.getElementById('details-screen');
-      const detailsPercentage = document.getElementById('details-percentage');
-      const detailsProgressBar = document.getElementById('details-progress-bar');
-      const detailsPuzzleStatus = document.getElementById('details-puzzle-status');
-      const detailsEmailBtn = document.getElementById('details-email-btn');
-      const detailsBackBtn = document.getElementById('details-back-btn');
-      const detailsPath = document.getElementById('details-path');
-      
-      const puzzlePathIndicator = document.getElementById('puzzle-path-indicator');
-      const playersPathIndicator = document.getElementById('players-path-indicator');
-      
-      const answerModal = document.getElementById('answer-modal');
-      const answersContainer = document.getElementById('answers-container');
-      const addAnswerBtn = document.getElementById('add-answer-btn');
-      const saveAnswersBtn = document.getElementById('save-answers-btn');
-      
-      const imageModal = document.getElementById('image-modal');
-      const imagesContainer = document.getElementById('images-container');
-      const addImageBtn = document.getElementById('add-image-btn');
-      const saveImagesBtn = document.getElementById('save-images-btn');
-      
-      const richtextModal = document.getElementById('richtext-modal');
-      const richtextPreview = document.getElementById('richtext-preview');
-      const saveRichtextBtn = document.getElementById('save-richtext-btn');
-      
-      // Rich text editor
-      let quill;
-      
-      // Store timeouts for debounced saves
-      const saveTimeouts = {};
-      
-      // Track successful database paths
-      let successfulPuzzlePath = null;
-      let successfulPlayersPath = null;
-      
-      // Store current items being edited
-      let currentPuzzleBeingEdited = null;
-      let currentAnswers = [];
-      let currentImages = [];
-      let currentClueHtml = '';
-      
-      // Helper function to format date
-      function formatDate(timestamp) {
-        if (!timestamp) return 'N/A';
-        
-        try {
-          const date = new Date(timestamp);
-          return date.toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'long', 
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          });
-        } catch (e) {
-          return timestamp;
-        }
-      }
-      
-      // Helper for HTML escaping
-      function escapeHTML(str) {
-        if (!str) return '';
-        return str
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;');
-      }
-      
-      // Load data when admin interface is initialized
-      // Initialize rich text editor
-      quill = new Quill('#richtext-editor', {
-        theme: 'snow',
-        modules: {
-          toolbar: [
-            ['bold', 'italic', 'underline', 'strike'],
-            ['blockquote', 'code-block'],
-            [{ 'header': 1 }, { 'header': 2 }],
-            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-            [{ 'color': [] }, { 'background': [] }],
-            [{ 'align': [] }],
-            ['link', 'image'],
-            ['clean']
-          ]
-        }
-      });
-      
-      // Update preview when editor content changes
-      quill.on('text-change', function() {
-        richtextPreview.innerHTML = quill.root.innerHTML;
-      });
-      
-      // Load all tabs' data
-      loadPuzzles();
-      loadPlayers();
-      loadCompletionMessage();
-      
-      // Set up tab switching
-      tabPuzzles.addEventListener('click', () => {
-        tabPuzzles.classList.add('active');
-        tabPlayers.classList.remove('active');
-        puzzlesTab.classList.add('active');
-        playersTab.classList.remove('active');
-        playerDetails.classList.add('hidden');
-      });
-      
-      tabPlayers.addEventListener('click', () => {
-        tabPuzzles.classList.remove('active');
-        tabPlayers.classList.add('active');
-        puzzlesTab.classList.remove('active');
-        playersTab.classList.add('active');
-      });
-      
-      // Set up back button
-      detailsBackBtn.addEventListener('click', () => {
-        document.querySelector('#players-table').parentNode.style.display = 'block';
-        playerDetails.classList.add('hidden');
-      });
-      
-      // Set up modal closing
-      document.querySelectorAll('.modal-close').forEach(closeBtn => {
-        closeBtn.addEventListener('click', function() {
-          closeAllModals();
-        });
-      });
-      
-      // Close modals when clicking outside
-      window.addEventListener('click', (e) => {
-        if (e.target === answerModal) {
-          closeModal(answerModal);
-        }
-        if (e.target === imageModal) {
-          closeModal(imageModal);
-        }
-        if (e.target === richtextModal) {
-          closeModal(richtextModal);
-        }
-      });
-      
-      // Add answer button
-      addAnswerBtn.addEventListener('click', () => {
-        addAnswerField({ text: '', questionText: '' });
-      });
-      
-      // Add image button
-      addImageBtn.addEventListener('click', () => {
-        addImageField({ url: '' });
-      });
-      
-      // Save buttons
-      saveAnswersBtn.addEventListener('click', () => {
-        saveAnswers();
-      });
-      
-      saveImagesBtn.addEventListener('click', () => {
-        saveImages();
-      });
-      
-      saveRichtextBtn.addEventListener('click', () => {
-        saveRichtext();
-      });
-      
-      // Completion message save button
-      document.getElementById('save-completion-message').addEventListener('click', () => {
-        saveCompletionMessage();
-      });
-      
-      // Add puzzle button
-      document.getElementById('add-puzzle-btn').addEventListener('click', () => {
-        addNewPuzzleDirectly();
-      });
-    }
-  </script>
-  
-  <script>
-    // The rest of the original script that doesn't use Firebase Auth directly
-    // Move all the existing script content here that isn't related to authentication
+    const playerDetails = document.getElementById('player-details');
+    const detailsName = document.getElementById('details-name');
+    const detailsEmail = document.getElementById('details-email');
+    const detailsScreen = document.getElementById('details-screen');
+    const detailsPercentage = document.getElementById('details-percentage');
+    const detailsProgressBar = document.getElementById('details-progress-bar');
+    const detailsPuzzleStatus = document.getElementById('details-puzzle-status');
+    const detailsEmailBtn = document.getElementById('details-email-btn');
+    const detailsBackBtn = document.getElementById('details-back-btn');
+    const detailsPath = document.getElementById('details-path');
+    
+    const puzzlePathIndicator = document.getElementById('puzzle-path-indicator');
+    const playersPathIndicator = document.getElementById('players-path-indicator');
+    
+    const answerModal = document.getElementById('answer-modal');
+    const answersContainer = document.getElementById('answers-container');
+    const addAnswerBtn = document.getElementById('add-answer-btn');
+    const saveAnswersBtn = document.getElementById('save-answers-btn');
+    
+    const imageModal = document.getElementById('image-modal');
+    const imagesContainer = document.getElementById('images-container');
+    const addImageBtn = document.getElementById('add-image-btn');
+    const saveImagesBtn = document.getElementById('save-images-btn');
+    
+    const richtextModal = document.getElementById('richtext-modal');
+    const richtextPreview = document.getElementById('richtext-preview');
+    const saveRichtextBtn = document.getElementById('save-richtext-btn');
+    
+    const completionMessage = document.getElementById('completion-message');
+    const saveCompletionMessage = document.getElementById('save-completion-message');
+    const completionSaveIndicator = document.getElementById('completion-save-indicator');
+    
+    const welcomeBackMessage = document.getElementById('welcome-back-message');
+    const saveWelcomeMessage = document.getElementById('save-welcome-message');
+    const welcomeSaveIndicator = document.getElementById('welcome-save-indicator');
+    
+    // Rich text editor
+    let quill;
     
     // Store timeouts for debounced saves
     const saveTimeouts = {};
@@ -1002,33 +819,257 @@
     let currentImages = [];
     let currentClueHtml = '';
     
-    // Helper function to format date
-    function formatDate(timestamp) {
-      if (!timestamp) return 'N/A';
-      
-      try {
-        const date = new Date(timestamp);
-        return date.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
+    // Check if user is logged in and has admin privileges
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            console.log("User logged in with UID:", user.uid);
+            
+            // Check admin status
+            const userRef = ref(db, `users/${user.uid}`);
+            get(userRef).then((snapshot) => {
+                const userData = snapshot.val() || {};
+                
+                if (userData.role === 'admin') {
+                    console.log("Admin access granted via user role");
+                    // User is admin, show admin panel
+                    authMessage.style.display = 'none';
+                    adminPanel.style.display = 'block';
+                    
+                    // Initialize admin functionality
+                    initializeAdmin();
+                    
+                } else {
+                    console.log("User is not an admin");
+                    // Not admin, show message
+                    authMessage.style.display = 'block';
+                    authMessage.innerHTML = 'You do not have admin privileges to access this page.';
+                    adminPanel.style.display = 'none';
+                }
+            }).catch((error) => {
+                console.error("Error checking admin status:", error);
+                authMessage.style.display = 'block';
+                authMessage.innerHTML = `Error checking admin status: ${error.message}`;
+                adminPanel.style.display = 'none';
+            });
+        } else {
+            // Not logged in, show message
+            authMessage.style.display = 'block';
+            authMessage.innerHTML = 'You need to be logged in as an admin to access this page. Please <a href="/admin.html">log in</a> first.';
+            adminPanel.style.display = 'none';
+        }
+    });
+    
+    // Initialize admin functionality - called after authentication
+    function initializeAdmin() {
+        // Initialize rich text editor
+        quill = new Quill('#richtext-editor', {
+            theme: 'snow',
+            modules: {
+                toolbar: [
+                    ['bold', 'italic', 'underline', 'strike'],
+                    ['blockquote', 'code-block'],
+                    [{ 'header': 1 }, { 'header': 2 }],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'color': [] }, { 'background': [] }],
+                    [{ 'align': [] }],
+                    ['link', 'image'],
+                    ['clean']
+                ]
+            }
         });
-      } catch (e) {
-        return timestamp;
-      }
+        
+        // Update preview when editor content changes
+        quill.on('text-change', function() {
+            richtextPreview.innerHTML = quill.root.innerHTML;
+        });
+        
+        // Load all tabs' data
+        loadPuzzles();
+        loadPlayers();
+        loadCompletionMessage();
+        loadWelcomeBackMessage();
+        
+        // Set up tab switching
+        tabPuzzles.addEventListener('click', () => {
+            tabPuzzles.classList.add('active');
+            tabPlayers.classList.remove('active');
+            puzzlesTab.classList.add('active');
+            playersTab.classList.remove('active');
+            playerDetails.classList.add('hidden');
+        });
+        
+        tabPlayers.addEventListener('click', () => {
+            tabPuzzles.classList.remove('active');
+            tabPlayers.classList.add('active');
+            puzzlesTab.classList.remove('active');
+            playersTab.classList.add('active');
+        });
+        
+        // Set up back button
+        detailsBackBtn.addEventListener('click', () => {
+            document.querySelector('#players-table').parentNode.style.display = 'block';
+            playerDetails.classList.add('hidden');
+        });
+        
+        // Set up modal closing
+        document.querySelectorAll('.modal-close').forEach(closeBtn => {
+            closeBtn.addEventListener('click', function() {
+                closeAllModals();
+            });
+        });
+        
+        // Close modals when clicking outside
+        window.addEventListener('click', (e) => {
+            if (e.target === answerModal) {
+                closeModal(answerModal);
+            }
+            if (e.target === imageModal) {
+                closeModal(imageModal);
+            }
+            if (e.target === richtextModal) {
+                closeModal(richtextModal);
+            }
+        });
+        
+        // Add answer button
+        addAnswerBtn.addEventListener('click', () => {
+            addAnswerField({ text: '', questionText: '' });
+        });
+        
+        // Add image button
+        addImageBtn.addEventListener('click', () => {
+            addImageField({ url: '' });
+        });
+        
+        // Save buttons
+        saveAnswersBtn.addEventListener('click', () => {
+            saveAnswers();
+        });
+        
+        saveImagesBtn.addEventListener('click', () => {
+            saveImages();
+        });
+        
+        saveRichtextBtn.addEventListener('click', () => {
+            saveRichtext();
+        });
+        
+        // Add puzzle button
+        document.getElementById('add-puzzle-btn').addEventListener('click', () => {
+            addNewPuzzleDirectly();
+        });
+        
+        // Completion message save button
+        saveCompletionMessage.addEventListener('click', () => {
+            saveCompletionMessageData();
+        });
+        
+        // Welcome back message save button
+        saveWelcomeMessage.addEventListener('click', () => {
+            saveWelcomeBackMessageData();
+        });
     }
     
-    // Helper for HTML escaping
-    function escapeHTML(str) {
-      if (!str) return '';
-      return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+    // Load completion message
+    async function loadCompletionMessage() {
+        try {
+            const result = await fetchFromPaths(Object.values(DB_PATHS), 'completionMessage');
+            
+            if (result.data) {
+                completionMessage.value = result.data;
+            } else {
+                // Default message
+                completionMessage.value = "Congratulations! You've completed all the puzzles!";
+            }
+        } catch (error) {
+            console.error('Error loading completion message:', error);
+        }
+    }
+    
+    // Save completion message
+    async function saveCompletionMessageData() {
+        try {
+            const message = completionMessage.value.trim();
+            
+            if (!message) {
+                showFeedback('Please enter a completion message.', 'error');
+                return;
+            }
+            
+            // Save to database
+            const result = await saveToDatabase(
+                Object.values(DB_PATHS),
+                'completionMessage',
+                message,
+                'PUT'
+            );
+            
+            if (result.success) {
+                // Show save indicator
+                completionSaveIndicator.classList.add('show');
+                setTimeout(() => {
+                    completionSaveIndicator.classList.remove('show');
+                }, 2000);
+                
+                showSuccessToast('Completion message saved!');
+            } else {
+                showFeedback('Error saving completion message. Please try again.', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving completion message:', error);
+            showFeedback('Error saving completion message: ' + error.message, 'error');
+        }
+    }
+    
+    // Load welcome back message
+    async function loadWelcomeBackMessage() {
+        try {
+            const result = await fetchFromPaths(Object.values(DB_PATHS), 'welcomeBackMessage');
+            
+            if (result.data) {
+                welcomeBackMessage.value = result.data;
+            } else {
+                // Default message
+                welcomeBackMessage.value = "Welcome back! You can continue your puzzle progress.";
+            }
+        } catch (error) {
+            console.error('Error loading welcome back message:', error);
+        }
+    }
+    
+    // Save welcome back message
+    async function saveWelcomeBackMessageData() {
+        try {
+            const message = welcomeBackMessage.value.trim();
+            
+            if (!message) {
+                showFeedback('Please enter a welcome back message.', 'error');
+                return;
+            }
+            
+            // Save to database
+            const result = await saveToDatabase(
+                Object.values(DB_PATHS),
+                'welcomeBackMessage',
+                message,
+                'PUT'
+            );
+            
+            if (result.success) {
+                // Show save indicator
+                welcomeSaveIndicator.classList.add('show');
+                setTimeout(() => {
+                    welcomeSaveIndicator.classList.remove('show');
+                }, 2000);
+                
+                showSuccessToast('Welcome back message saved!');
+            } else {
+                showFeedback('Error saving welcome back message. Please try again.', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving welcome back message:', error);
+            showFeedback('Error saving welcome back message: ' + error.message, 'error');
+        }
     }
     
     // Try fetching data from multiple paths
@@ -1503,60 +1544,6 @@
       } catch (error) {
         console.error('Error loading players:', error);
         playersTable.innerHTML = '<tr><td colspan="5">Error loading players. Please try refreshing the page.</td></tr>';
-      }
-    }
-    
-    // Load completion message
-    async function loadCompletionMessage() {
-      try {
-        const result = await fetchFromPaths(Object.values(DB_PATHS), 'completionMessage');
-        
-        const completionMessageField = document.getElementById('completion-message');
-        if (result.data) {
-          completionMessageField.value = result.data;
-        } else {
-          // Default message
-          completionMessageField.value = "Congratulations! You've completed all the puzzles!";
-        }
-      } catch (error) {
-        console.error('Error loading completion message:', error);
-      }
-    }
-    
-    // Save completion message
-    async function saveCompletionMessage() {
-      try {
-        const completionMessageField = document.getElementById('completion-message');
-        const message = completionMessageField.value.trim();
-        
-        if (!message) {
-          showFeedback('Please enter a completion message.', 'error');
-          return;
-        }
-        
-        // Save to database
-        const result = await saveToDatabase(
-          Object.values(DB_PATHS),
-          'completionMessage',
-          message,
-          'PUT'
-        );
-        
-        if (result.success) {
-          // Show save indicator
-          const saveIndicator = document.getElementById('completion-save-indicator');
-          saveIndicator.classList.add('show');
-          setTimeout(() => {
-            saveIndicator.classList.remove('show');
-          }, 2000);
-          
-          showSuccessToast('Completion message saved!');
-        } else {
-          showFeedback('Error saving completion message. Please try again.', 'error');
-        }
-      } catch (error) {
-        console.error('Error saving completion message:', error);
-        showFeedback('Error saving completion message: ' + error.message, 'error');
       }
     }
     

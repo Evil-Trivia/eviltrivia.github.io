@@ -52,38 +52,6 @@
       }
     }
     
-    /* Screen transitions */
-    .screen {
-      display: none;
-      opacity: 0;
-      transform: translateY(20px);
-      transition: opacity 0.6s ease, transform 0.6s ease;
-    }
-    
-    .screen.active {
-      display: block;
-      opacity: 1;
-      transform: translateY(0);
-      animation: fadeInScale 0.5s forwards;
-    }
-    
-    @keyframes fadeInScale {
-      0% {
-        opacity: 0;
-        transform: scale(0.95) translateY(10px);
-      }
-      100% {
-        opacity: 1;
-        transform: scale(1) translateY(0);
-      }
-    }
-    
-    .screen.fade-out {
-      opacity: 0;
-      transform: translateY(-20px);
-      transition: opacity 0.4s ease, transform 0.4s ease;
-    }
-    
     .card-shake {
       animation: shake 0.5s;
     }
@@ -100,6 +68,37 @@
       80% { transform: translateX(3px); }
       90% { transform: translateX(-1px); }
       100% { transform: translateX(0); }
+    }
+    
+    /* Screen transition animations */
+    .screen-transition {
+      animation: fadeSlideIn 0.6s ease forwards;
+    }
+    
+    @keyframes fadeSlideIn {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .screen-exit {
+      animation: fadeSlideOut 0.5s ease forwards;
+    }
+    
+    @keyframes fadeSlideOut {
+      from {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      to {
+        opacity: 0;
+        transform: translateY(-30px);
+      }
     }
     
     h1 {
@@ -600,7 +599,7 @@
       </div>
       
       <!-- Screen 0: Name & Email Form -->
-      <div id="screen-0" class="screen">
+      <div id="screen-0" class="hidden">
         <h2>Welcome to the Wedding Puzzle!</h2>
         <p>Please enter your information to get started:</p>
         
@@ -624,7 +623,7 @@
       </div>
       
       <!-- Welcome Back Screen -->
-      <div id="screen-welcome-back" class="screen">
+      <div id="screen-welcome-back" class="hidden">
         <h2>Welcome Back!</h2>
         <p id="welcome-back-message" class="welcome-message">It's great to see you again.</p>
         
@@ -633,7 +632,7 @@
       </div>
       
       <!-- Screens 1-10: Puzzles -->
-      <div id="screen-puzzle" class="screen">
+      <div id="screen-puzzle" class="hidden">
         <div class="navigation-controls">
           <button id="prev-puzzle-btn" class="btn btn-nav">← Previous</button>
         </div>
@@ -659,7 +658,7 @@
       </div>
       
       <!-- Screen 11: Completion -->
-      <div id="screen-complete" class="screen">
+      <div id="screen-complete" class="hidden">
         <h2>Congratulations!</h2>
         <p>You've completed all the puzzles!</p>
         <p id="completion-message"></p>
@@ -726,6 +725,32 @@
       const newId = 'anon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       localStorage.setItem('weddingPuzzleId', newId);
       return newId;
+    }
+    
+    // Switch screens with animation
+    function switchScreen(fromScreen, toScreen) {
+      if (fromScreen) {
+        // Animate exit of current screen
+        fromScreen.classList.add('screen-exit');
+        setTimeout(() => {
+          fromScreen.classList.add('hidden');
+          fromScreen.classList.remove('screen-exit');
+          
+          // Animate entrance of new screen
+          toScreen.classList.remove('hidden');
+          toScreen.classList.add('screen-transition');
+          setTimeout(() => {
+            toScreen.classList.remove('screen-transition');
+          }, 600);
+        }, 500);
+      } else {
+        // No previous screen, just show new screen
+        toScreen.classList.remove('hidden');
+        toScreen.classList.add('screen-transition');
+        setTimeout(() => {
+          toScreen.classList.remove('screen-transition');
+        }, 600);
+      }
     }
     
     // Initialize - Check for existing progress in localStorage
@@ -801,53 +826,53 @@
       }
     }
     
-    // Function to handle screen transitions with animation
-    function showScreen(screenToShow) {
-      // Hide the loading spinner
-      loading.style.display = 'none';
-      
-      // Hide all screens with animation
-      const allScreens = document.querySelectorAll('.screen');
-      allScreens.forEach(screen => {
-        if (screen.classList.contains('active')) {
-          screen.classList.add('fade-out');
-          screen.classList.remove('active');
-        }
-      });
-      
-      // Show the target screen with a slight delay for animation
-      setTimeout(() => {
-        allScreens.forEach(screen => {
-          screen.classList.remove('fade-out');
-          screen.style.display = 'none';
-        });
-        
-        screenToShow.style.display = 'block';
-        
-        // Trigger reflow for animation
-        void screenToShow.offsetWidth;
-        
-        screenToShow.classList.add('active');
-      }, 300);
-    }
-    
     // Display registration screen
     function showScreen0() {
       loading.style.display = 'none';
-      showScreen(screen0);
-      registrationError.classList.add('hidden');
+      switchScreen(null, screen0);
       
       // Pre-fill if we have data
       if (userName) document.getElementById('name').value = userName;
       if (userEmail) document.getElementById('email').value = userEmail;
     }
     
+    // Fetch the custom welcome back message from the database
+    async function fetchWelcomeBackMessage() {
+      try {
+        // Try primary path
+        let response = await fetch(`${DB_URL}/wedding/welcomeBackMessage.json`);
+        
+        // If primary failed, try backup path
+        if (!response || !response.ok) {
+          response = await fetch(`${DB_URL}/publicAnswers/wedding/welcomeBackMessage.json`);
+        }
+        
+        if (response && response.ok) {
+          const message = await response.json();
+          if (message && typeof message === 'string') {
+            return message;
+          }
+        }
+        return null;
+      } catch (error) {
+        console.warn('Could not load welcome back message:', error);
+        return null;
+      }
+    }
+    
     // Display welcome back screen
-    function showWelcomeBack() {
+    async function showWelcomeBack() {
       loading.style.display = 'none';
-      showScreen(screenWelcomeBack);
       
-      welcomeBackMessage.textContent = `Welcome back, ${userName}! You were on puzzle ${currentScreen} of ${totalPuzzles}.`;
+      // Fetch custom welcome back message if available
+      const customMessage = await fetchWelcomeBackMessage();
+      if (customMessage) {
+        welcomeBackMessage.innerHTML = customMessage.replace('{{name}}', userName || 'there');
+      } else {
+        welcomeBackMessage.textContent = `Welcome back, ${userName}! You were on puzzle ${currentScreen} of ${totalPuzzles}.`;
+      }
+      
+      switchScreen(null, screenWelcomeBack);
     }
     
     // Display puzzle screen
@@ -855,10 +880,20 @@
       try {
         // Show loading
         loading.style.display = 'block';
-        document.querySelectorAll('.screen').forEach(screen => {
-          screen.classList.remove('active');
-          screen.style.display = 'none';
-        });
+        document.getElementById('success-display').classList.add('hidden');
+        document.getElementById('answer-form').style.display = 'block';
+        
+        const currentlyVisibleScreen = 
+          !screen0.classList.contains('hidden') ? screen0 :
+          !screenWelcomeBack.classList.contains('hidden') ? screenWelcomeBack :
+          !screenPuzzle.classList.contains('hidden') ? screenPuzzle :
+          !screenComplete.classList.contains('hidden') ? screenComplete : null;
+        
+        // Hide all screens temporarily while loading
+        screen0.classList.add('hidden');
+        screenWelcomeBack.classList.add('hidden');
+        screenPuzzle.classList.add('hidden');
+        screenComplete.classList.add('hidden');
         puzzleError.classList.add('hidden');
         
         // Load solved puzzles data
@@ -982,15 +1017,17 @@
         // Update navigation buttons
         updateNavigationButtons(puzzleNum);
         
-        // Display puzzle screen
+        // Hide loading and show puzzle screen with animation
         loading.style.display = 'none';
-        showScreen(screenPuzzle);
+        switchScreen(currentlyVisibleScreen, screenPuzzle);
         
         // Focus first answer field
         const firstAnswerInput = document.querySelector('.answer-input');
         if (firstAnswerInput) {
           firstAnswerInput.value = '';
-          firstAnswerInput.focus();
+          setTimeout(() => {
+            firstAnswerInput.focus();
+          }, 600); // Wait for animation to complete
         }
         
       } catch (error) {
@@ -1033,7 +1070,7 @@
         updateNavigationButtons(puzzleNum);
         
         loading.style.display = 'none';
-        showScreen(screenPuzzle);
+        switchScreen(null, screenPuzzle);
         puzzleError.classList.remove('hidden');
       }
     }
@@ -1047,12 +1084,18 @@
     // Display completion screen
     function showCompletion() {
       loading.style.display = 'none';
-      showScreen(screenComplete);
+      
+      const currentlyVisibleScreen = 
+        !screen0.classList.contains('hidden') ? screen0 :
+        !screenWelcomeBack.classList.contains('hidden') ? screenWelcomeBack :
+        !screenPuzzle.classList.contains('hidden') ? screenPuzzle : null;
       
       // Fetch custom completion message if available
       fetchCompletionMessage().then(message => {
         document.getElementById('completion-message').textContent = message || `Congrats ${userName || 'friend'}! You've solved all the puzzles!`;
       });
+      
+      switchScreen(currentlyVisibleScreen, screenComplete);
       
       // Trigger confetti
       startConfetti();
@@ -1097,10 +1140,7 @@
       
       // Show loading
       loading.style.display = 'block';
-      document.querySelectorAll('.screen').forEach(screen => {
-        screen.classList.remove('active');
-        screen.style.display = 'none';
-      });
+      screen0.classList.add('hidden');
       registrationError.classList.add('hidden');
       
       // Generate unique ID locally (no Firebase auth)
