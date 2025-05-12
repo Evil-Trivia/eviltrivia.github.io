@@ -730,6 +730,20 @@
       
       <button id="add-answer-btn" class="add-answer-btn">+ Add Another Answer</button>
       
+      <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px;">
+        <div class="form-group">
+          <label for="answer-wrong-message">Wrong Answer Message:</label>
+          <input type="text" id="answer-wrong-message" placeholder="Message shown when all answers are wrong">
+          <small style="color: #666; display: block; margin-top: 5px;">Default: "That's not right. Try again!"</small>
+        </div>
+        
+        <div class="form-group" style="margin-top: 15px;">
+          <label for="answer-partial-message">Partial Correct Message:</label>
+          <input type="text" id="answer-partial-message" placeholder="Message shown when some answers are correct">
+          <small style="color: #666; display: block; margin-top: 5px;">Default: "Some answers are wrong. Keep trying!"</small>
+        </div>
+      </div>
+      
       <div style="margin-top: 20px; text-align: right;">
         <button id="save-answers-btn" class="btn">Save Answers</button>
       </div>
@@ -798,6 +812,18 @@
         <div class="form-group" style="margin-top: 15px;">
           <label for="edit-puzzle-name">Puzzle Name:</label>
           <input type="text" id="edit-puzzle-name" placeholder="Enter puzzle name">
+        </div>
+        
+        <div class="form-group" style="margin-top: 15px;">
+          <label for="edit-wrong-answer-message">Wrong Answer Message:</label>
+          <input type="text" id="edit-wrong-answer-message" placeholder="Message shown when all answers are wrong">
+          <small style="color: #666; display: block; margin-top: 5px;">Default: "That's not right. Try again!"</small>
+        </div>
+        
+        <div class="form-group" style="margin-top: 15px;">
+          <label for="edit-partial-correct-message">Partial Correct Message:</label>
+          <input type="text" id="edit-partial-correct-message" placeholder="Message shown when some answers are correct">
+          <small style="color: #666; display: block; margin-top: 5px;">Default: "Some answers are wrong. Keep trying!"</small>
         </div>
       </div>
       
@@ -1450,6 +1476,36 @@
           answersPreview.appendChild(answersContainer);
           previewContainer.appendChild(answersPreview);
           
+          // Preview error messages
+          if (puzzleData.wrongAnswerMessage || puzzleData.partialCorrectMessage) {
+            const messagesPreview = document.createElement('div');
+            messagesPreview.className = 'puzzle-preview-item';
+            
+            const messagesLabel = document.createElement('div');
+            messagesLabel.className = 'puzzle-preview-label';
+            messagesLabel.textContent = 'Messages:';
+            
+            const messagesContainer = document.createElement('div');
+            messagesContainer.style.fontSize = '0.85rem';
+            
+            if (puzzleData.wrongAnswerMessage) {
+              const wrongMsg = document.createElement('div');
+              wrongMsg.innerHTML = `<strong>Wrong:</strong> "${puzzleData.wrongAnswerMessage}"`;
+              messagesContainer.appendChild(wrongMsg);
+            }
+            
+            if (puzzleData.partialCorrectMessage) {
+              const partialMsg = document.createElement('div');
+              partialMsg.innerHTML = `<strong>Partial:</strong> "${puzzleData.partialCorrectMessage}"`;
+              partialMsg.style.marginTop = '5px';
+              messagesContainer.appendChild(partialMsg);
+            }
+            
+            messagesPreview.appendChild(messagesLabel);
+            messagesPreview.appendChild(messagesContainer);
+            previewContainer.appendChild(messagesPreview);
+          }
+          
           previewCell.appendChild(previewContainer);
           row.appendChild(previewCell);
           
@@ -1786,6 +1842,23 @@
         addAnswerField({ text: '', questionText: '' });
       }
       
+      // Fetch the current puzzle to get wrong answer messages
+      fetch(`${DB_URL}/${successfulPuzzlePath || DB_PATHS.primary}/answers/${puzzleNum}.json`)
+        .then(response => response.json())
+        .then(puzzleData => {
+          // Set wrong answer messages if available
+          document.getElementById('answer-wrong-message').value = 
+            puzzleData?.wrongAnswerMessage || "That's not right. Try again!";
+          document.getElementById('answer-partial-message').value = 
+            puzzleData?.partialCorrectMessage || "Some answers are wrong. Keep trying!";
+        })
+        .catch(error => {
+          console.error('Error fetching puzzle data:', error);
+          // Use defaults if fetch fails
+          document.getElementById('answer-wrong-message').value = "That's not right. Try again!";
+          document.getElementById('answer-partial-message').value = "Some answers are wrong. Keep trying!";
+        });
+      
       // Show the modal
       openModal(answerModal);
     }
@@ -2022,11 +2095,19 @@
           });
         }
         
+        // Get wrong answer messages
+        const wrongAnswerMessage = document.getElementById('answer-wrong-message').value.trim();
+        const partialCorrectMessage = document.getElementById('answer-partial-message').value.trim();
+        
         // Save to database
         const result = await saveToDatabase(
           Object.values(DB_PATHS),
           `answers/${currentPuzzleBeingEdited}`,
-          { answers }
+          { 
+            answers,
+            wrongAnswerMessage,
+            partialCorrectMessage
+          }
         );
         
         if (result.success) {
@@ -2282,6 +2363,8 @@
       
       // Basic info
       document.getElementById('edit-puzzle-name').value = puzzleData.name || `Puzzle #${puzzleNum}`;
+      document.getElementById('edit-wrong-answer-message').value = puzzleData.wrongAnswerMessage || "That's not right. Try again!";
+      document.getElementById('edit-partial-correct-message').value = puzzleData.partialCorrectMessage || "Some answers are wrong. Keep trying!";
       
       // Set up rich text editor if not already initialized
       let editQuill = Quill.find(document.getElementById('edit-puzzle-richtext'));
@@ -2536,6 +2619,8 @@
       try {
         // Get all the data from the modal
         const name = document.getElementById('edit-puzzle-name').value.trim() || `Puzzle #${currentPuzzleBeingEdited}`;
+        const wrongAnswerMessage = document.getElementById('edit-wrong-answer-message').value.trim();
+        const partialCorrectMessage = document.getElementById('edit-partial-correct-message').value.trim();
         
         // Get clue content
         const editQuill = Quill.find(document.getElementById('edit-puzzle-richtext'));
@@ -2583,7 +2668,9 @@
           clueHtml,
           clue,
           imageUrls,
-          answers
+          answers,
+          wrongAnswerMessage,
+          partialCorrectMessage
         };
         
         // Save to database
