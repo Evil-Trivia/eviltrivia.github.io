@@ -8,6 +8,7 @@
   <!-- Add rich text editor dependencies -->
   <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
   <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+  <script src="/js/components/autoload-banner.js"></script>
   <style>
     body {
       font-family: 'Roboto', Arial, sans-serif;
@@ -545,13 +546,29 @@
         padding: 8px;
       }
     }
+    
+    #authMessage {
+      padding: 20px;
+      margin: 20px auto;
+      background-color: #f8f8f8;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      max-width: 600px;
+      text-align: center;
+      font-size: 16px;
+      line-height: 1.6;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Wedding Puzzle Admin</h1>
     
-    <div id="admin-panel">
+    <div id="authMessage">
+      You need to be logged in to manage wedding puzzles.
+    </div>
+    
+    <div id="admin-panel" style="display: none;">
       <div class="tab-nav">
         <button id="tab-puzzles" class="active">Puzzles</button>
         <button id="tab-players">Players</button>
@@ -709,100 +726,161 @@
     </div>
   </div>
   
-  <script>
-    // Firebase DB URL
-    const DB_URL = "https://eviltrivia-47664-default-rtdb.firebaseio.com";
+  <script type="module">
+    // Import Firebase modules
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
     
-    // Database paths for wedding puzzle data
-    const DB_PATHS = {
-      primary: 'wedding',
-      fallback: 'publicAnswers/wedding'
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.appspot.com",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
     };
     
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const auth = getAuth(app);
+    
     // DOM Elements
-    const tabPuzzles = document.getElementById('tab-puzzles');
-    const tabPlayers = document.getElementById('tab-players');
-    const puzzlesTab = document.getElementById('puzzles-tab');
-    const playersTab = document.getElementById('players-tab');
+    const authMessage = document.getElementById('authMessage');
+    const adminPanel = document.getElementById('admin-panel');
     
-    const puzzlesTable = document.getElementById('puzzles-table').querySelector('tbody');
-    const playersTable = document.getElementById('players-table').querySelector('tbody');
-    
-    const playerDetails = document.getElementById('player-details');
-    const detailsName = document.getElementById('details-name');
-    const detailsEmail = document.getElementById('details-email');
-    const detailsScreen = document.getElementById('details-screen');
-    const detailsPercentage = document.getElementById('details-percentage');
-    const detailsProgressBar = document.getElementById('details-progress-bar');
-    const detailsPuzzleStatus = document.getElementById('details-puzzle-status');
-    const detailsEmailBtn = document.getElementById('details-email-btn');
-    const detailsBackBtn = document.getElementById('details-back-btn');
-    const detailsPath = document.getElementById('details-path');
-    
-    const puzzlePathIndicator = document.getElementById('puzzle-path-indicator');
-    const playersPathIndicator = document.getElementById('players-path-indicator');
-    
-    const answerModal = document.getElementById('answer-modal');
-    const answersContainer = document.getElementById('answers-container');
-    const addAnswerBtn = document.getElementById('add-answer-btn');
-    const saveAnswersBtn = document.getElementById('save-answers-btn');
-    
-    const imageModal = document.getElementById('image-modal');
-    const imagesContainer = document.getElementById('images-container');
-    const addImageBtn = document.getElementById('add-image-btn');
-    const saveImagesBtn = document.getElementById('save-images-btn');
-    
-    const richtextModal = document.getElementById('richtext-modal');
-    const richtextPreview = document.getElementById('richtext-preview');
-    const saveRichtextBtn = document.getElementById('save-richtext-btn');
-    
-    // Rich text editor
-    let quill;
-    
-    // Store timeouts for debounced saves
-    const saveTimeouts = {};
-    
-    // Track successful database paths
-    let successfulPuzzlePath = null;
-    let successfulPlayersPath = null;
-    
-    // Store current items being edited
-    let currentPuzzleBeingEdited = null;
-    let currentAnswers = [];
-    let currentImages = [];
-    let currentClueHtml = '';
-    
-    // Helper function to format date
-    function formatDate(timestamp) {
-      if (!timestamp) return 'N/A';
-      
-      try {
-        const date = new Date(timestamp);
-        return date.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
+    // Check if user is logged in
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("User logged in with UID:", user.uid);
+        
+        // Check admin status
+        const userRef = ref(db, `users/${user.uid}`);
+        get(userRef).then((snapshot) => {
+          const userData = snapshot.val() || {};
+          
+          if (userData.role === 'admin') {
+            console.log("Admin access granted via user role");
+            // User is admin
+            authMessage.style.display = 'none';
+            adminPanel.style.display = 'block';
+            
+            // Initialize the admin interface
+            initializeAdminInterface();
+          } else {
+            console.log("User is not an admin");
+            // Not admin
+            authMessage.innerHTML = 'You do not have admin privileges.';
+          }
+        }).catch((error) => {
+          console.error("Error checking admin status:", error);
+          authMessage.innerHTML = `Error checking admin status: ${error.message}`;
         });
-      } catch (e) {
-        return timestamp;
+      } else {
+        // Not logged in
+        authMessage.innerHTML = 'You need to be logged in to manage wedding puzzles. Please log in on the <a href="/admin.html">admin page</a>.';
+        adminPanel.style.display = 'none';
       }
-    }
+    });
     
-    // Helper for HTML escaping
-    function escapeHTML(str) {
-      if (!str) return '';
-      return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-    }
-    
-    // Load data when page loads
-    document.addEventListener('DOMContentLoaded', function() {
+    // Initialize admin interface once authenticated
+    function initializeAdminInterface() {
+      // Firebase DB URL
+      const DB_URL = "https://eviltrivia-47664-default-rtdb.firebaseio.com";
+      
+      // Database paths for wedding puzzle data
+      const DB_PATHS = {
+        primary: 'wedding',
+        fallback: 'publicAnswers/wedding'
+      };
+      
+      // DOM Elements
+      const tabPuzzles = document.getElementById('tab-puzzles');
+      const tabPlayers = document.getElementById('tab-players');
+      const puzzlesTab = document.getElementById('puzzles-tab');
+      const playersTab = document.getElementById('players-tab');
+      
+      const puzzlesTable = document.getElementById('puzzles-table').querySelector('tbody');
+      const playersTable = document.getElementById('players-table').querySelector('tbody');
+      
+      const playerDetails = document.getElementById('player-details');
+      const detailsName = document.getElementById('details-name');
+      const detailsEmail = document.getElementById('details-email');
+      const detailsScreen = document.getElementById('details-screen');
+      const detailsPercentage = document.getElementById('details-percentage');
+      const detailsProgressBar = document.getElementById('details-progress-bar');
+      const detailsPuzzleStatus = document.getElementById('details-puzzle-status');
+      const detailsEmailBtn = document.getElementById('details-email-btn');
+      const detailsBackBtn = document.getElementById('details-back-btn');
+      const detailsPath = document.getElementById('details-path');
+      
+      const puzzlePathIndicator = document.getElementById('puzzle-path-indicator');
+      const playersPathIndicator = document.getElementById('players-path-indicator');
+      
+      const answerModal = document.getElementById('answer-modal');
+      const answersContainer = document.getElementById('answers-container');
+      const addAnswerBtn = document.getElementById('add-answer-btn');
+      const saveAnswersBtn = document.getElementById('save-answers-btn');
+      
+      const imageModal = document.getElementById('image-modal');
+      const imagesContainer = document.getElementById('images-container');
+      const addImageBtn = document.getElementById('add-image-btn');
+      const saveImagesBtn = document.getElementById('save-images-btn');
+      
+      const richtextModal = document.getElementById('richtext-modal');
+      const richtextPreview = document.getElementById('richtext-preview');
+      const saveRichtextBtn = document.getElementById('save-richtext-btn');
+      
+      // Rich text editor
+      let quill;
+      
+      // Store timeouts for debounced saves
+      const saveTimeouts = {};
+      
+      // Track successful database paths
+      let successfulPuzzlePath = null;
+      let successfulPlayersPath = null;
+      
+      // Store current items being edited
+      let currentPuzzleBeingEdited = null;
+      let currentAnswers = [];
+      let currentImages = [];
+      let currentClueHtml = '';
+      
+      // Helper function to format date
+      function formatDate(timestamp) {
+        if (!timestamp) return 'N/A';
+        
+        try {
+          const date = new Date(timestamp);
+          return date.toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+        } catch (e) {
+          return timestamp;
+        }
+      }
+      
+      // Helper for HTML escaping
+      function escapeHTML(str) {
+        if (!str) return '';
+        return str
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+      
+      // Load data when admin interface is initialized
       // Initialize rich text editor
       quill = new Quill('#richtext-editor', {
         theme: 'snow',
@@ -895,16 +973,63 @@
         saveRichtext();
       });
       
-      // Add puzzle button
-      document.getElementById('add-puzzle-btn').addEventListener('click', () => {
-        addNewPuzzleDirectly();
-      });
-      
       // Completion message save button
       document.getElementById('save-completion-message').addEventListener('click', () => {
         saveCompletionMessage();
       });
-    });
+      
+      // Add puzzle button
+      document.getElementById('add-puzzle-btn').addEventListener('click', () => {
+        addNewPuzzleDirectly();
+      });
+    }
+  </script>
+  
+  <script>
+    // The rest of the original script that doesn't use Firebase Auth directly
+    // Move all the existing script content here that isn't related to authentication
+    
+    // Store timeouts for debounced saves
+    const saveTimeouts = {};
+    
+    // Track successful database paths
+    let successfulPuzzlePath = null;
+    let successfulPlayersPath = null;
+    
+    // Store current items being edited
+    let currentPuzzleBeingEdited = null;
+    let currentAnswers = [];
+    let currentImages = [];
+    let currentClueHtml = '';
+    
+    // Helper function to format date
+    function formatDate(timestamp) {
+      if (!timestamp) return 'N/A';
+      
+      try {
+        const date = new Date(timestamp);
+        return date.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } catch (e) {
+        return timestamp;
+      }
+    }
+    
+    // Helper for HTML escaping
+    function escapeHTML(str) {
+      if (!str) return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
     
     // Try fetching data from multiple paths
     async function fetchFromPaths(paths, endpoint) {
