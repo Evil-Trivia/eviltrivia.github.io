@@ -867,7 +867,8 @@
       // Fetch custom welcome back message if available
       const customMessage = await fetchWelcomeBackMessage();
       if (customMessage) {
-        welcomeBackMessage.innerHTML = customMessage.replace('{{name}}', userName || 'there');
+        // Replace placeholder with user name if present
+        welcomeBackMessage.innerHTML = customMessage.replace(/\{\{name\}\}/g, userName || 'there');
       } else {
         welcomeBackMessage.textContent = `Welcome back, ${userName}! You were on puzzle ${currentScreen} of ${totalPuzzles}.`;
       }
@@ -1260,8 +1261,11 @@
       const checkmark = document.querySelector('.success-checkmark');
       checkmark.style.display = 'block';
       
+      console.log("Success message shown, scheduling transition to next function:", nextFunction);
+      
       // Transition after delay
       setTimeout(() => {
+        console.log("Executing transition now");
         if (typeof nextFunction === 'function') {
           nextFunction();
         }
@@ -1334,27 +1338,30 @@
         }
         
         if (allCorrect) {
+          console.log("All answers correct! Current screen:", currentScreen);
+          
           // Update progress
           solvedPuzzles[currentScreen] = true;
           
           // If this is the current puzzle in sequence, move to next
-          if (currentScreen >= parseInt(localStorage.getItem('weddingPuzzleScreen'))) {
-            currentScreen++;
-            localStorage.setItem('weddingPuzzleScreen', currentScreen);
-          }
+          const nextScreen = currentScreen + 1;
+          console.log("Moving to next screen:", nextScreen);
           
           // Update solved status in localStorage
           const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
-          if (localProgress.solved) {
-            localProgress.solved = solvedPuzzles;
-            localProgress.currentScreen = currentScreen;
-            localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
+          if (!localProgress.solved) {
+            localProgress.solved = Array(11).fill(false);
           }
+          
+          localProgress.solved[currentScreen] = true;
+          localProgress.currentScreen = nextScreen;
+          localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
+          localStorage.setItem('weddingPuzzleScreen', nextScreen);
           
           // Try to update Firebase using the known successful path (non-blocking)
           const updateData = {
-            currentScreen: currentScreen,
-            solved: solvedPuzzles
+            currentScreen: nextScreen,
+            solved: localProgress.solved
           };
           
           if (successPath === 'wedding/progress') {
@@ -1370,13 +1377,22 @@
           }
           
           // Check if all puzzles completed
-          if (currentScreen > totalPuzzles) {
+          if (nextScreen > totalPuzzles) {
             // All puzzles completed
+            console.log("All puzzles completed!");
+            // Set the current screen to the next one before showing completion
+            currentScreen = nextScreen;
             showSuccessAndTransition('All puzzles completed! Great job!', showCompletion);
           } else {
+            // Set the current screen to the next one before showing next puzzle
+            const thisScreen = currentScreen; // Save current screen
+            currentScreen = nextScreen; // Update current screen
+            
             // Show success message and then load next puzzle
+            console.log("Preparing to show next puzzle:", currentScreen);
             showSuccessAndTransition('Correct! Moving to the next puzzle...', () => {
               // Reset the card styles
+              console.log("Success transition callback triggered");
               document.getElementById('success-display').classList.add('hidden');
               document.getElementById('answer-form').style.display = 'block';
               document.querySelector('.success-checkmark').style.display = 'none';
@@ -1389,7 +1405,6 @@
               }, 10);
             });
           }
-          
         } else {
           // Wrong answer
           wrongAttempts++;
