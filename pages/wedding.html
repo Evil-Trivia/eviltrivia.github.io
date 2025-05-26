@@ -1133,7 +1133,7 @@
     }
     
     // Initialize - Check for existing progress in localStorage
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
       // Ensure we have a user ID even for anonymous users
       userId = getOrCreateUserId();
       
@@ -1152,17 +1152,17 @@
         
         if (isPageRefresh && currentScreen > 0) {
           // Load solved puzzles before showing welcome back
-          loadSolvedPuzzles();
+          await loadSolvedPuzzles();
           // Show welcome back screen
           showWelcomeBack();
         } else if (currentScreen >= 1 && currentScreen <= 10) {
           // Load solved puzzles before continuing with puzzle
-          loadSolvedPuzzles();
+          await loadSolvedPuzzles();
           // Continue with a puzzle
           loadPuzzle(currentScreen);
         } else if (currentScreen === 11) {
           // Load solved puzzles before showing completion
-          loadSolvedPuzzles();
+          await loadSolvedPuzzles();
           // Show completion screen
           showCompletion();
         } else {
@@ -1200,15 +1200,80 @@
       }
     }
     
-    // Load the solved puzzles array from localStorage
-    function loadSolvedPuzzles() {
+    // Load the solved puzzles array from localStorage AND database
+    async function loadSolvedPuzzles() {
+      try {
+        // Try to fetch progress from database first
+        const result = await fetchUserProgressFromDatabase();
+        
+        if (result.data && result.data.solved && Array.isArray(result.data.solved)) {
+          solvedPuzzles = result.data.solved;
+          if (result.data.userAnswers) {
+            window.userCorrectAnswers = result.data.userAnswers;
+          } else {
+            window.userCorrectAnswers = {};
+          }
+          
+          // Update localStorage to match database
+          const localProgress = {
+            solved: solvedPuzzles,
+            userAnswers: window.userCorrectAnswers,
+            currentScreen: result.data.currentScreen || currentScreen,
+            name: result.data.name || userName,
+            email: result.data.email || userEmail,
+            timestamp: new Date().toISOString()
+          };
+          localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
+          
+          console.log('Loaded progress from database:', { solved: solvedPuzzles, currentScreen: result.data.currentScreen });
+          return;
+        }
+      } catch (error) {
+        console.warn('Could not load progress from database:', error);
+      }
+      
+      // Fallback to localStorage if database unavailable
       const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
       if (localProgress.solved && Array.isArray(localProgress.solved)) {
         solvedPuzzles = localProgress.solved;
       } else {
-        // Initialize with default (first puzzle is 1, so we need 11 elements and ignore index 0)
-        solvedPuzzles = Array(11).fill(false);
+        // Initialize with default
+        solvedPuzzles = Array(totalPuzzles + 1).fill(false);
       }
+      
+      // Also load user's correct answers for pre-filling
+      if (localProgress.userAnswers && typeof localProgress.userAnswers === 'object') {
+        window.userCorrectAnswers = localProgress.userAnswers;
+      } else {
+        window.userCorrectAnswers = {};
+      }
+      
+      console.log('Loaded progress from localStorage:', { solved: solvedPuzzles });
+    }
+    
+    // Fetch user progress from database
+    async function fetchUserProgressFromDatabase() {
+      if (!userId) return { data: null, path: null };
+      
+      const paths = [
+        `wedding/progress/${userId}`,
+        `publicAnswers/wedding/progress/${userId}`
+      ];
+      
+      for (const path of paths) {
+        try {
+          const response = await fetch(`${DB_URL}/${path}.json`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data) {
+              return { data, path: path.split('/').slice(0, -2).join('/') };
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching from ${path}:`, error);
+        }
+      }
+      return { data: null, path: null };
     }
     
     // Display registration screen
@@ -1308,7 +1373,7 @@
         puzzleError.classList.add('hidden');
         
         // Load solved puzzles data
-        loadSolvedPuzzles();
+        await loadSolvedPuzzles();
         
         // Fetch puzzle data - try multiple paths with fallbacks
         let puzzleResponse = null;
@@ -1439,7 +1504,14 @@
           
           // Check if this puzzle is already solved
           if (solvedPuzzles[puzzleNum]) {
-            input.value = answer.text || '';
+            // Pre-fill with user's actual correct answers if available
+            const userAnswers = window.userCorrectAnswers && window.userCorrectAnswers[puzzleNum];
+            if (userAnswers && userAnswers[index]) {
+              input.value = userAnswers[index];
+            } else {
+              // Fallback to expected answer if user's answer not stored
+              input.value = answer.text || '';
+            }
             input.disabled = true;
             multiAnswerDiv.classList.add('correct');
           }
@@ -1589,8 +1661,11 @@
           navBtn.style.minWidth = '50px';
           navBtn.style.padding = '10px 8px';
           
-          navBtn.addEventListener('click', () => {
+          navBtn.addEventListener('click', async () => {
             if (i !== puzzleNum) {
+              await loadSolvedPuzzles(); // Refresh state from database
+              currentScreen = i;
+              localStorage.setItem('weddingPuzzleScreen', currentScreen);
               loadPuzzle(i);
             }
           });
@@ -1675,7 +1750,78 @@
       localStorage.setItem('weddingPuzzleScreen', currentScreen);
       
       // Initialize solved puzzles array
-      solvedPuzzles = Array(11).fill(false);
+      solvedPuzzles = Array(totalPuzzles + 1).fill(false);
+      
+      // Initialize user correct answers
+      window.userCorrectAnswers = {};
+      
+      // Debug function to reset progress (can be called from browser console)
+      window.resetPuzzleProgress = function() {
+        // Clear all local storage
+        localStorage.removeItem('weddingPuzzleName');
+        localStorage.removeItem('weddingPuzzleEmail');
+        localStorage.removeItem('weddingPuzzleScreen');
+        localStorage.removeItem('weddingPuzzleLocalProgress');
+        localStorage.removeItem('weddingPuzzleLocalAttempts');
+        localStorage.removeItem('weddingPuzzleId');
+        localStorage.removeItem('weddingPuzzleSuccessPath');
+        
+        // Reset in-memory state
+        solvedPuzzles = Array(totalPuzzles + 1).fill(false);
+        window.userCorrectAnswers = {};
+        
+        // Clear database if possible
+        if (userId && successPath) {
+          fetch(`${DB_URL}/${successPath}/${userId}.json`, {
+            method: 'DELETE'
+          }).then(() => {
+            console.log('Database progress cleared');
+          }).catch(err => {
+            console.warn('Could not clear database:', err);
+          });
+        }
+        
+        console.log('Puzzle progress reset completely. Refresh the page to start over.');
+      };
+      
+      // Debug function to view current progress
+      window.viewProgress = async function() {
+        await loadSolvedPuzzles();
+        console.log('Current progress:', {
+          currentScreen,
+          solvedPuzzles,
+          userCorrectAnswers: window.userCorrectAnswers,
+          userId,
+          successPath
+        });
+      };
+      
+      // Debug function to unlock a specific puzzle (can be called from browser console)
+      window.unlockPuzzle = function(puzzleNum) {
+        if (puzzleNum > 1) {
+          // Mark previous puzzle as solved to unlock this one
+          solvedPuzzles[puzzleNum - 1] = true;
+          const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
+          localProgress.solved = solvedPuzzles;
+          localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
+          console.log(`Unlocked puzzle ${puzzleNum} by marking puzzle ${puzzleNum - 1} as solved`);
+          location.reload();
+        }
+      };
+      
+      // Debug function to mark a puzzle as unsolved
+      window.unsolveCurrentPuzzle = function() {
+        solvedPuzzles[currentScreen] = false;
+        if (window.userCorrectAnswers) {
+          delete window.userCorrectAnswers[currentScreen];
+        }
+        const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
+        localProgress.solved = solvedPuzzles;
+        localProgress.userAnswers = window.userCorrectAnswers;
+        localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
+        console.log(`Marked puzzle ${currentScreen} as unsolved`);
+        location.reload();
+      };
       
       // Prepare progress data
       const progressData = {
@@ -1697,6 +1843,8 @@
       .then(response => {
         if (response.ok) {
           localStorage.setItem('weddingPuzzleSuccessPath', 'wedding/progress');
+          successPath = 'wedding/progress';
+          console.log('Successfully saved to primary database path');
           return true;
         }
         // Try fallback if primary fails
@@ -1708,6 +1856,8 @@
       .then(response => {
         if (response && response !== true && response.ok) {
           localStorage.setItem('weddingPuzzleSuccessPath', 'publicAnswers/wedding/progress');
+          successPath = 'publicAnswers/wedding/progress';
+          console.log('Successfully saved to fallback database path');
         }
         // Regardless of DB save outcome, continue to first puzzle
         loadPuzzle(currentScreen);
@@ -1720,11 +1870,13 @@
     });
     
     // Welcome back buttons
-    continueBtn.addEventListener('click', function() {
+    continueBtn.addEventListener('click', async function() {
+      await loadSolvedPuzzles();
       loadPuzzle(currentScreen);
     });
     
-    restartFromBeginningBtn.addEventListener('click', function() {
+    restartFromBeginningBtn.addEventListener('click', async function() {
+      await loadSolvedPuzzles();
       currentScreen = 1;
       localStorage.setItem('weddingPuzzleScreen', currentScreen);
       loadPuzzle(currentScreen);
@@ -1807,6 +1959,8 @@
       
       // Check if this puzzle is already solved - prevent re-submission
       if (solvedPuzzles[currentScreen]) {
+        console.log('Puzzle', currentScreen, 'marked as solved:', solvedPuzzles);
+        console.log('User correct answers:', window.userCorrectAnswers);
         showFeedback('This puzzle is already solved!', 'info');
         return;
       }
@@ -1876,6 +2030,12 @@
           // Mark current puzzle as solved
           solvedPuzzles[currentScreen] = true;
           
+          // Store user's correct answers for pre-filling later
+          if (!window.userCorrectAnswers) {
+            window.userCorrectAnswers = {};
+          }
+          window.userCorrectAnswers[currentScreen] = answers;
+          
           // Determine next available puzzle (strict sequential)
           let nextAvailablePuzzle = currentScreen;
           
@@ -1890,27 +2050,40 @@
             localStorage.setItem('weddingPuzzleScreen', currentScreen);
           }
           
-          // Update solved status in localStorage
+          // Update solved status and user answers in localStorage
           const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
           localProgress.solved = solvedPuzzles;
+          localProgress.userAnswers = window.userCorrectAnswers;
           localProgress.currentScreen = currentScreen;
           localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           
           // Try to update Firebase using the known successful path (non-blocking)
           const updateData = {
             currentScreen: currentScreen,
-            solved: solvedPuzzles
+            solved: solvedPuzzles,
+            userAnswers: window.userCorrectAnswers,
+            name: userName,
+            email: userEmail,
+            timestamp: new Date().toISOString()
           };
           
           if (successPath === 'wedding/progress') {
             fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
-              method: 'PATCH',
+              method: 'PUT',
               body: JSON.stringify(updateData)
+            }).then(response => {
+              if (response.ok) {
+                console.log('Progress saved to database successfully');
+              }
             }).catch(err => console.warn('Could not update progress in primary path:', err));
           } else if (successPath === 'publicAnswers/wedding/progress') {
             fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
-              method: 'PATCH',
+              method: 'PUT',
               body: JSON.stringify(updateData)
+            }).then(response => {
+              if (response.ok) {
+                console.log('Progress saved to database successfully');
+              }
             }).catch(err => console.warn('Could not update progress in fallback path:', err));
           }
           
