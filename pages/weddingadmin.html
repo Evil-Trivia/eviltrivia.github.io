@@ -804,6 +804,30 @@
           <span id="welcome-save-indicator" class="save-indicator">Message saved!</span>
         </div>
         
+        <div class="global-settings" style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
+          <h3>Success Messages</h3>
+          <p>Edit the messages that appear when users solve puzzles:</p>
+          
+          <div class="form-group">
+            <label for="puzzle-solved-message">Puzzle Solved Message:</label>
+            <input type="text" id="puzzle-solved-message" style="width: 100%;" placeholder="Correct! Moving to Puzzle {nextPuzzle}...">
+            <small style="color: #666; display: block; margin-top: 5px;">Use {nextPuzzle} to show the next puzzle number</small>
+          </div>
+          
+          <div class="form-group" style="margin-top: 15px;">
+            <label for="last-puzzle-message">Last Puzzle Solved Message:</label>
+            <input type="text" id="last-puzzle-message" style="width: 100%;" placeholder="Congratulations! You've solved all the puzzles!">
+          </div>
+          
+          <div class="form-group" style="margin-top: 15px;">
+            <label for="all-complete-message">All Puzzles Complete Message:</label>
+            <input type="text" id="all-complete-message" style="width: 100%;" placeholder="Amazing work! All puzzles completed!">
+          </div>
+          
+          <button id="save-success-messages" class="btn">Save Success Messages</button>
+          <span id="success-messages-save-indicator" class="save-indicator">Messages saved!</span>
+        </div>
+        
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
           <h3>Puzzles</h3>
           <button id="add-puzzle-btn" class="btn">Add New Puzzle</button>
@@ -1086,6 +1110,12 @@
     const saveWelcomeMessage = document.getElementById('save-welcome-message');
     const welcomeSaveIndicator = document.getElementById('welcome-save-indicator');
     
+    const puzzleSolvedMessage = document.getElementById('puzzle-solved-message');
+    const lastPuzzleMessage = document.getElementById('last-puzzle-message');
+    const allCompleteMessage = document.getElementById('all-complete-message');
+    const saveSuccessMessages = document.getElementById('save-success-messages');
+    const successMessagesSaveIndicator = document.getElementById('success-messages-save-indicator');
+    
     // Rich text editor
     let quill;
     
@@ -1171,6 +1201,7 @@
         loadPlayers();
         loadCompletionMessage();
         loadWelcomeBackMessage();
+        loadSuccessMessages();
         
         // Set up tab switching
         tabPuzzles.addEventListener('click', () => {
@@ -1253,6 +1284,11 @@
         // Welcome back message save button
         saveWelcomeMessage.addEventListener('click', () => {
             saveWelcomeBackMessageData();
+        });
+        
+        // Success messages save button
+        saveSuccessMessages.addEventListener('click', () => {
+          saveSuccessMessagesData();
         });
     }
     
@@ -2945,6 +2981,65 @@
       } catch (error) {
         console.error('Error saving puzzle:', error);
         alert('Error saving puzzle. Please try again: ' + error.message);
+      }
+    }
+    
+    // Load success messages
+    async function loadSuccessMessages() {
+      try {
+        const result = await fetchFromPaths(Object.values(DB_PATHS), 'successMessages');
+        
+        if (result.data) {
+          puzzleSolvedMessage.value = result.data.puzzleSolved || 'Correct! Moving to Puzzle {nextPuzzle}...';
+          lastPuzzleMessage.value = result.data.lastPuzzle || 'Congratulations! You\'ve solved all the puzzles!';
+          allCompleteMessage.value = result.data.allComplete || 'Amazing work! All puzzles completed!';
+        } else {
+          // Default messages
+          puzzleSolvedMessage.value = 'Correct! Moving to Puzzle {nextPuzzle}...';
+          lastPuzzleMessage.value = 'Congratulations! You\'ve solved all the puzzles!';
+          allCompleteMessage.value = 'Amazing work! All puzzles completed!';
+        }
+      } catch (error) {
+        console.error('Error loading success messages:', error);
+      }
+    }
+    
+    // Save success messages
+    async function saveSuccessMessagesData() {
+      try {
+        const messages = {
+          puzzleSolved: puzzleSolvedMessage.value.trim(),
+          lastPuzzle: lastPuzzleMessage.value.trim(),
+          allComplete: allCompleteMessage.value.trim()
+        };
+        
+        if (!messages.puzzleSolved || !messages.lastPuzzle || !messages.allComplete) {
+          showFeedback('Please fill in all success message fields.', 'error');
+          return;
+        }
+        
+        // Save to database
+        const result = await saveToDatabase(
+          Object.values(DB_PATHS),
+          'successMessages',
+          messages,
+          'PUT'
+        );
+        
+        if (result.success) {
+          // Show save indicator
+          successMessagesSaveIndicator.classList.add('show');
+          setTimeout(() => {
+            successMessagesSaveIndicator.classList.remove('show');
+          }, 2000);
+          
+          showSuccessToast('Success messages saved!');
+        } else {
+          showFeedback('Error saving success messages. Please try again.', 'error');
+        }
+      } catch (error) {
+        console.error('Error saving success messages:', error);
+        showFeedback('Error saving success messages: ' + error.message, 'error');
       }
     }
   </script>

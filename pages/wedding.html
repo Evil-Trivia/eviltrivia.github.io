@@ -1092,6 +1092,45 @@
     let userEmail = '';
     let solvedPuzzles = [];
     
+    // Global variables to store custom messages
+    let customSuccessMessages = {
+      puzzleSolved: 'Correct! Moving to Puzzle {nextPuzzle}...',
+      lastPuzzle: 'Congratulations! You\'ve solved all the puzzles!',
+      allComplete: 'Amazing work! All puzzles completed!'
+    };
+    
+    // Fetch custom success messages from database
+    async function fetchSuccessMessages() {
+      try {
+        const paths = [
+          `wedding/successMessages`,
+          `publicAnswers/wedding/successMessages`
+        ];
+        
+        for (const path of paths) {
+          try {
+            const response = await fetch(`${DB_URL}/${path}.json`);
+            if (response.ok) {
+              const data = await response.json();
+              if (data) {
+                customSuccessMessages = {
+                  puzzleSolved: data.puzzleSolved || customSuccessMessages.puzzleSolved,
+                  lastPuzzle: data.lastPuzzle || customSuccessMessages.lastPuzzle,
+                  allComplete: data.allComplete || customSuccessMessages.allComplete
+                };
+                console.log('Loaded custom success messages:', customSuccessMessages);
+                return;
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching success messages from ${path}:`, error);
+          }
+        }
+      } catch (error) {
+        console.warn('Could not load custom success messages:', error);
+      }
+    }
+    
     // Show the loading spinner initially
     loading.style.display = 'block';
     
@@ -1176,6 +1215,9 @@
       
       // Load total puzzles count
       loadTotalPuzzles();
+      
+      // Load custom success messages
+      fetchSuccessMessages();
     });
     
     // Load the total number of puzzles from the database
@@ -1517,13 +1559,19 @@
           if (solvedPuzzles[puzzleNum]) {
             // Pre-fill with user's actual correct answers if available
             const userAnswers = window.userCorrectAnswers && window.userCorrectAnswers[puzzleNum];
-            if (userAnswers && userAnswers[index]) {
+            console.log(`Puzzle ${puzzleNum} is solved. User answers:`, userAnswers, 'Index:', index);
+            
+            if (userAnswers && userAnswers[index] !== undefined) {
               input.value = userAnswers[index];
+              console.log(`Pre-filled answer ${index} with:`, userAnswers[index]);
             } else {
               // Fallback to expected answer if user's answer not stored
               input.value = answer.text || '';
+              console.log(`No user answer found, using expected:`, answer.text);
             }
             input.disabled = true;
+            input.style.fontWeight = 'bold';
+            input.style.color = '#2E7D32';
             multiAnswerDiv.classList.add('correct');
           }
           
@@ -2140,10 +2188,15 @@
             // All puzzles completed
             currentScreen = totalPuzzles + 1; // Set to completion screen
             localStorage.setItem('weddingPuzzleScreen', currentScreen);
-            showSuccessAndTransition('All puzzles completed! Congratulations!', showCompletion);
+            showSuccessAndTransition(customSuccessMessages.allComplete, () => {
+              savePromise.then(() => {
+                showCompletion();
+              });
+            });
           } else if (nextPuzzle) {
             // Show success message and automatically move to next puzzle
-            showSuccessAndTransition(`Correct! Moving to Puzzle ${nextPuzzle}...`, () => {
+            const message = customSuccessMessages.puzzleSolved.replace('{nextPuzzle}', nextPuzzle);
+            showSuccessAndTransition(message, () => {
               // Wait for database save then load next puzzle
               savePromise.then(() => {
                 loadPuzzle(nextPuzzle);
@@ -2151,7 +2204,7 @@
             });
           } else {
             // Last puzzle solved but not all completed (shouldn't happen with current logic)
-            showSuccessAndTransition('Correct! This puzzle is now solved.', () => {
+            showSuccessAndTransition(customSuccessMessages.lastPuzzle, () => {
               // Reset the success display
               document.getElementById('success-display').classList.add('hidden');
               document.getElementById('answer-form').style.display = 'block';
