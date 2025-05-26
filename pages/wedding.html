@@ -1249,21 +1249,31 @@
         const result = await fetchUserProgressFromDatabase();
         
         if (result.data && result.data.solved && Array.isArray(result.data.solved)) {
-          solvedPuzzles = result.data.solved;
+          solvedPuzzles = [...result.data.solved]; // Create a copy
           
           // Load user answers from database
           if (result.data.userAnswers && typeof result.data.userAnswers === 'object') {
-            window.userCorrectAnswers = result.data.userAnswers;
-            console.log('Loaded user answers from database:', window.userCorrectAnswers);
+            window.userCorrectAnswers = { ...result.data.userAnswers }; // Create a copy
+            console.log('📥 Loaded user answers from database:', window.userCorrectAnswers);
+            
+            // Verify the data structure
+            Object.keys(window.userCorrectAnswers).forEach(puzzleNum => {
+              const answers = window.userCorrectAnswers[puzzleNum];
+              if (!Array.isArray(answers)) {
+                console.warn(`⚠ Puzzle ${puzzleNum} answers are not an array:`, answers);
+              } else {
+                console.log(`✓ Puzzle ${puzzleNum} has ${answers.length} answers:`, answers);
+              }
+            });
           } else {
             window.userCorrectAnswers = {};
-            console.log('No user answers found in database');
+            console.log('📥 No user answers found in database');
           }
           
           // Update localStorage to match database
           const localProgress = {
-            solved: solvedPuzzles,
-            userAnswers: window.userCorrectAnswers,
+            solved: [...solvedPuzzles],
+            userAnswers: { ...window.userCorrectAnswers },
             currentScreen: result.data.currentScreen || currentScreen,
             name: result.data.name || userName,
             email: result.data.email || userEmail,
@@ -1271,10 +1281,10 @@
           };
           localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           
-          console.log('Loaded progress from database:', { 
+          console.log('📥 Loaded progress from database:', { 
             solved: solvedPuzzles, 
             currentScreen: result.data.currentScreen,
-            userAnswers: window.userCorrectAnswers 
+            userAnswersCount: Object.keys(window.userCorrectAnswers).length 
           });
           return;
         }
@@ -1285,7 +1295,7 @@
       // Fallback to localStorage if database unavailable
       const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
       if (localProgress.solved && Array.isArray(localProgress.solved)) {
-        solvedPuzzles = localProgress.solved;
+        solvedPuzzles = [...localProgress.solved];
       } else {
         // Initialize with default
         solvedPuzzles = Array(totalPuzzles + 1).fill(false);
@@ -1293,14 +1303,14 @@
       
       // Also load user's correct answers for pre-filling
       if (localProgress.userAnswers && typeof localProgress.userAnswers === 'object') {
-        window.userCorrectAnswers = localProgress.userAnswers;
-        console.log('Loaded user answers from localStorage:', window.userCorrectAnswers);
+        window.userCorrectAnswers = { ...localProgress.userAnswers };
+        console.log('📥 Loaded user answers from localStorage:', window.userCorrectAnswers);
       } else {
         window.userCorrectAnswers = {};
-        console.log('No user answers found in localStorage');
+        console.log('📥 No user answers found in localStorage');
       }
       
-      console.log('Loaded progress from localStorage:', { solved: solvedPuzzles });
+      console.log('📥 Loaded progress from localStorage:', { solved: solvedPuzzles });
     }
     
     // Fetch user progress from database
@@ -1571,27 +1581,38 @@
           
           // Check if this puzzle is already solved
           if (solvedPuzzles[puzzleNum]) {
+            console.log(`🔍 Puzzle ${puzzleNum} is marked as solved, attempting pre-fill...`);
+            
             // Pre-fill with user's actual correct answers if available
             const userAnswers = window.userCorrectAnswers && window.userCorrectAnswers[puzzleNum];
-            console.log(`Puzzle ${puzzleNum} is solved. Checking answers:`, {
-              userAnswers,
-              allUserAnswers: window.userCorrectAnswers,
-              index,
-              expectedAnswer: answer.text
+            
+            console.log(`🔍 Pre-fill check for puzzle ${puzzleNum}, answer ${index}:`, {
+              puzzleIsSolved: solvedPuzzles[puzzleNum],
+              userAnswersExist: !!userAnswers,
+              userAnswersType: Array.isArray(userAnswers) ? 'array' : typeof userAnswers,
+              userAnswersLength: Array.isArray(userAnswers) ? userAnswers.length : 'N/A',
+              userAnswerAtIndex: userAnswers && userAnswers[index],
+              expectedAnswer: answer.text,
+              allUserAnswers: window.userCorrectAnswers
             });
             
-            if (userAnswers && Array.isArray(userAnswers) && userAnswers[index] !== undefined) {
+            if (userAnswers && Array.isArray(userAnswers) && index < userAnswers.length && userAnswers[index] !== undefined && userAnswers[index] !== null && userAnswers[index] !== '') {
               input.value = userAnswers[index];
-              console.log(`✓ Pre-filled answer ${index} with user's answer:`, userAnswers[index]);
+              console.log(`✅ Pre-filled answer ${index} with user's answer: "${userAnswers[index]}"`);
             } else {
               // Fallback to expected answer if user's answer not stored
               input.value = answer.text || '';
-              console.log(`⚠ No user answer found for ${index}, using expected:`, answer.text);
+              console.warn(`⚠️ No valid user answer found for puzzle ${puzzleNum} answer ${index}, using expected: "${answer.text}"`);
+              console.warn(`   Reason: userAnswers=${JSON.stringify(userAnswers)}, index=${index}`);
             }
+            
             input.disabled = true;
             input.style.fontWeight = 'bold';
             input.style.color = '#2E7D32';
+            input.style.backgroundColor = '#f1f8e9';
             multiAnswerDiv.classList.add('correct');
+          } else {
+            console.log(`🔍 Puzzle ${puzzleNum} is not solved, leaving answer ${index} editable`);
           }
           
           formGroup.appendChild(label);
@@ -1882,12 +1903,30 @@
       // Debug function to view current progress
       window.viewProgress = async function() {
         await loadSolvedPuzzles();
-        console.log('Current progress:', {
+        console.log('📊 Current progress:', {
           currentScreen,
           solvedPuzzles,
           userCorrectAnswers: window.userCorrectAnswers,
           userId,
           successPath
+        });
+        
+        // Show detailed breakdown of each puzzle
+        for (let i = 1; i <= totalPuzzles; i++) {
+          console.log(`Puzzle ${i}:`, {
+            solved: solvedPuzzles[i],
+            userAnswers: window.userCorrectAnswers[i],
+            answersType: Array.isArray(window.userCorrectAnswers[i]) ? 'array' : typeof window.userCorrectAnswers[i]
+          });
+        }
+      };
+      
+      // Debug function to inspect specific puzzle
+      window.inspectPuzzle = function(puzzleNum) {
+        console.log(`🔍 Inspecting Puzzle ${puzzleNum}:`, {
+          solved: solvedPuzzles[puzzleNum],
+          userAnswers: window.userCorrectAnswers[puzzleNum],
+          localStorage: JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}')
         });
       };
       
@@ -2145,8 +2184,8 @@
           if (!window.userCorrectAnswers) {
             window.userCorrectAnswers = {};
           }
-          window.userCorrectAnswers[currentScreen] = answers;
-          console.log(`Storing user answers for puzzle ${currentScreen}:`, answers);
+          window.userCorrectAnswers[currentScreen] = [...answers]; // Create a copy of the answers array
+          console.log(`✓ Storing user answers for puzzle ${currentScreen}:`, window.userCorrectAnswers[currentScreen]);
           
           // Determine what the next puzzle should be
           const justSolvedPuzzle = currentScreen;
@@ -2158,22 +2197,25 @@
             localStorage.setItem('weddingPuzzleScreen', currentScreen);
           }
           
-          // Update solved status and user answers in localStorage
+          // Update solved status and user answers in localStorage immediately
           const localProgress = JSON.parse(localStorage.getItem('weddingPuzzleLocalProgress') || '{}');
-          localProgress.solved = solvedPuzzles;
-          localProgress.userAnswers = window.userCorrectAnswers;
+          localProgress.solved = [...solvedPuzzles]; // Create a copy
+          localProgress.userAnswers = { ...window.userCorrectAnswers }; // Create a copy
           localProgress.currentScreen = currentScreen;
           localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
+          console.log('✓ Updated localStorage with:', localProgress);
           
           // Try to update Firebase using the known successful path
           const updateData = {
             currentScreen: currentScreen,
-            solved: solvedPuzzles,
-            userAnswers: window.userCorrectAnswers,
+            solved: [...solvedPuzzles], // Create a copy
+            userAnswers: { ...window.userCorrectAnswers }, // Create a copy
             name: userName,
             email: userEmail,
             timestamp: new Date().toISOString()
           };
+          
+          console.log('📤 Saving to database:', updateData);
           
           // Save to database immediately and wait for confirmation
           const savePromise = new Promise((resolve) => {
