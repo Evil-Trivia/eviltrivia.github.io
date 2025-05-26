@@ -1038,9 +1038,9 @@
       
       <!-- Screen 11: Completion -->
       <div id="screen-complete" class="hidden">
-        <h2>Congratulations!</h2>
-        <p>You've completed all the puzzles!</p>
-        <p id="completion-message"></p>
+        <div id="ending-page-content">
+          <!-- Custom ending page content will be loaded here -->
+        </div>
         
         <button id="restart-btn" class="btn">Start Over</button>
       </div>
@@ -1071,6 +1071,7 @@
     const clueText = document.getElementById('clue-text');
     const clueImage = document.getElementById('clue-image');
     const completionMessage = document.getElementById('completion-message');
+    const endingPageContent = document.getElementById('ending-page-content');
     const restartBtn = document.getElementById('restart-btn');
     const hintToast = document.getElementById('hint-toast');
     const registrationError = document.getElementById('registration-error');
@@ -1176,6 +1177,12 @@
       // Ensure we have a user ID even for anonymous users
       userId = getOrCreateUserId();
       
+      // Load total puzzles count first
+      await loadTotalPuzzles();
+      
+      // Load custom success messages
+      await fetchSuccessMessages();
+      
       const storedName = localStorage.getItem('weddingPuzzleName');
       const storedEmail = localStorage.getItem('weddingPuzzleEmail');
       const storedScreen = localStorage.getItem('weddingPuzzleScreen');
@@ -1194,12 +1201,12 @@
           await loadSolvedPuzzles();
           // Show welcome back screen
           showWelcomeBack();
-        } else if (currentScreen >= 1 && currentScreen <= 10) {
+        } else if (currentScreen >= 1 && currentScreen <= totalPuzzles) {
           // Load solved puzzles before continuing with puzzle
           await loadSolvedPuzzles();
           // Continue with a puzzle
           loadPuzzle(currentScreen);
-        } else if (currentScreen === 11) {
+        } else if (currentScreen > totalPuzzles) {
           // Load solved puzzles before showing completion
           await loadSolvedPuzzles();
           // Show completion screen
@@ -1212,12 +1219,6 @@
         // No saved state, show registration
         showScreen0();
       }
-      
-      // Load total puzzles count
-      loadTotalPuzzles();
-      
-      // Load custom success messages
-      fetchSuccessMessages();
     });
     
     // Load the total number of puzzles from the database
@@ -1825,8 +1826,38 @@
       });
     }
     
+    // Fetch ending page content from database
+    async function fetchEndingPageContent() {
+      try {
+        const paths = [
+          `wedding/endingPageContent`,
+          `publicAnswers/wedding/endingPageContent`
+        ];
+        
+        for (const path of paths) {
+          try {
+            const response = await fetch(`${DB_URL}/${path}.json`);
+            if (response.ok) {
+              const data = await response.json();
+              if (data && typeof data === 'string') {
+                return data;
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching ending page content from ${path}:`, error);
+          }
+        }
+        
+        // Return default content if nothing found
+        return '<h2>Congratulations!</h2><p>You\'ve completed all the puzzles!</p>';
+      } catch (error) {
+        console.warn('Could not load ending page content:', error);
+        return '<h2>Congratulations!</h2><p>You\'ve completed all the puzzles!</p>';
+      }
+    }
+    
     // Display completion screen
-    function showCompletion() {
+    async function showCompletion() {
       loading.style.display = 'none';
       
       const currentlyVisibleScreen = 
@@ -1834,39 +1865,14 @@
         !screenWelcomeBack.classList.contains('hidden') ? screenWelcomeBack :
         !screenPuzzle.classList.contains('hidden') ? screenPuzzle : null;
       
-      // Fetch custom completion message if available
-      fetchCompletionMessage().then(message => {
-        document.getElementById('completion-message').textContent = message || `Congrats ${userName || 'friend'}! You've solved all the puzzles!`;
-      });
+      // Load custom ending page content
+      const endingContent = await fetchEndingPageContent();
+      endingPageContent.innerHTML = endingContent;
       
       switchScreen(currentlyVisibleScreen, screenComplete);
       
       // Trigger confetti
       startConfetti();
-    }
-    
-    // Fetch the custom completion message from the database
-    async function fetchCompletionMessage() {
-      try {
-        // Try primary path
-        let response = await fetch(`${DB_URL}/wedding/completionMessage.json`);
-        
-        // If primary failed, try backup path
-        if (!response || !response.ok) {
-          response = await fetch(`${DB_URL}/publicAnswers/wedding/completionMessage.json`);
-        }
-        
-        if (response && response.ok) {
-          const message = await response.json();
-          if (message && typeof message === 'string') {
-            return message;
-          }
-        }
-        return null;
-      } catch (error) {
-        console.warn('Could not load completion message:', error);
-        return null;
-      }
     }
     
     // Registration form submission - completely rebuilt without any Firebase Auth
@@ -2225,8 +2231,21 @@
           const justSolvedPuzzle = currentScreen;
           const nextPuzzle = currentScreen < totalPuzzles ? currentScreen + 1 : null;
           
-          // Update current screen to next puzzle if there is one
-          if (nextPuzzle) {
+          // Check if we just solved the last puzzle
+          const isLastPuzzleSolved = justSolvedPuzzle === totalPuzzles;
+          
+          console.log(`📊 Completion check:`, {
+            justSolvedPuzzle,
+            totalPuzzles,
+            nextPuzzle,
+            isLastPuzzleSolved
+          });
+          
+          // Update current screen to next puzzle if there is one, otherwise go to completion
+          if (isLastPuzzleSolved) {
+            currentScreen = totalPuzzles + 1; // Set to completion screen
+            localStorage.setItem('weddingPuzzleScreen', currentScreen);
+          } else if (nextPuzzle) {
             currentScreen = nextPuzzle;
             localStorage.setItem('weddingPuzzleScreen', currentScreen);
           }
@@ -2287,10 +2306,8 @@
           // Check if all puzzles completed
           const allPuzzlesSolved = solvedPuzzles.slice(1, totalPuzzles + 1).every(Boolean);
           
-          if (allPuzzlesSolved) {
-            // All puzzles completed
-            currentScreen = totalPuzzles + 1; // Set to completion screen
-            localStorage.setItem('weddingPuzzleScreen', currentScreen);
+          if (isLastPuzzleSolved || allPuzzlesSolved) {
+            // All puzzles completed - show completion
             showSuccessAndTransition(customSuccessMessages.allComplete, () => {
               savePromise.then(() => {
                 showCompletion();
@@ -2306,7 +2323,7 @@
               });
             });
           } else {
-            // Last puzzle solved but not all completed (shouldn't happen with current logic)
+            // Fallback case (shouldn't happen with current logic)
             showSuccessAndTransition(customSuccessMessages.lastPuzzle, () => {
               // Reset the success display
               document.getElementById('success-display').classList.add('hidden');

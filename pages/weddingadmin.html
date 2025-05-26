@@ -828,6 +828,23 @@
           <span id="success-messages-save-indicator" class="save-indicator">Messages saved!</span>
         </div>
         
+        <div class="global-settings" style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
+          <h3>Ending Page Content</h3>
+          <p>Create the rich text content that appears when users complete all puzzles:</p>
+          
+          <div class="editor-container" style="margin-top: 15px;">
+            <div id="ending-page-editor"></div>
+          </div>
+          
+          <div class="clue-preview" style="margin-top: 15px;">
+            <div class="preview-title">Preview:</div>
+            <div id="ending-page-preview"></div>
+          </div>
+          
+          <button id="save-ending-page" class="btn">Save Ending Page</button>
+          <span id="ending-page-save-indicator" class="save-indicator">Ending page saved!</span>
+        </div>
+        
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
           <h3>Puzzles</h3>
           <button id="add-puzzle-btn" class="btn">Add New Puzzle</button>
@@ -1116,8 +1133,13 @@
     const saveSuccessMessages = document.getElementById('save-success-messages');
     const successMessagesSaveIndicator = document.getElementById('success-messages-save-indicator');
     
+    const saveEndingPage = document.getElementById('save-ending-page');
+    const endingPageSaveIndicator = document.getElementById('ending-page-save-indicator');
+    const endingPagePreview = document.getElementById('ending-page-preview');
+    
     // Rich text editor
     let quill;
+    let endingPageQuill;
     
     // Store timeouts for debounced saves
     const saveTimeouts = {};
@@ -1174,7 +1196,7 @@
     
     // Initialize admin functionality - called after authentication
     function initializeAdmin() {
-        // Initialize rich text editor
+        // Initialize rich text editor for clues
         quill = new Quill('#richtext-editor', {
             theme: 'snow',
             modules: {
@@ -1196,12 +1218,35 @@
             richtextPreview.innerHTML = quill.root.innerHTML;
         });
         
+        // Initialize rich text editor for ending page
+        endingPageQuill = new Quill('#ending-page-editor', {
+            theme: 'snow',
+            modules: {
+                toolbar: [
+                    ['bold', 'italic', 'underline', 'strike'],
+                    ['blockquote', 'code-block'],
+                    [{ 'header': 1 }, { 'header': 2 }],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'color': [] }, { 'background': [] }],
+                    [{ 'align': [] }],
+                    ['link', 'image'],
+                    ['clean']
+                ]
+            }
+        });
+        
+        // Update preview when ending page editor content changes
+        endingPageQuill.on('text-change', function() {
+            endingPagePreview.innerHTML = endingPageQuill.root.innerHTML;
+        });
+        
         // Load all tabs' data
         loadPuzzles();
         loadPlayers();
         loadCompletionMessage();
         loadWelcomeBackMessage();
         loadSuccessMessages();
+        loadEndingPageContent();
         
         // Set up tab switching
         tabPuzzles.addEventListener('click', () => {
@@ -1289,6 +1334,11 @@
         // Success messages save button
         saveSuccessMessages.addEventListener('click', () => {
           saveSuccessMessagesData();
+        });
+        
+        // Ending page save button
+        saveEndingPage.addEventListener('click', () => {
+          saveEndingPageData();
         });
     }
     
@@ -3040,6 +3090,60 @@
       } catch (error) {
         console.error('Error saving success messages:', error);
         showFeedback('Error saving success messages: ' + error.message, 'error');
+      }
+    }
+    
+    // Load ending page content
+    async function loadEndingPageContent() {
+      try {
+        const result = await fetchFromPaths(Object.values(DB_PATHS), 'endingPageContent');
+        
+        if (result.data && typeof result.data === 'string') {
+          endingPageQuill.root.innerHTML = result.data;
+          endingPagePreview.innerHTML = result.data;
+        } else {
+          // Default ending page content
+          const defaultContent = '<h1>Congratulations!</h1><p>You have successfully completed all the puzzles. Well done!</p>';
+          endingPageQuill.root.innerHTML = defaultContent;
+          endingPagePreview.innerHTML = defaultContent;
+        }
+      } catch (error) {
+        console.error('Error loading ending page content:', error);
+      }
+    }
+    
+    // Save ending page content
+    async function saveEndingPageData() {
+      try {
+        const content = endingPageQuill.root.innerHTML;
+        
+        if (!content || content.trim() === '<p><br></p>') {
+          showFeedback('Please enter some ending page content.', 'error');
+          return;
+        }
+        
+        // Save to database
+        const result = await saveToDatabase(
+          Object.values(DB_PATHS),
+          'endingPageContent',
+          content,
+          'PUT'
+        );
+        
+        if (result.success) {
+          // Show save indicator
+          endingPageSaveIndicator.classList.add('show');
+          setTimeout(() => {
+            endingPageSaveIndicator.classList.remove('show');
+          }, 2000);
+          
+          showSuccessToast('Ending page content saved!');
+        } else {
+          showFeedback('Error saving ending page content. Please try again.', 'error');
+        }
+      } catch (error) {
+        console.error('Error saving ending page content:', error);
+        showFeedback('Error saving ending page content: ' + error.message, 'error');
       }
     }
   </script>
