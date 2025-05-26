@@ -601,6 +601,165 @@
     .btn-edit-all:hover {
       background-color: #0b7dda;
     }
+    
+    .inline-edit {
+      background: transparent;
+      border: 1px solid transparent;
+      padding: 8px;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    
+    .inline-edit:hover {
+      background-color: rgba(0,0,0,0.05);
+      border-color: #ddd;
+    }
+    
+    .inline-edit:focus {
+      background-color: white;
+      border-color: #000;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.1);
+      outline: none;
+    }
+    
+    .edit-section {
+      margin: 15px 0;
+      padding: 15px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      background: #fafafa;
+      transition: all 0.3s ease;
+    }
+    
+    .edit-section:hover {
+      background: #f5f5f5;
+      border-color: #ccc;
+    }
+    
+    .edit-section.editing {
+      background: white;
+      border-color: #000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .edit-label {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+      display: block;
+      font-size: 14px;
+    }
+    
+    .quick-save-indicator {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #4CAF50;
+      color: white;
+      border-radius: 12px;
+      font-size: 11px;
+      margin-left: 8px;
+      opacity: 0;
+      transform: scale(0.8);
+      transition: all 0.3s ease;
+    }
+    
+    .quick-save-indicator.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+    
+    .puzzle-card {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    
+    .puzzle-card:hover {
+      box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+      transform: translateY(-2px);
+    }
+    
+    .puzzle-card.editing {
+      border-color: #000;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    }
+    
+    .puzzle-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .puzzle-number {
+      font-size: 18px;
+      font-weight: bold;
+      color: #666;
+    }
+    
+    .puzzle-actions {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 13px;
+      border-radius: 6px;
+    }
+    
+    .expandable-section {
+      margin-top: 15px;
+    }
+    
+    .section-toggle {
+      background: none;
+      border: none;
+      padding: 8px 0;
+      width: 100%;
+      text-align: left;
+      font-weight: 600;
+      color: #333;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: color 0.3s ease;
+    }
+    
+    .section-toggle:hover {
+      color: #000;
+    }
+    
+    .section-toggle::after {
+      content: '▼';
+      font-size: 12px;
+      transition: transform 0.3s ease;
+    }
+    
+    .section-toggle.collapsed::after {
+      transform: rotate(-90deg);
+    }
+    
+    .section-content {
+      padding: 10px 0;
+      overflow: hidden;
+      max-height: 1000px;
+      transition: all 0.3s ease;
+    }
+    
+    .section-content.collapsed {
+      max-height: 0;
+      padding: 0;
+    }
   </style>
 </head>
 <body>
@@ -645,26 +804,14 @@
           <span id="welcome-save-indicator" class="save-indicator">Message saved!</span>
         </div>
         
-        <table id="puzzles-table">
-          <thead>
-            <tr>
-              <th style="width: 5%;">#</th>
-              <th style="width: 20%;">Name</th>
-              <th style="width: 45%;">Preview</th>
-              <th style="width: 30%;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Puzzle rows will be inserted here -->
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4" style="text-align: center; padding: 20px;">
-                <button id="add-puzzle-btn" class="btn">Add New Puzzle</button>
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h3>Puzzles</h3>
+          <button id="add-puzzle-btn" class="btn">Add New Puzzle</button>
+        </div>
+        
+        <div id="puzzles-container">
+          <!-- Puzzle cards will be inserted here -->
+        </div>
       </div>
       
       <div id="players-tab" class="tab-content card hidden">
@@ -900,7 +1047,7 @@
     const puzzlesTab = document.getElementById('puzzles-tab');
     const playersTab = document.getElementById('players-tab');
     
-    const puzzlesTable = document.getElementById('puzzles-table').querySelector('tbody');
+    const puzzlesContainer = document.getElementById('puzzles-container');
     const playersTable = document.getElementById('players-table').querySelector('tbody');
     
     const playerDetails = document.getElementById('player-details');
@@ -1276,8 +1423,8 @@
           puzzlePathIndicator.textContent = `Saving to: ${successfulPuzzlePath}`;
         }
         
-        // Clear table first
-        puzzlesTable.innerHTML = '';
+        // Clear container first
+        puzzlesContainer.innerHTML = '';
         
         // Initialize data structure
         const puzzlesData = result.data || {};
@@ -1320,9 +1467,8 @@
           Object.assign(puzzlesData, defaultPuzzles);
         }
         
-        // Add rows for each puzzle
+        // Add cards for each puzzle
         keys.forEach(puzzleNum => {
-          // Initialize puzzleData if it's null or undefined
           const puzzleData = puzzlesData[puzzleNum] || { 
             clue: '',
             clueHtml: '',
@@ -1330,10 +1476,6 @@
             answers: [{ text: '', questionText: 'Your Answer:' }],
             name: `Puzzle #${puzzleNum}`
           };
-          
-          // Create table row
-          const row = document.createElement('tr');
-          row.dataset.puzzleNumber = puzzleNum;
           
           // Migrate old format to new format if needed
           if (puzzleData && puzzleData.answer && !puzzleData.answers) {
@@ -1349,219 +1491,338 @@
             puzzleData.imageUrls = puzzleData.imageUrl ? [puzzleData.imageUrl] : [];
           }
           
-          // Add puzzle number cell - make it editable
-          const numCell = document.createElement('td');
-          const numInput = document.createElement('input');
-          numInput.type = 'number';
-          numInput.min = '1';
-          numInput.style.width = '100%';
-          numInput.value = puzzleNum;
-          numInput.className = 'puzzle-number-input';
-          numInput.addEventListener('change', () => {
-            const newNumber = parseInt(numInput.value);
-            if (!isNaN(newNumber) && newNumber > 0) {
-              reorderPuzzle(puzzleNum, newNumber);
+          // Create puzzle card
+          const card = document.createElement('div');
+          card.className = 'puzzle-card';
+          card.dataset.puzzleNumber = puzzleNum;
+          
+          // Card header
+          const header = document.createElement('div');
+          header.className = 'puzzle-header';
+          
+          const numberDiv = document.createElement('div');
+          numberDiv.className = 'puzzle-number';
+          numberDiv.textContent = `Puzzle ${puzzleNum}`;
+          
+          const actionsDiv = document.createElement('div');
+          actionsDiv.className = 'puzzle-actions';
+          
+          const reorderBtn = document.createElement('button');
+          reorderBtn.className = 'btn btn-sm btn-secondary';
+          reorderBtn.textContent = 'Reorder';
+          reorderBtn.addEventListener('click', () => {
+            const newNumber = prompt(`Enter new position for Puzzle ${puzzleNum}:`, puzzleNum);
+            if (newNumber && !isNaN(parseInt(newNumber))) {
+              reorderPuzzle(puzzleNum, parseInt(newNumber));
             }
           });
-          numCell.appendChild(numInput);
-          row.appendChild(numCell);
           
-          // Add name cell
-          const nameCell = document.createElement('td');
+          actionsDiv.appendChild(reorderBtn);
+          header.appendChild(numberDiv);
+          header.appendChild(actionsDiv);
+          card.appendChild(header);
+          
+          // Puzzle name section
+          const nameSection = document.createElement('div');
+          nameSection.className = 'edit-section';
+          
+          const nameLabel = document.createElement('label');
+          nameLabel.className = 'edit-label';
+          nameLabel.textContent = 'Puzzle Name';
+          
           const nameInput = document.createElement('input');
           nameInput.type = 'text';
+          nameInput.className = 'inline-edit';
           nameInput.value = puzzleData.name || `Puzzle #${puzzleNum}`;
-          nameInput.placeholder = 'Puzzle Name';
+          nameInput.placeholder = 'Enter puzzle name';
+          
+          const nameSaveIndicator = document.createElement('span');
+          nameSaveIndicator.className = 'quick-save-indicator';
+          nameSaveIndicator.textContent = 'Saved!';
+          
           nameInput.addEventListener('input', debounce(() => {
-            savePuzzleField(puzzleNum, 'name', nameInput.value);
+            savePuzzleField(puzzleNum, 'name', nameInput.value, nameSaveIndicator);
           }, 1000));
-          nameCell.appendChild(nameInput);
-          row.appendChild(nameCell);
           
-          // Add preview cell
-          const previewCell = document.createElement('td');
-          const previewContainer = document.createElement('div');
-          previewContainer.className = 'puzzle-preview';
+          nameInput.addEventListener('focus', () => nameSection.classList.add('editing'));
+          nameInput.addEventListener('blur', () => nameSection.classList.remove('editing'));
           
-          // Preview clue
+          nameSection.appendChild(nameLabel);
+          nameSection.appendChild(nameInput);
+          nameSection.appendChild(nameSaveIndicator);
+          card.appendChild(nameSection);
+          
+          // Clue section
+          const clueSection = document.createElement('div');
+          clueSection.className = 'expandable-section';
+          
+          const clueToggle = document.createElement('button');
+          clueToggle.className = 'section-toggle collapsed';
+          clueToggle.textContent = 'Clue Content';
+          
+          const clueContent = document.createElement('div');
+          clueContent.className = 'section-content collapsed';
+          
+          const clueEditSection = document.createElement('div');
+          clueEditSection.className = 'edit-section';
+          
           const cluePreview = document.createElement('div');
-          cluePreview.className = 'puzzle-preview-item';
+          cluePreview.style.padding = '10px';
+          cluePreview.style.border = '1px solid #e0e0e0';
+          cluePreview.style.borderRadius = '4px';
+          cluePreview.style.backgroundColor = '#f9f9f9';
+          cluePreview.style.minHeight = '40px';
+          cluePreview.style.marginBottom = '10px';
           
-          const clueLabel = document.createElement('div');
-          clueLabel.className = 'puzzle-preview-label';
-          clueLabel.textContent = 'Clue:';
-          
-          const clueText = document.createElement('div');
-          clueText.className = 'puzzle-preview-text';
           if (puzzleData.clueHtml) {
-            clueText.innerHTML = puzzleData.clueHtml.length > 100 
-              ? puzzleData.clueHtml.substring(0, 100) + '...' 
-              : puzzleData.clueHtml;
+            cluePreview.innerHTML = puzzleData.clueHtml;
+          } else if (puzzleData.clue) {
+            cluePreview.textContent = puzzleData.clue;
           } else {
-            clueText.textContent = puzzleData.clue 
-              ? (puzzleData.clue.length > 100 ? puzzleData.clue.substring(0, 100) + '...' : puzzleData.clue) 
-              : 'No clue provided';
+            cluePreview.innerHTML = '<em style="color: #999;">No clue content</em>';
           }
           
-          cluePreview.appendChild(clueLabel);
-          cluePreview.appendChild(clueText);
-          previewContainer.appendChild(cluePreview);
-          
-          // Preview images
-          if (puzzleData.imageUrls && puzzleData.imageUrls.length > 0) {
-            const imagesPreview = document.createElement('div');
-            imagesPreview.className = 'puzzle-preview-item';
-            
-            const imagesLabel = document.createElement('div');
-            imagesLabel.className = 'puzzle-preview-label';
-            imagesLabel.textContent = 'Images:';
-            
-            const imagesContainer = document.createElement('div');
-            imagesContainer.style.display = 'flex';
-            imagesContainer.style.gap = '5px';
-            imagesContainer.style.flexWrap = 'wrap';
-            
-            // Show up to 3 thumbnails
-            const maxThumbnails = Math.min(3, puzzleData.imageUrls.length);
-            
-            for (let i = 0; i < maxThumbnails; i++) {
-              const thumbnail = document.createElement('img');
-              thumbnail.className = 'puzzle-preview-thumbnail';
-              thumbnail.src = puzzleData.imageUrls[i];
-              thumbnail.alt = 'Image thumbnail';
-              imagesContainer.appendChild(thumbnail);
-            }
-            
-            // Show count if more than shown
-            if (puzzleData.imageUrls.length > maxThumbnails) {
-              const countLabel = document.createElement('div');
-              countLabel.textContent = `+${puzzleData.imageUrls.length - maxThumbnails} more`;
-              countLabel.style.fontSize = '12px';
-              imagesContainer.appendChild(countLabel);
-            }
-            
-            imagesPreview.appendChild(imagesLabel);
-            imagesPreview.appendChild(imagesContainer);
-            previewContainer.appendChild(imagesPreview);
-          }
-          
-          // Preview answers
-          const answersPreview = document.createElement('div');
-          answersPreview.className = 'puzzle-preview-item';
-          
-          const answersLabel = document.createElement('div');
-          answersLabel.className = 'puzzle-preview-label';
-          answersLabel.textContent = 'Answers:';
-          
-          const answersContainer = document.createElement('div');
-          
-          if (puzzleData.answers && puzzleData.answers.length > 0) {
-            const answersList = document.createElement('ul');
-            answersList.style.margin = '0';
-            answersList.style.paddingLeft = '20px';
-            
-            // Show all answers (they're typically short)
-            puzzleData.answers.forEach(answer => {
-              const answerItem = document.createElement('li');
-              answerItem.textContent = answer.text || '(empty)';
-              answersList.appendChild(answerItem);
-            });
-            
-            answersContainer.appendChild(answersList);
-          } else {
-            answersContainer.textContent = 'No answers defined';
-          }
-          
-          answersPreview.appendChild(answersLabel);
-          answersPreview.appendChild(answersContainer);
-          previewContainer.appendChild(answersPreview);
-          
-          // Preview error messages
-          if (puzzleData.wrongAnswerMessage || puzzleData.partialCorrectMessage) {
-            const messagesPreview = document.createElement('div');
-            messagesPreview.className = 'puzzle-preview-item';
-            
-            const messagesLabel = document.createElement('div');
-            messagesLabel.className = 'puzzle-preview-label';
-            messagesLabel.textContent = 'Messages:';
-            
-            const messagesContainer = document.createElement('div');
-            messagesContainer.style.fontSize = '0.85rem';
-            
-            if (puzzleData.wrongAnswerMessage) {
-              const wrongMsg = document.createElement('div');
-              wrongMsg.innerHTML = `<strong>Wrong:</strong> "${puzzleData.wrongAnswerMessage}"`;
-              messagesContainer.appendChild(wrongMsg);
-            }
-            
-            if (puzzleData.partialCorrectMessage) {
-              const partialMsg = document.createElement('div');
-              partialMsg.innerHTML = `<strong>Partial:</strong> "${puzzleData.partialCorrectMessage}"`;
-              partialMsg.style.marginTop = '5px';
-              messagesContainer.appendChild(partialMsg);
-            }
-            
-            messagesPreview.appendChild(messagesLabel);
-            messagesPreview.appendChild(messagesContainer);
-            previewContainer.appendChild(messagesPreview);
-          }
-          
-          previewCell.appendChild(previewContainer);
-          row.appendChild(previewCell);
-          
-          // Add actions cell
-          const actionsCell = document.createElement('td');
-          const actionButtons = document.createElement('div');
-          actionButtons.className = 'action-buttons';
-          
-          // Edit All button
-          const editAllBtn = document.createElement('button');
-          editAllBtn.className = 'btn btn-edit-all';
-          editAllBtn.textContent = 'Edit All';
-          editAllBtn.addEventListener('click', () => {
-            openPuzzleEditModal(puzzleNum, puzzleData);
-          });
-          
-          // Individual edit buttons
           const editClueBtn = document.createElement('button');
-          editClueBtn.className = 'btn btn-icon';
-          editClueBtn.textContent = 'Edit Clue';
+          editClueBtn.className = 'btn btn-sm';
+          editClueBtn.textContent = 'Edit Rich Content';
           editClueBtn.addEventListener('click', () => {
             openRichtextModal(puzzleNum, puzzleData.clueHtml || puzzleData.clue || '');
           });
           
+          clueEditSection.appendChild(cluePreview);
+          clueEditSection.appendChild(editClueBtn);
+          clueContent.appendChild(clueEditSection);
+          
+          clueToggle.addEventListener('click', () => {
+            clueToggle.classList.toggle('collapsed');
+            clueContent.classList.toggle('collapsed');
+          });
+          
+          clueSection.appendChild(clueToggle);
+          clueSection.appendChild(clueContent);
+          card.appendChild(clueSection);
+          
+          // Images section
+          const imagesSection = document.createElement('div');
+          imagesSection.className = 'expandable-section';
+          
+          const imagesToggle = document.createElement('button');
+          imagesToggle.className = 'section-toggle collapsed';
+          imagesToggle.textContent = `Images (${puzzleData.imageUrls ? puzzleData.imageUrls.length : 0})`;
+          
+          const imagesContent = document.createElement('div');
+          imagesContent.className = 'section-content collapsed';
+          
+          const imagesEditSection = document.createElement('div');
+          imagesEditSection.className = 'edit-section';
+          
+          const imagesPreview = document.createElement('div');
+          imagesPreview.style.display = 'flex';
+          imagesPreview.style.gap = '8px';
+          imagesPreview.style.flexWrap = 'wrap';
+          imagesPreview.style.marginBottom = '10px';
+          
+          if (puzzleData.imageUrls && puzzleData.imageUrls.length > 0) {
+            puzzleData.imageUrls.slice(0, 3).forEach(url => {
+              const img = document.createElement('img');
+              img.src = url;
+              img.style.width = '60px';
+              img.style.height = '60px';
+              img.style.objectFit = 'cover';
+              img.style.borderRadius = '4px';
+              img.style.border = '1px solid #ddd';
+              imagesPreview.appendChild(img);
+            });
+            
+            if (puzzleData.imageUrls.length > 3) {
+              const moreIndicator = document.createElement('div');
+              moreIndicator.style.display = 'flex';
+              moreIndicator.style.alignItems = 'center';
+              moreIndicator.style.justifyContent = 'center';
+              moreIndicator.style.width = '60px';
+              moreIndicator.style.height = '60px';
+              moreIndicator.style.backgroundColor = '#f0f0f0';
+              moreIndicator.style.borderRadius = '4px';
+              moreIndicator.style.fontSize = '12px';
+              moreIndicator.style.color = '#666';
+              moreIndicator.textContent = `+${puzzleData.imageUrls.length - 3}`;
+              imagesPreview.appendChild(moreIndicator);
+            }
+          } else {
+            const noImages = document.createElement('em');
+            noImages.style.color = '#999';
+            noImages.textContent = 'No images';
+            imagesPreview.appendChild(noImages);
+          }
+          
           const editImagesBtn = document.createElement('button');
-          editImagesBtn.className = 'btn btn-icon';
+          editImagesBtn.className = 'btn btn-sm';
           editImagesBtn.textContent = 'Edit Images';
           editImagesBtn.addEventListener('click', () => {
             openImageModal(puzzleNum, puzzleData.imageUrls || []);
           });
           
+          imagesEditSection.appendChild(imagesPreview);
+          imagesEditSection.appendChild(editImagesBtn);
+          imagesContent.appendChild(imagesEditSection);
+          
+          imagesToggle.addEventListener('click', () => {
+            imagesToggle.classList.toggle('collapsed');
+            imagesContent.classList.toggle('collapsed');
+          });
+          
+          imagesSection.appendChild(imagesToggle);
+          imagesSection.appendChild(imagesContent);
+          card.appendChild(imagesSection);
+          
+          // Answers section
+          const answersSection = document.createElement('div');
+          answersSection.className = 'expandable-section';
+          
+          const answersToggle = document.createElement('button');
+          answersToggle.className = 'section-toggle collapsed';
+          answersToggle.textContent = `Answers (${puzzleData.answers ? puzzleData.answers.length : 0})`;
+          
+          const answersContent = document.createElement('div');
+          answersContent.className = 'section-content collapsed';
+          
+          const answersEditSection = document.createElement('div');
+          answersEditSection.className = 'edit-section';
+          
+          const answersPreview = document.createElement('div');
+          
+          if (puzzleData.answers && puzzleData.answers.length > 0) {
+            const answersList = document.createElement('ul');
+            answersList.style.margin = '0 0 10px 0';
+            answersList.style.paddingLeft = '20px';
+            
+            puzzleData.answers.forEach(answer => {
+              const li = document.createElement('li');
+              li.innerHTML = `<strong>${answer.questionText || 'Answer'}:</strong> ${answer.text || '<em style="color: #999;">(empty)</em>'}`;
+              answersList.appendChild(li);
+            });
+            
+            answersPreview.appendChild(answersList);
+          } else {
+            const noAnswers = document.createElement('em');
+            noAnswers.style.color = '#999';
+            noAnswers.textContent = 'No answers defined';
+            noAnswers.style.marginBottom = '10px';
+            noAnswers.style.display = 'block';
+            answersPreview.appendChild(noAnswers);
+          }
+          
           const editAnswersBtn = document.createElement('button');
-          editAnswersBtn.className = 'btn btn-icon';
+          editAnswersBtn.className = 'btn btn-sm';
           editAnswersBtn.textContent = 'Edit Answers';
           editAnswersBtn.addEventListener('click', () => {
             openAnswersModal(puzzleNum, puzzleData.answers || []);
           });
           
-          actionButtons.appendChild(editAllBtn);
-          actionButtons.appendChild(editClueBtn);
-          actionButtons.appendChild(editImagesBtn);
-          actionButtons.appendChild(editAnswersBtn);
+          answersEditSection.appendChild(answersPreview);
+          answersEditSection.appendChild(editAnswersBtn);
+          answersContent.appendChild(answersEditSection);
           
-          actionsCell.appendChild(actionButtons);
-          row.appendChild(actionsCell);
+          answersToggle.addEventListener('click', () => {
+            answersToggle.classList.toggle('collapsed');
+            answersContent.classList.toggle('collapsed');
+          });
           
-          // Add row to table
-          puzzlesTable.appendChild(row);
+          answersSection.appendChild(answersToggle);
+          answersSection.appendChild(answersContent);
+          card.appendChild(answersSection);
+          
+          // Error Messages section
+          const messagesSection = document.createElement('div');
+          messagesSection.className = 'expandable-section';
+          
+          const messagesToggle = document.createElement('button');
+          messagesToggle.className = 'section-toggle collapsed';
+          messagesToggle.textContent = 'Error Messages';
+          
+          const messagesContent = document.createElement('div');
+          messagesContent.className = 'section-content collapsed';
+          
+          // Wrong answer message
+          const wrongMessageSection = document.createElement('div');
+          wrongMessageSection.className = 'edit-section';
+          
+          const wrongLabel = document.createElement('label');
+          wrongLabel.className = 'edit-label';
+          wrongLabel.textContent = 'Wrong Answer Message';
+          
+          const wrongInput = document.createElement('input');
+          wrongInput.type = 'text';
+          wrongInput.className = 'inline-edit';
+          wrongInput.value = puzzleData.wrongAnswerMessage || "That's not right. Try again!";
+          wrongInput.placeholder = 'Message when all answers are wrong';
+          
+          const wrongSaveIndicator = document.createElement('span');
+          wrongSaveIndicator.className = 'quick-save-indicator';
+          wrongSaveIndicator.textContent = 'Saved!';
+          
+          wrongInput.addEventListener('input', debounce(() => {
+            savePuzzleField(puzzleNum, 'wrongAnswerMessage', wrongInput.value, wrongSaveIndicator);
+          }, 1000));
+          
+          wrongInput.addEventListener('focus', () => wrongMessageSection.classList.add('editing'));
+          wrongInput.addEventListener('blur', () => wrongMessageSection.classList.remove('editing'));
+          
+          wrongMessageSection.appendChild(wrongLabel);
+          wrongMessageSection.appendChild(wrongInput);
+          wrongMessageSection.appendChild(wrongSaveIndicator);
+          
+          // Partial correct message
+          const partialMessageSection = document.createElement('div');
+          partialMessageSection.className = 'edit-section';
+          
+          const partialLabel = document.createElement('label');
+          partialLabel.className = 'edit-label';
+          partialLabel.textContent = 'Partial Correct Message';
+          
+          const partialInput = document.createElement('input');
+          partialInput.type = 'text';
+          partialInput.className = 'inline-edit';
+          partialInput.value = puzzleData.partialCorrectMessage || "Some answers are wrong. Keep trying!";
+          partialInput.placeholder = 'Message when some answers are correct';
+          
+          const partialSaveIndicator = document.createElement('span');
+          partialSaveIndicator.className = 'quick-save-indicator';
+          partialSaveIndicator.textContent = 'Saved!';
+          
+          partialInput.addEventListener('input', debounce(() => {
+            savePuzzleField(puzzleNum, 'partialCorrectMessage', partialInput.value, partialSaveIndicator);
+          }, 1000));
+          
+          partialInput.addEventListener('focus', () => partialMessageSection.classList.add('editing'));
+          partialInput.addEventListener('blur', () => partialMessageSection.classList.remove('editing'));
+          
+          partialMessageSection.appendChild(partialLabel);
+          partialMessageSection.appendChild(partialInput);
+          partialMessageSection.appendChild(partialSaveIndicator);
+          
+          messagesContent.appendChild(wrongMessageSection);
+          messagesContent.appendChild(partialMessageSection);
+          
+          messagesToggle.addEventListener('click', () => {
+            messagesToggle.classList.toggle('collapsed');
+            messagesContent.classList.toggle('collapsed');
+          });
+          
+          messagesSection.appendChild(messagesToggle);
+          messagesSection.appendChild(messagesContent);
+          card.appendChild(messagesSection);
+          
+          // Add card to container
+          puzzlesContainer.appendChild(card);
         });
         
         if (keys.length === 0) {
-          puzzlesTable.innerHTML = '<tr><td colspan="4">No puzzle data found. Add some puzzles to get started.</td></tr>';
+          puzzlesContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">No puzzle data found. Add some puzzles to get started.</div>';
         }
       } catch (error) {
         console.error('Error loading puzzles:', error);
-        puzzlesTable.innerHTML = '<tr><td colspan="4">Error loading puzzles. Please try refreshing the page.</td></tr>';
+        puzzlesContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: #f44;">Error loading puzzles. Please try refreshing the page.</div>';
       }
     }
     
@@ -1789,7 +2050,7 @@
     }
     
     // Save a puzzle field
-    async function savePuzzleField(puzzleNum, field, value) {
+    async function savePuzzleField(puzzleNum, field, value, saveIndicator) {
       try {
         const data = {};
         data[field] = value;
@@ -1800,23 +2061,13 @@
           data
         );
         
-        if (result.success) {
+        if (result.success && saveIndicator) {
           // Show save indicator
-          const row = document.querySelector(`tr[data-puzzle-number="${puzzleNum}"]`);
-          let saveIndicator = row.querySelector('.save-indicator');
-          
-          if (!saveIndicator) {
-            saveIndicator = document.createElement('span');
-            saveIndicator.className = 'save-indicator';
-            saveIndicator.textContent = 'Saved!';
-            row.appendChild(saveIndicator);
-          }
-          
           saveIndicator.classList.add('show');
           setTimeout(() => {
             saveIndicator.classList.remove('show');
           }, 2000);
-        } else {
+        } else if (!result.success) {
           console.error(`Failed to save ${field} for puzzle ${puzzleNum}`);
         }
       } catch (error) {
