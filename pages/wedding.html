@@ -1250,10 +1250,14 @@
         
         if (result.data && result.data.solved && Array.isArray(result.data.solved)) {
           solvedPuzzles = result.data.solved;
-          if (result.data.userAnswers) {
+          
+          // Load user answers from database
+          if (result.data.userAnswers && typeof result.data.userAnswers === 'object') {
             window.userCorrectAnswers = result.data.userAnswers;
+            console.log('Loaded user answers from database:', window.userCorrectAnswers);
           } else {
             window.userCorrectAnswers = {};
+            console.log('No user answers found in database');
           }
           
           // Update localStorage to match database
@@ -1267,7 +1271,11 @@
           };
           localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           
-          console.log('Loaded progress from database:', { solved: solvedPuzzles, currentScreen: result.data.currentScreen });
+          console.log('Loaded progress from database:', { 
+            solved: solvedPuzzles, 
+            currentScreen: result.data.currentScreen,
+            userAnswers: window.userCorrectAnswers 
+          });
           return;
         }
       } catch (error) {
@@ -1286,8 +1294,10 @@
       // Also load user's correct answers for pre-filling
       if (localProgress.userAnswers && typeof localProgress.userAnswers === 'object') {
         window.userCorrectAnswers = localProgress.userAnswers;
+        console.log('Loaded user answers from localStorage:', window.userCorrectAnswers);
       } else {
         window.userCorrectAnswers = {};
+        console.log('No user answers found in localStorage');
       }
       
       console.log('Loaded progress from localStorage:', { solved: solvedPuzzles });
@@ -1427,6 +1437,10 @@
         
         // Load solved puzzles data
         await loadSolvedPuzzles();
+        console.log(`Loading puzzle ${puzzleNum} with state:`, {
+          solved: solvedPuzzles[puzzleNum],
+          userAnswers: window.userCorrectAnswers[puzzleNum]
+        });
         
         // Fetch puzzle data - try multiple paths with fallbacks
         let puzzleResponse = null;
@@ -1559,15 +1573,20 @@
           if (solvedPuzzles[puzzleNum]) {
             // Pre-fill with user's actual correct answers if available
             const userAnswers = window.userCorrectAnswers && window.userCorrectAnswers[puzzleNum];
-            console.log(`Puzzle ${puzzleNum} is solved. User answers:`, userAnswers, 'Index:', index);
+            console.log(`Puzzle ${puzzleNum} is solved. Checking answers:`, {
+              userAnswers,
+              allUserAnswers: window.userCorrectAnswers,
+              index,
+              expectedAnswer: answer.text
+            });
             
-            if (userAnswers && userAnswers[index] !== undefined) {
+            if (userAnswers && Array.isArray(userAnswers) && userAnswers[index] !== undefined) {
               input.value = userAnswers[index];
-              console.log(`Pre-filled answer ${index} with:`, userAnswers[index]);
+              console.log(`✓ Pre-filled answer ${index} with user's answer:`, userAnswers[index]);
             } else {
               // Fallback to expected answer if user's answer not stored
               input.value = answer.text || '';
-              console.log(`No user answer found, using expected:`, answer.text);
+              console.log(`⚠ No user answer found for ${index}, using expected:`, answer.text);
             }
             input.disabled = true;
             input.style.fontWeight = 'bold';
@@ -1696,14 +1715,13 @@
       const puzzleNav = document.getElementById('puzzle-nav');
       puzzleNav.innerHTML = '';
       
-      // Strict sequential unlocking: puzzle N is only available if puzzle N-1 is solved (or N=1)
+      // Show all unlocked puzzles: all solved puzzles + the next available one
       for (let i = 1; i <= totalPuzzles; i++) {
-        // A puzzle is available if:
-        // 1. It's puzzle 1 (always available), or
-        // 2. The previous puzzle is solved
-        const isAvailable = i === 1 || solvedPuzzles[i - 1];
+        const isSolved = solvedPuzzles[i];
+        const isNextAvailable = i === 1 || solvedPuzzles[i - 1]; // First puzzle or previous is solved
         
-        if (isAvailable) {
+        // Show puzzle if it's solved OR if it's the next available puzzle
+        if (isSolved || isNextAvailable) {
           const navBtn = document.createElement('button');
           
           // Base classes
@@ -1712,7 +1730,7 @@
           // Add status classes
           if (i === puzzleNum) {
             navBtn.classList.add('current-puzzle');
-          } else if (solvedPuzzles[i]) {
+          } else if (isSolved) {
             navBtn.classList.add('solved-puzzle');
           }
           
@@ -1725,10 +1743,11 @@
               // Refresh state from database before navigating
               await loadSolvedPuzzles();
               
-              // Verify this puzzle is still available after database refresh
-              const isStillAvailable = i === 1 || solvedPuzzles[i - 1];
+              // Re-verify this puzzle is still available after database refresh
+              const stillSolved = solvedPuzzles[i];
+              const stillNextAvailable = i === 1 || solvedPuzzles[i - 1];
               
-              if (isStillAvailable) {
+              if (stillSolved || stillNextAvailable) {
                 currentScreen = i;
                 localStorage.setItem('weddingPuzzleScreen', currentScreen);
                 loadPuzzle(i);
@@ -1742,6 +1761,13 @@
           puzzleNav.appendChild(navBtn);
         }
       }
+      
+      console.log('Navigation updated:', {
+        totalPuzzles,
+        solvedPuzzles,
+        currentPuzzle: puzzleNum,
+        buttonsShown: puzzleNav.children.length
+      });
     }
     
     // Display completion screen
@@ -2120,6 +2146,7 @@
             window.userCorrectAnswers = {};
           }
           window.userCorrectAnswers[currentScreen] = answers;
+          console.log(`Storing user answers for puzzle ${currentScreen}:`, answers);
           
           // Determine what the next puzzle should be
           const justSolvedPuzzle = currentScreen;
