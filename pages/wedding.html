@@ -834,7 +834,7 @@
     
     @keyframes checkmarkBounceIn {
       0% {
-        opacity: 0;
+      opacity: 0;
         transform: scale(0.3);
       }
       50% {
@@ -1209,7 +1209,8 @@
         } else if (currentScreen > totalPuzzles) {
           // Load solved puzzles before showing completion
           await loadSolvedPuzzles();
-          // Show completion screen
+          // Show completion screen instead of trying to load non-existent puzzle
+          console.log(`📊 Requested puzzle ${currentScreen} is beyond totalPuzzles (${totalPuzzles}), going to completion`);
           showCompletion();
         } else {
           // Default to registration
@@ -1236,8 +1237,11 @@
           const count = await response.json();
           if (count && !isNaN(count)) {
             totalPuzzles = count;
+            console.log(`📊 Loaded totalPuzzles from database: ${totalPuzzles}`);
           }
         }
+        
+        console.log(`📊 Final totalPuzzles: ${totalPuzzles}`);
       } catch (error) {
         console.warn('Could not load total puzzles count, using default:', error);
       }
@@ -1420,7 +1424,7 @@
         if (!isInitialLoad) {
           setTimeout(() => {
             if (loading.style.display !== 'none') {
-              loading.style.display = 'block';
+        loading.style.display = 'block';
             }
           }, 200);
         } else {
@@ -1438,10 +1442,10 @@
         
         // Only hide screens if this is a screen transition, not puzzle-to-puzzle
         if (currentlyVisibleScreen && currentlyVisibleScreen !== screenPuzzle) {
-          screen0.classList.add('hidden');
-          screenWelcomeBack.classList.add('hidden');
-          screenPuzzle.classList.add('hidden');
-          screenComplete.classList.add('hidden');
+        screen0.classList.add('hidden');
+        screenWelcomeBack.classList.add('hidden');
+        screenPuzzle.classList.add('hidden');
+        screenComplete.classList.add('hidden');
         }
         
         puzzleError.classList.add('hidden');
@@ -1483,6 +1487,15 @@
         // Parse the data if we have a valid response
         if (puzzleResponse && puzzleResponse.ok) {
           puzzleData = await puzzleResponse.json();
+        }
+        
+        // If no puzzle data and we're beyond totalPuzzles, go to completion
+        if (!puzzleData && puzzleNum > totalPuzzles) {
+          console.log(`📊 No puzzle data for puzzle ${puzzleNum}, going to completion`);
+          currentScreen = totalPuzzles + 1;
+          localStorage.setItem('weddingPuzzleScreen', currentScreen);
+          showCompletion();
+          return;
         }
         
         // Apply fallback content if needed
@@ -1672,7 +1685,7 @@
         
         // Show the screen if it's not already shown
         if (currentlyVisibleScreen !== screenPuzzle) {
-          switchScreen(currentlyVisibleScreen, screenPuzzle);
+        switchScreen(currentlyVisibleScreen, screenPuzzle);
         }
         
         // Activate enter animation
@@ -1693,9 +1706,9 @@
         const firstAnswerInput = document.querySelector('.answer-input');
         if (firstAnswerInput) {
           if (!solvedPuzzles[puzzleNum]) {
-            firstAnswerInput.value = '';
-            setTimeout(() => {
-              firstAnswerInput.focus();
+          firstAnswerInput.value = '';
+          setTimeout(() => {
+            firstAnswerInput.focus();
             }, isInitialLoad ? 600 : 400);
           }
         }
@@ -1806,7 +1819,7 @@
               if (stillSolved || stillNextAvailable) {
                 currentScreen = i;
                 localStorage.setItem('weddingPuzzleScreen', currentScreen);
-                loadPuzzle(i);
+              loadPuzzle(i);
               } else {
                 console.warn(`Puzzle ${i} is no longer available`);
                 showFeedback(`Puzzle ${i} is not available yet. Complete the previous puzzles first.`, 'error');
@@ -2015,25 +2028,25 @@
         try {
           // Try primary path
           const primaryResponse = await fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
-            method: 'PUT',
-            body: JSON.stringify(progressData)
+        method: 'PUT',
+        body: JSON.stringify(progressData)
           });
           
           if (primaryResponse.ok) {
-            localStorage.setItem('weddingPuzzleSuccessPath', 'wedding/progress');
+          localStorage.setItem('weddingPuzzleSuccessPath', 'wedding/progress');
             successPath = 'wedding/progress';
             console.log('Successfully saved to primary database path');
-            return true;
-          }
+          return true;
+        }
           
           // Try fallback path
           const fallbackResponse = await fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
-            method: 'PUT',
-            body: JSON.stringify(progressData)
-          });
+          method: 'PUT',
+          body: JSON.stringify(progressData)
+        });
           
           if (fallbackResponse.ok) {
-            localStorage.setItem('weddingPuzzleSuccessPath', 'publicAnswers/wedding/progress');
+          localStorage.setItem('weddingPuzzleSuccessPath', 'publicAnswers/wedding/progress');
             successPath = 'publicAnswers/wedding/progress';
             console.log('Successfully saved to fallback database path');
             return true;
@@ -2041,7 +2054,7 @@
           
           return false;
         } catch (error) {
-          console.warn('Error saving progress to database:', error);
+        console.warn('Error saving progress to database:', error);
           return false;
         }
       };
@@ -2124,7 +2137,7 @@
       // Show the checkmark with animation
       const checkmark = document.querySelector('.success-checkmark');
       if (checkmark) {
-        checkmark.style.display = 'block';
+      checkmark.style.display = 'block';
         checkmark.classList.add('show');
         
         // Reset any previous animations
@@ -2272,10 +2285,10 @@
           
           // Save to database immediately and wait for confirmation
           const savePromise = new Promise((resolve) => {
-            if (successPath === 'wedding/progress') {
-              fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
+          if (successPath === 'wedding/progress') {
+            fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
                 method: 'PUT',
-                body: JSON.stringify(updateData)
+              body: JSON.stringify(updateData)
               }).then(response => {
                 if (response.ok) {
                   console.log('Progress saved to database successfully');
@@ -2285,10 +2298,10 @@
                 console.warn('Could not update progress in primary path:', err);
                 resolve();
               });
-            } else if (successPath === 'publicAnswers/wedding/progress') {
-              fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
+          } else if (successPath === 'publicAnswers/wedding/progress') {
+            fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
                 method: 'PUT',
-                body: JSON.stringify(updateData)
+              body: JSON.stringify(updateData)
               }).then(response => {
                 if (response.ok) {
                   console.log('Progress saved to database successfully');
@@ -2319,7 +2332,7 @@
             showSuccessAndTransition(message, () => {
               // Wait for database save then load next puzzle
               savePromise.then(() => {
-                loadPuzzle(nextPuzzle);
+              loadPuzzle(nextPuzzle);
               });
             });
           } else {
@@ -2513,6 +2526,93 @@
       } else {
         console.log('🔄 Cannot force pre-fill - puzzle not solved or no user answers');
       }
+    };
+    
+    // Debug function to check what puzzle data exists in database
+    window.checkDatabasePuzzles = async function() {
+      console.log('🔍 Checking database for puzzle data...');
+      
+      const paths = [
+        'wedding/answers',
+        'publicAnswers/wedding'
+      ];
+      
+      for (const path of paths) {
+        try {
+          const response = await fetch(`${DB_URL}/${path}.json`);
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`📊 Data from ${path}:`, data);
+            
+            if (data) {
+              const puzzleNumbers = Object.keys(data).filter(key => !isNaN(parseInt(key))).map(Number).sort((a, b) => a - b);
+              console.log(`📊 Found puzzles: ${puzzleNumbers.join(', ')}`);
+              
+              // Check specifically for puzzle 11
+              if (data['11']) {
+                console.warn('⚠️ Found puzzle 11 data:', data['11']);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Error checking ${path}:`, error);
+        }
+      }
+      
+      // Also check totalPuzzles
+      for (const basePath of ['wedding', 'publicAnswers/wedding']) {
+        try {
+          const response = await fetch(`${DB_URL}/${basePath}/totalPuzzles.json`);
+          if (response.ok) {
+            const count = await response.json();
+            console.log(`📊 totalPuzzles from ${basePath}: ${count}`);
+          }
+        } catch (error) {
+          console.log(`📊 No totalPuzzles found in ${basePath}`);
+        }
+      }
+    };
+    
+    // Debug function to clean up puzzle 11
+    window.cleanupPuzzle11 = async function() {
+      console.log('🧹 Cleaning up puzzle 11 data...');
+      
+      const paths = [
+        'wedding/answers/11',
+        'publicAnswers/wedding/11'
+      ];
+      
+      for (const path of paths) {
+        try {
+          const response = await fetch(`${DB_URL}/${path}.json`, {
+            method: 'DELETE'
+          });
+          if (response.ok) {
+            console.log(`✅ Deleted ${path}`);
+          } else {
+            console.log(`ℹ️ ${path} might not exist`);
+          }
+        } catch (error) {
+          console.error(`❌ Error deleting ${path}:`, error);
+        }
+      }
+      
+      // Set totalPuzzles to 10
+      for (const basePath of ['wedding', 'publicAnswers/wedding']) {
+        try {
+          const response = await fetch(`${DB_URL}/${basePath}/totalPuzzles.json`, {
+            method: 'PUT',
+            body: JSON.stringify(10)
+          });
+          if (response.ok) {
+            console.log(`✅ Set totalPuzzles to 10 in ${basePath}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error setting totalPuzzles in ${basePath}:`, error);
+        }
+      }
+      
+      console.log('🧹 Cleanup complete! Refresh the page to test.');
     };
   </script>
 </body>
