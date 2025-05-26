@@ -1314,13 +1314,24 @@
     async function showWelcomeBack() {
       loading.style.display = 'none';
       
+      // Refresh progress from database before showing welcome message
+      await loadSolvedPuzzles();
+      
+      // Update current screen from database if available
+      const result = await fetchUserProgressFromDatabase();
+      if (result.data && result.data.currentScreen) {
+        currentScreen = result.data.currentScreen;
+        localStorage.setItem('weddingPuzzleScreen', currentScreen);
+      }
+      
       // Fetch custom welcome back message if available
       const customMessage = await fetchWelcomeBackMessage();
       if (customMessage) {
         // Replace {{name}} placeholder with actual user name
         welcomeBackMessage.innerHTML = customMessage.replace(/\{\{name\}\}/g, userName || 'there');
       } else {
-        welcomeBackMessage.textContent = `Welcome back, ${userName}! You were on puzzle ${currentScreen} of ${totalPuzzles}.`;
+        const solvedCount = solvedPuzzles.filter(Boolean).length;
+        welcomeBackMessage.textContent = `Welcome back, ${userName}! You've solved ${solvedCount} puzzles and are currently on puzzle ${currentScreen} of ${totalPuzzles}.`;
       }
       
       switchScreen(null, screenWelcomeBack);
@@ -1663,10 +1674,20 @@
           
           navBtn.addEventListener('click', async () => {
             if (i !== puzzleNum) {
-              await loadSolvedPuzzles(); // Refresh state from database
-              currentScreen = i;
-              localStorage.setItem('weddingPuzzleScreen', currentScreen);
-              loadPuzzle(i);
+              // Refresh state from database before navigating
+              await loadSolvedPuzzles();
+              
+              // Verify this puzzle is still available after database refresh
+              const isStillAvailable = i === 1 || solvedPuzzles[i - 1];
+              
+              if (isStillAvailable) {
+                currentScreen = i;
+                localStorage.setItem('weddingPuzzleScreen', currentScreen);
+                loadPuzzle(i);
+              } else {
+                console.warn(`Puzzle ${i} is no longer available`);
+                showFeedback(`Puzzle ${i} is not available yet. Complete the previous puzzles first.`, 'error');
+              }
             }
           });
           
@@ -1829,42 +1850,58 @@
         email: userEmail,
         currentScreen: currentScreen,
         solved: solvedPuzzles,
+        userAnswers: {},
         timestamp: new Date().toISOString()
       };
       
       // Store locally regardless of what happens with remote saves
       localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(progressData));
       
-      // Try saving to primary DB path
-      fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
-        method: 'PUT',
-        body: JSON.stringify(progressData)
-      })
-      .then(response => {
-        if (response.ok) {
-          localStorage.setItem('weddingPuzzleSuccessPath', 'wedding/progress');
-          successPath = 'wedding/progress';
-          console.log('Successfully saved to primary database path');
-          return true;
+      // Try saving to primary DB path first, then fallback
+      const attemptSave = async () => {
+        try {
+          // Try primary path
+          const primaryResponse = await fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
+            method: 'PUT',
+            body: JSON.stringify(progressData)
+          });
+          
+          if (primaryResponse.ok) {
+            localStorage.setItem('weddingPuzzleSuccessPath', 'wedding/progress');
+            successPath = 'wedding/progress';
+            console.log('Successfully saved to primary database path');
+            return true;
+          }
+          
+          // Try fallback path
+          const fallbackResponse = await fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
+            method: 'PUT',
+            body: JSON.stringify(progressData)
+          });
+          
+          if (fallbackResponse.ok) {
+            localStorage.setItem('weddingPuzzleSuccessPath', 'publicAnswers/wedding/progress');
+            successPath = 'publicAnswers/wedding/progress';
+            console.log('Successfully saved to fallback database path');
+            return true;
+          }
+          
+          return false;
+        } catch (error) {
+          console.warn('Error saving progress to database:', error);
+          return false;
         }
-        // Try fallback if primary fails
-        return fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
-          method: 'PUT',
-          body: JSON.stringify(progressData)
-        });
-      })
-      .then(response => {
-        if (response && response !== true && response.ok) {
-          localStorage.setItem('weddingPuzzleSuccessPath', 'publicAnswers/wedding/progress');
-          successPath = 'publicAnswers/wedding/progress';
-          console.log('Successfully saved to fallback database path');
+      };
+      
+      // Attempt save and then load first puzzle
+      attemptSave().then((saveSuccessful) => {
+        if (saveSuccessful) {
+          console.log('User registration saved to database successfully');
+        } else {
+          console.warn('Could not save to database, continuing with localStorage only');
         }
-        // Regardless of DB save outcome, continue to first puzzle
-        loadPuzzle(currentScreen);
-      })
-      .catch(error => {
-        console.warn('Error saving progress to database:', error);
-        // Continue anyway with local storage data
+        
+        // Load first puzzle regardless of database save outcome
         loadPuzzle(currentScreen);
       });
     });
@@ -2036,17 +2073,13 @@
           }
           window.userCorrectAnswers[currentScreen] = answers;
           
-          // Determine next available puzzle (strict sequential)
-          let nextAvailablePuzzle = currentScreen;
+          // Determine what the next puzzle should be
+          const justSolvedPuzzle = currentScreen;
+          const nextPuzzle = currentScreen < totalPuzzles ? currentScreen + 1 : null;
           
-          // Only advance to next puzzle if we're at the current edge of progress
-          if (currentScreen < totalPuzzles && !solvedPuzzles[currentScreen + 1]) {
-            nextAvailablePuzzle = currentScreen + 1;
-          }
-          
-          // Update current screen only if we're advancing to the next puzzle
-          if (nextAvailablePuzzle > currentScreen) {
-            currentScreen = nextAvailablePuzzle;
+          // Update current screen to next puzzle if there is one
+          if (nextPuzzle) {
+            currentScreen = nextPuzzle;
             localStorage.setItem('weddingPuzzleScreen', currentScreen);
           }
           
@@ -2057,7 +2090,7 @@
           localProgress.currentScreen = currentScreen;
           localStorage.setItem('weddingPuzzleLocalProgress', JSON.stringify(localProgress));
           
-          // Try to update Firebase using the known successful path (non-blocking)
+          // Try to update Firebase using the known successful path
           const updateData = {
             currentScreen: currentScreen,
             solved: solvedPuzzles,
@@ -2067,25 +2100,38 @@
             timestamp: new Date().toISOString()
           };
           
-          if (successPath === 'wedding/progress') {
-            fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
-              method: 'PUT',
-              body: JSON.stringify(updateData)
-            }).then(response => {
-              if (response.ok) {
-                console.log('Progress saved to database successfully');
-              }
-            }).catch(err => console.warn('Could not update progress in primary path:', err));
-          } else if (successPath === 'publicAnswers/wedding/progress') {
-            fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
-              method: 'PUT',
-              body: JSON.stringify(updateData)
-            }).then(response => {
-              if (response.ok) {
-                console.log('Progress saved to database successfully');
-              }
-            }).catch(err => console.warn('Could not update progress in fallback path:', err));
-          }
+          // Save to database immediately and wait for confirmation
+          const savePromise = new Promise((resolve) => {
+            if (successPath === 'wedding/progress') {
+              fetch(`${DB_URL}/wedding/progress/${userId}.json`, {
+                method: 'PUT',
+                body: JSON.stringify(updateData)
+              }).then(response => {
+                if (response.ok) {
+                  console.log('Progress saved to database successfully');
+                }
+                resolve();
+              }).catch(err => {
+                console.warn('Could not update progress in primary path:', err);
+                resolve();
+              });
+            } else if (successPath === 'publicAnswers/wedding/progress') {
+              fetch(`${DB_URL}/publicAnswers/wedding/progress/${userId}.json`, {
+                method: 'PUT',
+                body: JSON.stringify(updateData)
+              }).then(response => {
+                if (response.ok) {
+                  console.log('Progress saved to database successfully');
+                }
+                resolve();
+              }).catch(err => {
+                console.warn('Could not update progress in fallback path:', err);
+                resolve();
+              });
+            } else {
+              resolve();
+            }
+          });
           
           // Check if all puzzles completed
           const allPuzzlesSolved = solvedPuzzles.slice(1, totalPuzzles + 1).every(Boolean);
@@ -2095,53 +2141,26 @@
             currentScreen = totalPuzzles + 1; // Set to completion screen
             localStorage.setItem('weddingPuzzleScreen', currentScreen);
             showSuccessAndTransition('All puzzles completed! Congratulations!', showCompletion);
-          } else {
-            // Disable the current puzzle's form since it's now solved
-            const submitBtn = document.querySelector('#answer-form button[type="submit"]');
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Puzzle Solved ✓';
-            
-            // Lock the answer inputs
-            answerInputs.forEach(input => {
-              input.disabled = true;
+          } else if (nextPuzzle) {
+            // Show success message and automatically move to next puzzle
+            showSuccessAndTransition(`Correct! Moving to Puzzle ${nextPuzzle}...`, () => {
+              // Wait for database save then load next puzzle
+              savePromise.then(() => {
+                loadPuzzle(nextPuzzle);
+              });
             });
-            
-            // Add solved indicator to puzzle name
-            if (!document.querySelector('.puzzle-solved-indicator')) {
-              const solvedIndicator = document.createElement('span');
-              solvedIndicator.className = 'puzzle-solved-indicator';
-              solvedIndicator.textContent = 'Solved ✓';
-              puzzleName.appendChild(solvedIndicator);
-            }
-            
-            // Update navigation to show new available puzzles
-            updateNavigation(currentScreen);
-            
-            // Show success message but stay on current puzzle
-            const nextPuzzleNumber = currentScreen < totalPuzzles ? currentScreen + 1 : currentScreen;
-            if (nextPuzzleNumber > currentScreen) {
-              showSuccessAndTransition(`Correct! Puzzle ${nextPuzzleNumber} is now unlocked.`, () => {
-                // Reset the success display
-                document.getElementById('success-display').classList.add('hidden');
-                document.getElementById('answer-form').style.display = 'block';
-                const checkmark = document.querySelector('.success-checkmark');
-                if (checkmark) {
-                  checkmark.style.display = 'none';
-                  checkmark.classList.remove('show');
-                }
-              });
-            } else {
-              showSuccessAndTransition('Correct! This puzzle is now solved.', () => {
-                // Reset the success display
-                document.getElementById('success-display').classList.add('hidden');
-                document.getElementById('answer-form').style.display = 'block';
-                const checkmark = document.querySelector('.success-checkmark');
-                if (checkmark) {
-                  checkmark.style.display = 'none';
-                  checkmark.classList.remove('show');
-                }
-              });
-            }
+          } else {
+            // Last puzzle solved but not all completed (shouldn't happen with current logic)
+            showSuccessAndTransition('Correct! This puzzle is now solved.', () => {
+              // Reset the success display
+              document.getElementById('success-display').classList.add('hidden');
+              document.getElementById('answer-form').style.display = 'block';
+              const checkmark = document.querySelector('.success-checkmark');
+              if (checkmark) {
+                checkmark.style.display = 'none';
+                checkmark.classList.remove('show');
+              }
+            });
           }
           
         } else {
