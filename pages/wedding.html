@@ -1160,8 +1160,8 @@
           toScreen.classList.add('screen-transition');
           setTimeout(() => {
             toScreen.classList.remove('screen-transition');
-          }, 600);
-        }, 500);
+          }, 800); // Adjusted from 600ms to match 0.8s screen-transition animation
+        }, 600); // Adjusted from 500ms to match 0.6s screen-exit animation
       } else {
         // No previous screen, just show new screen
         toScreen.classList.remove('hidden');
@@ -1407,75 +1407,67 @@
     // Display puzzle screen
     async function loadPuzzle(puzzleNum) {
       try {
-        // Don't show loading immediately - let's transition smoothly
-        const isInitialLoad = loading.style.display === 'block';
-        
-        if (!isInitialLoad) {
-          // Add exit animation to current content
-          const currentContent = document.querySelector('#puzzle-name, #clue-container, #answer-form');
-          if (currentContent) {
-            document.getElementById('clue-container').classList.add('puzzle-content-exit');
-            document.getElementById('answer-form').classList.add('puzzle-content-exit');
-            await new Promise(resolve => setTimeout(resolve, 300)); // Wait for exit animation
-          }
+        const isInitialLoadOrScreenSwitch = 
+          loading.style.display === 'block' || 
+          !screenPuzzle.classList.contains('hidden') && 
+            (screen0.classList.contains('hidden') && screenWelcomeBack.classList.contains('hidden') && screenComplete.classList.contains('hidden'));
+
+        const puzzleNameEl = document.getElementById('puzzle-name');
+        const clueContainerEl = document.getElementById('clue-container');
+        const answerFormEl = document.getElementById('answer-form');
+
+        // 1. Graceful Exit for Old Content (if any)
+        if (!isInitialLoadOrScreenSwitch && !screenPuzzle.classList.contains('hidden')) {
+          puzzleNameEl.classList.add('puzzle-content-exit-active');
+          clueContainerEl.classList.add('puzzle-content-exit-active');
+          answerFormEl.classList.add('puzzle-content-exit-active');
+          await new Promise(resolve => setTimeout(resolve, 600)); // Wait for exit animation (0.6s)
         }
-        
-        // Show loading with delay only if not initial load
-        if (!isInitialLoad) {
-          setTimeout(() => {
-            if (loading.style.display !== 'none') {
+
+        // 2. Immediate Loading State
         loading.style.display = 'block';
-            }
-          }, 200);
-        } else {
-          loading.style.display = 'block';
-        }
-        
         document.getElementById('success-display').classList.add('hidden');
-        document.getElementById('answer-form').style.display = 'block';
-        
+        answerFormEl.style.display = 'block'; // Ensure form is ready for content
+
+        // Hide other main screens if puzzle screen is being shown
         const currentlyVisibleScreen = 
           !screen0.classList.contains('hidden') ? screen0 :
           !screenWelcomeBack.classList.contains('hidden') ? screenWelcomeBack :
-          !screenPuzzle.classList.contains('hidden') ? screenPuzzle :
           !screenComplete.classList.contains('hidden') ? screenComplete : null;
-        
-        // Only hide screens if this is a screen transition, not puzzle-to-puzzle
+
         if (currentlyVisibleScreen && currentlyVisibleScreen !== screenPuzzle) {
-        screen0.classList.add('hidden');
-        screenWelcomeBack.classList.add('hidden');
-        screenPuzzle.classList.add('hidden');
-        screenComplete.classList.add('hidden');
+          switchScreen(currentlyVisibleScreen, screenPuzzle);
+          // switchScreen handles showing screenPuzzle, so we wait for its animation
+          await new Promise(resolve => setTimeout(resolve, 800)); 
+        } else if (screenPuzzle.classList.contains('hidden')) {
+          // If screenPuzzle was hidden (e.g. initial load), make it visible without full switchScreen animation
+          screenPuzzle.classList.remove('hidden');
         }
         
         puzzleError.classList.add('hidden');
-        
-        // Load solved puzzles data FIRST and wait for completion
-        await loadSolvedPuzzles();
-        
-        // Log the current state for this specific puzzle
-        const puzzleIsSolved = solvedPuzzles[puzzleNum];
-        const userAnswersForPuzzle = window.userCorrectAnswers[puzzleNum];
+
+        // Reset classes for entrance animation preparation
+        puzzleNameEl.classList.remove('puzzle-content-exit-active', 'puzzle-content-enter-active');
+        clueContainerEl.classList.remove('puzzle-content-exit-active', 'puzzle-content-enter-active');
+        answerFormEl.classList.remove('puzzle-content-exit-active', 'puzzle-content-enter-active');
+        puzzleNameEl.classList.add('puzzle-content-enter');
+        clueContainerEl.classList.add('puzzle-content-enter');
+        answerFormEl.classList.add('puzzle-content-enter');
+
+        // 3. Data Fetching
+        await loadSolvedPuzzles(); // Load solved status first
         
         console.log(`🎯 Loading puzzle ${puzzleNum} - State check:`, {
-          puzzleIsSolved,
-          userAnswersForPuzzle,
-          userAnswersType: Array.isArray(userAnswersForPuzzle) ? 'array' : typeof userAnswersForPuzzle,
-          allUserAnswers: window.userCorrectAnswers,
-          solvedPuzzlesArray: solvedPuzzles
+          solved: solvedPuzzles[puzzleNum],
+          userAnswersForPuzzle: window.userCorrectAnswers ? window.userCorrectAnswers[puzzleNum] : undefined,
         });
-        
-        // Fetch puzzle data - try multiple paths with fallbacks
+
         let puzzleResponse = null;
-        
-        // First try primary path
         try {
           puzzleResponse = await fetch(`${DB_URL}/wedding/answers/${puzzleNum}.json`);
         } catch (error) {
           console.error('Error with primary puzzle path:', error);
         }
-        
-        // If primary failed, try backup path
         if (!puzzleResponse || !puzzleResponse.ok) {
           try {
             puzzleResponse = await fetch(`${DB_URL}/publicAnswers/wedding/${puzzleNum}.json`);
@@ -1483,295 +1475,199 @@
             console.error('Error with backup puzzle path:', error);
           }
         }
-        
-        // Parse the data if we have a valid response
+
         if (puzzleResponse && puzzleResponse.ok) {
           puzzleData = await puzzleResponse.json();
+        } else {
+          puzzleData = null; // Explicitly nullify if fetch failed
         }
-        
-        // If no puzzle data and we're beyond totalPuzzles, go to completion
+
         if (!puzzleData && puzzleNum > totalPuzzles) {
           console.log(`📊 No puzzle data for puzzle ${puzzleNum}, going to completion`);
           currentScreen = totalPuzzles + 1;
           localStorage.setItem('weddingPuzzleScreen', currentScreen);
+          loading.style.display = 'none'; // Hide loader before calling showCompletion
           showCompletion();
           return;
         }
-        
-        // Apply fallback content if needed
+
         if (!puzzleData) {
           puzzleData = {
             name: `Puzzle ${puzzleNum}`,
             clue: `Puzzle ${puzzleNum} - Unable to load data. Please try again later.`,
             clueHtml: '',
             imageUrls: [],
-            answers: [{ 
-              text: "answer",
-              questionText: "Your Answer:"
-            }],
-            wrongAnswerMessage: "That's not right. Try again!"
+            answers: [{ text: "answer", questionText: "Your Answer:" }],
+            wrongAnswerMessage: "That's not right. Try again!",
+            partialCorrectMessage: "Some answers are wrong. Keep trying!"
           };
           puzzleError.classList.remove('hidden');
         }
-        
-        // Ensure puzzleData has the expected structure
+
         if (!puzzleData.answers) {
-          // Convert old format to new format
-          puzzleData.answers = [{
-            text: puzzleData.answer || "answer",
-            questionText: "Your Answer:"
-          }];
+          puzzleData.answers = [{ text: puzzleData.answer || "answer", questionText: "Your Answer:" }];
           delete puzzleData.answer;
         }
-        
-        // Set default wrong answer message if not provided
-        if (!puzzleData.wrongAnswerMessage) {
-          puzzleData.wrongAnswerMessage = "That's not right. Try again!";
-        }
-        
-        // Set default partial correct message if not provided
-        if (!puzzleData.partialCorrectMessage) {
-          puzzleData.partialCorrectMessage = "Some answers are wrong. Keep trying!";
-        }
-        
-        // Convert single imageUrl to imageUrls array if needed
+        if (!puzzleData.wrongAnswerMessage) puzzleData.wrongAnswerMessage = "That's not right. Try again!";
+        if (!puzzleData.partialCorrectMessage) puzzleData.partialCorrectMessage = "Some answers are wrong. Keep trying!";
         if (puzzleData.imageUrl && !puzzleData.imageUrls) {
           puzzleData.imageUrls = puzzleData.imageUrl ? [puzzleData.imageUrl] : [];
         }
-        
-        // Prepare content for smooth transition
-        const clueContainer = document.getElementById('clue-container');
-        const answerForm = document.getElementById('answer-form');
-        
-        // Add enter classes
-        clueContainer.classList.remove('puzzle-content-exit');
-        answerForm.classList.remove('puzzle-content-exit');
-        clueContainer.classList.add('puzzle-content-enter');
-        answerForm.classList.add('puzzle-content-enter');
-        
-        // Update puzzle name or use default
-        puzzleName.textContent = puzzleData.name || `Puzzle #${puzzleNum}`;
-        
-        // Display clue content - prefer HTML content if available
-        const clueContent = document.getElementById('clue-content');
-        if (puzzleData.clueHtml) {
-          clueContent.innerHTML = puzzleData.clueHtml;
-        } else {
-          clueContent.textContent = puzzleData.clue || 'No clue provided';
+        puzzleData.imageUrls = puzzleData.imageUrls || []; // Ensure imageUrls is always an array
+
+        // 3.1 Image Preloading
+        if (puzzleData.imageUrls.length > 0) {
+          const imagePromises = puzzleData.imageUrls.map(url => {
+            return new Promise((resolve, reject) => {
+              if (!url || !url.trim()) {
+                resolve(); // Resolve empty URLs immediately
+                return;
+              }
+              const img = new Image();
+              img.onload = resolve;
+              img.onerror = () => {
+                console.warn('Failed to load image:', url); 
+                resolve(); // Resolve even on error to not block loading
+              };
+              img.src = url.trim();
+            });
+          });
+          await Promise.all(imagePromises);
+          console.log('🖼️ All puzzle images preloaded (or failed gracefully).');
         }
-        
-        // Handle images
-        const clueGallery = document.getElementById('clue-gallery');
-        if (puzzleData.imageUrls && puzzleData.imageUrls.length > 0) {
-          // Clear gallery
-          clueGallery.innerHTML = '';
-          
-          // Add all images
+
+        // 4. Content Population (Behind Loader)
+        puzzleNameEl.textContent = puzzleData.name || `Puzzle #${puzzleNum}`;
+        const clueContentEl = document.getElementById('clue-content');
+        if (puzzleData.clueHtml) {
+          clueContentEl.innerHTML = puzzleData.clueHtml;
+        } else {
+          clueContentEl.textContent = puzzleData.clue || 'No clue provided';
+        }
+
+        const clueGalleryEl = document.getElementById('clue-gallery');
+        clueGalleryEl.innerHTML = ''; // Clear previous images
+        if (puzzleData.imageUrls.length > 0) {
           puzzleData.imageUrls.forEach(url => {
             if (url && url.trim()) {
-              const img = document.createElement('img');
-              img.src = url.trim();
-              img.alt = "Puzzle Clue";
-              clueGallery.appendChild(img);
+              const imgEl = document.createElement('img');
+              imgEl.src = url.trim();
+              imgEl.alt = "Puzzle Clue";
+              clueGalleryEl.appendChild(imgEl);
             }
           });
-          
-          clueGallery.classList.remove('hidden');
+          clueGalleryEl.classList.remove('hidden');
         } else {
-          clueGallery.classList.add('hidden');
+          clueGalleryEl.classList.add('hidden');
         }
-        
-        // Generate answer fields based on current solved state
+
         answersContainer.innerHTML = '';
-        
-        console.log(`🔧 Generating ${puzzleData.answers.length} answer fields for puzzle ${puzzleNum}`);
-        
         puzzleData.answers.forEach((answer, index) => {
           const multiAnswerDiv = document.createElement('div');
           multiAnswerDiv.className = 'multi-answer-container';
           multiAnswerDiv.id = `answer-container-${index}`;
-          
           const formGroup = document.createElement('div');
           formGroup.className = 'form-group';
-          
           const label = document.createElement('label');
           label.setAttribute('for', `answer-${index}`);
           label.textContent = answer.questionText || `Answer ${index + 1}:`;
-          
           const input = document.createElement('input');
           input.type = 'text';
           input.id = `answer-${index}`;
           input.className = 'answer-input';
           input.required = true;
-          
           formGroup.appendChild(label);
           formGroup.appendChild(input);
           multiAnswerDiv.appendChild(formGroup);
           answersContainer.appendChild(multiAnswerDiv);
-          
-          // NOW check if this puzzle is already solved and pre-fill
-          const puzzleIsSolved = solvedPuzzles[puzzleNum];
-          
-          console.log(`🔧 Processing answer field ${index} for puzzle ${puzzleNum}:`, {
-            puzzleIsSolved,
-            hasUserAnswers: !!(window.userCorrectAnswers && window.userCorrectAnswers[puzzleNum]),
-            userAnswerAtIndex: window.userCorrectAnswers[puzzleNum] ? window.userCorrectAnswers[puzzleNum][index] : undefined
-          });
-          
-          if (puzzleIsSolved) {
-            console.log(`🔍 Puzzle ${puzzleNum} is marked as solved, attempting pre-fill for answer ${index}...`);
-            
-            // Pre-fill with user's actual correct answers if available
+
+          if (solvedPuzzles[puzzleNum]) {
             const userAnswers = window.userCorrectAnswers && window.userCorrectAnswers[puzzleNum];
-            
             if (userAnswers && Array.isArray(userAnswers) && index < userAnswers.length && userAnswers[index] !== undefined && userAnswers[index] !== null && userAnswers[index] !== '') {
               input.value = userAnswers[index];
-              console.log(`✅ Pre-filled answer ${index} with user's answer: "${userAnswers[index]}"`);
             } else {
-              // Fallback to expected answer if user's answer not stored
               input.value = answer.text || '';
-              console.warn(`⚠️ No valid user answer found for puzzle ${puzzleNum} answer ${index}, using expected: "${answer.text}"`);
-              console.warn(`   Debug info:`, {
-                userAnswers: userAnswers,
-                isArray: Array.isArray(userAnswers),
-                length: userAnswers ? userAnswers.length : 'N/A',
-                index: index,
-                valueAtIndex: userAnswers ? userAnswers[index] : 'N/A'
-              });
             }
-            
             input.disabled = true;
             input.style.fontWeight = 'bold';
             input.style.color = '#2E7D32';
             input.style.backgroundColor = '#f1f8e9';
             multiAnswerDiv.classList.add('correct');
-          } else {
-            console.log(`🔧 Puzzle ${puzzleNum} is not solved, leaving answer ${index} editable`);
           }
         });
-        
-        // Update submit button based on puzzle status
+
         const submitBtn = document.querySelector('#answer-form button[type="submit"]');
+        const existingIndicator = puzzleNameEl.querySelector('.puzzle-solved-indicator');
+        if (existingIndicator) existingIndicator.remove();
+
         if (solvedPuzzles[puzzleNum]) {
           submitBtn.disabled = true;
           submitBtn.textContent = 'Puzzle Solved ✓';
-          
-          // Add solved indicator to puzzle name if not already there
-          if (!document.querySelector('.puzzle-solved-indicator')) {
-            const solvedIndicator = document.createElement('span');
-            solvedIndicator.className = 'puzzle-solved-indicator';
-            solvedIndicator.textContent = 'Solved ✓';
-            puzzleName.appendChild(solvedIndicator);
-          }
+          const solvedIndicator = document.createElement('span');
+          solvedIndicator.className = 'puzzle-solved-indicator';
+          solvedIndicator.textContent = 'Solved ✓';
+          puzzleNameEl.appendChild(solvedIndicator);
         } else {
           submitBtn.disabled = false;
           submitBtn.textContent = 'Submit Answer';
-          
-          // Remove any existing solved indicator
-          const existingIndicator = document.querySelector('.puzzle-solved-indicator');
-          if (existingIndicator) {
-            existingIndicator.remove();
-          }
         }
-        
-        // Reset wrong attempts
+
         wrongAttempts = 0;
-        
-        // Update navigation buttons and puzzle navigation
         updateNavigation(puzzleNum);
+
+        // 5. Smooth Entrance for New Content
+        loading.style.display = 'none'; // Hide loader NOW
+
+        puzzleNameEl.classList.remove('puzzle-content-enter');
+        clueContainerEl.classList.remove('puzzle-content-enter');
+        answerFormEl.classList.remove('puzzle-content-enter');
+
+        puzzleNameEl.classList.add('puzzle-content-enter-active');
+        clueContainerEl.classList.add('puzzle-content-enter-active');
+        answerFormEl.classList.add('puzzle-content-enter-active');
         
-        // Hide loading and show puzzle screen with smooth animation
-        loading.style.display = 'none';
-        
-        // Show the screen if it's not already shown
-        if (currentlyVisibleScreen !== screenPuzzle) {
-        switchScreen(currentlyVisibleScreen, screenPuzzle);
-        }
-        
-        // Activate enter animation
+        // 6. Focus and Cleanup
         setTimeout(() => {
-          clueContainer.classList.remove('puzzle-content-enter');
-          answerForm.classList.remove('puzzle-content-enter');
-          clueContainer.classList.add('puzzle-content-enter-active');
-          answerForm.classList.add('puzzle-content-enter-active');
-        }, 50);
-        
-        // Clean up animation classes
-        setTimeout(() => {
-          clueContainer.classList.remove('puzzle-content-enter-active');
-          answerForm.classList.remove('puzzle-content-enter-active');
-        }, 850);
-        
-        // Focus first answer field
-        const firstAnswerInput = document.querySelector('.answer-input');
+          puzzleNameEl.classList.remove('puzzle-content-enter-active');
+          clueContainerEl.classList.remove('puzzle-content-enter-active');
+          answerFormEl.classList.remove('puzzle-content-enter-active');
+        }, 800); // Duration of enter animation
+
+        const firstAnswerInput = answersContainer.querySelector('.answer-input:not([disabled])');
         if (firstAnswerInput) {
-          if (!solvedPuzzles[puzzleNum]) {
-          firstAnswerInput.value = '';
-          setTimeout(() => {
-            firstAnswerInput.focus();
-            }, isInitialLoad ? 600 : 400);
-          }
+          firstAnswerInput.value = ''; // Clear it before focusing
+          setTimeout(() => firstAnswerInput.focus(), 100); // Short delay for animation
         }
         
-        // Add a delayed check to ensure pre-filling worked
-        setTimeout(async () => {
-          console.log('🕐 Delayed pre-fill verification...');
-          const puzzleIsSolved = solvedPuzzles[puzzleNum];
-          if (puzzleIsSolved) {
-            const answerInputs = document.querySelectorAll('.answer-input');
-            const emptyInputs = Array.from(answerInputs).filter(input => !input.value);
-            
-            if (emptyInputs.length > 0) {
-              console.warn('⚠️ Found empty inputs in solved puzzle, forcing pre-fill...');
-              await forcePrefill();
-            } else {
-              console.log('✅ All inputs properly filled');
-            }
-          }
-        }, 1000);
-        
+        // Delayed pre-fill verification (if needed for debugging, otherwise can be removed)
+        // setTimeout(async () => {
+        //   console.log('🕐 Delayed pre-fill verification...');
+        //   if (solvedPuzzles[puzzleNum]) {
+        //     const answerInputs = document.querySelectorAll('.answer-input');
+        //     const emptyInputs = Array.from(answerInputs).filter(input => !input.value && input.disabled);
+        //     if (emptyInputs.length > 0) {
+        //       console.warn('⚠️ Found empty disabled inputs in solved puzzle after load, forcing pre-fill again...');
+        //       await window.forcePrefill(); // Ensure forcePrefill is robust
+        //     } else {
+        //       console.log('✅ All inputs properly filled after load.');
+        //     }
+        //   }
+        // }, 1000);
+
       } catch (error) {
         console.error('Error loading puzzle:', error);
-        // Show error and fallback content with smooth transition
-        puzzleData = {
-          name: `Puzzle ${puzzleNum}`,
-          clue: `Puzzle ${puzzleNum} - Unable to load data. Please try again later.`,
-          imageUrls: [],
-          answers: [{
-            text: "answer",
-            questionText: "Your Answer:"
-          }]
-        };
-        
-        puzzleName.textContent = puzzleData.name;
-        document.getElementById('clue-content').textContent = puzzleData.clue;
-        document.getElementById('clue-gallery').classList.add('hidden');
-        
-        // Generate single answer field
-        answersContainer.innerHTML = '';
-        const formGroup = document.createElement('div');
-        formGroup.className = 'form-group';
-        
-        const label = document.createElement('label');
-        label.setAttribute('for', 'answer-0');
-        label.textContent = 'Your Answer:';
-        
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.id = 'answer-0';
-        input.className = 'answer-input';
-        input.required = true;
-        
-        formGroup.appendChild(label);
-        formGroup.appendChild(input);
-        answersContainer.appendChild(formGroup);
-        
-        // Update navigation
-        updateNavigation(puzzleNum);
-        
         loading.style.display = 'none';
-        switchScreen(null, screenPuzzle);
+        puzzleError.textContent = `Error loading puzzle: ${error.message}. Please refresh.`;
         puzzleError.classList.remove('hidden');
+        // Optionally, show a generic error state within screenPuzzle if it's too broken
+        document.getElementById('puzzle-name').textContent = `Puzzle ${puzzleNum}`;
+        document.getElementById('clue-content').textContent = 'Could not load puzzle content.';
+        document.getElementById('clue-gallery').classList.add('hidden');
+        answersContainer.innerHTML = '<p>Could not load answer fields.</p>';
+        updateNavigation(puzzleNum); // Still update nav so user isn't stuck
+        if (screenPuzzle.classList.contains('hidden')) {
+            switchScreen(null, screenPuzzle); // Show puzzle screen even on error
+        }
       }
     }
     
