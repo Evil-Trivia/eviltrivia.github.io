@@ -1146,6 +1146,56 @@
       return newId;
     }
     
+    // Fetch and apply welcome page content (title, heading, intro)
+    async function applyWelcomePageContent() {
+      try {
+        const paths = [
+          `wedding/welcomePage`,
+          `publicAnswers/wedding/welcomePage`
+        ];
+        let content = null;
+
+        for (const path of paths) {
+          try {
+            const response = await fetch(`${DB_URL}/${path}.json`);
+            if (response.ok) {
+              const data = await response.json();
+              if (data) {
+                content = data;
+                break; // Found content, stop checking other paths
+              }
+            }
+          } catch (error) {
+            console.warn(`Could not load welcome page content from ${path}:`, error);
+          }
+        }
+
+        const screen0WelcomeHeader = screen0.querySelector('h2');
+        const screen0WelcomePara = screen0.querySelector('p');
+
+        if (content) {
+          document.title = content.title || 'Wedding Puzzle';
+          if (screen0WelcomeHeader) screen0WelcomeHeader.textContent = content.heading || 'Welcome to the Wedding Puzzle!';
+          if (screen0WelcomePara) screen0WelcomePara.textContent = content.intro || 'Please enter your information to get started:';
+          console.log('Loaded custom welcome page content:', content);
+        } else {
+          // Apply defaults if nothing is found
+          document.title = 'Wedding Puzzle';
+          if (screen0WelcomeHeader) screen0WelcomeHeader.textContent = 'Welcome to the Wedding Puzzle!';
+          if (screen0WelcomePara) screen0WelcomePara.textContent = 'Please enter your information to get started:';
+          console.log('Applied default welcome page content.');
+        }
+      } catch (error) {
+        console.warn('Error applying welcome page content:', error);
+        // Ensure defaults are set even on unexpected error
+        document.title = 'Wedding Puzzle';
+        const screen0WelcomeHeader = screen0.querySelector('h2');
+        const screen0WelcomePara = screen0.querySelector('p');
+        if (screen0WelcomeHeader) screen0WelcomeHeader.textContent = 'Welcome to the Wedding Puzzle!';
+        if (screen0WelcomePara) screen0WelcomePara.textContent = 'Please enter your information to get started:';
+      }
+    }
+    
     // Switch screens with animation
     function switchScreen(fromScreen, toScreen) {
       if (fromScreen) {
@@ -1176,6 +1226,9 @@
     document.addEventListener('DOMContentLoaded', async function() {
       // Ensure we have a user ID even for anonymous users
       userId = getOrCreateUserId();
+      
+      // Apply custom welcome page content first
+      await applyWelcomePageContent();
       
       // Load total puzzles count first
       await loadTotalPuzzles();

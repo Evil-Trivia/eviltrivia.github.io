@@ -821,6 +821,29 @@
         </div>
         
         <div class="global-settings" style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
+          <h3>Welcome Page Content</h3>
+          <p>Edit the content that appears on the very first screen for new players.</p>
+          
+          <div class="form-group" style="margin-top: 15px;">
+            <label for="welcome-page-title">Page Title (Browser Tab):</label>
+            <input type="text" id="welcome-page-title" style="width: 100%;" placeholder="Wedding Puzzle">
+          </div>
+
+          <div class="form-group" style="margin-top: 15px;">
+            <label for="welcome-page-heading">Main Heading:</label>
+            <input type="text" id="welcome-page-heading" style="width: 100%;" placeholder="Welcome to the Wedding Puzzle!">
+          </div>
+          
+          <div class="form-group" style="margin-top: 15px;">
+            <label for="welcome-page-intro">Introductory Paragraph:</label>
+            <textarea id="welcome-page-intro" style="width: 100%; min-height: 80px;" placeholder="Please enter your information to get started:"></textarea>
+          </div>
+          
+          <button id="save-welcome-page-content" class="btn" style="margin-top: 10px;">Save Welcome Page Content</button>
+          <span id="welcome-page-save-indicator" class="save-indicator">Content saved!</span>
+        </div>
+
+        <div class="global-settings" style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
           <h3>Ending Page Content</h3>
           <p>Create the rich text content that appears when users complete all puzzles:</p>
           
@@ -1115,6 +1138,12 @@
     const saveWelcomeMessage = document.getElementById('save-welcome-message');
     const welcomeSaveIndicator = document.getElementById('welcome-save-indicator');
     
+    const welcomePageTitle = document.getElementById('welcome-page-title');
+    const welcomePageHeading = document.getElementById('welcome-page-heading');
+    const welcomePageIntro = document.getElementById('welcome-page-intro');
+    const saveWelcomePageContent = document.getElementById('save-welcome-page-content');
+    const welcomePageSaveIndicator = document.getElementById('welcome-page-save-indicator');
+    
     const puzzleSolvedMessage = document.getElementById('puzzle-solved-message');
     const lastPuzzleMessage = document.getElementById('last-puzzle-message');
     const allCompleteMessage = document.getElementById('all-complete-message');
@@ -1234,6 +1263,7 @@
         loadWelcomeBackMessage();
         loadSuccessMessages();
         loadEndingPageContent();
+        loadWelcomePageContentAdmin();
         
         // Set up tab switching
         tabPuzzles.addEventListener('click', () => {
@@ -1313,6 +1343,10 @@
             saveWelcomeBackMessageData();
         });
         
+        saveWelcomePageContent.addEventListener('click', () => {
+            saveWelcomePageContentAdmin();
+        });
+        
         // Success messages save button
         saveSuccessMessages.addEventListener('click', () => {
           saveSuccessMessagesData();
@@ -1373,6 +1407,66 @@
             console.error('Error saving welcome back message:', error);
             showFeedback('Error saving welcome back message: ' + error.message, 'error');
         }
+    }
+    
+    // Load welcome page content for admin page
+    async function loadWelcomePageContentAdmin() {
+      try {
+        const result = await fetchFromPaths(Object.values(DB_PATHS), 'welcomePage');
+        const defaults = {
+          title: 'Wedding Puzzle',
+          heading: 'Welcome to the Wedding Puzzle!',
+          intro: 'Please enter your information to get started:'
+        };
+
+        if (result.data) {
+          welcomePageTitle.value = result.data.title || defaults.title;
+          welcomePageHeading.value = result.data.heading || defaults.heading;
+          welcomePageIntro.value = result.data.intro || defaults.intro;
+        } else {
+          welcomePageTitle.value = defaults.title;
+          welcomePageHeading.value = defaults.heading;
+          welcomePageIntro.value = defaults.intro;
+        }
+      } catch (error) {
+        console.error('Error loading welcome page content for admin:', error);
+      }
+    }
+
+    // Save welcome page content from admin page
+    async function saveWelcomePageContentAdmin() {
+      try {
+        const content = {
+          title: welcomePageTitle.value.trim(),
+          heading: welcomePageHeading.value.trim(),
+          intro: welcomePageIntro.value.trim()
+        };
+
+        if (!content.title || !content.heading || !content.intro) {
+          showFeedback('Please fill in all welcome page content fields.', 'error');
+          return;
+        }
+
+        const result = await saveToDatabase(
+          Object.values(DB_PATHS),
+          'welcomePage',
+          content,
+          'PUT'
+        );
+
+        if (result.success) {
+          welcomePageSaveIndicator.classList.add('show');
+          setTimeout(() => {
+            welcomePageSaveIndicator.classList.remove('show');
+          }, 2000);
+          showSuccessToast('Welcome page content saved!');
+        } else {
+          showFeedback('Error saving welcome page content. Please try again.', 'error');
+        }
+      } catch (error) {
+        console.error('Error saving welcome page content:', error);
+        showFeedback('Error saving welcome page content: ' + error.message, 'error');
+      }
     }
     
     // Try fetching data from multiple paths
