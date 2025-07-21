@@ -3574,26 +3574,33 @@
               success = true;
               console.log('Saved to primary database path successfully');
             } else {
+              console.error(`Primary path failed with status: ${response.status}`);
               throw new Error(`Primary path failed: ${response.status}`);
             }
           } catch (error) {
             console.warn('Primary path failed, trying fallback:', error);
             
             // Try fallback path
-            const fallbackUrl = `${DB_URL}/publicAnswers/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`;
-            console.log('Attempting to save to fallback path:', fallbackUrl);
-            const response = await fetch(fallbackUrl, {
-              method: 'PUT',
-              body: JSON.stringify(fileData),
-              headers: {
-                'Content-Type': 'application/json'
+            try {
+              const fallbackUrl = `${DB_URL}/publicAnswers/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`;
+              console.log('Attempting to save to fallback path:', fallbackUrl);
+              const response = await fetch(fallbackUrl, {
+                method: 'PUT',
+                body: JSON.stringify(fileData),
+                headers: {
+                  'Content-Type': 'application/json'
+                }
+              });
+              if (response.ok) {
+                success = true;
+                console.log('Saved to fallback database path successfully');
+              } else {
+                console.error(`Fallback path also failed with status: ${response.status}`);
+                console.error('Both paths failed. Firebase may be rejecting crosswordFiles writes.');
               }
-            });
-            if (response.ok) {
-              success = true;
-              console.log('Saved to fallback database path successfully');
-            } else {
-              throw new Error(`Fallback path also failed: ${response.status}`);
+            } catch (fallbackError) {
+              console.error('Fallback path error:', fallbackError);
+              console.error('Both database paths failed. Check Firebase rules and permissions.');
             }
           }
           
@@ -3601,16 +3608,21 @@
             uploadStatus.textContent = '✅ Upload successful!';
             uploadStatus.style.color = '#4CAF50';
             
-                      // Clear the file input
-          fileUpload.value = '';
-          
-          // Show success toast
-          showSuccessToast(`✅ ${file.name} uploaded successfully!`);
-          
-          // Wait a moment then refresh the files list
-          setTimeout(async () => {
-            await loadCrosswordFilesList();
-          }, 500);
+            // Clear the file input
+            fileUpload.value = '';
+            
+            // Show success toast
+            showSuccessToast(`✅ ${file.name} uploaded successfully!`);
+            
+            // Wait a moment then refresh the files list
+            setTimeout(async () => {
+              await loadCrosswordFilesList();
+            }, 500);
+          } else {
+            uploadStatus.textContent = '❌ Upload failed - Database rejected request';
+            uploadStatus.style.color = '#f44336';
+            showErrorToast(`Failed to upload ${file.name}. Check console for details.`);
+            console.error('Upload failed: Database returned 400 Bad Request. Check Firebase Realtime Database rules.');
           }
           
         } catch (error) {
