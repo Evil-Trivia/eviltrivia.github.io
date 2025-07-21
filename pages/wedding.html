@@ -1331,13 +1331,37 @@
       }
     }
     
-    /* Prevent focus issues */
+    /* Prevent focus issues and scrolling */
     .crossword-container .cw-hidden-input {
       position: fixed !important;
       top: -1000px !important;
       left: -1000px !important;
       opacity: 0 !important;
       pointer-events: none !important;
+      z-index: -1 !important;
+      width: 1px !important;
+      height: 1px !important;
+      border: none !important;
+      outline: none !important;
+      background: transparent !important;
+    }
+    
+    /* Prevent any scrolling on crossword focus events */
+    .crossword-container input,
+    .crossword-container textarea,
+    .crossword-container select,
+    .crossword-container button {
+      scroll-margin: 0 !important;
+      scroll-padding: 0 !important;
+    }
+    
+    /* Prevent crossword from causing page scroll */
+    .crossword-container {
+      scroll-behavior: auto !important;
+    }
+    
+    .crossword-container * {
+      scroll-behavior: auto !important;
     }
     
     /* Smooth scrolling for clue lists */
@@ -1360,12 +1384,28 @@
     
     /* Crossword focus and stability fixes */
     .crossword-container {
-      
+      /* Prevent container from causing scroll issues */
+      overflow: visible !important;
+      scroll-behavior: auto !important;
+      will-change: auto !important;
+      transform: none !important;
+      /* Ensure container doesn't interfere with page scroll */
+      position: relative !important;
+      contain: layout style !important;
     }
     
-    /* Hide the clue columns - we don't need them */
+    /* Hide the clue columns visually but keep them accessible to prevent scroll issues */
     .crossword-container .cw-clues-holder {
-      display: none !important;
+      position: absolute !important;
+      left: -9999px !important;
+      top: -9999px !important;
+      width: 1px !important;
+      height: 1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
     }
     
     /* Center the crossword grid properly */
@@ -1429,66 +1469,18 @@
       }
     }
     
-    /* Hidden input styling - prevent scroll-to-top issues */
-    .crossword-container .cw-hidden-input,
-    .crossword-wrapper .cw-hidden-input {
+    /* Hidden input styling */
+    .crossword-container .cw-hidden-input {
       position: fixed !important;
       top: -1000px !important;
       left: -1000px !important;
       opacity: 0 !important;
       pointer-events: none !important;
-      width: 0 !important;
-      height: 0 !important;
-      z-index: -9999 !important;
-      overflow: hidden !important;
-      clip: rect(0 0 0 0) !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      border: 0 !important;
-      outline: 0 !important;
-      transform: translate3d(-1000px, -1000px, 0) !important;
-      /* Prevent focus scrolling */
-      scroll-margin: 0 !important;
-      scroll-margin-top: 0 !important;
-      scroll-margin-bottom: 0 !important;
     }
     
     /* Canvas styling */
     .crossword-container canvas {
       cursor: pointer !important;
-    }
-    
-    /* Prevent any focus-based scrolling in crossword area */
-    .crossword-container *:focus,
-    .crossword-wrapper *:focus {
-      scroll-margin: 0 !important;
-      scroll-margin-top: 0 !important;
-      scroll-margin-bottom: 0 !important;
-    }
-    
-    /* Override any scroll behavior for crossword container */
-    .crossword-container,
-    .crossword-wrapper {
-      scroll-behavior: auto !important;
-    }
-    
-    /* Additional safeguards for crossword interaction */
-    .crossword-container input,
-    .crossword-container textarea,
-    .crossword-container select,
-    .crossword-wrapper input,
-    .crossword-wrapper textarea,
-    .crossword-wrapper select {
-      scroll-margin: 0 !important;
-      scroll-margin-block: 0 !important;
-      scroll-margin-inline: 0 !important;
-    }
-    
-    /* Prevent focus outline that might trigger scroll */
-    .crossword-container *:focus,
-    .crossword-wrapper *:focus {
-      outline: none !important;
-      box-shadow: none !important;
     }
     
     .crossword-container .cw-main {
@@ -3448,12 +3440,6 @@
           `;
         }
         
-        // Prevent crossword hidden input from causing scroll issues
-        setTimeout(() => {
-          preventCrosswordScrolling(puzzleNum);
-          addCrosswordClickHandler(puzzleNum);
-        }, 1000);
-        
         // Update navigation and apply solved state
         updateNavigation(puzzleNum);
         wrongAttempts = 0;
@@ -3600,6 +3586,71 @@
               // Store crossword instance for cleanup if needed
               window[`crossword_${puzzleNum}`] = crossword;
               
+              // Prevent scrolling issues by capturing and managing focus events
+              setTimeout(() => {
+                const crosswordElement = document.getElementById(`crossword-solver-${puzzleNum}`);
+                if (crosswordElement) {
+                  // Store the current scroll position
+                  let lastScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                  
+                  // Add event listeners to prevent unwanted scrolling
+                  crosswordElement.addEventListener('click', function(e) {
+                    // Store scroll position before click
+                    lastScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                    
+                    // Prevent any default scrolling behavior
+                    setTimeout(() => {
+                      window.scrollTo({
+                        top: lastScrollTop,
+                        behavior: 'instant'
+                      });
+                    }, 0);
+                  }, true);
+                  
+                  // Intercept focus events that might cause scrolling
+                  crosswordElement.addEventListener('focus', function(e) {
+                    e.preventDefault();
+                    setTimeout(() => {
+                      window.scrollTo({
+                        top: lastScrollTop,
+                        behavior: 'instant'
+                      });
+                    }, 0);
+                  }, true);
+                  
+                  // Prevent scroll events within the crossword from affecting the page
+                  crosswordElement.addEventListener('scroll', function(e) {
+                    e.stopPropagation();
+                  }, true);
+                  
+                  // Monitor for any programmatic scrolling and prevent it
+                  const originalScrollTo = window.scrollTo;
+                  let isInternalScroll = false;
+                  
+                  window.scrollTo = function(x, y) {
+                    if (isInternalScroll) {
+                      return originalScrollTo.call(this, x, y);
+                    }
+                    
+                    // Check if this scroll is coming from crossword interaction
+                    const stack = new Error().stack;
+                    if (stack && (stack.includes('crossword') || stack.includes('CrosswordNexus'))) {
+                      // Ignore scrolling from crossword
+                      return;
+                    }
+                    
+                    return originalScrollTo.call(this, x, y);
+                  };
+                  
+                  // Override scroll restoration
+                  window.addEventListener('beforeunload', () => {
+                    window.scrollTo = originalScrollTo;
+                  });
+                  
+                  console.log('✅ Crossword scroll prevention installed');
+                }
+              }, 1000);
+              
               // Wait for crossword to fully load before showing
             setTimeout(() => {
                 // Show the crossword with fade-in
@@ -3616,15 +3667,11 @@
               // Additional cleanup passes
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
-                preventCrosswordScrolling(puzzleNum);
-                addCrosswordClickHandler(puzzleNum);
                 console.log('Crossword cheat buttons removed (second pass)');
               }, 4000);
               
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
-                preventCrosswordScrolling(puzzleNum);
-                addCrosswordClickHandler(puzzleNum);
                 console.log('Crossword cheat buttons removed (final pass)');
               }, 6000);
               
@@ -3669,137 +3716,6 @@
             </div>
           `;
         }
-      }
-    }
-    
-    // Prevent crossword scrolling issues by fixing hidden input behavior
-    function preventCrosswordScrolling(puzzleNum) {
-      try {
-        const solverEl = document.getElementById(`crossword-solver-${puzzleNum}`);
-        if (!solverEl) return;
-        
-        // Find the hidden input element
-        const hiddenInput = solverEl.querySelector('.cw-hidden-input');
-        if (!hiddenInput) return;
-        
-        console.log('Applying scroll prevention to crossword hidden input');
-        
-        // Override the CSS positioning completely
-        const forceHiddenStyle = () => {
-          hiddenInput.style.cssText = `
-            position: fixed !important;
-            top: -2000px !important;
-            left: -2000px !important;
-            width: 0 !important;
-            height: 0 !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-            z-index: -9999 !important;
-            overflow: hidden !important;
-            clip: rect(0 0 0 0) !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border: 0 !important;
-            outline: 0 !important;
-            transform: translate3d(-2000px, -2000px, 0) !important;
-            scroll-margin: 0 !important;
-          `;
-        };
-        
-        // Apply the styles immediately
-        forceHiddenStyle();
-        
-        // Override any attempt to reposition the hidden input
-        const originalFocus = hiddenInput.focus;
-        hiddenInput.focus = function() {
-          // Force the position to stay off-screen before focusing
-          forceHiddenStyle();
-          
-          // Focus without scrolling by using preventScroll option
-          try {
-            originalFocus.call(this, { preventScroll: true });
-          } catch (e) {
-            // Fallback for browsers that don't support preventScroll
-            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-            const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-            
-            originalFocus.call(this);
-            
-            // Restore scroll position if it changed
-            window.scrollTo(scrollLeft, scrollTop);
-          }
-        };
-        
-        // Monitor for any style changes and revert them
-        const observer = new MutationObserver((mutations) => {
-          mutations.forEach((mutation) => {
-            if (mutation.type === 'attributes' && 
-                (mutation.attributeName === 'style' || 
-                 mutation.attributeName === 'class')) {
-              forceHiddenStyle();
-            }
-          });
-        });
-        
-        observer.observe(hiddenInput, {
-          attributes: true,
-          attributeFilter: ['style', 'class']
-        });
-        
-        // Store the observer for cleanup if needed
-        window[`crosswordObserver_${puzzleNum}`] = observer;
-        
-        console.log('✅ Crossword scroll prevention applied successfully');
-        
-      } catch (error) {
-        console.error('Error applying crossword scroll prevention:', error);
-      }
-    }
-    
-    // Add event handler to prevent crossword click scrolling
-    function addCrosswordClickHandler(puzzleNum) {
-      try {
-        const solverEl = document.getElementById(`crossword-solver-${puzzleNum}`);
-        if (!solverEl) return;
-        
-        // Find the crossword canvas
-        const canvas = solverEl.querySelector('canvas');
-        if (!canvas) return;
-        
-        console.log('Adding crossword click handler to prevent scrolling');
-        
-        // Add a capturing event listener to intercept all clicks
-        canvas.addEventListener('click', function(event) {
-          // Prevent default behavior that might cause scrolling
-          event.preventDefault();
-          event.stopPropagation();
-          
-          // Store current scroll position
-          const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-          const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-          
-          // Allow the original crossword click handling to proceed
-          // but restore scroll position immediately after
-          setTimeout(() => {
-            window.scrollTo(scrollLeft, scrollTop);
-          }, 0);
-          
-        }, true); // Use capturing phase to intercept early
-        
-        // Also add handlers for any potential anchor tags or buttons
-        solverEl.addEventListener('click', function(event) {
-          // Check if the clicked element might cause scrolling
-          const target = event.target;
-          if (target.tagName === 'A' && target.href === '#') {
-            event.preventDefault();
-            event.stopPropagation();
-          }
-        }, true);
-        
-        console.log('✅ Crossword click handler added successfully');
-        
-      } catch (error) {
-        console.error('Error adding crossword click handler:', error);
       }
     }
     
@@ -3876,6 +3792,63 @@
         
         console.log('Cheat prevention applied to crossword solver');
       }, 1000); // Delay to ensure crossword is fully rendered
+      
+      // Add additional scroll prevention for canvas clicks
+      setTimeout(() => {
+        const canvasElements = searchContainer.querySelectorAll ? 
+          searchContainer.querySelectorAll('canvas') : 
+          $(searchContainer).find('canvas');
+          
+        if (canvasElements.forEach) {
+          canvasElements.forEach(canvas => {
+            canvas.addEventListener('click', function(e) {
+              // Store current scroll position and restore it after any potential changes
+              const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+              
+              // Allow the click to proceed normally for crossword functionality
+              // But restore scroll position if it changes unexpectedly
+              setTimeout(() => {
+                const newScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                if (Math.abs(newScrollTop - currentScrollTop) > 10) {
+                  console.log('Preventing unwanted scroll from crossword click');
+                  window.scrollTo({
+                    top: currentScrollTop,
+                    behavior: 'instant'
+                  });
+                }
+              }, 50); // Longer delay to let crossword process click first
+            }, { capture: false, passive: true });
+            
+            canvas.addEventListener('focus', function(e) {
+              e.preventDefault();
+            }, { capture: true, passive: false });
+            
+            console.log('Canvas scroll prevention applied');
+          });
+        } else if (canvasElements.each) {
+          canvasElements.each(function() {
+            const canvas = this;
+            canvas.addEventListener('click', function(e) {
+              const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+              
+              setTimeout(() => {
+                const newScrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                if (Math.abs(newScrollTop - currentScrollTop) > 10) {
+                  console.log('Preventing unwanted scroll from crossword click (jQuery)');
+                  window.scrollTo({
+                    top: currentScrollTop,
+                    behavior: 'instant'
+                  });
+                }
+              }, 50);
+            }, { capture: false, passive: true });
+            
+            canvas.addEventListener('focus', function(e) {
+              e.preventDefault();
+            }, { capture: true, passive: false });
+          });
+        }
+      }, 1500); // Extra delay to ensure canvas is rendered
     }
     
 
