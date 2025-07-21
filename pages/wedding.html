@@ -1279,25 +1279,32 @@
       border: 2px solid #f0e68c !important; /* Golden border */
       border-radius: 12px !important;
       margin: 5px 0 !important; /* Reduced margin to move closer to grid */
-      padding: 20px 25px !important; /* Increased padding for bigger appearance */
+      padding: 30px 30px !important; /* Increased padding for more height */
       width: 100% !important; /* Fill entire width */
+      min-height: 80px !important; /* Ensure minimum height */
       box-sizing: border-box !important;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
     }
     
     .crossword-container .cw-top-text {
-      line-height: 1.5 !important;
-      font-size: 18px !important; /* Increased font size */
-      font-weight: 500 !important;
+      line-height: 1.6 !important;
+      font-size: 22px !important; /* Even larger font size */
+      font-weight: 600 !important; /* Slightly bolder */
       text-align: center !important;
       color: #333 !important;
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
+      max-width: 100% !important;
     }
     
     .crossword-container .cw-clue-number {
       font-weight: 900 !important; /* Extra bold */
       color: #000000 !important; /* Black instead of blue */
-      margin-right: 10px !important;
-      font-size: 20px !important; /* Larger clue number */
+      margin-right: 12px !important;
+      font-size: 24px !important; /* Even larger clue number */
     }
     
     .crossword-container .cw-buttons-holder {
@@ -1350,16 +1357,16 @@
       
       .crossword-container .cw-top-text-wrapper {
         margin: 3px auto 8px auto !important; /* Even closer on mobile */
-        padding: 15px 20px !important;
-        font-size: 16px !important;
+        padding: 25px 20px !important; /* Increased padding but less than desktop */
+        min-height: 70px !important; /* Smaller but still adequate on mobile */
       }
       
       .crossword-container .cw-top-text {
-        font-size: 16px !important; /* Slightly smaller on mobile */
+        font-size: 20px !important; /* Larger on mobile too */
       }
       
       .crossword-container .cw-clue-number {
-        font-size: 18px !important; /* Slightly smaller on mobile */
+        font-size: 22px !important; /* Larger on mobile too */
       }
     }
     
@@ -1545,31 +1552,37 @@
     
     /* Show the current clue display - this is important for users */
     .crossword-container .cw-top-text-wrapper {
-      display: block !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
       background: #fef9ca !important; /* Yellow background */
       border: 2px solid #f0e68c !important; /* Golden border */
       border-radius: 12px !important;
       margin: 5px auto 10px auto !important; /* Reduced top margin, closer to grid */
-      padding: 20px 25px !important; /* Increased padding */
+      padding: 30px 30px !important; /* Increased padding for more height */
       max-width: 100% !important; /* Fill entire width */
       width: 100% !important;
+      min-height: 80px !important; /* Ensure minimum height */
       box-sizing: border-box !important;
       text-align: center !important;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
     }
     
     .crossword-container .cw-top-text {
-      line-height: 1.5 !important;
-      font-size: 18px !important; /* Larger text */
-      font-weight: 500 !important;
+      line-height: 1.6 !important;
+      font-size: 22px !important; /* Even larger text */
+      font-weight: 600 !important; /* Slightly bolder */
       color: #333 !important;
+      word-wrap: break-word !important;
+      overflow-wrap: break-word !important;
+      max-width: 100% !important;
     }
     
     .crossword-container .cw-clue-number {
       font-weight: 900 !important; /* Extra bold */
       color: #000000 !important; /* Black instead of blue */
-      margin-right: 10px !important;
-      font-size: 20px !important; /* Larger clue number */
+      margin-right: 12px !important;
+      font-size: 24px !important; /* Even larger clue number */
     }
     
     /* Hide only the crossword solver instructions, not the main puzzle clue */
@@ -3858,6 +3871,19 @@
         window.addEventListener(event, preventScroll, { passive: false });
       });
       
+      // Also prevent scrolling from keyboard events
+      const keyboardEvents = ['keydown', 'keyup', 'keypress', 'input'];
+      keyboardEvents.forEach(event => {
+        window.addEventListener(event, (e) => {
+          if (preventScrolling) {
+            // Don't prevent the actual keyboard input, just any resulting scroll
+            setTimeout(() => {
+              immediateScrollRestore();
+            }, 0);
+          }
+        }, { passive: true });
+      });
+      
       // Also intercept scroll attempts at the window level
       const originalScrollTo = window.scrollTo;
       const originalScrollBy = window.scrollBy;
@@ -3950,6 +3976,24 @@
         }, 1);
       }, { passive: false });
       
+      // Handle keyboard events on the container
+      const containerKeyboardEvents = ['keydown', 'keyup', 'keypress', 'input'];
+      containerKeyboardEvents.forEach(event => {
+        container.addEventListener(event, (e) => {
+          isTrackingCrosswordScroll = true;
+          preventScrolling = true;
+          
+          // Immediate restoration for any keyboard-induced scroll
+          immediateScrollRestore();
+          
+          setTimeout(() => {
+            immediateScrollRestore();
+            preventScrolling = false;
+            isTrackingCrosswordScroll = false;
+          }, 1);
+        }, { passive: true });
+      });
+      
       // Handle all existing elements in the container
       const existingElements = container.querySelectorAll('input, button, a, [tabindex], canvas');
       existingElements.forEach(element => {
@@ -3987,6 +4031,47 @@
         });
         observer.disconnect();
       };
+      
+      // Monitor scroll position changes in real-time during crossword interaction
+      let scrollMonitorInterval;
+      const startScrollMonitoring = () => {
+        if (scrollMonitorInterval) return; // Already monitoring
+        
+        scrollMonitorInterval = setInterval(() => {
+          if (isTrackingCrosswordScroll || preventScrolling) {
+            const currentTop = window.pageYOffset || document.documentElement.scrollTop;
+            const currentLeft = window.pageXOffset || document.documentElement.scrollLeft;
+            
+            // If scroll position has changed from our saved position, restore it
+            if (currentTop !== globalScrollPosition.top || currentLeft !== globalScrollPosition.left) {
+              window.scrollTo({
+                top: globalScrollPosition.top,
+                left: globalScrollPosition.left,
+                behavior: 'auto'
+              });
+            }
+          }
+        }, 16); // Monitor at ~60fps for smooth prevention
+      };
+      
+      const stopScrollMonitoring = () => {
+        if (scrollMonitorInterval) {
+          clearInterval(scrollMonitorInterval);
+          scrollMonitorInterval = null;
+        }
+      };
+      
+      // Start monitoring when container gets focus or interaction
+      container.addEventListener('focusin', startScrollMonitoring);
+      container.addEventListener('mouseenter', startScrollMonitoring);
+      
+      // Stop monitoring when container loses focus
+      container.addEventListener('focusout', () => {
+        setTimeout(stopScrollMonitoring, 100); // Small delay to avoid flicker
+      });
+      container.addEventListener('mouseleave', () => {
+        setTimeout(stopScrollMonitoring, 100);
+      });
     }
     
     // Function to actively hide/reposition clue elements
