@@ -3546,6 +3546,12 @@
           // Read file content as text
           const fileContent = await file.text();
           console.log('File content read, length:', fileContent.length);
+          console.log('File content preview (first 200 chars):', fileContent.substring(0, 200));
+          
+          // Check for potential issues
+          if (fileContent.length > 1000000) { // 1MB limit
+            throw new Error('File too large (max 1MB for database storage)');
+          }
           
           // Store in Firebase Database instead of Storage
           const fileData = {
@@ -3556,13 +3562,26 @@
             type: file.type || 'application/octet-stream'
           };
           
+          console.log('File data to upload:', {
+            filename: fileData.filename,
+            contentLength: fileData.content.length,
+            uploadedAt: fileData.uploadedAt,
+            size: fileData.size,
+            type: fileData.type
+          });
+          
           uploadStatus.textContent = 'Saving to database...';
           
           // Try primary path first
           let success = false;
           try {
-            const primaryUrl = `${DB_URL}/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`;
+            // Use a safe key for Firebase (replace problematic characters)
+            const safeFileName = file.name.replace(/[.#$\[\]]/g, '_');
+            const primaryUrl = `${DB_URL}/wedding/crosswordFiles/${encodeURIComponent(safeFileName)}.json`;
+            console.log('Safe filename:', safeFileName);
             console.log('Attempting to save to primary path:', primaryUrl);
+            console.log('Request body:', JSON.stringify(fileData, null, 2));
+            
             const response = await fetch(primaryUrl, {
               method: 'PUT',
               body: JSON.stringify(fileData),
@@ -3573,16 +3592,19 @@
             if (response.ok) {
               success = true;
               console.log('Saved to primary database path successfully');
+              console.log('Response:', await response.text());
             } else {
+              const errorText = await response.text();
               console.error(`Primary path failed with status: ${response.status}`);
-              throw new Error(`Primary path failed: ${response.status}`);
+              console.error('Error response:', errorText);
+              throw new Error(`Primary path failed: ${response.status} - ${errorText}`);
             }
           } catch (error) {
             console.warn('Primary path failed, trying fallback:', error);
             
             // Try fallback path
             try {
-              const fallbackUrl = `${DB_URL}/publicAnswers/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`;
+              const fallbackUrl = `${DB_URL}/publicAnswers/wedding/crosswordFiles/${encodeURIComponent(safeFileName)}.json`;
               console.log('Attempting to save to fallback path:', fallbackUrl);
               const response = await fetch(fallbackUrl, {
                 method: 'PUT',
@@ -3594,8 +3616,11 @@
               if (response.ok) {
                 success = true;
                 console.log('Saved to fallback database path successfully');
+                console.log('Response:', await response.text());
               } else {
+                const errorText = await response.text();
                 console.error(`Fallback path also failed with status: ${response.status}`);
+                console.error('Fallback error response:', errorText);
                 console.error('Both paths failed. Firebase may be rejecting crosswordFiles writes.');
               }
             } catch (fallbackError) {
@@ -3621,7 +3646,6 @@
           } else {
             uploadStatus.textContent = '❌ Upload failed - Database rejected request';
             uploadStatus.style.color = '#f44336';
-            showErrorToast(`Failed to upload ${file.name}. Check console for details.`);
             console.error('Upload failed: Database returned 400 Bad Request. Check Firebase Realtime Database rules.');
           }
           
