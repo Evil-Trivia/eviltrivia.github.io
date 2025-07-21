@@ -3487,17 +3487,20 @@
           }
         });
         
-                // Add button to select from uploaded files
-        const selectFileBtn = document.createElement('button');
-        selectFileBtn.type = 'button';
-        selectFileBtn.className = 'btn btn-secondary';
-        selectFileBtn.style.marginTop = '10px';
-        selectFileBtn.textContent = 'Select from Uploaded Files';
-        selectFileBtn.addEventListener('click', async function() {
-          await showCrosswordFileSelector(crosswordFileUrlInput);
-        });
-        
-        crosswordFileUrlInput.parentNode.appendChild(selectFileBtn);
+                // Add button to select from uploaded files (check if it doesn't already exist)
+        const existingBtn = crosswordFileUrlInput.parentNode.querySelector('.crossword-file-selector-btn');
+        if (!existingBtn) {
+          const selectFileBtn = document.createElement('button');
+          selectFileBtn.type = 'button';
+          selectFileBtn.className = 'btn btn-secondary crossword-file-selector-btn';
+          selectFileBtn.style.marginTop = '10px';
+          selectFileBtn.textContent = 'Select from Uploaded Files';
+          selectFileBtn.addEventListener('click', async function() {
+            await showCrosswordFileSelector(crosswordFileUrlInput);
+          });
+          
+          crosswordFileUrlInput.parentNode.appendChild(selectFileBtn);
+        }
         
       } catch (error) {
         console.error('Error setting up crossword functionality:', error);
@@ -3558,42 +3561,56 @@
           // Try primary path first
           let success = false;
           try {
-            await fetch(`${DB_URL}/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`, {
+            const primaryUrl = `${DB_URL}/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`;
+            console.log('Attempting to save to primary path:', primaryUrl);
+            const response = await fetch(primaryUrl, {
               method: 'PUT',
               body: JSON.stringify(fileData),
               headers: {
                 'Content-Type': 'application/json'
               }
             });
-            success = true;
-            console.log('Saved to primary database path');
+            if (response.ok) {
+              success = true;
+              console.log('Saved to primary database path successfully');
+            } else {
+              throw new Error(`Primary path failed: ${response.status}`);
+            }
           } catch (error) {
             console.warn('Primary path failed, trying fallback:', error);
             
             // Try fallback path
-            await fetch(`${DB_URL}/publicAnswers/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`, {
+            const fallbackUrl = `${DB_URL}/publicAnswers/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`;
+            console.log('Attempting to save to fallback path:', fallbackUrl);
+            const response = await fetch(fallbackUrl, {
               method: 'PUT',
               body: JSON.stringify(fileData),
               headers: {
                 'Content-Type': 'application/json'
               }
             });
-            success = true;
-            console.log('Saved to fallback database path');
+            if (response.ok) {
+              success = true;
+              console.log('Saved to fallback database path successfully');
+            } else {
+              throw new Error(`Fallback path also failed: ${response.status}`);
+            }
           }
           
           if (success) {
             uploadStatus.textContent = '✅ Upload successful!';
             uploadStatus.style.color = '#4CAF50';
             
-            // Clear the file input
-            fileUpload.value = '';
-            
-            // Refresh the files list
+                      // Clear the file input
+          fileUpload.value = '';
+          
+          // Show success toast
+          showSuccessToast(`✅ ${file.name} uploaded successfully!`);
+          
+          // Wait a moment then refresh the files list
+          setTimeout(async () => {
             await loadCrosswordFilesList();
-            
-            // Show success toast
-            showSuccessToast(`✅ ${file.name} uploaded successfully!`);
+          }, 500);
           }
           
         } catch (error) {
@@ -3630,11 +3647,15 @@
         let usingPath = '';
         
         try {
-          response = await fetch(`${DB_URL}/wedding/crosswordFiles.json`);
+          const primaryUrl = `${DB_URL}/wedding/crosswordFiles.json`;
+          console.log('Attempting to load from primary path:', primaryUrl);
+          response = await fetch(primaryUrl);
           if (response.ok) {
             filesData = await response.json();
             usingPath = 'wedding/crosswordFiles';
-            console.log('Loaded from primary path:', usingPath);
+            console.log('Loaded from primary path:', usingPath, 'Data:', filesData);
+          } else {
+            console.warn('Primary path response not ok:', response.status);
           }
         } catch (error) {
           console.warn('Primary path failed:', error);
@@ -3643,11 +3664,15 @@
         // Try fallback path if primary failed
         if (!filesData) {
           try {
-            response = await fetch(`${DB_URL}/publicAnswers/wedding/crosswordFiles.json`);
+            const fallbackUrl = `${DB_URL}/publicAnswers/wedding/crosswordFiles.json`;
+            console.log('Attempting to load from fallback path:', fallbackUrl);
+            response = await fetch(fallbackUrl);
             if (response.ok) {
               filesData = await response.json();
               usingPath = 'publicAnswers/wedding/crosswordFiles';
-              console.log('Loaded from fallback path:', usingPath);
+              console.log('Loaded from fallback path:', usingPath, 'Data:', filesData);
+            } else {
+              console.warn('Fallback path response not ok:', response.status);
             }
           } catch (error) {
             console.warn('Fallback path failed:', error);
@@ -3670,6 +3695,8 @@
         const files = Object.entries(filesData)
           .map(([key, data]) => ({ key, ...data }))
           .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+        
+        console.log(`Found ${files.length} files in database:`, files.map(f => f.filename));
         
         for (const fileData of files) {
           const fileName = fileData.filename;
