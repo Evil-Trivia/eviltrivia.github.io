@@ -1346,27 +1346,80 @@
       }
       
       .crossword-container .cw-canvas {
-        min-height: 250px !important;
+        min-height: auto !important;
+        max-height: 50vh !important; /* Limit height to half viewport */
       }
       
-      /* Ensure crossword auto-sizes on mobile */
+      /* Mobile-specific crossword sizing */
       .crossword-wrapper .crossword {
         min-height: auto !important;
         height: auto !important;
+        max-height: 50vh !important;
+      }
+      
+      /* Mobile crossword container adjustments */
+      .crossword-container {
+        max-height: 80vh !important; /* Ensure container fits in viewport */
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: flex-start !important;
       }
       
       .crossword-container .cw-top-text-wrapper {
-        margin: 3px auto 8px auto !important; /* Even closer on mobile */
-        padding: 25px 20px !important; /* Increased padding but less than desktop */
-        min-height: 70px !important; /* Smaller but still adequate on mobile */
+        margin: 3px auto 8px auto !important;
+        padding: 20px 15px !important; /* Reduced padding on mobile */
+        min-height: 60px !important; /* Smaller height on mobile */
+        flex-shrink: 0 !important; /* Don't shrink the clue */
       }
       
       .crossword-container .cw-top-text {
-        font-size: 20px !important; /* Larger on mobile too */
+        font-size: 18px !important; /* Slightly smaller on mobile */
       }
       
       .crossword-container .cw-clue-number {
-        font-size: 22px !important; /* Larger on mobile too */
+        font-size: 20px !important; /* Slightly smaller on mobile */
+      }
+      
+      /* Make sure crossword content is scrollable if needed */
+      .crossword-container .cw-content {
+        flex: 1 !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+      }
+      
+      .crossword-container .cw-left {
+        flex: 1 !important;
+        min-height: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+      }
+    }
+    
+    /* Special handling for very small screens */
+    @media (max-width: 480px) {
+      .crossword-container {
+        max-height: 75vh !important;
+      }
+      
+      .crossword-container .cw-canvas {
+        max-height: 45vh !important;
+      }
+      
+      .crossword-wrapper .crossword {
+        max-height: 45vh !important;
+      }
+      
+      .crossword-container .cw-top-text-wrapper {
+        padding: 15px 12px !important;
+        min-height: 50px !important;
+      }
+      
+      .crossword-container .cw-top-text {
+        font-size: 16px !important;
+      }
+      
+      .crossword-container .cw-clue-number {
+        font-size: 18px !important;
       }
     }
     
@@ -1634,6 +1687,50 @@
     .crossword-wrapper {
       -ms-overflow-style: none !important;
       scrollbar-width: none !important;
+    }
+    
+    /* Mobile keyboard-specific styles */
+    @media (max-width: 768px) {
+      .crossword-container.keyboard-visible {
+        position: fixed !important;
+        top: 10px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        width: 95% !important;
+        z-index: 1000 !important;
+        background-color: white !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
+        max-height: calc(100vh - 250px) !important; /* Account for typical keyboard height */
+      }
+      
+      .crossword-container.keyboard-visible .crossword-wrapper {
+        max-height: calc(100vh - 350px) !important;
+      }
+      
+      /* Ensure mobile canvas sizing */
+      .crossword-wrapper canvas {
+        max-width: 100% !important;
+        max-height: 100% !important;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain !important;
+      }
+    }
+    
+    /* iOS Safari specific adjustments */
+    @supports (-webkit-touch-callout: none) {
+      @media (max-width: 768px) {
+        .crossword-container {
+          /* Use viewport units that account for iOS Safari's dynamic viewport */
+          min-height: env(safe-area-inset-top) !important;
+          padding-bottom: env(safe-area-inset-bottom) !important;
+        }
+        
+        .crossword-container.keyboard-visible {
+          max-height: calc(100vh - env(keyboard-inset-height, 250px)) !important;
+        }
+      }
     }
   </style>
 </head>
@@ -1966,8 +2063,116 @@
       }
     }
     
+    // Mobile keyboard handling variables
+    let initialViewportHeight = window.innerHeight;
+    let keyboardVisible = false;
+    let isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    // Mobile keyboard detection and handling
+    function handleMobileKeyboard() {
+      if (!isMobile) return;
+      
+      const currentHeight = window.innerHeight;
+      const heightDifference = initialViewportHeight - currentHeight;
+      
+      // Dynamic keyboard threshold based on device
+      let keyboardThreshold = 150;
+      if (/iPad/i.test(navigator.userAgent)) {
+        keyboardThreshold = 250; // iPad keyboards are taller
+      } else if (/iPhone/i.test(navigator.userAgent)) {
+        keyboardThreshold = 200; // iPhone keyboards
+      } else if (/Android/i.test(navigator.userAgent)) {
+        keyboardThreshold = 150; // Android keyboards
+      }
+      
+      const wasKeyboardVisible = keyboardVisible;
+      keyboardVisible = heightDifference > keyboardThreshold;
+      
+      if (keyboardVisible !== wasKeyboardVisible) {
+        const crosswordContainers = document.querySelectorAll('.crossword-container');
+        
+        crosswordContainers.forEach(container => {
+          if (keyboardVisible) {
+            // Keyboard appeared - add CSS class and adjust positioning
+            container.classList.add('keyboard-visible');
+            
+            // Additional dynamic sizing based on actual viewport
+            container.style.maxHeight = `${currentHeight - 20}px`;
+            
+            // Adjust crossword sizing for keyboard
+            const crosswordWrapper = container.querySelector('.crossword-wrapper');
+            const clueWrapper = container.querySelector('.cw-top-text-wrapper');
+            
+            if (crosswordWrapper) {
+              const availableHeight = currentHeight - (clueWrapper ? clueWrapper.offsetHeight : 80) - 40;
+              crosswordWrapper.style.maxHeight = `${availableHeight}px`;
+              crosswordWrapper.style.overflow = 'hidden';
+              
+              // Also adjust the canvas if it exists
+              const canvas = crosswordWrapper.querySelector('canvas');
+              if (canvas) {
+                canvas.style.maxHeight = `${availableHeight - 20}px`;
+                canvas.style.width = 'auto';
+                canvas.style.height = 'auto';
+              }
+            }
+            
+            // Smooth transition
+            container.style.transition = 'all 0.3s ease-in-out';
+            
+            console.log('📱 Mobile keyboard detected - adjusting crossword position');
+          } else {
+            // Keyboard hidden - remove CSS class and restore normal positioning
+            container.classList.remove('keyboard-visible');
+            
+            // Clear dynamic styles
+            container.style.maxHeight = '';
+            container.style.transition = '';
+            
+            const crosswordWrapper = container.querySelector('.crossword-wrapper');
+            if (crosswordWrapper) {
+              crosswordWrapper.style.maxHeight = '';
+              crosswordWrapper.style.overflow = '';
+              
+              const canvas = crosswordWrapper.querySelector('canvas');
+              if (canvas) {
+                canvas.style.maxHeight = '';
+                canvas.style.width = '';
+                canvas.style.height = '';
+              }
+            }
+            
+            console.log('📱 Mobile keyboard hidden - restoring crossword position');
+          }
+        });
+      }
+    }
+    
     // Initialize - Check for existing progress in localStorage
     document.addEventListener('DOMContentLoaded', async function() {
+      // Set up mobile keyboard handling
+      if (isMobile) {
+        initialViewportHeight = window.innerHeight;
+        
+        // Use Visual Viewport API if available (newer browsers)
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', handleMobileKeyboard);
+        } else {
+          // Fallback for older browsers
+          window.addEventListener('resize', handleMobileKeyboard);
+        }
+        
+        // Also handle orientation changes
+        window.addEventListener('orientationchange', () => {
+          setTimeout(() => {
+            initialViewportHeight = window.innerHeight;
+            handleMobileKeyboard();
+          }, 500);
+        });
+        
+        console.log('📱 Mobile keyboard detection initialized');
+      }
+      
       // Set up global scroll position tracking
       setInterval(() => {
         if (!isTrackingCrosswordScroll) {
@@ -3672,9 +3877,14 @@
               font_color_clue: '#ffffff',
               
               // Additional PUZ-specific optimizations
-              cell_size: 0, // Auto-size to fit container without scrollbars
+              cell_size: isMobile ? 0 : 0, // Always auto-size, especially on mobile
               skip_filled_letters: false, // Allow navigation through filled cells
-              strike_completed_clues: false // Don't strike out completed clues
+              strike_completed_clues: false, // Don't strike out completed clues
+              
+              // Mobile-specific optimizations
+              mobile_optimized: isMobile,
+              responsive: true,
+              fit_to_container: true
             };
             
             console.log('Creating CrosswordNexus with config:', config);
@@ -3685,6 +3895,24 @@
             if (crossword) {
               // Store crossword instance for cleanup if needed
               window[`crossword_${puzzleNum}`] = crossword;
+              
+              // Apply mobile-specific styling if on mobile
+              if (isMobile) {
+                setTimeout(() => {
+                  const container = solverEl.closest('.crossword-container');
+                  if (container) {
+                    container.style.touchAction = 'manipulation'; // Improve touch performance
+                    
+                    // Ensure crossword elements are properly sized for mobile
+                    const canvas = container.querySelector('canvas');
+                    if (canvas) {
+                      canvas.style.maxWidth = '100%';
+                      canvas.style.height = 'auto';
+                      canvas.style.touchAction = 'manipulation';
+                    }
+                  }
+                }, 100);
+              }
               
               // Prevent scrolling on crossword interactions
               setTimeout(() => {
@@ -4582,6 +4810,81 @@
 
 
     // Note: Crossword puzzles use normal answer submission - no special completion handling needed
+    
+    // Debug function to test mobile keyboard functionality
+    window.testMobileKeyboard = function(forceVisible = null) {
+      console.log('📱 Testing mobile keyboard functionality...');
+      
+      if (!isMobile) {
+        console.log('Not on mobile device, simulating mobile keyboard...');
+        const originalHeight = window.innerHeight;
+        
+        // Simulate keyboard appearing
+        if (forceVisible === true || forceVisible === null) {
+          Object.defineProperty(window, 'innerHeight', {
+            writable: true,
+            configurable: true,
+            value: originalHeight - 300
+          });
+          handleMobileKeyboard();
+          console.log('📱 Simulated keyboard appearing');
+        }
+        
+        // Restore after 3 seconds
+        setTimeout(() => {
+          Object.defineProperty(window, 'innerHeight', {
+            writable: true,
+            configurable: true,
+            value: originalHeight
+          });
+          handleMobileKeyboard();
+          console.log('📱 Simulated keyboard hiding');
+        }, 3000);
+      } else {
+        // Force trigger the keyboard handler
+        handleMobileKeyboard();
+        console.log('📱 Mobile keyboard handler triggered manually');
+      }
+      
+      // Show current state
+      console.log('Current state:', {
+        isMobile,
+        keyboardVisible,
+        initialViewportHeight,
+        currentHeight: window.innerHeight,
+        heightDifference: initialViewportHeight - window.innerHeight
+      });
+    };
+    
+    // Debug function to reset mobile keyboard state
+    window.resetMobileKeyboard = function() {
+      console.log('🔄 Resetting mobile keyboard state...');
+      
+      const crosswordContainers = document.querySelectorAll('.crossword-container');
+      crosswordContainers.forEach(container => {
+        container.classList.remove('keyboard-visible');
+        container.style.maxHeight = '';
+        container.style.transition = '';
+        
+        const crosswordWrapper = container.querySelector('.crossword-wrapper');
+        if (crosswordWrapper) {
+          crosswordWrapper.style.maxHeight = '';
+          crosswordWrapper.style.overflow = '';
+          
+          const canvas = crosswordWrapper.querySelector('canvas');
+          if (canvas) {
+            canvas.style.maxHeight = '';
+            canvas.style.width = '';
+            canvas.style.height = '';
+          }
+        }
+      });
+      
+      keyboardVisible = false;
+      initialViewportHeight = window.innerHeight;
+      console.log('✅ Mobile keyboard state reset');
+    };
+    
   </script>
 </body>
 </html> 
