@@ -1762,6 +1762,7 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
         }
         this.setActiveCell(this.getCell(index_x, index_y));
         this.renderCells();
+        e.preventDefault();
       }
 
       keyPressed(e) {
