@@ -931,6 +931,28 @@
         padding: 12px 20px;
         font-size: 15px;
       }
+      
+      /* Crossword mobile adjustments */
+      .crossword-wrapper {
+        margin: 0 -10px;
+        border-radius: 0;
+      }
+      
+      .crossword-wrapper .crossword {
+        min-height: 400px;
+        max-height: 60vh;
+        font-size: 12px;
+      }
+      
+      .crossword-container {
+        padding: 15px 10px;
+        margin: 15px 0;
+      }
+      
+      .crossword-instructions {
+        padding: 12px;
+        font-size: 13px;
+      }
     }
     
     .answer-input:disabled {
@@ -980,10 +1002,37 @@
     }
     
     /* Crossword solver specific styles */
-    .crossword-wrapper .crossword {
-      min-height: 400px;
+    .crossword-wrapper {
       width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+      border-radius: 8px;
+      background: white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .crossword-wrapper .crossword {
+      width: 100% !important;
+      height: auto !important;
+      min-height: 500px;
+      max-height: 80vh;
       position: relative;
+      overflow: auto;
+      box-sizing: border-box;
+    }
+    
+    /* Ensure crossword components are properly sized */
+    .crossword-wrapper .cw-grid-container {
+      max-width: 100%;
+      overflow: auto;
+    }
+    
+    .crossword-wrapper .cw-clues-container {
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 10px;
+      background: #f9f9f9;
+      border-top: 1px solid #ddd;
     }
     
     /* Anti-cheat: Hide all reveal and check buttons */
@@ -1008,7 +1057,10 @@
     .crossword-wrapper .cw-button-check,
     .crossword-wrapper .cw-button-reveal,
     .crossword-wrapper .cw-menu-check,
-    .crossword-wrapper .cw-menu-reveal {
+    .crossword-wrapper .cw-menu-reveal,
+    .crossword-wrapper .cw-settings,
+    .crossword-wrapper .cw-button-settings,
+    .crossword-wrapper .cw-menu-settings {
       display: none !important;
       visibility: hidden !important;
     }
@@ -1022,6 +1074,21 @@
     .crossword-wrapper input[type="file"],
     .crossword-wrapper .cw-file-picker,
     .crossword-wrapper .cw-file-input {
+      display: none !important;
+      visibility: hidden !important;
+    }
+    
+    /* Additional aggressive hiding for any remaining unwanted buttons */
+    .crossword-wrapper button[title]:not([title=""]) {
+      opacity: 0.8;
+    }
+    
+    .crossword-wrapper button[title*="Settings"],
+    .crossword-wrapper button[title*="settings"],
+    .crossword-wrapper button[title*="Config"],
+    .crossword-wrapper button[title*="config"],
+    .crossword-wrapper *[class*="settings"],
+    .crossword-wrapper *[class*="Settings"] {
       display: none !important;
       visibility: hidden !important;
     }
@@ -2787,11 +2854,12 @@
           <div class="crossword-instructions">
             🧩 <strong>Interactive Clue:</strong> Use this crossword to help solve the puzzle!
             <br><em>Note: You cannot check or reveal answers - solve it the traditional way!</em>
+            <br><strong>After solving the crossword, submit your final answer in the form below.</strong>
           </div>
           <div class="crossword-progress" id="crossword-progress-${puzzleNum}">
             Loading crossword clue...
           </div>
-          <div id="crossword-solver-${puzzleNum}" style="min-height: 400px; background: #f9f9f9; border-radius: 8px; padding: 20px;">
+          <div id="crossword-solver-${puzzleNum}" style="min-height: 500px; background: #f9f9f9; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
             <div style="text-align: center; padding: 40px; color: #666;">
               <div>🧩 Loading crossword...</div>
               <div style="margin-top: 10px; font-size: 14px;">CFP File: ${crosswordConfig.fileUrl ? crosswordConfig.fileUrl.split('/').pop() : 'Not specified'}</div>
@@ -2870,8 +2938,33 @@
           submitBtn.textContent = 'Submit Answer';
         }
 
-        // Make sure answer form is visible
+        // Make sure answer form is visible and add crossword-specific instruction
         answerFormEl.style.display = 'block';
+        
+        // Add helpful instruction for crossword puzzles
+        const existingInstruction = document.getElementById('crossword-answer-instruction');
+        if (existingInstruction) {
+          existingInstruction.remove();
+        }
+        
+        const answerInstruction = document.createElement('div');
+        answerInstruction.id = 'crossword-answer-instruction';
+        answerInstruction.style.cssText = `
+          background: linear-gradient(145deg, #e8f5e8, #f1f8f1);
+          border: 2px solid #4CAF50;
+          border-radius: 12px;
+          padding: 15px;
+          margin: 20px 0;
+          text-align: center;
+          font-weight: 500;
+          color: #2e7d32;
+        `;
+        answerInstruction.innerHTML = `
+          📝 <strong>Submit Your Answer:</strong> After working through the crossword above, 
+          enter your final answer in the field(s) below and click "Submit Answer".
+        `;
+        
+        answersContainer.parentNode.insertBefore(answerInstruction, answersContainer);
         
         // Load the actual crossword
         if (crosswordConfig.fileUrl) {
@@ -2929,8 +3022,8 @@
         
         // Create crossword container with proper structure for Crossword Nexus
         solverEl.innerHTML = `
-          <div class="crossword-wrapper" style="min-height: 400px; background: white; border-radius: 8px; padding: 10px;">
-            <div class="crossword" style="width: 100%; height: 400px;"></div>
+          <div class="crossword-wrapper">
+            <div class="crossword"></div>
           </div>
         `;
         
@@ -2962,7 +3055,7 @@
                 type: fileType
               },
               
-              // Disable navigation and help features for anti-cheat
+              // Enable hover and clues display
               hover_enabled: true,
               
               // Timer settings
@@ -2990,11 +3083,21 @@
               
               progressEl.textContent = '🧩 Interactive crossword clue ready!';
               
-              // Remove cheat buttons after crossword is created
+              // Remove cheat buttons after crossword is created (multiple attempts)
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
-                console.log('Crossword loaded and cheat buttons removed');
-              }, 2000);
+                console.log('Crossword loaded and cheat buttons removed (first pass)');
+              }, 1000);
+              
+              setTimeout(() => {
+                removeCrosswordCheatButtons(solverEl);
+                console.log('Crossword cheat buttons removed (second pass)');
+              }, 3000);
+              
+              setTimeout(() => {
+                removeCrosswordCheatButtons(solverEl);
+                console.log('Crossword cheat buttons removed (final pass)');
+              }, 5000);
             } else {
               throw new Error('Failed to create crossword instance');
             }
@@ -3052,58 +3155,66 @@
         '.cw-button-open-puzzle', '.cw-open-button', 'input[type="file"]', 
         '.cw-file-picker', '.cw-file-input',
         // Settings that might allow cheating
-        '.cw-settings-check', '.cw-settings-reveal'
+        '.cw-settings', '.cw-button-settings', '.cw-menu-settings',
+        '.cw-settings-check', '.cw-settings-reveal',
+        // Timer and other controls that might be distracting
+        '.cw-timer-controls', '.cw-button-timer'
       ];
       
       const searchContainer = container || document;
       
-      unwantedSelectors.forEach(selector => {
-        const elements = searchContainer.querySelectorAll ? 
-          searchContainer.querySelectorAll(selector) : 
-          $(searchContainer).find(selector);
+      // Use a delay to ensure DOM is fully rendered
+      setTimeout(() => {
+        unwantedSelectors.forEach(selector => {
+          const elements = searchContainer.querySelectorAll ? 
+            searchContainer.querySelectorAll(selector) : 
+            $(searchContainer).find(selector);
+            
+          if (elements.forEach) {
+            elements.forEach(el => {
+              el.style.display = 'none';
+              el.style.visibility = 'hidden';
+              if (el.remove) el.remove();
+            });
+          } else if (elements.each) {
+            // jQuery object
+            elements.each(function() {
+              this.style.display = 'none';
+              this.style.visibility = 'hidden';
+              $(this).remove();
+            });
+          }
+        });
+        
+        // Also hide any buttons with text containing reveal/check/settings words
+        const allButtons = searchContainer.querySelectorAll ? 
+          searchContainer.querySelectorAll('button, input[type="button"], input[type="submit"]') :
+          $(searchContainer).find('button, input[type="button"], input[type="submit"]');
           
-        if (elements.forEach) {
-          elements.forEach(el => {
-            el.style.display = 'none';
-            el.style.visibility = 'hidden';
-            if (el.remove) el.remove();
+        if (allButtons.forEach) {
+          allButtons.forEach(button => {
+            const text = (button.textContent || button.value || button.title || '').toLowerCase();
+            if (text.includes('reveal') || text.includes('check') || text.includes('hint') || 
+                text.includes('settings') || text.includes('setting') || text.includes('config')) {
+              button.style.display = 'none';
+              button.style.visibility = 'hidden';
+              if (button.remove) button.remove();
+            }
           });
-        } else if (elements.each) {
-          // jQuery object
-          elements.each(function() {
-            this.style.display = 'none';
-            this.style.visibility = 'hidden';
-            $(this).remove();
+        } else if (allButtons.each) {
+          allButtons.each(function() {
+            const text = (this.textContent || this.value || this.title || '').toLowerCase();
+            if (text.includes('reveal') || text.includes('check') || text.includes('hint') || 
+                text.includes('settings') || text.includes('setting') || text.includes('config')) {
+              this.style.display = 'none';
+              this.style.visibility = 'hidden';
+              $(this).remove();
+            }
           });
         }
-      });
-      
-      // Also hide any buttons with text containing reveal/check words
-      const allButtons = searchContainer.querySelectorAll ? 
-        searchContainer.querySelectorAll('button, input[type="button"], input[type="submit"]') :
-        $(searchContainer).find('button, input[type="button"], input[type="submit"]');
         
-      if (allButtons.forEach) {
-        allButtons.forEach(button => {
-          const text = (button.textContent || button.value || '').toLowerCase();
-          if (text.includes('reveal') || text.includes('check') || text.includes('hint')) {
-            button.style.display = 'none';
-            button.style.visibility = 'hidden';
-            if (button.remove) button.remove();
-          }
-        });
-      } else if (allButtons.each) {
-        allButtons.each(function() {
-          const text = (this.textContent || this.value || '').toLowerCase();
-          if (text.includes('reveal') || text.includes('check') || text.includes('hint')) {
-            this.style.display = 'none';
-            this.style.visibility = 'hidden';
-            $(this).remove();
-          }
-        });
-      }
-      
-      console.log('Cheat prevention applied to crossword solver');
+        console.log('Cheat prevention applied to crossword solver');
+      }, 1000); // Delay to ensure crossword is fully rendered
     }
     
     // Debug function to test crossword loading
