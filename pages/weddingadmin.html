@@ -882,7 +882,7 @@
         
         <div class="global-settings" style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
           <h3>🧩 Crossword Files</h3>
-          <p>Upload and manage CFP crossword files for your puzzles.</p>
+          <p>Upload and manage CFP crossword files for your puzzles. Files are stored in Firebase Database for reliable access.</p>
           
           <div class="form-group">
             <label for="crossword-file-upload">Upload CFP File:</label>
@@ -3504,7 +3504,7 @@
       }
     }
     
-    // Initialize crossword file management
+    // Initialize crossword file management (using Database instead of Storage)
     async function initializeCrosswordFileManagement() {
       const fileUpload = document.getElementById('crossword-file-upload');
       const uploadBtn = document.getElementById('upload-crossword-btn');
@@ -3533,54 +3533,72 @@
           return;
         }
         
-        uploadStatus.textContent = 'Uploading...';
+        uploadStatus.textContent = 'Reading file...';
         uploadStatus.style.color = '#666';
         uploadBtn.disabled = true;
         
         try {
           console.log('Starting upload for file:', file.name);
           
-          // Check if storage is available
-          if (!storage) {
-            throw new Error('Firebase Storage not initialized');
+          // Read file content as text
+          const fileContent = await file.text();
+          console.log('File content read, length:', fileContent.length);
+          
+          // Store in Firebase Database instead of Storage
+          const fileData = {
+            filename: file.name,
+            content: fileContent,
+            uploadedAt: new Date().toISOString(),
+            size: file.size,
+            type: file.type || 'application/octet-stream'
+          };
+          
+          uploadStatus.textContent = 'Saving to database...';
+          
+          // Try primary path first
+          let success = false;
+          try {
+            await fetch(`${DB_URL}/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`, {
+              method: 'PUT',
+              body: JSON.stringify(fileData),
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+            success = true;
+            console.log('Saved to primary database path');
+          } catch (error) {
+            console.warn('Primary path failed, trying fallback:', error);
+            
+            // Try fallback path
+            await fetch(`${DB_URL}/publicAnswers/wedding/crosswordFiles/${encodeURIComponent(file.name)}.json`, {
+              method: 'PUT',
+              body: JSON.stringify(fileData),
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+            success = true;
+            console.log('Saved to fallback database path');
           }
           
-          const fileRef = storageRef(storage, `wedding/crosswords/${file.name}`);
-          console.log('Created storage reference:', fileRef);
-          
-          const uploadResult = await uploadBytes(fileRef, file);
-          console.log('Upload completed:', uploadResult);
-          
-          const downloadURL = await getDownloadURL(fileRef);
-          console.log('Download URL obtained:', downloadURL);
-          
-          uploadStatus.textContent = '✅ Upload successful!';
-          uploadStatus.style.color = '#4CAF50';
-          
-          // Clear the file input
-          fileUpload.value = '';
-          
-          // Refresh the files list
-          await loadCrosswordFilesList();
-          
-          // Show success toast
-          showSuccessToast(`✅ ${file.name} uploaded successfully!`);
+          if (success) {
+            uploadStatus.textContent = '✅ Upload successful!';
+            uploadStatus.style.color = '#4CAF50';
+            
+            // Clear the file input
+            fileUpload.value = '';
+            
+            // Refresh the files list
+            await loadCrosswordFilesList();
+            
+            // Show success toast
+            showSuccessToast(`✅ ${file.name} uploaded successfully!`);
+          }
           
         } catch (error) {
           console.error('Error uploading file:', error);
-          
-          let errorMessage = 'Upload failed: ';
-          if (error.code === 'storage/unauthorized') {
-            errorMessage += 'Access denied. Please check Firebase Storage permissions.';
-          } else if (error.code === 'storage/unknown') {
-            errorMessage += 'Connection error. Please check your internet connection.';
-          } else if (error.code === 'storage/quota-exceeded') {
-            errorMessage += 'Storage quota exceeded.';
-          } else {
-            errorMessage += error.message;
-          }
-          
-          uploadStatus.textContent = '❌ ' + errorMessage;
+          uploadStatus.textContent = '❌ Upload failed: ' + error.message;
           uploadStatus.style.color = '#f44336';
         }
         
@@ -3597,26 +3615,46 @@
     // Make loadCrosswordFilesList available globally for retry button
     window.loadCrosswordFilesList = loadCrosswordFilesList;
     
-    // Load crossword files list from Firebase Storage
+    // Load crossword files list from Firebase Database
     async function loadCrosswordFilesList() {
       const filesList = document.getElementById('crossword-files-list');
       
       try {
         filesList.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">Loading crossword files...</div>';
         
-        // Check if storage is properly initialized
-        if (!storage) {
-          throw new Error('Firebase Storage not initialized');
+        console.log('Attempting to list files from Firebase Database...');
+        
+        // Try primary path first
+        let response = null;
+        let filesData = null;
+        let usingPath = '';
+        
+        try {
+          response = await fetch(`${DB_URL}/wedding/crosswordFiles.json`);
+          if (response.ok) {
+            filesData = await response.json();
+            usingPath = 'wedding/crosswordFiles';
+            console.log('Loaded from primary path:', usingPath);
+          }
+        } catch (error) {
+          console.warn('Primary path failed:', error);
         }
         
-        console.log('Attempting to list files from Firebase Storage...');
-        const crosswordsRef = storageRef(storage, 'wedding/crosswords/');
-        console.log('Storage reference created:', crosswordsRef);
+        // Try fallback path if primary failed
+        if (!filesData) {
+          try {
+            response = await fetch(`${DB_URL}/publicAnswers/wedding/crosswordFiles.json`);
+            if (response.ok) {
+              filesData = await response.json();
+              usingPath = 'publicAnswers/wedding/crosswordFiles';
+              console.log('Loaded from fallback path:', usingPath);
+            }
+          } catch (error) {
+            console.warn('Fallback path failed:', error);
+          }
+        }
         
-        const result = await listAll(crosswordsRef);
-        console.log('List result:', result);
-        
-        if (result.items.length === 0) {
+        if (!filesData || Object.keys(filesData).length === 0) {
           filesList.innerHTML = `
             <div style="text-align: center; color: #666; padding: 20px;">
               <p>No crossword files uploaded yet.</p>
@@ -3628,78 +3666,49 @@
         
         filesList.innerHTML = '';
         
-        for (const itemRef of result.items) {
-          try {
-            const downloadURL = await getDownloadURL(itemRef);
-            const fileName = itemRef.name;
-            
-            const fileItem = document.createElement('div');
-            fileItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;';
-            
-            fileItem.innerHTML = `
-              <div>
-                <strong>${fileName}</strong>
-                <br><small style="color: #666;">Click "Use This File" to copy URL</small>
-              </div>
-              <div>
-                <button class="btn btn-sm" onclick="copyToClipboard('${downloadURL}', '${fileName}')" style="margin-right: 5px;">Use This File</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteCrosswordFile('${fileName}')">Delete</button>
-              </div>
-            `;
-            
-            filesList.appendChild(fileItem);
-          } catch (urlError) {
-            console.error(`Error getting download URL for ${itemRef.name}:`, urlError);
-            // Add file item without download URL
-            const fileItem = document.createElement('div');
-            fileItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;';
-            fileItem.innerHTML = `
-              <div>
-                <strong>${itemRef.name}</strong>
-                <br><small style="color: #f44336;">Error getting download URL</small>
-              </div>
-              <div>
-                <button class="btn btn-sm btn-danger" onclick="deleteCrosswordFile('${itemRef.name}')">Delete</button>
-              </div>
-            `;
-            filesList.appendChild(fileItem);
-          }
+        // Convert filesData object to array and sort by upload date
+        const files = Object.entries(filesData)
+          .map(([key, data]) => ({ key, ...data }))
+          .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+        
+        for (const fileData of files) {
+          const fileName = fileData.filename;
+          const uploadDate = new Date(fileData.uploadedAt).toLocaleDateString();
+          const fileSize = fileData.size ? `${Math.round(fileData.size / 1024)}KB` : 'Unknown size';
+          
+          // Create data URL for the file content
+          const dataUrl = `data:${fileData.type};charset=utf-8,${encodeURIComponent(fileData.content)}`;
+          
+          const fileItem = document.createElement('div');
+          fileItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;';
+          
+          fileItem.innerHTML = `
+            <div>
+              <strong>${fileName}</strong>
+              <br><small style="color: #666;">Uploaded: ${uploadDate} • Size: ${fileSize}</small>
+              <br><small style="color: #666;">Click "Use This File" to copy content URL</small>
+            </div>
+            <div>
+              <button class="btn btn-sm" onclick="copyToClipboard('${dataUrl}', '${fileName}')" style="margin-right: 5px;">Use This File</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteCrosswordFile('${fileName}')">Delete</button>
+            </div>
+          `;
+          
+          filesList.appendChild(fileItem);
         }
+        
+        console.log(`Loaded ${files.length} crossword files from database`);
         
       } catch (error) {
         console.error('Error loading crossword files:', error);
         
-        if (error.code === 'storage/unauthorized') {
-          filesList.innerHTML = `
-            <div style="text-align: center; color: #f44336; padding: 20px;">
-              <p><strong>Access denied to Firebase Storage</strong></p>
-              <p>Please check Firebase Storage rules and permissions.</p>
-              <details style="margin-top: 10px; text-align: left;">
-                <summary>Technical details</summary>
-                <pre style="font-size: 12px; margin-top: 10px;">${error.message}</pre>
-              </details>
-            </div>
-          `;
-        } else if (error.code === 'storage/unknown') {
-          filesList.innerHTML = `
-            <div style="text-align: center; color: #f44336; padding: 20px;">
-              <p><strong>Firebase Storage connection error</strong></p>
-              <p>Please check your internet connection and Firebase configuration.</p>
-              <details style="margin-top: 10px; text-align: left;">
-                <summary>Technical details</summary>
-                <pre style="font-size: 12px; margin-top: 10px;">${error.message}</pre>
-              </details>
-            </div>
-          `;
-        } else {
-          filesList.innerHTML = `
-            <div style="text-align: center; color: #f44336; padding: 20px;">
-              <p><strong>Error loading crossword files</strong></p>
-              <p>${error.message}</p>
-              <button onclick="loadCrosswordFilesList()" style="margin-top: 10px; padding: 5px 10px;">Retry</button>
-            </div>
-          `;
-        }
+        filesList.innerHTML = `
+          <div style="text-align: center; color: #f44336; padding: 20px;">
+            <p><strong>Error loading crossword files</strong></p>
+            <p>${error.message}</p>
+            <button onclick="loadCrosswordFilesList()" style="margin-top: 10px; padding: 5px 10px;">Retry</button>
+          </div>
+        `;
       }
     }
     
@@ -3727,16 +3736,44 @@
       }
     };
     
-    // Delete crossword file from Firebase Storage
+    // Delete crossword file from Firebase Database
     window.deleteCrosswordFile = async function(fileName) {
       if (!confirm(`Are you sure you want to delete "${fileName}"?`)) return;
       
       try {
-        const fileRef = storageRef(storage, `wedding/crosswords/${fileName}`);
-        await deleteObject(fileRef);
+        console.log('Deleting file:', fileName);
         
-        showSuccessToast(`✅ ${fileName} deleted successfully!`);
-        await loadCrosswordFilesList();
+        // Try primary path first
+        let success = false;
+        try {
+          const response = await fetch(`${DB_URL}/wedding/crosswordFiles/${encodeURIComponent(fileName)}.json`, {
+            method: 'DELETE'
+          });
+          if (response.ok) {
+            success = true;
+            console.log('Deleted from primary path');
+          }
+        } catch (error) {
+          console.warn('Primary delete failed:', error);
+        }
+        
+        // Try fallback path if primary failed
+        if (!success) {
+          const response = await fetch(`${DB_URL}/publicAnswers/wedding/crosswordFiles/${encodeURIComponent(fileName)}.json`, {
+            method: 'DELETE'
+          });
+          if (response.ok) {
+            success = true;
+            console.log('Deleted from fallback path');
+          }
+        }
+        
+        if (success) {
+          showSuccessToast(`✅ ${fileName} deleted successfully!`);
+          await loadCrosswordFilesList();
+        } else {
+          throw new Error('Failed to delete from both primary and fallback paths');
+        }
         
       } catch (error) {
         console.error('Error deleting file:', error);
@@ -3747,24 +3784,51 @@
     // Show crossword file selector
     async function showCrosswordFileSelector(targetInput) {
       try {
-        const crosswordsRef = storageRef(storage, 'wedding/crosswords/');
-        const result = await listAll(crosswordsRef);
+        console.log('Loading crossword files for selection...');
         
-        if (result.items.length === 0) {
+        // Try primary path first
+        let response = null;
+        let filesData = null;
+        
+        try {
+          response = await fetch(`${DB_URL}/wedding/crosswordFiles.json`);
+          if (response.ok) {
+            filesData = await response.json();
+            console.log('Loaded files from primary path');
+          }
+        } catch (error) {
+          console.warn('Primary path failed:', error);
+        }
+        
+        // Try fallback path if primary failed
+        if (!filesData) {
+          try {
+            response = await fetch(`${DB_URL}/publicAnswers/wedding/crosswordFiles.json`);
+            if (response.ok) {
+              filesData = await response.json();
+              console.log('Loaded files from fallback path');
+            }
+          } catch (error) {
+            console.warn('Fallback path failed:', error);
+          }
+        }
+        
+        if (!filesData || Object.keys(filesData).length === 0) {
           alert('No crossword files uploaded yet. Please upload a CFP file first.');
           return;
         }
         
-        let fileOptions = 'Select a crossword file:\n\n';
-        const files = [];
+        // Convert to array and sort by upload date (newest first)
+        const files = Object.entries(filesData)
+          .map(([key, data]) => ({ key, ...data }))
+          .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
         
-        for (let i = 0; i < result.items.length; i++) {
-          const itemRef = result.items[i];
-          const fileName = itemRef.name;
-          const downloadURL = await getDownloadURL(itemRef);
-          
-          files.push({ name: fileName, url: downloadURL });
-          fileOptions += `${i + 1}. ${fileName}\n`;
+        let fileOptions = 'Select a crossword file:\n\n';
+        
+        for (let i = 0; i < files.length; i++) {
+          const fileData = files[i];
+          const uploadDate = new Date(fileData.uploadedAt).toLocaleDateString();
+          fileOptions += `${i + 1}. ${fileData.filename} (${uploadDate})\n`;
         }
         
         const selection = prompt(fileOptions + '\nEnter the number of the file you want to use:');
@@ -3772,9 +3836,12 @@
         
         if (index >= 0 && index < files.length) {
           const selectedFile = files[index];
-          targetInput.value = selectedFile.url;
-          loadCrosswordPreview(selectedFile.url);
-          showSuccessToast(`✅ Selected: ${selectedFile.name}`);
+          // Create data URL for the file content
+          const dataUrl = `data:${selectedFile.type};charset=utf-8,${encodeURIComponent(selectedFile.content)}`;
+          
+          targetInput.value = dataUrl;
+          loadCrosswordPreview(dataUrl, selectedFile.filename);
+          showSuccessToast(`✅ Selected: ${selectedFile.filename}`);
         }
         
       } catch (error) {
@@ -3784,11 +3851,21 @@
     }
     
     // Load crossword preview
-    async function loadCrosswordPreview(url) {
+    async function loadCrosswordPreview(url, fileName = null) {
       const previewContainer = document.getElementById('crossword-preview-container');
       
       try {
         previewContainer.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%;"><span>Loading crossword preview...</span></div>';
+        
+        // Determine file name from URL or parameter
+        let displayName = 'crossword file';
+        if (fileName) {
+          displayName = fileName;
+        } else if (url.startsWith('data:')) {
+          displayName = 'uploaded crossword data';
+        } else {
+          displayName = url.split('/').pop();
+        }
         
         // For now, show a simple preview message
         // In a full implementation, you'd load and parse the CFP file
@@ -3796,11 +3873,12 @@
           previewContainer.innerHTML = `
             <div style="padding: 20px; text-align: center;">
               <h6 style="margin: 0; color: #333;">Crossword Preview</h6>
-              <p style="margin: 5px 0; color: #666; font-size: 12px;">CFP File: ${url.split('/').pop()}</p>
+              <p style="margin: 5px 0; color: #666; font-size: 12px;">Source: ${displayName}</p>
               <div style="margin: 10px 0; color: #999; font-size: 11px;">
                 ✓ File format supported<br>
                 ✓ Cheat protection enabled<br>
-                ✓ Mobile responsive design
+                ✓ Mobile responsive design<br>
+                ✓ Stored in Firebase Database
               </div>
               <small style="color: #999;">Full preview available when puzzle is published</small>
             </div>
@@ -3812,7 +3890,7 @@
         previewContainer.innerHTML = `
           <div style="padding: 20px; text-align: center; color: #e53935;">
             <span>Error loading crossword preview</span><br>
-            <small>Please check the file URL and try again</small>
+            <small>Please check the file and try again</small>
           </div>
         `;
       }
