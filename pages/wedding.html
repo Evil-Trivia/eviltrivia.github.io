@@ -56,7 +56,6 @@
       border: 1px solid rgba(255,255,255,0.3);
       overflow: hidden;
       position: relative;
-      backdrop-filter: blur(10px);
     }
     
     .card::before {
@@ -237,6 +236,11 @@
         0 4px 15px rgba(0,0,0,0.05),
         0 0 0 1px rgba(255,255,255,0.9) inset;
       position: relative;
+      /* Ensure crisp text rendering */
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      transform: translateZ(0); /* Force hardware acceleration for crisp rendering */
     }
     
     input[type="text"]:hover,
@@ -2881,7 +2885,7 @@
           <div id="crossword-solver-${puzzleNum}" style="min-height: 500px; background: #f9f9f9; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
             <div style="text-align: center; padding: 40px; color: #666;">
               <div>🧩 Loading crossword...</div>
-              <div style="margin-top: 10px; font-size: 14px;">CFP File: ${crosswordConfig.fileUrl ? crosswordConfig.fileUrl.split('/').pop() : 'Not specified'}</div>
+              <div style="margin-top: 10px; font-size: 14px;">PUZ File: ${crosswordConfig.fileUrl ? crosswordConfig.fileUrl.split('/').pop() : 'Not specified'}</div>
             </div>
           </div>
         `;
@@ -2983,7 +2987,7 @@
         `;
         answerInstruction.innerHTML = `
           📝 <strong style="font-size: 18px;">Submit Your Final Answer</strong><br>
-          <span style="font-size: 14px; font-weight: normal; margin-top: 8px; display: block;">
+          <span style="font-size: 14px; font-weight: normal; margin-top: 8px; display: block; line-height: 1.4;">
           After working through the crossword above, enter your final answer in the field(s) below and click "Submit Answer".
           </span>
         `;
@@ -2994,13 +2998,25 @@
         // Make sure the answers container and all its children are visible
         answersContainer.style.display = 'block';
         answersContainer.style.visibility = 'visible';
+        answersContainer.style.filter = 'none'; // Remove any blur filters
+        answersContainer.style.transform = 'none'; // Remove any transforms that might cause blur
         
-        // Also ensure the submit button is visible
+        // Also ensure the submit button is visible and crisp
         const submitButton = answerFormEl.querySelector('button[type="submit"]');
         if (submitButton) {
           submitButton.style.display = 'block';
           submitButton.style.visibility = 'visible';
+          submitButton.style.filter = 'none';
+          submitButton.style.transform = 'none';
         }
+        
+        // Make sure all input fields are crisp
+        const allInputs = answersContainer.querySelectorAll('input, label, div');
+        allInputs.forEach(element => {
+          element.style.filter = 'none';
+          element.style.transform = 'none';
+          element.style.textRendering = 'optimizeLegibility';
+        });
         
         // Load the actual crossword
         if (crosswordConfig.fileUrl) {
@@ -3048,7 +3064,7 @@
         progressEl.textContent = 'Loading crossword file...';
         
         // Determine file type from URL
-        let fileType = 'cfp'; // default
+        let fileType = 'puz'; // default
         if (fileUrl.includes('.')) {
           const urlParts = fileUrl.split('.');
           fileType = urlParts[urlParts.length - 1].toLowerCase();
@@ -3078,11 +3094,25 @@
               throw new Error('CrosswordNexus not loaded');
             }
             
-            // Test if file is accessible first
+            // Test if file is accessible and check its content type
             console.log('Testing file accessibility:', fileUrl);
+            let fileContent = null;
             try {
-              const testResponse = await fetch(fileUrl, { method: 'HEAD' });
-              if (!testResponse.ok) {
+              const testResponse = await fetch(fileUrl);
+              if (testResponse.ok) {
+                fileContent = await testResponse.text();
+                console.log('File content sample:', fileContent.substring(0, 200));
+                
+                // Detect if this is XML (CFP format) vs JSON
+                if (fileContent.trim().startsWith('<?xml') || fileContent.includes('<CROSSFIRE>')) {
+                  console.log('Detected CFP (XML) format file');
+                  // For CFP files, we might need to use a different approach
+                } else if (fileContent.trim().startsWith('{')) {
+                  console.log('Detected JSON format file');
+                } else {
+                  console.log('Unknown file format, content starts with:', fileContent.substring(0, 50));
+                }
+              } else {
                 throw new Error(`Crossword file not accessible: ${testResponse.status}`);
               }
             } catch (fetchError) {
@@ -3107,28 +3137,35 @@
             progressEl.textContent = 'Initializing crossword solver...';
             
             // Configure crossword with proper file loading
-            const config = {
-              // Provide the puzzle file for loading
+            let config;
+            
+            // Optimized configuration for PUZ files
+            config = {
               puzzle_file: {
                 url: fileUrl,
                 type: fileType
               },
               
-              // Enable hover and clues display
+              // Enable all interactive features for PUZ files
               hover_enabled: true,
               
-              // Timer settings
+              // Timer and display settings
               timer_autostart: false,
               confetti_enabled: false,
               
-              // Colors to match wedding theme
+              // Enhanced colors for wedding theme
               color_none: '#ffffff',
               color_block: '#000000',
               color_selected: '#ffeb3b',
               color_word: '#fff9c4',
               color_hilite: '#e1f5fe',
               font_color_fill: '#000000',
-              font_color_clue: '#ffffff'
+              font_color_clue: '#ffffff',
+              
+              // Additional PUZ-specific optimizations
+              cell_size: 0, // Auto-size for responsive display
+              skip_filled_letters: false, // Allow navigation through filled cells
+              strike_completed_clues: false // Don't strike out completed clues
             };
             
             console.log('Creating CrosswordNexus with config:', config);
@@ -3429,7 +3466,6 @@
       console.log('🔍 Checking crossword file availability...');
       
       const testUrls = [
-        '../crossword-solver/puzzles/1_Gum.cfp',
         '../crossword-solver/sample_puzzles/fun.ipuz',
         '../crossword-solver/sample_puzzles/DontTurnAround.jpz',
         '../crossword-solver/sample_puzzles/FM.jpz'
