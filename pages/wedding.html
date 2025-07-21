@@ -1429,18 +1429,66 @@
       }
     }
     
-    /* Hidden input styling */
-    .crossword-container .cw-hidden-input {
+    /* Hidden input styling - prevent scroll-to-top issues */
+    .crossword-container .cw-hidden-input,
+    .crossword-wrapper .cw-hidden-input {
       position: fixed !important;
       top: -1000px !important;
       left: -1000px !important;
       opacity: 0 !important;
       pointer-events: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      z-index: -9999 !important;
+      overflow: hidden !important;
+      clip: rect(0 0 0 0) !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: 0 !important;
+      outline: 0 !important;
+      transform: translate3d(-1000px, -1000px, 0) !important;
+      /* Prevent focus scrolling */
+      scroll-margin: 0 !important;
+      scroll-margin-top: 0 !important;
+      scroll-margin-bottom: 0 !important;
     }
     
     /* Canvas styling */
     .crossword-container canvas {
       cursor: pointer !important;
+    }
+    
+    /* Prevent any focus-based scrolling in crossword area */
+    .crossword-container *:focus,
+    .crossword-wrapper *:focus {
+      scroll-margin: 0 !important;
+      scroll-margin-top: 0 !important;
+      scroll-margin-bottom: 0 !important;
+    }
+    
+    /* Override any scroll behavior for crossword container */
+    .crossword-container,
+    .crossword-wrapper {
+      scroll-behavior: auto !important;
+    }
+    
+    /* Additional safeguards for crossword interaction */
+    .crossword-container input,
+    .crossword-container textarea,
+    .crossword-container select,
+    .crossword-wrapper input,
+    .crossword-wrapper textarea,
+    .crossword-wrapper select {
+      scroll-margin: 0 !important;
+      scroll-margin-block: 0 !important;
+      scroll-margin-inline: 0 !important;
+    }
+    
+    /* Prevent focus outline that might trigger scroll */
+    .crossword-container *:focus,
+    .crossword-wrapper *:focus {
+      outline: none !important;
+      box-shadow: none !important;
     }
     
     .crossword-container .cw-main {
@@ -3400,6 +3448,12 @@
           `;
         }
         
+        // Prevent crossword hidden input from causing scroll issues
+        setTimeout(() => {
+          preventCrosswordScrolling(puzzleNum);
+          addCrosswordClickHandler(puzzleNum);
+        }, 1000);
+        
         // Update navigation and apply solved state
         updateNavigation(puzzleNum);
         wrongAttempts = 0;
@@ -3562,11 +3616,15 @@
               // Additional cleanup passes
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
+                preventCrosswordScrolling(puzzleNum);
+                addCrosswordClickHandler(puzzleNum);
                 console.log('Crossword cheat buttons removed (second pass)');
               }, 4000);
               
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
+                preventCrosswordScrolling(puzzleNum);
+                addCrosswordClickHandler(puzzleNum);
                 console.log('Crossword cheat buttons removed (final pass)');
               }, 6000);
               
@@ -3611,6 +3669,137 @@
             </div>
           `;
         }
+      }
+    }
+    
+    // Prevent crossword scrolling issues by fixing hidden input behavior
+    function preventCrosswordScrolling(puzzleNum) {
+      try {
+        const solverEl = document.getElementById(`crossword-solver-${puzzleNum}`);
+        if (!solverEl) return;
+        
+        // Find the hidden input element
+        const hiddenInput = solverEl.querySelector('.cw-hidden-input');
+        if (!hiddenInput) return;
+        
+        console.log('Applying scroll prevention to crossword hidden input');
+        
+        // Override the CSS positioning completely
+        const forceHiddenStyle = () => {
+          hiddenInput.style.cssText = `
+            position: fixed !important;
+            top: -2000px !important;
+            left: -2000px !important;
+            width: 0 !important;
+            height: 0 !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            z-index: -9999 !important;
+            overflow: hidden !important;
+            clip: rect(0 0 0 0) !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            outline: 0 !important;
+            transform: translate3d(-2000px, -2000px, 0) !important;
+            scroll-margin: 0 !important;
+          `;
+        };
+        
+        // Apply the styles immediately
+        forceHiddenStyle();
+        
+        // Override any attempt to reposition the hidden input
+        const originalFocus = hiddenInput.focus;
+        hiddenInput.focus = function() {
+          // Force the position to stay off-screen before focusing
+          forceHiddenStyle();
+          
+          // Focus without scrolling by using preventScroll option
+          try {
+            originalFocus.call(this, { preventScroll: true });
+          } catch (e) {
+            // Fallback for browsers that don't support preventScroll
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+            
+            originalFocus.call(this);
+            
+            // Restore scroll position if it changed
+            window.scrollTo(scrollLeft, scrollTop);
+          }
+        };
+        
+        // Monitor for any style changes and revert them
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            if (mutation.type === 'attributes' && 
+                (mutation.attributeName === 'style' || 
+                 mutation.attributeName === 'class')) {
+              forceHiddenStyle();
+            }
+          });
+        });
+        
+        observer.observe(hiddenInput, {
+          attributes: true,
+          attributeFilter: ['style', 'class']
+        });
+        
+        // Store the observer for cleanup if needed
+        window[`crosswordObserver_${puzzleNum}`] = observer;
+        
+        console.log('✅ Crossword scroll prevention applied successfully');
+        
+      } catch (error) {
+        console.error('Error applying crossword scroll prevention:', error);
+      }
+    }
+    
+    // Add event handler to prevent crossword click scrolling
+    function addCrosswordClickHandler(puzzleNum) {
+      try {
+        const solverEl = document.getElementById(`crossword-solver-${puzzleNum}`);
+        if (!solverEl) return;
+        
+        // Find the crossword canvas
+        const canvas = solverEl.querySelector('canvas');
+        if (!canvas) return;
+        
+        console.log('Adding crossword click handler to prevent scrolling');
+        
+        // Add a capturing event listener to intercept all clicks
+        canvas.addEventListener('click', function(event) {
+          // Prevent default behavior that might cause scrolling
+          event.preventDefault();
+          event.stopPropagation();
+          
+          // Store current scroll position
+          const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+          const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+          
+          // Allow the original crossword click handling to proceed
+          // but restore scroll position immediately after
+          setTimeout(() => {
+            window.scrollTo(scrollLeft, scrollTop);
+          }, 0);
+          
+        }, true); // Use capturing phase to intercept early
+        
+        // Also add handlers for any potential anchor tags or buttons
+        solverEl.addEventListener('click', function(event) {
+          // Check if the clicked element might cause scrolling
+          const target = event.target;
+          if (target.tagName === 'A' && target.href === '#') {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }, true);
+        
+        console.log('✅ Crossword click handler added successfully');
+        
+      } catch (error) {
+        console.error('Error adding crossword click handler:', error);
       }
     }
     
