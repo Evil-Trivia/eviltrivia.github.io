@@ -1213,7 +1213,7 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
         var toggleTimerBound = this.toggleTimer.bind(this);
         span.onclick = function () {
           modal.style.display = 'none';
-          this_hidden_input.focus({ preventScroll: true });
+          this_hidden_input.focus();
           if (timer_was_running) {
             toggleTimerBound();
           }
@@ -1222,7 +1222,7 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
         window.onclick = function (event) {
           if (event.target == modal) {
             modal.style.display = 'none';
-            this_hidden_input.focus({ preventScroll: true });
+            this_hidden_input.focus();
             if (timer_was_running) {
               toggleTimerBound();
             }
@@ -1233,7 +1233,7 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
         var modalButton = document.getElementById('modal-button');
         modalButton.onclick = function () {
           modal.style.display = 'none';
-          this_hidden_input.focus({ preventScroll: true });
+          this_hidden_input.focus();
           if (timer_was_running) {
             toggleTimerBound();
           }
@@ -1306,7 +1306,7 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
           input_left = offset.left + (cell.x - 1) * this.cell_size;
 
           this.hidden_input.css({ left: input_left, top: input_top });
-          this.hidden_input.focus({ preventScroll: true });
+          this.hidden_input.focus();
         }
       }
 
@@ -1771,7 +1771,7 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
           let modal = this.root.find('.cw-modal').get(0);
           modal.style.display = 'none';
           const this_hidden_input = this.hidden_input;
-          this_hidden_input.focus({ preventScroll: true });
+          this_hidden_input.focus();
           this.solved_open = false;
           return;
         }
@@ -2588,7 +2588,7 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
         if (reveal_or_check == 'reveal') {
           this.checkIfSolved(false);
         }
-        this.hidden_input.focus({ preventScroll: true });
+        this.hidden_input.focus();
       }
 
       printPuzzle(e) {
@@ -2653,12 +2653,12 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
           clearTimeout(xw_timer);
           timer_btn.removeClass('running');
           this.timer_running = false;
-          this.hidden_input.focus({ preventScroll: true });
+          this.hidden_input.focus();
         } else {
           // Start the timer
           this.timer_running = true;
           timer_btn.addClass('running');
-          this.hidden_input.focus({ preventScroll: true });
+          this.hidden_input.focus();
           timer();
         }
       }
@@ -2767,29 +2767,7 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
             'div.cw-clue.word-' + word.id
           );
           clue_el.addClass(classname);
-          const clueRect = clue_el.get(0).getBoundingClientRect();
-
-          const scrollContainer = clue_el.closest('.cw-clues-items');
-          const scrollRect = scrollContainer.get(0).getBoundingClientRect();
-
-          if (clueRect.top < scrollRect.top) {
-            scrollContainer.stop().animate(
-              {
-                scrollTop:
-                  scrollContainer.scrollTop() - (scrollRect.top - clueRect.top),
-              },
-              150
-            );
-          } else if (clueRect.bottom > scrollRect.bottom) {
-            scrollContainer.stop().animate(
-              {
-                scrollTop:
-                  scrollContainer.scrollTop() +
-                  (clueRect.bottom - scrollRect.bottom),
-              },
-              150
-            );
-          }
+          // REMOVED: All scrolling animation code to prevent page scrolling issues
         }
       }
 
