@@ -3522,15 +3522,37 @@
         const file = fileUpload.files[0];
         if (!file) return;
         
+        // Validate file type
+        const validExtensions = ['.cfp', '.puz', '.jpz', '.ipuz'];
+        const fileName = file.name.toLowerCase();
+        const isValidType = validExtensions.some(ext => fileName.endsWith(ext));
+        
+        if (!isValidType) {
+          uploadStatus.textContent = '❌ Please select a .cfp, .puz, .jpz, or .ipuz file';
+          uploadStatus.style.color = '#f44336';
+          return;
+        }
+        
         uploadStatus.textContent = 'Uploading...';
+        uploadStatus.style.color = '#666';
         uploadBtn.disabled = true;
         
         try {
-          const fileName = file.name;
-          const fileRef = storageRef(storage, `wedding/crosswords/${fileName}`);
+          console.log('Starting upload for file:', file.name);
           
-          await uploadBytes(fileRef, file);
+          // Check if storage is available
+          if (!storage) {
+            throw new Error('Firebase Storage not initialized');
+          }
+          
+          const fileRef = storageRef(storage, `wedding/crosswords/${file.name}`);
+          console.log('Created storage reference:', fileRef);
+          
+          const uploadResult = await uploadBytes(fileRef, file);
+          console.log('Upload completed:', uploadResult);
+          
           const downloadURL = await getDownloadURL(fileRef);
+          console.log('Download URL obtained:', downloadURL);
           
           uploadStatus.textContent = '✅ Upload successful!';
           uploadStatus.style.color = '#4CAF50';
@@ -3541,9 +3563,24 @@
           // Refresh the files list
           await loadCrosswordFilesList();
           
+          // Show success toast
+          showSuccessToast(`✅ ${file.name} uploaded successfully!`);
+          
         } catch (error) {
           console.error('Error uploading file:', error);
-          uploadStatus.textContent = '❌ Upload failed: ' + error.message;
+          
+          let errorMessage = 'Upload failed: ';
+          if (error.code === 'storage/unauthorized') {
+            errorMessage += 'Access denied. Please check Firebase Storage permissions.';
+          } else if (error.code === 'storage/unknown') {
+            errorMessage += 'Connection error. Please check your internet connection.';
+          } else if (error.code === 'storage/quota-exceeded') {
+            errorMessage += 'Storage quota exceeded.';
+          } else {
+            errorMessage += error.message;
+          }
+          
+          uploadStatus.textContent = '❌ ' + errorMessage;
           uploadStatus.style.color = '#f44336';
         }
         
@@ -3557,6 +3594,9 @@
       await loadCrosswordFilesList();
     }
     
+    // Make loadCrosswordFilesList available globally for retry button
+    window.loadCrosswordFilesList = loadCrosswordFilesList;
+    
     // Load crossword files list from Firebase Storage
     async function loadCrosswordFilesList() {
       const filesList = document.getElementById('crossword-files-list');
@@ -3564,40 +3604,102 @@
       try {
         filesList.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">Loading crossword files...</div>';
         
+        // Check if storage is properly initialized
+        if (!storage) {
+          throw new Error('Firebase Storage not initialized');
+        }
+        
+        console.log('Attempting to list files from Firebase Storage...');
         const crosswordsRef = storageRef(storage, 'wedding/crosswords/');
+        console.log('Storage reference created:', crosswordsRef);
+        
         const result = await listAll(crosswordsRef);
+        console.log('List result:', result);
         
         if (result.items.length === 0) {
-          filesList.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No crossword files uploaded yet.</div>';
+          filesList.innerHTML = `
+            <div style="text-align: center; color: #666; padding: 20px;">
+              <p>No crossword files uploaded yet.</p>
+              <p><small>Upload a .cfp, .puz, .jpz, or .ipuz file using the form above.</small></p>
+            </div>
+          `;
           return;
         }
         
         filesList.innerHTML = '';
         
         for (const itemRef of result.items) {
-          const downloadURL = await getDownloadURL(itemRef);
-          const fileName = itemRef.name;
-          
-          const fileItem = document.createElement('div');
-          fileItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;';
-          
-          fileItem.innerHTML = `
-            <div>
-              <strong>${fileName}</strong>
-              <br><small style="color: #666;">Click "Use This File" to copy URL</small>
-            </div>
-            <div>
-              <button class="btn btn-sm" onclick="copyToClipboard('${downloadURL}', '${fileName}')" style="margin-right: 5px;">Use This File</button>
-              <button class="btn btn-sm btn-danger" onclick="deleteCrosswordFile('${fileName}')">Delete</button>
-            </div>
-          `;
-          
-          filesList.appendChild(fileItem);
+          try {
+            const downloadURL = await getDownloadURL(itemRef);
+            const fileName = itemRef.name;
+            
+            const fileItem = document.createElement('div');
+            fileItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;';
+            
+            fileItem.innerHTML = `
+              <div>
+                <strong>${fileName}</strong>
+                <br><small style="color: #666;">Click "Use This File" to copy URL</small>
+              </div>
+              <div>
+                <button class="btn btn-sm" onclick="copyToClipboard('${downloadURL}', '${fileName}')" style="margin-right: 5px;">Use This File</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteCrosswordFile('${fileName}')">Delete</button>
+              </div>
+            `;
+            
+            filesList.appendChild(fileItem);
+          } catch (urlError) {
+            console.error(`Error getting download URL for ${itemRef.name}:`, urlError);
+            // Add file item without download URL
+            const fileItem = document.createElement('div');
+            fileItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;';
+            fileItem.innerHTML = `
+              <div>
+                <strong>${itemRef.name}</strong>
+                <br><small style="color: #f44336;">Error getting download URL</small>
+              </div>
+              <div>
+                <button class="btn btn-sm btn-danger" onclick="deleteCrosswordFile('${itemRef.name}')">Delete</button>
+              </div>
+            `;
+            filesList.appendChild(fileItem);
+          }
         }
         
       } catch (error) {
         console.error('Error loading crossword files:', error);
-        filesList.innerHTML = '<div style="text-align: center; color: #f44336; padding: 20px;">Error loading files: ' + error.message + '</div>';
+        
+        if (error.code === 'storage/unauthorized') {
+          filesList.innerHTML = `
+            <div style="text-align: center; color: #f44336; padding: 20px;">
+              <p><strong>Access denied to Firebase Storage</strong></p>
+              <p>Please check Firebase Storage rules and permissions.</p>
+              <details style="margin-top: 10px; text-align: left;">
+                <summary>Technical details</summary>
+                <pre style="font-size: 12px; margin-top: 10px;">${error.message}</pre>
+              </details>
+            </div>
+          `;
+        } else if (error.code === 'storage/unknown') {
+          filesList.innerHTML = `
+            <div style="text-align: center; color: #f44336; padding: 20px;">
+              <p><strong>Firebase Storage connection error</strong></p>
+              <p>Please check your internet connection and Firebase configuration.</p>
+              <details style="margin-top: 10px; text-align: left;">
+                <summary>Technical details</summary>
+                <pre style="font-size: 12px; margin-top: 10px;">${error.message}</pre>
+              </details>
+            </div>
+          `;
+        } else {
+          filesList.innerHTML = `
+            <div style="text-align: center; color: #f44336; padding: 20px;">
+              <p><strong>Error loading crossword files</strong></p>
+              <p>${error.message}</p>
+              <button onclick="loadCrosswordFilesList()" style="margin-top: 10px; padding: 5px 10px;">Retry</button>
+            </div>
+          `;
+        }
       }
     }
     
