@@ -1403,6 +1403,32 @@
       min-height: 500px !important;
     }
     
+    /* Mobile responsive sizing */
+    @media (max-width: 768px) {
+      .crossword-container canvas {
+        min-width: 300px !important;
+        min-height: 300px !important;
+        max-width: 95% !important;
+        max-height: 95% !important;
+      }
+      
+      .crossword-container .cw-canvas {
+        min-height: 350px !important;
+        margin: 10px auto !important;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .crossword-container canvas {
+        min-width: 280px !important;
+        min-height: 280px !important;
+      }
+      
+      .crossword-container .cw-canvas {
+        min-height: 320px !important;
+      }
+    }
+    
     /* Grid focus fix - prevent scrolling issues when typing */
     .crossword-container .cw-hidden-input {
       position: fixed !important;
@@ -1431,27 +1457,41 @@
       display: none !important;
     }
     
-    /* Hide the current clue display that might cause focus issues */
+    /* Show the current clue display - this is important for users */
     .crossword-container .cw-top-text-wrapper {
-      display: none !important;
+      display: block !important;
+      background: #e3f2fd !important;
+      border: 1px solid #bbdefb !important;
+      border-radius: 6px !important;
+      margin: 10px auto !important;
+      padding: 12px 15px !important;
+      max-width: 90% !important;
+      text-align: center !important;
     }
     
-    /* Hide crossword instructions and answer form for pure crossword display */
-    .crossword-container ~ .crossword-instructions,
-    .crossword-container + .crossword-instructions,
+    .crossword-container .cw-top-text {
+      line-height: 1.4 !important;
+      font-size: 15px !important;
+      color: #333 !important;
+    }
+    
+    .crossword-container .cw-clue-number {
+      font-weight: bold !important;
+      color: #1976d2 !important;
+      margin-right: 8px !important;
+    }
+    
+    /* Hide only the crossword solver instructions, not the main puzzle clue */
     .crossword-container .crossword-instructions {
       display: none !important;
     }
     
-    /* Hide answer form when displaying crossword puzzles */
-    body:has(.crossword-container) #answer-form {
-      display: none !important;
+    /* Ensure main clue content is visible */
+    #clue-content {
+      display: block !important;
     }
     
-    /* Alternative approach using specific selectors */
-    .puzzle-container:has(.crossword-container) #answer-form {
-      display: none !important;
-    }
+    /* Show answer form - users need to submit answers for crossword puzzles too */
   </style>
 </head>
 <body>
@@ -3476,7 +3516,7 @@
               font_color_clue: '#ffffff',
               
               // Additional PUZ-specific optimizations
-              cell_size: 45, // Larger cell size for better visibility
+              cell_size: window.innerWidth < 768 ? 30 : 45, // Responsive cell size
               skip_filled_letters: false, // Allow navigation through filled cells
               strike_completed_clues: false // Don't strike out completed clues
             };
@@ -3495,7 +3535,7 @@
                 // Show the crossword with fade-in
                 $(solverEl).find('.crossword-wrapper').css('opacity', '1');
                 
-                progressEl.textContent = '🧩 Interactive crossword clue ready!';
+                progressEl.style.display = 'none'; // Hide progress text completely
                 console.log('Crossword loaded successfully');
                 
                 // Remove unwanted UI elements
@@ -3639,38 +3679,48 @@
     // Function to prevent scroll jumping when clicking crossword (but allow interaction)
     function preventCrosswordScrollJump(container) {
       try {
-        // Store current scroll position when crossword gets focus
+        // Store current scroll position 
         let savedScrollY = window.pageYOffset;
+        let isInteracting = false;
+        
+        // Update saved position periodically when not interacting
+        setInterval(() => {
+          if (!isInteracting) {
+            savedScrollY = window.pageYOffset;
+          }
+        }, 1000);
         
         // Find the crossword canvas
         const canvas = $(container).find('canvas')[0];
         if (canvas) {
-          // Allow clicks but prevent scroll jumping
+          // Track when user starts interacting
           canvas.addEventListener('mousedown', function(e) {
+            isInteracting = true;
             savedScrollY = window.pageYOffset;
           });
           
+          canvas.addEventListener('mouseup', function(e) {
+            setTimeout(() => { isInteracting = false; }, 100);
+          });
+          
+          // Prevent flash scroll on focus but allow interaction
           canvas.addEventListener('focus', function(e) {
-            // Allow focus but restore scroll position if it changed
-            setTimeout(() => {
-              if (Math.abs(window.pageYOffset - savedScrollY) > 5) {
-                window.scrollTo(0, savedScrollY);
-              }
-            }, 10);
+            // Immediate scroll restoration to prevent flash
+            if (Math.abs(window.pageYOffset - savedScrollY) > 10) {
+              window.scrollTo(0, savedScrollY);
+            }
           });
         }
         
-        // Handle the hidden input more carefully
+        // Handle the hidden input more aggressively
         $(container).find('.cw-hidden-input').on('focus', function(e) {
-          // Don't prevent focus, just restore scroll position
-          setTimeout(() => {
-            if (Math.abs(window.pageYOffset - savedScrollY) > 5) {
-              window.scrollTo(0, savedScrollY);
-            }
-          }, 10);
+          // Immediate scroll restoration
+          if (Math.abs(window.pageYOffset - savedScrollY) > 10) {
+            window.scrollTo(0, savedScrollY);
+          }
         });
         
-        console.log('Crossword scroll jump prevention applied (interaction-friendly)');
+        console.log('Enhanced crossword scroll jump prevention applied');
       } catch (error) {
         console.warn('Error applying scroll jump prevention:', error);
       }
