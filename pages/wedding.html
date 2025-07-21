@@ -1078,19 +1078,38 @@
       visibility: hidden !important;
     }
     
-    /* Additional aggressive hiding for any remaining unwanted buttons */
-    .crossword-wrapper button[title]:not([title=""]) {
-      opacity: 0.8;
-    }
-    
-    .crossword-wrapper button[title*="Settings"],
-    .crossword-wrapper button[title*="settings"],
-    .crossword-wrapper button[title*="Config"],
-    .crossword-wrapper button[title*="config"],
+    /* Hide ALL buttons and controls initially until we can selectively show what we want */
+    .crossword-wrapper button,
+    .crossword-wrapper input[type="button"],
+    .crossword-wrapper input[type="submit"],
+    .crossword-wrapper select,
+    .crossword-wrapper .cw-toolbar,
+    .crossword-wrapper .cw-menu,
+    .crossword-wrapper .cw-controls,
+    .crossword-wrapper .cw-button,
+    .crossword-wrapper *[class*="button"],
+    .crossword-wrapper *[class*="Button"],
     .crossword-wrapper *[class*="settings"],
-    .crossword-wrapper *[class*="Settings"] {
+    .crossword-wrapper *[class*="Settings"],
+    .crossword-wrapper *[class*="menu"],
+    .crossword-wrapper *[class*="Menu"],
+    .crossword-wrapper *[class*="control"],
+    .crossword-wrapper *[class*="Control"] {
       display: none !important;
       visibility: hidden !important;
+    }
+    
+    /* Only allow the grid and clues to be visible */
+    .crossword-wrapper .cw-grid,
+    .crossword-wrapper .cw-grid-container,
+    .crossword-wrapper .cw-clues,
+    .crossword-wrapper .cw-clues-container,
+    .crossword-wrapper .cw-clue-list,
+    .crossword-wrapper table,
+    .crossword-wrapper .cw-across,
+    .crossword-wrapper .cw-down {
+      display: block !important;
+      visibility: visible !important;
     }
     
     .crossword-completion-form {
@@ -2938,8 +2957,10 @@
           submitBtn.textContent = 'Submit Answer';
         }
 
-        // Make sure answer form is visible and add crossword-specific instruction
+        // Ensure answer form is visible and properly displayed for crossword puzzles
         answerFormEl.style.display = 'block';
+        answerFormEl.style.visibility = 'visible';
+        answerFormEl.style.opacity = '1';
         
         // Add helpful instruction for crossword puzzles
         const existingInstruction = document.getElementById('crossword-answer-instruction');
@@ -2953,18 +2974,33 @@
           background: linear-gradient(145deg, #e8f5e8, #f1f8f1);
           border: 2px solid #4CAF50;
           border-radius: 12px;
-          padding: 15px;
-          margin: 20px 0;
+          padding: 20px;
+          margin: 25px 0;
           text-align: center;
-          font-weight: 500;
+          font-weight: 600;
           color: #2e7d32;
+          box-shadow: 0 4px 15px rgba(76, 175, 80, 0.2);
         `;
         answerInstruction.innerHTML = `
-          📝 <strong>Submit Your Answer:</strong> After working through the crossword above, 
-          enter your final answer in the field(s) below and click "Submit Answer".
+          📝 <strong style="font-size: 18px;">Submit Your Final Answer</strong><br>
+          <span style="font-size: 14px; font-weight: normal; margin-top: 8px; display: block;">
+          After working through the crossword above, enter your final answer in the field(s) below and click "Submit Answer".
+          </span>
         `;
         
+        // Insert the instruction before the answers container
         answersContainer.parentNode.insertBefore(answerInstruction, answersContainer);
+        
+        // Make sure the answers container and all its children are visible
+        answersContainer.style.display = 'block';
+        answersContainer.style.visibility = 'visible';
+        
+        // Also ensure the submit button is visible
+        const submitButton = answerFormEl.querySelector('button[type="submit"]');
+        if (submitButton) {
+          submitButton.style.display = 'block';
+          submitButton.style.visibility = 'visible';
+        }
         
         // Load the actual crossword
         if (crosswordConfig.fileUrl) {
@@ -3020,17 +3056,19 @@
         
         console.log('Loading crossword:', { fileUrl, fileType });
         
-        // Create crossword container with proper structure for Crossword Nexus
+        // Show loading state with spinner
         solverEl.innerHTML = `
-          <div class="crossword-wrapper">
-            <div class="crossword"></div>
+          <div style="text-align: center; padding: 60px; background: white; border-radius: 8px;">
+            <div class="loader" style="margin: 0 auto 20px;"></div>
+            <div style="color: #666; font-size: 16px;">Loading crossword puzzle...</div>
+            <div style="color: #999; font-size: 14px; margin-top: 10px;">Please wait while we prepare your interactive clue</div>
           </div>
         `;
         
-        progressEl.textContent = 'Initializing crossword solver...';
+        progressEl.textContent = 'Loading crossword puzzle...';
         
-        // Wait for DOM to be ready
-        setTimeout(() => {
+        // Wait longer to ensure everything is loaded, and add file verification
+        setTimeout(async () => {
           try {
             // Check if required libraries are loaded
             if (typeof $ === 'undefined') {
@@ -3040,12 +3078,33 @@
               throw new Error('CrosswordNexus not loaded');
             }
             
+            // Test if file is accessible first
+            console.log('Testing file accessibility:', fileUrl);
+            try {
+              const testResponse = await fetch(fileUrl, { method: 'HEAD' });
+              if (!testResponse.ok) {
+                throw new Error(`Crossword file not accessible: ${testResponse.status}`);
+              }
+            } catch (fetchError) {
+              console.warn('File accessibility test failed:', fetchError);
+              // Continue anyway as HEAD requests might be blocked
+            }
+            
+            // Create crossword container with hidden wrapper initially
+            solverEl.innerHTML = `
+              <div class="crossword-wrapper" style="opacity: 0; transition: opacity 0.5s ease;">
+                <div class="crossword"></div>
+              </div>
+            `;
+            
             // Get the crossword div element using jQuery
             const crosswordDiv = $(solverEl).find('.crossword');
             
             if (crosswordDiv.length === 0) {
               throw new Error('Crossword container not found');
             }
+            
+            progressEl.textContent = 'Initializing crossword solver...';
             
             // Configure crossword with proper file loading
             const config = {
@@ -3081,23 +3140,41 @@
               // Store crossword instance for cleanup if needed
               window[`crossword_${puzzleNum}`] = crossword;
               
-              progressEl.textContent = '🧩 Interactive crossword clue ready!';
-              
-              // Remove cheat buttons after crossword is created (multiple attempts)
+              // Wait for crossword to fully load before showing
               setTimeout(() => {
+                // Check if clues loaded properly
+                const clueElements = $(solverEl).find('.cw-clues-container, .cw-clue-list');
+                const hasClues = clueElements.length > 0 && clueElements.text().trim().length > 0;
+                
+                if (hasClues) {
+                  progressEl.textContent = '🧩 Interactive crossword clue ready!';
+                  
+                  // Show the crossword with fade-in
+                  $(solverEl).find('.crossword-wrapper').css('opacity', '1');
+                  
+                  console.log('Crossword loaded successfully with clues');
+                } else {
+                  console.warn('Crossword loaded but clues may not be available');
+                  progressEl.textContent = '🧩 Crossword loaded (clues may be limited)';
+                  $(solverEl).find('.crossword-wrapper').css('opacity', '1');
+                }
+                
+                // Remove unwanted UI elements
                 removeCrosswordCheatButtons(solverEl);
-                console.log('Crossword loaded and cheat buttons removed (first pass)');
-              }, 1000);
+                
+              }, 2000); // Wait 2 seconds for crossword to fully initialize
               
+              // Additional cleanup passes
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
                 console.log('Crossword cheat buttons removed (second pass)');
-              }, 3000);
+              }, 4000);
               
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
                 console.log('Crossword cheat buttons removed (final pass)');
-              }, 5000);
+              }, 6000);
+              
             } else {
               throw new Error('Failed to create crossword instance');
             }
@@ -3119,7 +3196,7 @@
             `;
             progressEl.textContent = '⚠ Crossword loading error - use regular clue';
           }
-        }, 500); // Increased delay to ensure DOM is ready
+        }, 1500); // Increased delay to 1.5 seconds
         
       } catch (error) {
         console.error('Error loading crossword file:', error);
@@ -3345,6 +3422,192 @@
           </div>
         `);
       }
+    };
+    
+    // Debug function to check what crossword files are actually available
+    window.checkCrosswordFiles = async function() {
+      console.log('🔍 Checking crossword file availability...');
+      
+      const testUrls = [
+        '../crossword-solver/puzzles/1_Gum.cfp',
+        '../crossword-solver/sample_puzzles/fun.ipuz',
+        '../crossword-solver/sample_puzzles/DontTurnAround.jpz',
+        '../crossword-solver/sample_puzzles/FM.jpz'
+      ];
+      
+      for (const url of testUrls) {
+        try {
+          const response = await fetch(url, { method: 'HEAD' });
+          console.log(`✅ ${url} - Available (${response.status})`);
+        } catch (error) {
+          console.log(`❌ ${url} - Not available:`, error.message);
+        }
+      }
+      
+      // Also try to fetch and examine a file
+      try {
+        const response = await fetch('../crossword-solver/sample_puzzles/fun.ipuz');
+        if (response.ok) {
+          const content = await response.text();
+          console.log('📄 Sample IPUZ file content (first 500 chars):', content.substring(0, 500));
+        }
+      } catch (error) {
+        console.log('❌ Could not fetch sample file:', error);
+      }
+    };
+    
+    // Debug function to inspect the current crossword state
+    window.inspectCurrentCrossword = function() {
+      console.log('🔍 Inspecting current crossword state...');
+      
+      const puzzleNum = currentScreen;
+      const crosswordElement = document.getElementById(`crossword-solver-${puzzleNum}`);
+      
+      if (crosswordElement) {
+        console.log('Found crossword element:', crosswordElement);
+        
+        const clueElements = crosswordElement.querySelectorAll('.cw-clues-container, .cw-clue-list, [class*="clue"]');
+        console.log('Found clue elements:', clueElements);
+        
+        clueElements.forEach((el, index) => {
+          console.log(`Clue element ${index}:`, el.textContent || el.innerHTML);
+        });
+        
+        const gridElements = crosswordElement.querySelectorAll('table, .cw-grid, [class*="grid"]');
+        console.log('Found grid elements:', gridElements);
+        
+        // Check for any buttons or controls
+        const buttonElements = crosswordElement.querySelectorAll('button, input[type="button"], select');
+        console.log('Found buttons/controls:', buttonElements);
+        
+        buttonElements.forEach((el, index) => {
+          console.log(`Button ${index}:`, el.textContent || el.value, 'visible:', el.style.display !== 'none');
+        });
+      } else {
+        console.log('❌ No crossword element found for puzzle', puzzleNum);
+      }
+    };
+    
+    // Debug function to test loading the actual CFP file that exists
+    window.testRealCFP = function() {
+      console.log('🧩 Testing real CFP file...');
+      
+      const testContainer = $('<div>').css({
+        width: '600px',
+        height: '600px',
+        border: '2px solid #4CAF50',
+        margin: '20px',
+        padding: '15px',
+        backgroundColor: 'white',
+        borderRadius: '8px'
+      }).appendTo('body');
+      
+      const testTitle = $('<h3>').text('🧩 Real CFP Test (1_Gum.cfp)').css({
+        margin: '10px 0',
+        color: '#333'
+      }).insertBefore(testContainer);
+      
+      const progressDiv = $('<div>').text('Loading...').css({
+        color: '#666',
+        textAlign: 'center',
+        padding: '20px'
+      }).appendTo(testContainer);
+      
+      setTimeout(() => {
+        try {
+          const testCrossword = CrosswordNexus.createCrossword(testContainer, {
+            puzzle_file: {
+              url: '../crossword-solver/puzzles/1_Gum.cfp',
+              type: 'cfp'
+            },
+            color_selected: '#ffeb3b',
+            color_word: '#fff9c4',
+            timer_autostart: false,
+            hover_enabled: true
+          });
+          
+          progressDiv.text('Crossword created! Checking for clues...');
+          
+          setTimeout(() => {
+            const clueCheck = testContainer.find('[class*="clue"], .cw-clues');
+            progressDiv.html(`
+              <div>✅ Crossword created successfully</div>
+              <div>Found ${clueCheck.length} clue elements</div>
+              <div>Clue text: ${clueCheck.text().substring(0, 100)}...</div>
+            `);
+            
+            console.log('✅ Real CFP test crossword created:', testCrossword);
+            console.log('Clue elements found:', clueCheck);
+          }, 3000);
+          
+          // Add remove button
+          const removeBtn = $('<button>')
+            .text('Remove Test')
+            .css({
+              margin: '10px',
+              padding: '8px 16px',
+              backgroundColor: '#f44336',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            })
+            .click(() => {
+              testTitle.remove();
+              testContainer.remove();
+              removeBtn.remove();
+            })
+            .insertAfter(testContainer);
+            
+        } catch (error) {
+          console.error('❌ Error creating real CFP test:', error);
+          progressDiv.html(`
+            <div style="color: #e53935;">
+              <h4>❌ Real CFP Test Failed</h4>
+              <p>Error: ${error.message}</p>
+            </div>
+          `);
+        }
+      }, 1000);
+    };
+    
+    // Debug function to force show answer form
+    window.forceShowAnswerForm = function() {
+      console.log('🔧 Force showing answer form...');
+      
+      const answersContainer = document.getElementById('answers-container');
+      const answerForm = document.getElementById('answer-form');
+      
+      if (answerForm) {
+        answerForm.style.display = 'block';
+        answerForm.style.visibility = 'visible';
+        answerForm.style.opacity = '1';
+        console.log('✅ Answer form forced visible');
+      }
+      
+      if (answersContainer) {
+        answersContainer.style.display = 'block';
+        answersContainer.style.visibility = 'visible';
+        
+        // Make all children visible too
+        const children = answersContainer.querySelectorAll('*');
+        children.forEach(child => {
+          child.style.display = 'block';
+          child.style.visibility = 'visible';
+        });
+        
+        console.log('✅ Answers container forced visible');
+        console.log('Answers container content:', answersContainer.innerHTML);
+      }
+      
+      // Also check if any answer inputs exist
+      const answerInputs = document.querySelectorAll('.answer-input');
+      console.log('Found answer inputs:', answerInputs.length);
+      answerInputs.forEach((input, index) => {
+        console.log(`Input ${index}:`, input);
+        input.style.display = 'block';
+        input.style.visibility = 'visible';
+      });
     };
     
     // Note: Crossword puzzles use normal answer submission - no special completion handling needed
