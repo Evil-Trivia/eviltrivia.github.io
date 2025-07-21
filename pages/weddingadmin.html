@@ -880,6 +880,26 @@
           <span id="ending-page-save-indicator" class="save-indicator">Ending page saved!</span>
         </div>
         
+        <div class="global-settings" style="margin-bottom: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;">
+          <h3>🧩 Crossword Files</h3>
+          <p>Upload and manage CFP crossword files for your puzzles.</p>
+          
+          <div class="form-group">
+            <label for="crossword-file-upload">Upload CFP File:</label>
+            <input type="file" id="crossword-file-upload" accept=".cfp,.puz,.jpz,.ipuz" style="width: 100%; padding: 8px; margin-bottom: 10px;">
+            <button id="upload-crossword-btn" class="btn" disabled>Upload Crossword</button>
+            <span id="crossword-upload-status" style="margin-left: 10px; color: #666;"></span>
+          </div>
+          
+          <div class="form-group" style="margin-top: 20px;">
+            <h4>Available Crossword Files:</h4>
+            <div id="crossword-files-list" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background: white;">
+              <div style="text-align: center; color: #666; padding: 20px;">Loading crossword files...</div>
+            </div>
+            <button id="refresh-crosswords-btn" class="btn btn-secondary" style="margin-top: 10px;">Refresh List</button>
+          </div>
+        </div>
+        
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
           <h3>Puzzles</h3>
                 <button id="add-puzzle-btn" class="btn">Add New Puzzle</button>
@@ -1142,6 +1162,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
     import { getDatabase, ref, set, push, get, remove, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, listAll, deleteObject } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-storage.js";
     
     // Firebase configuration
     const firebaseConfig = {
@@ -1159,6 +1180,7 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
     const auth = getAuth(app);
+    const storage = getStorage(app);
     
     // Firebase database URL
     const DB_URL = "https://eviltrivia-47664-default-rtdb.firebaseio.com";
@@ -1342,6 +1364,7 @@
         loadSuccessMessages();
         loadEndingPageContent();
         loadWelcomePageContentAdmin();
+        initializeCrosswordFileManagement();
         
         // Set up tab switching
         tabPuzzles.addEventListener('click', () => {
@@ -3464,21 +3487,197 @@
           }
         });
         
-        // Add quick-fill button for local CFP file
-        const quickFillBtn = document.createElement('button');
-        quickFillBtn.type = 'button';
-        quickFillBtn.className = 'btn btn-secondary';
-        quickFillBtn.style.marginTop = '10px';
-        quickFillBtn.textContent = 'Use Sample Crossword (1_Gum.cfp)';
-              quickFillBtn.addEventListener('click', function() {
-        crosswordFileUrlInput.value = 'crossword-solver/puzzles/1_Gum.cfp';
-        loadCrosswordPreview('crossword-solver/puzzles/1_Gum.cfp');
-      });
+                // Add button to select from uploaded files
+        const selectFileBtn = document.createElement('button');
+        selectFileBtn.type = 'button';
+        selectFileBtn.className = 'btn btn-secondary';
+        selectFileBtn.style.marginTop = '10px';
+        selectFileBtn.textContent = 'Select from Uploaded Files';
+        selectFileBtn.addEventListener('click', async function() {
+          await showCrosswordFileSelector(crosswordFileUrlInput);
+        });
         
-        crosswordFileUrlInput.parentNode.appendChild(quickFillBtn);
+        crosswordFileUrlInput.parentNode.appendChild(selectFileBtn);
         
       } catch (error) {
         console.error('Error setting up crossword functionality:', error);
+      }
+    }
+    
+    // Initialize crossword file management
+    async function initializeCrosswordFileManagement() {
+      const fileUpload = document.getElementById('crossword-file-upload');
+      const uploadBtn = document.getElementById('upload-crossword-btn');
+      const uploadStatus = document.getElementById('crossword-upload-status');
+      const refreshBtn = document.getElementById('refresh-crosswords-btn');
+      
+      // Enable upload button when file is selected
+      fileUpload.addEventListener('change', function() {
+        uploadBtn.disabled = !this.files[0];
+        uploadStatus.textContent = '';
+      });
+      
+      // Handle file upload
+      uploadBtn.addEventListener('click', async function() {
+        const file = fileUpload.files[0];
+        if (!file) return;
+        
+        uploadStatus.textContent = 'Uploading...';
+        uploadBtn.disabled = true;
+        
+        try {
+          const fileName = file.name;
+          const fileRef = storageRef(storage, `wedding/crosswords/${fileName}`);
+          
+          await uploadBytes(fileRef, file);
+          const downloadURL = await getDownloadURL(fileRef);
+          
+          uploadStatus.textContent = '✅ Upload successful!';
+          uploadStatus.style.color = '#4CAF50';
+          
+          // Clear the file input
+          fileUpload.value = '';
+          
+          // Refresh the files list
+          await loadCrosswordFilesList();
+          
+        } catch (error) {
+          console.error('Error uploading file:', error);
+          uploadStatus.textContent = '❌ Upload failed: ' + error.message;
+          uploadStatus.style.color = '#f44336';
+        }
+        
+        uploadBtn.disabled = false;
+      });
+      
+      // Handle refresh button
+      refreshBtn.addEventListener('click', loadCrosswordFilesList);
+      
+      // Load initial files list
+      await loadCrosswordFilesList();
+    }
+    
+    // Load crossword files list from Firebase Storage
+    async function loadCrosswordFilesList() {
+      const filesList = document.getElementById('crossword-files-list');
+      
+      try {
+        filesList.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">Loading crossword files...</div>';
+        
+        const crosswordsRef = storageRef(storage, 'wedding/crosswords/');
+        const result = await listAll(crosswordsRef);
+        
+        if (result.items.length === 0) {
+          filesList.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No crossword files uploaded yet.</div>';
+          return;
+        }
+        
+        filesList.innerHTML = '';
+        
+        for (const itemRef of result.items) {
+          const downloadURL = await getDownloadURL(itemRef);
+          const fileName = itemRef.name;
+          
+          const fileItem = document.createElement('div');
+          fileItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #eee;';
+          
+          fileItem.innerHTML = `
+            <div>
+              <strong>${fileName}</strong>
+              <br><small style="color: #666;">Click "Use This File" to copy URL</small>
+            </div>
+            <div>
+              <button class="btn btn-sm" onclick="copyToClipboard('${downloadURL}', '${fileName}')" style="margin-right: 5px;">Use This File</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteCrosswordFile('${fileName}')">Delete</button>
+            </div>
+          `;
+          
+          filesList.appendChild(fileItem);
+        }
+        
+      } catch (error) {
+        console.error('Error loading crossword files:', error);
+        filesList.innerHTML = '<div style="text-align: center; color: #f44336; padding: 20px;">Error loading files: ' + error.message + '</div>';
+      }
+    }
+    
+    // Copy Firebase URL to clipboard and update crossword input
+    window.copyToClipboard = function(url, fileName) {
+      // Try to find an open crossword URL input and fill it
+      const crosswordUrlInput = document.getElementById('crossword-file-url');
+      if (crosswordUrlInput) {
+        crosswordUrlInput.value = url;
+        showSuccessToast(`✅ ${fileName} URL copied to crossword settings!`);
+      } else {
+        // Fallback: copy to clipboard
+        navigator.clipboard.writeText(url).then(() => {
+          showSuccessToast(`✅ ${fileName} URL copied to clipboard!`);
+        }).catch(() => {
+          // Fallback for older browsers
+          const textArea = document.createElement('textarea');
+          textArea.value = url;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          showSuccessToast(`✅ ${fileName} URL copied!`);
+        });
+      }
+    };
+    
+    // Delete crossword file from Firebase Storage
+    window.deleteCrosswordFile = async function(fileName) {
+      if (!confirm(`Are you sure you want to delete "${fileName}"?`)) return;
+      
+      try {
+        const fileRef = storageRef(storage, `wedding/crosswords/${fileName}`);
+        await deleteObject(fileRef);
+        
+        showSuccessToast(`✅ ${fileName} deleted successfully!`);
+        await loadCrosswordFilesList();
+        
+      } catch (error) {
+        console.error('Error deleting file:', error);
+        alert('Error deleting file: ' + error.message);
+      }
+    };
+    
+    // Show crossword file selector
+    async function showCrosswordFileSelector(targetInput) {
+      try {
+        const crosswordsRef = storageRef(storage, 'wedding/crosswords/');
+        const result = await listAll(crosswordsRef);
+        
+        if (result.items.length === 0) {
+          alert('No crossword files uploaded yet. Please upload a CFP file first.');
+          return;
+        }
+        
+        let fileOptions = 'Select a crossword file:\n\n';
+        const files = [];
+        
+        for (let i = 0; i < result.items.length; i++) {
+          const itemRef = result.items[i];
+          const fileName = itemRef.name;
+          const downloadURL = await getDownloadURL(itemRef);
+          
+          files.push({ name: fileName, url: downloadURL });
+          fileOptions += `${i + 1}. ${fileName}\n`;
+        }
+        
+        const selection = prompt(fileOptions + '\nEnter the number of the file you want to use:');
+        const index = parseInt(selection) - 1;
+        
+        if (index >= 0 && index < files.length) {
+          const selectedFile = files[index];
+          targetInput.value = selectedFile.url;
+          loadCrosswordPreview(selectedFile.url);
+          showSuccessToast(`✅ Selected: ${selectedFile.name}`);
+        }
+        
+      } catch (error) {
+        console.error('Error loading crossword files:', error);
+        alert('Error loading crossword files: ' + error.message);
       }
     }
     
