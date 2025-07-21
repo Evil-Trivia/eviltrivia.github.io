@@ -1395,6 +1395,28 @@
       display: none !important;
     }
     
+    /* Alternative: Instead of hiding, position clues invisibly behind the puzzle to prevent scroll issues */
+    .crossword-container .cw-clues,
+    .crossword-container .cw-clue-list,
+    .crossword-container .cw-clues-container,
+    .crossword-container .cw-across,
+    .crossword-container .cw-down {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 1px !important;
+      height: 1px !important;
+      font-size: 1px !important;
+      line-height: 1px !important;
+      overflow: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      z-index: -1 !important;
+      /* Keep them within the crossword container bounds */
+      clip: rect(0, 1px, 1px, 0) !important;
+      clip-path: inset(0 0 99% 99%) !important;
+    }
+    
     /* Center the crossword grid properly */
     .crossword-container .cw-content {
       display: flex !important;
@@ -3607,12 +3629,14 @@
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
                 preventCrosswordScrolling(solverEl);
+                hideClueElements(solverEl);
                 console.log('Crossword cheat buttons removed (second pass)');
               }, 4000);
               
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
                 preventCrosswordScrolling(solverEl);
+                hideClueElements(solverEl);
                 console.log('Crossword cheat buttons removed (final pass)');
               }, 6000);
               
@@ -3753,11 +3777,44 @@
         }
       };
       
+      // Immediate scroll restoration without any delay
+      const immediateScrollRestore = () => {
+        window.scrollTo({
+          top: globalScrollPosition.top,
+          left: globalScrollPosition.left,
+          behavior: 'auto' // Instant, no smooth scrolling
+        });
+      };
+      
       // Add event listeners to prevent scrolling
       const scrollEvents = ['scroll', 'touchmove'];
       scrollEvents.forEach(event => {
         window.addEventListener(event, preventScroll, { passive: false });
       });
+      
+      // Also intercept scroll attempts at the window level
+      const originalScrollTo = window.scrollTo;
+      const originalScrollBy = window.scrollBy;
+      
+      window.scrollTo = function(...args) {
+        if (preventScrolling) {
+          // During crossword interaction, force scroll to saved position
+          return originalScrollTo.call(this, {
+            top: globalScrollPosition.top,
+            left: globalScrollPosition.left,
+            behavior: 'auto'
+          });
+        }
+        return originalScrollTo.apply(this, args);
+      };
+      
+      window.scrollBy = function(...args) {
+        if (preventScrolling) {
+          // Prevent any scroll-by attempts during crossword interaction
+          return;
+        }
+        return originalScrollBy.apply(this, args);
+      };
       
       // Monitor all crossword elements for focus events
       const observer = new MutationObserver((mutations) => {
@@ -3771,20 +3828,22 @@
               focusableElements.forEach(element => {
                 // Add focus event listener
                 element.addEventListener('focus', (e) => {
+                  // Prevent default focus behavior that causes scrolling
+                  e.preventDefault();
+                  
                   isTrackingCrosswordScroll = true;
                   preventScrolling = true;
                   
-                  // Use saved global scroll position
-                  const savedScrollTop = globalScrollPosition.top;
-                  const savedScrollLeft = globalScrollPosition.left;
+                  // Restore immediately with no delay
+                  immediateScrollRestore();
                   
-                  // Restore scroll position immediately after focus
+                  // Also restore after a tiny delay in case of any async behavior
                   setTimeout(() => {
-                    window.scrollTo(savedScrollLeft, savedScrollTop);
+                    immediateScrollRestore();
                     preventScrolling = false;
                     isTrackingCrosswordScroll = false;
-                  }, 10);
-                });
+                  }, 1); // Reduced from 10ms to 1ms
+                }, { passive: false }); // Ensure we can prevent default
                 
                 // Add click event listener to prevent any potential scroll behavior
                 element.addEventListener('click', (e) => {
@@ -3807,36 +3866,41 @@
       
       // Also handle the container itself
       container.addEventListener('click', (e) => {
-        // Use global scroll position tracking for more reliable restoration
+        // Prevent any default click behavior that might cause scrolling
+        if (e.target.tagName === 'A' || e.target.closest('a')) {
+          e.preventDefault();
+        }
+        
         isTrackingCrosswordScroll = true;
         preventScrolling = true;
         
-        const savedScrollTop = globalScrollPosition.top;
-        const savedScrollLeft = globalScrollPosition.left;
+        // Immediate restoration
+        immediateScrollRestore();
         
         setTimeout(() => {
-          window.scrollTo(savedScrollLeft, savedScrollTop);
+          immediateScrollRestore();
           preventScrolling = false;
           isTrackingCrosswordScroll = false;
-        }, 10);
-      });
+        }, 1);
+      }, { passive: false });
       
       // Handle all existing elements in the container
       const existingElements = container.querySelectorAll('input, button, a, [tabindex], canvas');
       existingElements.forEach(element => {
         element.addEventListener('focus', (e) => {
+          e.preventDefault();
+          
           isTrackingCrosswordScroll = true;
           preventScrolling = true;
           
-          const savedScrollTop = globalScrollPosition.top;
-          const savedScrollLeft = globalScrollPosition.left;
+          immediateScrollRestore();
           
           setTimeout(() => {
-            window.scrollTo(savedScrollLeft, savedScrollTop);
+            immediateScrollRestore();
             preventScrolling = false;
             isTrackingCrosswordScroll = false;
-          }, 10);
-        });
+          }, 1);
+        }, { passive: false });
         
         element.addEventListener('click', (e) => {
           if (element.tagName === 'A' && element.getAttribute('href') === '#') {
@@ -3847,6 +3911,9 @@
       
       console.log('✅ Scroll prevention setup complete for crossword');
       
+      // Actively hide any clue elements to prevent scroll issues
+      hideClueElements(container);
+      
       // Clean up function (store for later use if needed)
       container._scrollPreventionCleanup = () => {
         scrollEvents.forEach(event => {
@@ -3854,6 +3921,51 @@
         });
         observer.disconnect();
       };
+    }
+    
+    // Function to actively hide/reposition clue elements
+    function hideClueElements(container) {
+      if (!container) return;
+      
+      const clueSelectors = [
+        '.cw-clues', '.cw-clue-list', '.cw-clues-container', 
+        '.cw-across', '.cw-down', '.cw-clues-holder',
+        '[class*="clue"]', '[class*="Clue"]'
+      ];
+      
+      clueSelectors.forEach(selector => {
+        const elements = container.querySelectorAll(selector);
+        elements.forEach(element => {
+          // Position element invisibly within the container bounds
+          element.style.position = 'absolute';
+          element.style.top = '0px';
+          element.style.left = '0px';
+          element.style.width = '1px';
+          element.style.height = '1px';
+          element.style.fontSize = '1px';
+          element.style.lineHeight = '1px';
+          element.style.overflow = 'hidden';
+          element.style.opacity = '0';
+          element.style.pointerEvents = 'none';
+          element.style.zIndex = '-1';
+          element.style.clip = 'rect(0, 1px, 1px, 0)';
+          element.style.clipPath = 'inset(0 0 99% 99%)';
+          
+          // Also hide any child elements that might be causing issues
+          const children = element.querySelectorAll('*');
+          children.forEach(child => {
+            child.style.position = 'static';
+            child.style.width = '1px';
+            child.style.height = '1px';
+            child.style.fontSize = '1px';
+            child.style.overflow = 'hidden';
+            child.style.opacity = '0';
+            child.style.pointerEvents = 'none';
+          });
+        });
+      });
+      
+      console.log('🫥 Clue elements hidden to prevent scrolling');
     }
 
     
