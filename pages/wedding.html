@@ -1332,36 +1332,39 @@
     }
     
     /* Prevent focus issues and scrolling */
-    .crossword-container .cw-hidden-input {
+    .crossword-container .cw-hidden-input,
+    .crossword-wrapper .cw-hidden-input,
+    input.cw-hidden-input {
       position: fixed !important;
       top: -1000px !important;
       left: -1000px !important;
       opacity: 0 !important;
       pointer-events: none !important;
-      z-index: -1 !important;
-      width: 1px !important;
-      height: 1px !important;
-      border: none !important;
-      outline: none !important;
-      background: transparent !important;
-    }
-    
-    /* Prevent any scrolling on crossword focus events */
-    .crossword-container input,
-    .crossword-container textarea,
-    .crossword-container select,
-    .crossword-container button {
+      /* Prevent any scroll behavior */
       scroll-margin: 0 !important;
-      scroll-padding: 0 !important;
+      scroll-snap-margin: 0 !important;
     }
     
-    /* Prevent crossword from causing page scroll */
-    .crossword-container {
+    /* Prevent scroll on any crossword elements */
+    .crossword-container *,
+    .crossword-wrapper * {
       scroll-behavior: auto !important;
     }
     
-    .crossword-container * {
+    /* Ensure crossword container doesn't cause scroll jumps */
+    .crossword-container,
+    .crossword-wrapper {
+      scroll-margin-top: 0 !important;
+      scroll-snap-margin-top: 0 !important;
+    }
+    
+    /* Prevent anchor-style scroll behavior on crossword elements */
+    .crossword-container a,
+    .crossword-wrapper a,
+    .crossword-container [href],
+    .crossword-wrapper [href] {
       scroll-behavior: auto !important;
+      scroll-margin: 0 !important;
     }
     
     /* Smooth scrolling for clue lists */
@@ -1384,28 +1387,12 @@
     
     /* Crossword focus and stability fixes */
     .crossword-container {
-      /* Prevent container from causing scroll issues */
-      overflow: visible !important;
-      scroll-behavior: auto !important;
-      will-change: auto !important;
-      transform: none !important;
-      /* Ensure container doesn't interfere with page scroll */
-      position: relative !important;
-      contain: layout style !important;
+      
     }
     
-    /* Hide the clue columns visually but keep them accessible to prevent scroll issues */
+    /* Hide the clue columns - we don't need them */
     .crossword-container .cw-clues-holder {
-      position: absolute !important;
-      left: -9999px !important;
-      top: -9999px !important;
-      width: 1px !important;
-      height: 1px !important;
-      overflow: hidden !important;
-      clip: rect(0, 0, 0, 0) !important;
-      visibility: hidden !important;
-      opacity: 0 !important;
-      pointer-events: none !important;
+      display: none !important;
     }
     
     /* Center the crossword grid properly */
@@ -1704,6 +1691,10 @@
     let userEmail = '';
     let solvedPuzzles = [];
     
+    // Global scroll position tracking for crossword interactions
+    let globalScrollPosition = { top: 0, left: 0 };
+    let isTrackingCrosswordScroll = false;
+    
     // Global variables to store custom messages
     let customSuccessMessages = {
       puzzleSolved: 'Correct! Moving to Puzzle {nextPuzzle}...',
@@ -1876,6 +1867,14 @@
     
     // Initialize - Check for existing progress in localStorage
     document.addEventListener('DOMContentLoaded', async function() {
+      // Set up global scroll position tracking
+      setInterval(() => {
+        if (!isTrackingCrosswordScroll) {
+          globalScrollPosition.top = window.pageYOffset || document.documentElement.scrollTop;
+          globalScrollPosition.left = window.pageXOffset || document.documentElement.scrollLeft;
+        }
+      }, 100);
+      
       // Ensure we have a user ID even for anonymous users
       userId = getOrCreateUserId();
       
@@ -3586,70 +3585,10 @@
               // Store crossword instance for cleanup if needed
               window[`crossword_${puzzleNum}`] = crossword;
               
-              // Prevent scrolling issues by capturing and managing focus events
+              // Prevent scrolling on crossword interactions
               setTimeout(() => {
-                const crosswordElement = document.getElementById(`crossword-solver-${puzzleNum}`);
-                if (crosswordElement) {
-                  // Store the current scroll position
-                  let lastScrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                  
-                  // Add event listeners to prevent unwanted scrolling
-                  crosswordElement.addEventListener('click', function(e) {
-                    // Store scroll position before click
-                    lastScrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                    
-                    // Prevent any default scrolling behavior
-                    setTimeout(() => {
-                      window.scrollTo({
-                        top: lastScrollTop,
-                        behavior: 'instant'
-                      });
-                    }, 0);
-                  }, true);
-                  
-                  // Intercept focus events that might cause scrolling
-                  crosswordElement.addEventListener('focus', function(e) {
-                    e.preventDefault();
-                    setTimeout(() => {
-                      window.scrollTo({
-                        top: lastScrollTop,
-                        behavior: 'instant'
-                      });
-                    }, 0);
-                  }, true);
-                  
-                  // Prevent scroll events within the crossword from affecting the page
-                  crosswordElement.addEventListener('scroll', function(e) {
-                    e.stopPropagation();
-                  }, true);
-                  
-                  // Monitor for any programmatic scrolling and prevent it
-                  const originalScrollTo = window.scrollTo;
-                  let isInternalScroll = false;
-                  
-                  window.scrollTo = function(x, y) {
-                    if (isInternalScroll) {
-                      return originalScrollTo.call(this, x, y);
-                    }
-                    
-                    // Check if this scroll is coming from crossword interaction
-                    const stack = new Error().stack;
-                    if (stack && (stack.includes('crossword') || stack.includes('CrosswordNexus'))) {
-                      // Ignore scrolling from crossword
-                      return;
-                    }
-                    
-                    return originalScrollTo.call(this, x, y);
-                  };
-                  
-                  // Override scroll restoration
-                  window.addEventListener('beforeunload', () => {
-                    window.scrollTo = originalScrollTo;
-                  });
-                  
-                  console.log('✅ Crossword scroll prevention installed');
-                }
-              }, 1000);
+                preventCrosswordScrolling(solverEl);
+              }, 500);
               
               // Wait for crossword to fully load before showing
             setTimeout(() => {
@@ -3667,11 +3606,13 @@
               // Additional cleanup passes
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
+                preventCrosswordScrolling(solverEl);
                 console.log('Crossword cheat buttons removed (second pass)');
               }, 4000);
               
               setTimeout(() => {
                 removeCrosswordCheatButtons(solverEl);
+                preventCrosswordScrolling(solverEl);
                 console.log('Crossword cheat buttons removed (final pass)');
               }, 6000);
               
@@ -3792,65 +3733,128 @@
         
         console.log('Cheat prevention applied to crossword solver');
       }, 1000); // Delay to ensure crossword is fully rendered
-      
-      // Add additional scroll prevention for canvas clicks
-      setTimeout(() => {
-        const canvasElements = searchContainer.querySelectorAll ? 
-          searchContainer.querySelectorAll('canvas') : 
-          $(searchContainer).find('canvas');
-          
-        if (canvasElements.forEach) {
-          canvasElements.forEach(canvas => {
-            canvas.addEventListener('click', function(e) {
-              // Store current scroll position and restore it after any potential changes
-              const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop;
-              
-              // Allow the click to proceed normally for crossword functionality
-              // But restore scroll position if it changes unexpectedly
-              setTimeout(() => {
-                const newScrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                if (Math.abs(newScrollTop - currentScrollTop) > 10) {
-                  console.log('Preventing unwanted scroll from crossword click');
-                  window.scrollTo({
-                    top: currentScrollTop,
-                    behavior: 'instant'
-                  });
-                }
-              }, 50); // Longer delay to let crossword process click first
-            }, { capture: false, passive: true });
-            
-            canvas.addEventListener('focus', function(e) {
-              e.preventDefault();
-            }, { capture: true, passive: false });
-            
-            console.log('Canvas scroll prevention applied');
-          });
-        } else if (canvasElements.each) {
-          canvasElements.each(function() {
-            const canvas = this;
-            canvas.addEventListener('click', function(e) {
-              const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop;
-              
-              setTimeout(() => {
-                const newScrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                if (Math.abs(newScrollTop - currentScrollTop) > 10) {
-                  console.log('Preventing unwanted scroll from crossword click (jQuery)');
-                  window.scrollTo({
-                    top: currentScrollTop,
-                    behavior: 'instant'
-                  });
-                }
-              }, 50);
-            }, { capture: false, passive: true });
-            
-            canvas.addEventListener('focus', function(e) {
-              e.preventDefault();
-            }, { capture: true, passive: false });
-          });
-        }
-      }, 1500); // Extra delay to ensure canvas is rendered
     }
     
+    // Prevent crossword from causing page scrolling
+    function preventCrosswordScrolling(container) {
+      if (!container) return;
+      
+      console.log('🛡️ Setting up scroll prevention for crossword...');
+      
+      // Store the current scroll position
+      let preventScrolling = false;
+      
+      // Function to prevent scroll jumps
+      const preventScroll = (e) => {
+        if (preventScrolling) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+      };
+      
+      // Add event listeners to prevent scrolling
+      const scrollEvents = ['scroll', 'touchmove'];
+      scrollEvents.forEach(event => {
+        window.addEventListener(event, preventScroll, { passive: false });
+      });
+      
+      // Monitor all crossword elements for focus events
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === 1) { // Element node
+              // Check for hidden inputs and other focus-able elements
+              const focusableElements = node.querySelectorAll ? 
+                node.querySelectorAll('input, button, a, [tabindex], canvas') : [];
+              
+              focusableElements.forEach(element => {
+                // Add focus event listener
+                element.addEventListener('focus', (e) => {
+                  isTrackingCrosswordScroll = true;
+                  preventScrolling = true;
+                  
+                  // Use saved global scroll position
+                  const savedScrollTop = globalScrollPosition.top;
+                  const savedScrollLeft = globalScrollPosition.left;
+                  
+                  // Restore scroll position immediately after focus
+                  setTimeout(() => {
+                    window.scrollTo(savedScrollLeft, savedScrollTop);
+                    preventScrolling = false;
+                    isTrackingCrosswordScroll = false;
+                  }, 10);
+                });
+                
+                // Add click event listener to prevent any potential scroll behavior
+                element.addEventListener('click', (e) => {
+                  // Prevent any default anchor or form behavior that might cause scrolling
+                  if (element.tagName === 'A' && element.getAttribute('href') === '#') {
+                    e.preventDefault();
+                  }
+                });
+              });
+            }
+          });
+        });
+      });
+      
+      // Start observing the crossword container
+      observer.observe(container, {
+        childList: true,
+        subtree: true
+      });
+      
+      // Also handle the container itself
+      container.addEventListener('click', (e) => {
+        // Use global scroll position tracking for more reliable restoration
+        isTrackingCrosswordScroll = true;
+        preventScrolling = true;
+        
+        const savedScrollTop = globalScrollPosition.top;
+        const savedScrollLeft = globalScrollPosition.left;
+        
+        setTimeout(() => {
+          window.scrollTo(savedScrollLeft, savedScrollTop);
+          preventScrolling = false;
+          isTrackingCrosswordScroll = false;
+        }, 10);
+      });
+      
+      // Handle all existing elements in the container
+      const existingElements = container.querySelectorAll('input, button, a, [tabindex], canvas');
+      existingElements.forEach(element => {
+        element.addEventListener('focus', (e) => {
+          isTrackingCrosswordScroll = true;
+          preventScrolling = true;
+          
+          const savedScrollTop = globalScrollPosition.top;
+          const savedScrollLeft = globalScrollPosition.left;
+          
+          setTimeout(() => {
+            window.scrollTo(savedScrollLeft, savedScrollTop);
+            preventScrolling = false;
+            isTrackingCrosswordScroll = false;
+          }, 10);
+        });
+        
+        element.addEventListener('click', (e) => {
+          if (element.tagName === 'A' && element.getAttribute('href') === '#') {
+            e.preventDefault();
+          }
+        });
+      });
+      
+      console.log('✅ Scroll prevention setup complete for crossword');
+      
+      // Clean up function (store for later use if needed)
+      container._scrollPreventionCleanup = () => {
+        scrollEvents.forEach(event => {
+          window.removeEventListener(event, preventScroll);
+        });
+        observer.disconnect();
+      };
+    }
 
     
     // Debug function to test crossword loading
