@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload Sample Crossword</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .btn {
+      background: #000;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .btn:hover {
+      background: #333;
+    }
+    .status {
+      margin: 20px 0;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Upload Sample Crossword</h1>
+    <p>This utility will upload the sample 1_Gum.cfp crossword file to Firebase Storage so you can test the crossword functionality.</p>
+    
+    <button id="upload-btn" class="btn">Upload 1_Gum.cfp to Firebase</button>
+    
+    <div id="status"></div>
+    
+    <p><strong>After upload:</strong> Go to the wedding admin page → Crossword Files section → Use the uploaded file in your puzzle configuration.</p>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-storage.js";
+
+    // Firebase configuration (same as admin page)
+    const firebaseConfig = {
+        apiKey: "AIzaSyB8gYOdaOILv8bNfCNsqVWYTcgD-3O7OqA",
+        authDomain: "eviltrivia-47664.firebaseapp.com",
+        databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+        projectId: "eviltrivia-47664",
+        storageBucket: "eviltrivia-47664.appspot.com",
+        messagingSenderId: "401826818140",
+        appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+        measurementId: "G-2W6RK96Y34"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const storage = getStorage(app);
+
+    document.getElementById('upload-btn').addEventListener('click', async function() {
+      const btn = this;
+      const status = document.getElementById('status');
+      
+      btn.disabled = true;
+      btn.textContent = 'Uploading...';
+      status.innerHTML = '<div class="status">Fetching sample crossword file...</div>';
+      
+      try {
+        // Fetch the sample CFP file
+        const response = await fetch('crossword-solver/puzzles/1_Gum.cfp');
+        if (!response.ok) {
+          throw new Error('Could not load sample crossword file');
+        }
+        
+        const fileBlob = await response.blob();
+        status.innerHTML = '<div class="status">Uploading to Firebase Storage...</div>';
+        
+        // Upload to Firebase Storage
+        const storageRef = ref(storage, 'wedding/crosswords/1_Gum.cfp');
+        await uploadBytes(storageRef, fileBlob);
+        
+        // Get download URL
+        const downloadURL = await getDownloadURL(storageRef);
+        
+        status.innerHTML = `
+          <div class="status success">
+            ✅ <strong>Upload successful!</strong><br>
+            File: 1_Gum.cfp<br>
+            <small>URL: ${downloadURL}</small>
+          </div>
+        `;
+        
+        btn.textContent = '✅ Upload Complete';
+        
+      } catch (error) {
+        console.error('Upload error:', error);
+        status.innerHTML = `
+          <div class="status error">
+            ❌ <strong>Upload failed:</strong><br>
+            ${error.message}
+          </div>
+        `;
+        
+        btn.disabled = false;
+        btn.textContent = 'Try Upload Again';
+      }
+    });
+  </script>
+</body>
+</html> 
