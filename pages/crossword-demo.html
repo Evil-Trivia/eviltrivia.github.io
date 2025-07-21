@@ -185,74 +185,111 @@
   </div>
   
   <!-- Crossword Nexus JavaScript -->
-  <script src="../crossword-solver/js/puz.js"></script>
-  <script src="../crossword-solver/js/jpz.js"></script>
+  <!-- jQuery (required for Crossword Nexus) -->
+  <script src="../crossword-solver/lib/jquery.js"></script>
+  
+  <!-- JSCrossword tools for loading crosswords -->
+  <script src="../crossword-solver/lib/jscrossword_combined.js"></script>
+  
+  <!-- Local storage cache for saving crosswords -->
+  <script src="../crossword-solver/lib/lscache.min.js"></script>
+  
+  <!-- PDF generation (optional) -->
+  <script src="../crossword-solver/lib/jspdf-2_5_1.min.js"></script>
+  <script src="../crossword-solver/lib/xw_pdf.js"></script>
+  
+  <!-- Dark reader (optional) -->
+  <script src="../crossword-solver/lib/darkreader.min.js"></script>
+  
+  <!-- Main crossword JavaScript (MUST be loaded last) -->
   <script src="../crossword-solver/js/crosswords.js"></script>
   
   <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    $(document).ready(function() {
       const progressText = document.getElementById('progress-text');
-      const crosswordContainer = document.getElementById('crossword-solver');
       
       // Update progress
       function updateProgress(text) {
         progressText.textContent = text;
       }
       
-      // Initialize crossword
-      function initializeCrossword() {
-        try {
-          updateProgress('Loading crossword data...');
-          
-          // Load the CFP file
-          const cfpUrl = '../crossword-solver/puzzles/1_Gum.cfp';
-          
-          // Create a file input to load the crossword
-          fetch(cfpUrl)
-            .then(response => {
-              if (!response.ok) {
-                throw new Error('Could not load crossword file');
-              }
-              return response.text();
-            })
-            .then(cfpData => {
-              updateProgress('Parsing crossword...');
-              
-              // Parse the CFP data and create the crossword
-              try {
-                // Use the crossword solver library to parse CFP
-                const crossword = new Crossword();
-                crossword.loadFromCFP(cfpData);
-                
-                // Render the crossword
-                crossword.renderTo(crosswordContainer);
-                
-                updateProgress('Crossword ready! Start solving...');
-                
-                // Remove reveal and check buttons after render
-                setTimeout(removeCheatButtons, 500);
-                
-                // Set up completion detection
-                setupCompletionDetection(crossword);
-                
-              } catch (parseError) {
-                console.error('Error parsing crossword:', parseError);
-                fallbackDisplay();
-              }
-            })
-            .catch(error => {
-              console.error('Error loading crossword:', error);
-              fallbackDisplay();
-            });
-            
-        } catch (error) {
-          console.error('Error initializing crossword:', error);
-          fallbackDisplay();
-        }
+      updateProgress('Initializing crossword...');
+      
+      // Check if CrosswordNexus is available
+      if (typeof CrosswordNexus === 'undefined') {
+        updateProgress('Error: CrosswordNexus not loaded');
+        console.error('CrosswordNexus not loaded');
+        return;
       }
       
-      // Fallback display if crossword fails to load
-      function fallbackDisplay() {
+      // Configuration for the crossword
+      var params = {
+        // Disable reveal and check functionality for cheat-proof solving
+        has_reveal: false,
+        has_check: false,
+        
+        // Styling options
+        color_selected: '#FFD700',
+        color_word: '#FEE300',
+        color_hover: '#FFFFAA',
+        
+        // Puzzle file
+        puzzle_file: {
+          url: '../crossword-solver/puzzles/1_Gum.cfp',
+          type: 'cfp'
+        },
+        
+        // User experience settings
+        skip_filled_letters: true,
+        arrow_direction: 'arrow_move_filled',
+        space_bar: 'space_clear',
+        timer_autostart: false,
+        
+        // Disable confetti on completion
+        confetti_enabled: false
+      };
+      
+      updateProgress('Creating crossword...');
+      
+      try {
+        // Create the crossword using CrosswordNexus
+        var crossword = CrosswordNexus.createCrossword($('#crossword-solver'), params);
+        
+        updateProgress('Crossword loaded! Start solving...');
+        
+        // Remove any cheat buttons that might appear
+        setTimeout(function() {
+          removeCheatButtons();
+        }, 1000);
+        
+        // Set up completion detection
+        if (crossword) {
+          setInterval(function() {
+            checkCrosswordCompletion(crossword);
+          }, 2000);
+        }
+        
+      } catch (error) {
+        console.error('Error creating crossword:', error);
+        updateProgress('Error loading crossword');
+        fallbackDisplay();
+      }
+    });
+    
+    // Check if crossword is completed
+    function checkCrosswordCompletion(crossword) {
+      try {
+        if (crossword && crossword.checkIfSolved && crossword.checkIfSolved(false)) {
+          document.getElementById('progress-text').textContent = '🎉 Crossword completed!';
+        }
+      } catch (error) {
+        // Silently handle errors
+        console.log('Completion check error:', error);
+      }
+    }
+    
+    // Fallback display if crossword fails to load
+    function fallbackDisplay() {
         updateProgress('Crossword preview - Use admin interface to configure');
         crosswordContainer.innerHTML = `
           <div style="text-align: center; padding: 40px; border: 2px dashed #ccc; border-radius: 12px; background: #f9f9f9;">
@@ -303,43 +340,6 @@
           }
         });
       }
-      
-      // Set up completion detection
-      function setupCompletionDetection(crossword) {
-        if (!crossword || !crossword.checkCompletion) return;
-        
-        // Poll for completion every few seconds
-        const completionInterval = setInterval(() => {
-          try {
-            if (crossword.checkCompletion && crossword.checkCompletion()) {
-              updateProgress('🎉 Crossword completed! Excellent work!');
-              clearInterval(completionInterval);
-              
-              // Trigger celebration effect
-              setTimeout(() => {
-                updateProgress('✅ Puzzle solved - Ready for next challenge!');
-              }, 3000);
-            } else {
-              // Calculate rough progress
-              const filledCells = crossword.getFilledCellCount ? crossword.getFilledCellCount() : 0;
-              const totalCells = crossword.getTotalCellCount ? crossword.getTotalCellCount() : 0;
-              
-              if (totalCells > 0) {
-                const percentage = Math.round((filledCells / totalCells) * 100);
-                updateProgress(`Progress: ${percentage}% completed`);
-              } else {
-                updateProgress('Keep solving...');
-              }
-            }
-          } catch (error) {
-            // Fail silently for completion detection errors
-          }
-        }, 3000);
-      }
-      
-      // Initialize the crossword
-      setTimeout(initializeCrossword, 1000);
-    });
   </script>
 </body>
 </html> 
