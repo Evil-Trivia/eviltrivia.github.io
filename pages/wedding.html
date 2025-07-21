@@ -999,6 +999,17 @@
       visibility: hidden !important;
     }
     
+    /* Hide file picker interface for embedded crosswords */
+    .crossword-container .cw-button-open-puzzle,
+    .crossword-container input[type="file"],
+    .crossword-container .cw-file-picker,
+    .crossword-wrapper .cw-button-open-puzzle,
+    .crossword-wrapper input[type="file"],
+    .crossword-wrapper .cw-file-picker {
+      display: none !important;
+      visibility: hidden !important;
+    }
+    
     .crossword-completion-form {
       margin-top: 20px;
       padding: 20px;
@@ -2943,18 +2954,27 @@
             console.log('Creating crossword with content length:', fileContent.length);
             console.log('File type:', fileType);
             
-            // Create a blob from the file content
-            const blob = new Blob([fileContent], { type: 'text/plain' });
-            
             // Get the crossword div element
             const crosswordDiv = $(solverEl).find('.crossword');
             
-            // Configure crossword with anti-cheat settings
+            // Create a blob URL from the file content for CrosswordNexus to load
+            const blob = new Blob([fileContent], { type: 'text/plain' });
+            const blobUrl = URL.createObjectURL(blob);
+            
+            // Configure crossword with anti-cheat settings and puzzle file
             const config = {
+              // Provide the puzzle file directly to bypass file picker
+              puzzle_file: {
+                url: blobUrl,
+                type: fileType
+              },
+              
               // Disable cheat features
               allow_helpers: false,
               show_check_buttons: false,
               show_reveal_buttons: false,
+              
+
               
               // Custom styling to fit in the container
               grid_size: 'auto',
@@ -2962,7 +2982,7 @@
               // Timer settings
               timer_autostart: false,
               
-              // Colors
+              // Colors to match wedding theme
               color_none: '#ffffff',
               color_block: '#000000',
               color_selected: '#ffeb3b',
@@ -2970,43 +2990,22 @@
               color_hilited: '#e1f5fe'
             };
             
-            // Create deferred object for handling the file loading
-            const deferred = $.Deferred();
+            console.log('Creating CrosswordNexus with config:', config);
             
-            // Set up success handler
-            deferred.done(function(puzzleString) {
-              console.log('Crossword loaded successfully');
+            // Create the crossword instance with puzzle file
+            const crossword = CrosswordNexus.createCrossword(crosswordDiv, config);
+            
+            // Set up success indicator after a short delay to allow rendering
+            setTimeout(() => {
+              console.log('Crossword should be loaded');
               progressEl.textContent = '🧩 Interactive crossword clue ready!';
+              
+              // Clean up the blob URL to prevent memory leaks
+              URL.revokeObjectURL(blobUrl);
               
               // Remove cheat buttons after crossword is created
               setTimeout(() => removeCrosswordCheatButtons(), 1000);
-            });
-            
-            // Set up error handler
-            deferred.fail(function(error) {
-              console.error('Failed to load crossword:', error);
-              throw new Error('Failed to parse crossword file');
-            });
-            
-            // Create the crossword instance
-            const crossword = CrosswordNexus.createCrossword(crosswordDiv, config);
-            
-            // Load the file content using the internal loadFromFile function
-            // This mimics what CrosswordNexus does internally
-            const reader = new FileReader();
-            reader.onload = function(event) {
-              const string = event.target.result;
-              deferred.resolve(string);
-              
-              // The crossword should now be rendered
-              console.log('Crossword file processed');
-            };
-            reader.onerror = function() {
-              deferred.reject('Failed to read file');
-            };
-            
-            // Read the blob as binary string (as CrosswordNexus expects)
-            reader.readAsBinaryString(blob);
+            }, 2000);
             
           } catch (parseError) {
             console.error('Error creating crossword:', parseError);
@@ -3042,17 +3041,21 @@
       }
     }
     
-    // Remove cheat buttons from crossword solver
+    // Remove cheat buttons and file picker from crossword solver
     function removeCrosswordCheatButtons() {
-      const cheatingSelectors = [
+      const unwantedSelectors = [
+        // Cheat buttons
         '.check-word-btn', '.check-puzzle-btn', '.reveal-letter-btn', 
         '.reveal-word-btn', '.reveal-puzzle-btn', '.reveal-button',
         '.check-button', 'button[onclick*="reveal"]', 'button[onclick*="check"]',
         'input[value*="Reveal"]', 'input[value*="Check"]', '.reveal', '.check',
-        '.cw-check', '.cw-reveal'
+        '.cw-check', '.cw-reveal',
+        // File picker interface  
+        '.cw-button-open-puzzle', 'input[type="file"]', '.cw-file-picker',
+        '.cw-button-file', '.cw-open-button'
       ];
       
-      cheatingSelectors.forEach(selector => {
+      unwantedSelectors.forEach(selector => {
         document.querySelectorAll(selector).forEach(el => {
           el.style.display = 'none';
           el.style.visibility = 'hidden';
