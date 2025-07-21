@@ -34,8 +34,7 @@ eviltrivia.github.io/
 │   ├── lib/
 │   └── sample_puzzles/
 ├── pages/
-│   ├── crossword.html          # Basic crossword page
-│   ├── crossword-puzzle.html   # Advanced integrated version
+│   ├── wedding.html           # Main puzzle page with crossword integration
 │   └── puzzles/               # Your crossword files go here
 └── CROSSWORD_SETUP.md         # This file
 ```
@@ -59,47 +58,17 @@ eviltrivia.github.io/
 
 1. Save your crossword file as `wedding-crossword.cfp` (or .puz, .jpz, .ipuz)
 2. Upload it to: `pages/puzzles/wedding-crossword.cfp`
-3. Update the file path in `crossword-puzzle.html` if needed:
+3. Configure the crossword in the wedding admin panel
 
-```javascript
-puzzle_file: {
-  url: 'puzzles/wedding-crossword.cfp', // Your file here
-  type: 'cfp' // Match your file type
-}
-```
+### Step 3: Configure Crossword in Wedding Puzzle
 
-### Step 3: Integrate with Wedding Puzzle System
+1. Go to the wedding admin panel
+2. Edit the puzzle you want to make a crossword
+3. In the "Crossword" tab, enable crossword mode
+4. Set the CFP file URL to your uploaded file
+5. Configure completion settings
 
-In your main `wedding.html`, add a crossword puzzle option. For example, modify the puzzle loading to include:
-
-```javascript
-// Add this to your loadPuzzle function around line 1350
-if (puzzleNum === 5) { // Or whatever puzzle number you want
-  window.location.href = 'crossword-puzzle.html';
-  return;
-}
-```
-
-### Step 4: Customize the Secret Word
-
-In `crossword-puzzle.html`, change the final answer (line 219):
-
-```javascript
-const correctAnswer = 'love'; // Change to your secret word
-```
-
-## 🎯 Two Implementation Options
-
-### Option 1: Basic Crossword (`crossword.html`)
-- Simple standalone crossword
-- Basic integration
-- Good for testing
-
-### Option 2: Advanced Integration (`crossword-puzzle.html`)
-- Full wedding puzzle system integration
-- Secret word completion mechanism
-- Better mobile experience
-- Recommended for production
+The crossword will be automatically integrated into the wedding puzzle system with anti-cheat protection and proper styling.
 
 ## 🛠️ Customization Options
 

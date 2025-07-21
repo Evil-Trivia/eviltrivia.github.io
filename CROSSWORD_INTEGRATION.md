@@ -22,10 +22,8 @@ The following has been implemented:
 - ✅ Preview functionality
 - ✅ Sample crossword quick-fill button
 
-### **Demo Pages**
-- ✅ `pages/crossword-demo.html` - Working demonstration
-- ✅ `pages/crossword.html` - Basic crossword page
-- ✅ `pages/crossword-puzzle.html` - Advanced integration
+### **Integration**
+- ✅ Full crossword integration in `pages/wedding.html`
 
 ### **Sample Content**
 - ✅ `crossword-solver/puzzles/1_Gum.cfp` - Sample crossword file
@@ -106,10 +104,7 @@ eviltrivia.github.io/
 │       └── 1_Gum.cfp        # Sample crossword
 ├── pages/
 │   ├── wedding.html          # Main puzzle (with crossword support)
-│   ├── weddingadmin.html     # Admin (with crossword config)
-│   ├── crossword-demo.html   # Demo page
-│   ├── crossword.html        # Basic crossword page
-│   └── crossword-puzzle.html # Advanced crossword page
+│   └── weddingadmin.html     # Admin (with crossword config)
 └── CROSSWORD_SETUP.md        # Detailed setup guide
 ```
 
@@ -125,7 +120,7 @@ Crosswords automatically inherit:
 ## 🧪 **Testing Guide**
 
 ### **Test Basic Integration**
-1. Go to `pages/crossword-demo.html`
+1. Configure a crossword puzzle in the wedding admin panel
 2. Verify crossword loads with sample CFP file
 3. Check cheat protection (no reveal buttons)
 
@@ -174,7 +169,7 @@ Crosswords automatically inherit:
 ## 🔗 **Related Files**
 
 - `CROSSWORD_SETUP.md` - Detailed technical setup
-- `pages/crossword-demo.html` - Working demonstration
+- `pages/wedding.html` - Main integration file
 - `crossword-solver/puzzles/1_Gum.cfp` - Sample crossword
 
 ---
