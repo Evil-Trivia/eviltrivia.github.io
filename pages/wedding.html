@@ -1389,6 +1389,18 @@
       justify-content: center !important;
       align-items: center !important;
       margin: 20px auto !important;
+      min-height: 600px !important;
+      width: 100% !important;
+    }
+    
+    /* Make the crossword larger */
+    .crossword-container canvas {
+      max-width: 90% !important;
+      max-height: 90% !important;
+      width: auto !important;
+      height: auto !important;
+      min-width: 500px !important;
+      min-height: 500px !important;
     }
     
     /* Grid focus fix - prevent scrolling issues when typing */
@@ -1421,6 +1433,23 @@
     
     /* Hide the current clue display that might cause focus issues */
     .crossword-container .cw-top-text-wrapper {
+      display: none !important;
+    }
+    
+    /* Hide crossword instructions and answer form for pure crossword display */
+    .crossword-container ~ .crossword-instructions,
+    .crossword-container + .crossword-instructions,
+    .crossword-container .crossword-instructions {
+      display: none !important;
+    }
+    
+    /* Hide answer form when displaying crossword puzzles */
+    body:has(.crossword-container) #answer-form {
+      display: none !important;
+    }
+    
+    /* Alternative approach using specific selectors */
+    .puzzle-container:has(.crossword-container) #answer-form {
       display: none !important;
     }
   </style>
@@ -3447,7 +3476,7 @@
               font_color_clue: '#ffffff',
               
               // Additional PUZ-specific optimizations
-              cell_size: 0, // Auto-size for responsive display
+              cell_size: 45, // Larger cell size for better visibility
               skip_filled_letters: false, // Allow navigation through filled cells
               strike_completed_clues: false // Don't strike out completed clues
             };
@@ -3607,32 +3636,41 @@
       }, 1000); // Delay to ensure crossword is fully rendered
     }
     
-    // Function to prevent scroll jumping when clicking crossword
+    // Function to prevent scroll jumping when clicking crossword (but allow interaction)
     function preventCrosswordScrollJump(container) {
       try {
+        // Store current scroll position when crossword gets focus
+        let savedScrollY = window.pageYOffset;
+        
         // Find the crossword canvas
         const canvas = $(container).find('canvas')[0];
         if (canvas) {
-          // Override click behavior to prevent scroll jumping
-          canvas.addEventListener('click', function(e) {
-            // Don't prevent the click, just ensure no scroll happens
-            e.stopPropagation();
-          }, true);
+          // Allow clicks but prevent scroll jumping
+          canvas.addEventListener('mousedown', function(e) {
+            savedScrollY = window.pageYOffset;
+          });
           
           canvas.addEventListener('focus', function(e) {
-            // Prevent any scroll behavior on focus
-            e.preventDefault();
-            window.scrollTo(0, window.pageYOffset);
-          }, true);
+            // Allow focus but restore scroll position if it changed
+            setTimeout(() => {
+              if (Math.abs(window.pageYOffset - savedScrollY) > 5) {
+                window.scrollTo(0, savedScrollY);
+              }
+            }, 10);
+          });
         }
         
-        // Also prevent the hidden input from causing scroll issues
+        // Handle the hidden input more carefully
         $(container).find('.cw-hidden-input').on('focus', function(e) {
-          e.preventDefault();
-          window.scrollTo(0, window.pageYOffset);
+          // Don't prevent focus, just restore scroll position
+          setTimeout(() => {
+            if (Math.abs(window.pageYOffset - savedScrollY) > 5) {
+              window.scrollTo(0, savedScrollY);
+            }
+          }, 10);
         });
         
-        console.log('Crossword scroll jump prevention applied');
+        console.log('Crossword scroll jump prevention applied (interaction-friendly)');
       } catch (error) {
         console.warn('Error applying scroll jump prevention:', error);
       }
