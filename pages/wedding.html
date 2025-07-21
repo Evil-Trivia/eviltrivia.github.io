@@ -2876,13 +2876,31 @@
         
         progressEl.textContent = 'Loading crossword file...';
         
-        // Fetch the crossword file
-        const response = await fetch(fileUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to load crossword file: ${response.status}`);
+        let fileContent = '';
+        
+        // Handle data URLs (from database) or regular URLs
+        if (fileUrl.startsWith('data:')) {
+          try {
+            // Extract content from data URL
+            const dataPrefix = fileUrl.indexOf(',');
+            if (dataPrefix !== -1) {
+              fileContent = decodeURIComponent(fileUrl.substring(dataPrefix + 1));
+              console.log('Loaded crossword from data URL, length:', fileContent.length);
+            } else {
+              throw new Error('Invalid data URL format');
+            }
+          } catch (error) {
+            throw new Error(`Failed to parse data URL: ${error.message}`);
+          }
+        } else {
+          // Fetch regular URL
+          const response = await fetch(fileUrl);
+          if (!response.ok) {
+            throw new Error(`Failed to load crossword file: ${response.status}`);
+          }
+          fileContent = await response.text();
         }
         
-        const fileContent = await response.text();
         progressEl.textContent = 'Parsing crossword data...';
         
                  // Show a demo placeholder for now - in production this would parse and render the CFP
