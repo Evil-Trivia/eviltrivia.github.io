@@ -375,8 +375,8 @@ function drawArrow(context, top_x, top_y, square_size, direction = "right") {
 
         while (!overflow && i <= maxSize) {
           el.style.fontSize = `${i}${unit}`;
-          // TODO: is this the best logic we can use here?
-          overflow = parent.scrollHeight < el.clientHeight;
+          // REMOVED: scrollHeight check - replaced with simpler overflow detection
+          overflow = el.offsetHeight > parent.offsetHeight;
           if (!overflow) {
             i += step;
           }
