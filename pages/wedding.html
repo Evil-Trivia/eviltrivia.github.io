@@ -3871,15 +3871,24 @@
         window.addEventListener(event, preventScroll, { passive: false });
       });
       
-      // Also prevent scrolling from keyboard events
+      // Also prevent scrolling from keyboard events with immediate prevention
       const keyboardEvents = ['keydown', 'keyup', 'keypress', 'input'];
       keyboardEvents.forEach(event => {
         window.addEventListener(event, (e) => {
-          if (preventScrolling) {
-            // Don't prevent the actual keyboard input, just any resulting scroll
+          // For crossword interactions, prevent scroll immediately
+          if (isTrackingCrosswordScroll || preventScrolling || e.target.closest('.crossword-container')) {
+            isTrackingCrosswordScroll = true;
+            preventScrolling = true;
+            
+            // Immediate restoration - no delay
+            immediateScrollRestore();
+            
+            // Also restore after a micro-delay for any async behavior
             setTimeout(() => {
               immediateScrollRestore();
-            }, 0);
+              preventScrolling = false;
+              isTrackingCrosswordScroll = false;
+            }, 1);
           }
         }, { passive: true });
       });
@@ -3906,6 +3915,35 @@
           return;
         }
         return originalScrollBy.apply(this, args);
+      };
+      
+      // Additional document-level scroll event interception
+      document.addEventListener('scroll', (e) => {
+        if (isTrackingCrosswordScroll || preventScrolling) {
+          e.preventDefault();
+          e.stopPropagation();
+          immediateScrollRestore();
+          return false;
+        }
+      }, { passive: false, capture: true });
+      
+      // Intercept any programmatic scroll attempts
+      const originalElementScrollTo = Element.prototype.scrollTo;
+      const originalElementScrollBy = Element.prototype.scrollBy;
+      
+      Element.prototype.scrollTo = function(...args) {
+        if (preventScrolling && this === document.documentElement) {
+          immediateScrollRestore();
+          return;
+        }
+        return originalElementScrollTo.apply(this, args);
+      };
+      
+      Element.prototype.scrollBy = function(...args) {
+        if (preventScrolling && this === document.documentElement) {
+          return;
+        }
+        return originalElementScrollBy.apply(this, args);
       };
       
       // Monitor all crossword elements for focus events
@@ -3976,15 +4014,17 @@
         }, 1);
       }, { passive: false });
       
-      // Handle keyboard events on the container
+      // Handle keyboard events on the container with aggressive prevention
       const containerKeyboardEvents = ['keydown', 'keyup', 'keypress', 'input'];
       containerKeyboardEvents.forEach(event => {
         container.addEventListener(event, (e) => {
+          // Immediate aggressive prevention
           isTrackingCrosswordScroll = true;
           preventScrolling = true;
           
-          // Immediate restoration for any keyboard-induced scroll
+          // Multiple immediate restorations to prevent any flash
           immediateScrollRestore();
+          requestAnimationFrame(() => immediateScrollRestore());
           
           setTimeout(() => {
             immediateScrollRestore();
@@ -3994,16 +4034,45 @@
         }, { passive: true });
       });
       
-      // Handle all existing elements in the container
-      const existingElements = container.querySelectorAll('input, button, a, [tabindex], canvas');
-      existingElements.forEach(element => {
-        element.addEventListener('focus', (e) => {
+      // Also add aggressive focus prevention for any crossword elements
+      const focusEvents = ['focus', 'focusin'];
+      focusEvents.forEach(event => {
+        container.addEventListener(event, (e) => {
+          // Prevent default focus behavior that might cause scrolling
           e.preventDefault();
           
           isTrackingCrosswordScroll = true;
           preventScrolling = true;
           
+          // Triple restoration for maximum prevention
           immediateScrollRestore();
+          requestAnimationFrame(() => immediateScrollRestore());
+          setTimeout(() => immediateScrollRestore(), 0);
+          
+          setTimeout(() => {
+            immediateScrollRestore();
+            preventScrolling = false;
+            isTrackingCrosswordScroll = false;
+          }, 1);
+        }, { passive: false }); // Non-passive so we can preventDefault
+      });
+      
+      // Handle all existing elements in the container with ultra-aggressive prevention
+      const existingElements = container.querySelectorAll('input, button, a, [tabindex], canvas, *');
+      existingElements.forEach(element => {
+        // Ultra-aggressive focus prevention
+        element.addEventListener('focus', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          isTrackingCrosswordScroll = true;
+          preventScrolling = true;
+          
+          // Quadruple restoration for absolute prevention
+          immediateScrollRestore();
+          requestAnimationFrame(() => immediateScrollRestore());
+          setTimeout(() => immediateScrollRestore(), 0);
+          setTimeout(() => immediateScrollRestore(), 1);
           
           setTimeout(() => {
             immediateScrollRestore();
@@ -4011,6 +4080,24 @@
             isTrackingCrosswordScroll = false;
           }, 1);
         }, { passive: false });
+        
+        // Also handle keyboard events on individual elements
+        const elementKeyboardEvents = ['keydown', 'keyup', 'input'];
+        elementKeyboardEvents.forEach(event => {
+          element.addEventListener(event, (e) => {
+            isTrackingCrosswordScroll = true;
+            preventScrolling = true;
+            
+            immediateScrollRestore();
+            requestAnimationFrame(() => immediateScrollRestore());
+            
+            setTimeout(() => {
+              immediateScrollRestore();
+              preventScrolling = false;
+              isTrackingCrosswordScroll = false;
+            }, 1);
+          }, { passive: true });
+        });
         
         element.addEventListener('click', (e) => {
           if (element.tagName === 'A' && element.getAttribute('href') === '#') {
@@ -4042,8 +4129,12 @@
             const currentTop = window.pageYOffset || document.documentElement.scrollTop;
             const currentLeft = window.pageXOffset || document.documentElement.scrollLeft;
             
-            // If scroll position has changed from our saved position, restore it
+            // If scroll position has changed from our saved position, restore it immediately
             if (currentTop !== globalScrollPosition.top || currentLeft !== globalScrollPosition.left) {
+              // Ultra-fast restoration to prevent flash
+              window.scrollTo(globalScrollPosition.left, globalScrollPosition.top);
+              
+              // Also use the more modern method
               window.scrollTo({
                 top: globalScrollPosition.top,
                 left: globalScrollPosition.left,
@@ -4051,7 +4142,7 @@
               });
             }
           }
-        }, 16); // Monitor at ~60fps for smooth prevention
+        }, 8); // Monitor at ~120fps for ultra-smooth prevention
       };
       
       const stopScrollMonitoring = () => {
