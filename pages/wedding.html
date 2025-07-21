@@ -1492,6 +1492,21 @@
     }
     
     /* Show answer form - users need to submit answers for crossword puzzles too */
+    
+    /* Hide the "Submit Your Final Answer" text but keep the form */
+    .crossword-container ~ div[style*="color: #2e7d32"] {
+      display: none !important;
+    }
+    
+    /* Hide answer instruction text specifically for crossword puzzles */
+    .answer-instruction {
+      display: none !important;
+    }
+    
+    /* Also hide the specific styles used for submit instructions */
+    div[style*="color: #2e7d32"]:has(strong) {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -3338,6 +3353,7 @@
           color: #2e7d32;
           box-shadow: 0 4px 15px rgba(76, 175, 80, 0.2);
         `;
+        answerInstruction.className = 'answer-instruction';
         answerInstruction.innerHTML = `
           📝 <strong style="font-size: 18px;">Submit Your Final Answer</strong><br>
           <span style="font-size: 14px; font-weight: normal; margin-top: 8px; display: block; line-height: 1.4;">
@@ -3682,13 +3698,21 @@
         // Store current scroll position 
         let savedScrollY = window.pageYOffset;
         let isInteracting = false;
+        let scrollLocked = false;
         
         // Update saved position periodically when not interacting
         setInterval(() => {
-          if (!isInteracting) {
+          if (!isInteracting && !scrollLocked) {
             savedScrollY = window.pageYOffset;
           }
         }, 1000);
+        
+        // Function to restore scroll position
+        function restoreScroll() {
+          if (Math.abs(window.pageYOffset - savedScrollY) > 10) {
+            window.scrollTo(0, savedScrollY);
+          }
+        }
         
         // Find the crossword canvas
         const canvas = $(container).find('canvas')[0];
@@ -3696,31 +3720,60 @@
           // Track when user starts interacting
           canvas.addEventListener('mousedown', function(e) {
             isInteracting = true;
+            scrollLocked = true;
             savedScrollY = window.pageYOffset;
           });
           
           canvas.addEventListener('mouseup', function(e) {
-            setTimeout(() => { isInteracting = false; }, 100);
+            setTimeout(() => { 
+              isInteracting = false; 
+              scrollLocked = false;
+            }, 100);
           });
           
-          // Prevent flash scroll on focus but allow interaction
-          canvas.addEventListener('focus', function(e) {
-            // Immediate scroll restoration to prevent flash
-            if (Math.abs(window.pageYOffset - savedScrollY) > 10) {
-              window.scrollTo(0, savedScrollY);
-            }
+          // Prevent all focus-related scrolling
+          canvas.addEventListener('focus', restoreScroll);
+          canvas.addEventListener('focusin', restoreScroll);
+          
+          // Handle keyboard events that might cause scrolling
+          canvas.addEventListener('keydown', function(e) {
+            scrollLocked = true;
+            savedScrollY = window.pageYOffset;
+            
+            // Allow keyboard interaction but prevent scroll
+            setTimeout(restoreScroll, 1);
           });
+          
+          canvas.addEventListener('keyup', function(e) {
+            setTimeout(() => { scrollLocked = false; }, 50);
+          });
+          
+          // Handle input events
+          canvas.addEventListener('input', restoreScroll);
         }
         
-        // Handle the hidden input more aggressively
-        $(container).find('.cw-hidden-input').on('focus', function(e) {
-          // Immediate scroll restoration
-          if (Math.abs(window.pageYOffset - savedScrollY) > 10) {
-            window.scrollTo(0, savedScrollY);
+        // Handle the hidden input more comprehensively
+        $(container).find('.cw-hidden-input').on('focus focusin keydown keyup input', function(e) {
+          scrollLocked = true;
+          savedScrollY = window.pageYOffset;
+          setTimeout(() => {
+            restoreScroll();
+            scrollLocked = false;
+          }, 1);
+        });
+        
+        // Lock scroll during any crossword interaction
+        $(container).on('click keydown keyup input focus focusin', function(e) {
+          if (e.target.closest('canvas') || e.target.classList.contains('cw-hidden-input')) {
+            scrollLocked = true;
+            setTimeout(() => {
+              restoreScroll();
+              scrollLocked = false;
+            }, 1);
           }
         });
         
-        console.log('Enhanced crossword scroll jump prevention applied');
+        console.log('Comprehensive crossword scroll prevention applied');
       } catch (error) {
         console.warn('Error applying scroll jump prevention:', error);
       }
