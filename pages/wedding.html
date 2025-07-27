@@ -1000,6 +1000,16 @@
       margin: 20px 0;
     }
     
+    /* Hide crossword elements by default - only show when explicitly enabled */
+    .crossword-container.hidden,
+    .crossword-wrapper.hidden,
+    .crossword-instructions.hidden {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+    
     .crossword-instructions {
       background: #f0f8ff;
       padding: 15px;
@@ -2657,6 +2667,9 @@
         }
 
         // 4. Content Population (Behind Loader)
+        // Clean up any existing crossword elements first
+        cleanupCrosswordElements();
+        
         puzzleNameEl.textContent = puzzleData.name || `Puzzle #${puzzleNum}`;
         const clueContentEl = document.getElementById('clue-content');
         if (puzzleData.clueHtml) {
@@ -3659,9 +3672,67 @@
       console.log('🧹 Cleanup complete! Refresh the page to test.');
     };
     
+    // Clean up any existing crossword elements from the DOM
+    function cleanupCrosswordElements() {
+      console.log('🧹 Cleaning up crossword elements...');
+      
+      // Remove any existing crossword containers
+      const existingCrosswordContainers = document.querySelectorAll('.crossword-container');
+      existingCrosswordContainers.forEach(container => {
+        console.log('🗑️ Removing crossword container:', container);
+        container.remove();
+      });
+      
+      // Remove any crossword instructions
+      const existingInstructions = document.querySelectorAll('.answer-instruction, #crossword-answer-instruction');
+      existingInstructions.forEach(instruction => {
+        console.log('🗑️ Removing crossword instruction:', instruction);
+        instruction.remove();
+      });
+      
+      // Clean up any stored crossword instances
+      for (let i = 1; i <= totalPuzzles; i++) {
+        const crosswordInstance = window[`crossword_${i}`];
+        if (crosswordInstance) {
+          console.log(`🗑️ Cleaning up crossword instance for puzzle ${i}`);
+          try {
+            // Try to destroy the crossword instance if it has a destroy method
+            if (typeof crosswordInstance.destroy === 'function') {
+              crosswordInstance.destroy();
+            }
+            delete window[`crossword_${i}`];
+          } catch (error) {
+            console.warn(`Error cleaning up crossword instance ${i}:`, error);
+          }
+        }
+      }
+      
+      // Remove any crossword-specific elements that might be lingering
+      const crosswordSelectors = [
+        '#crossword-solver-' + currentScreen,
+        '#crossword-progress-' + currentScreen,
+        '.crossword-wrapper',
+        '.crossword-instructions',
+        '.crossword-completion-form'
+      ];
+      
+      crosswordSelectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(element => {
+          console.log('🗑️ Removing crossword element:', selector, element);
+          element.remove();
+        });
+      });
+      
+      console.log('✅ Crossword cleanup complete');
+    }
+
     // Render crossword puzzle
     async function renderCrosswordPuzzle(puzzleNum, puzzleData) {
       try {
+        // Clean up any existing crossword elements first
+        cleanupCrosswordElements();
+        
         const puzzleNameEl = document.getElementById('puzzle-name');
         const clueContainerEl = document.getElementById('clue-container');
         const answerFormEl = document.getElementById('answer-form');
@@ -5011,6 +5082,79 @@
       keyboardVisible = false;
       initialViewportHeight = window.innerHeight;
       console.log('✅ Mobile keyboard state reset');
+    };
+    
+    // Debug function to check crossword visibility issues
+    window.checkCrosswordVisibility = function() {
+      console.log('🔍 Checking crossword visibility on all puzzles...');
+      
+      const allCrosswordContainers = document.querySelectorAll('.crossword-container');
+      const allCrosswordWrappers = document.querySelectorAll('.crossword-wrapper');
+      const allCrosswordInstructions = document.querySelectorAll('.crossword-instructions, .answer-instruction');
+      
+      console.log(`Found ${allCrosswordContainers.length} crossword containers:`);
+      allCrosswordContainers.forEach((container, index) => {
+        const isVisible = container.offsetParent !== null;
+        const hasHiddenClass = container.classList.contains('hidden');
+        const display = window.getComputedStyle(container).display;
+        console.log(`  Container ${index}:`, {
+          element: container,
+          visible: isVisible,
+          hasHiddenClass: hasHiddenClass,
+          display: display,
+          id: container.id,
+          parent: container.parentElement ? container.parentElement.id : 'no parent'
+        });
+      });
+      
+      console.log(`Found ${allCrosswordWrappers.length} crossword wrappers:`);
+      allCrosswordWrappers.forEach((wrapper, index) => {
+        const isVisible = wrapper.offsetParent !== null;
+        console.log(`  Wrapper ${index}:`, {
+          element: wrapper,
+          visible: isVisible,
+          display: window.getComputedStyle(wrapper).display
+        });
+      });
+      
+      console.log(`Found ${allCrosswordInstructions.length} crossword instructions:`);
+      allCrosswordInstructions.forEach((instruction, index) => {
+        const isVisible = instruction.offsetParent !== null;
+        console.log(`  Instruction ${index}:`, {
+          element: instruction,
+          visible: isVisible,
+          display: window.getComputedStyle(instruction).display,
+          textContent: instruction.textContent.substring(0, 50) + '...'
+        });
+      });
+      
+      // Check current puzzle state
+      console.log('Current puzzle state:', {
+        currentScreen: currentScreen,
+        totalPuzzles: totalPuzzles,
+        puzzleData: puzzleData ? {
+          name: puzzleData.name,
+          hasCrossword: !!(puzzleData.crossword && puzzleData.crossword.enabled)
+        } : null
+      });
+      
+      // Recommend cleanup if needed
+      if (allCrosswordContainers.length > 0 || allCrosswordWrappers.length > 0) {
+        console.log('💡 Recommendation: Run cleanupCrosswordElements() to remove lingering crossword elements');
+        console.log('💡 Or call window.forceCrosswordCleanup() to do it automatically');
+      }
+    };
+    
+    // Debug function to force cleanup
+    window.forceCrosswordCleanup = function() {
+      console.log('🧹 Force cleaning up all crossword elements...');
+      cleanupCrosswordElements();
+      console.log('✅ Force cleanup complete');
+      
+      // Check again after cleanup
+      setTimeout(() => {
+        window.checkCrosswordVisibility();
+      }, 100);
     };
     
   </script>
