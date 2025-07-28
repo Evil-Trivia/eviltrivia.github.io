@@ -421,7 +421,8 @@
       padding: 5px;
     }
     
-    .add-image-btn {
+    .add-image-btn,
+    .add-audio-btn {
       margin-top: 10px;
       padding: 8px 12px;
       background-color: #e0e0e0;
@@ -433,11 +434,13 @@
       transition: all 0.2s ease;
     }
     
-    .add-image-btn:hover {
+    .add-image-btn:hover,
+    .add-audio-btn:hover {
       background-color: #bdbdbd;
     }
     
-    .remove-image-btn {
+    .remove-image-btn,
+    .remove-audio-btn {
       position: absolute;
       top: 5px;
       right: 5px;
@@ -455,8 +458,44 @@
       transition: all 0.2s ease;
     }
     
-    .remove-image-btn:hover {
+    .remove-image-btn:hover,
+    .remove-audio-btn:hover {
       background: #ff1744;
+    }
+    
+    .audio-gallery {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    
+    .audio-item {
+      position: relative;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #f9f9f9;
+      box-sizing: border-box;
+    }
+    
+    .audio-item input {
+      width: 100%;
+      margin-bottom: 5px;
+    }
+    
+    .audio-item audio {
+      max-width: 100%;
+      display: block;
+      margin: 5px auto;
+      border-radius: 4px;
+    }
+    
+    .audio-item .audio-preview-error {
+      color: #f44336;
+      font-size: 12px;
+      text-align: center;
+      padding: 5px;
     }
     
     .editor-container {
@@ -1040,6 +1079,26 @@
     </div>
   </div>
   
+  <!-- Audio Edit Modal -->
+  <div id="audio-modal" class="image-modal">
+    <div class="image-modal-content">
+      <div class="modal-header">
+        <h3>Edit Audio Files</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      
+      <div id="audios-container" class="audio-gallery">
+        <!-- Audio fields will be added here -->
+      </div>
+      
+      <button id="add-audio-btn" class="add-audio-btn">+ Add Another Audio</button>
+      
+      <div style="margin-top: 20px; text-align: right;">
+        <button id="save-audios-btn" class="btn">Save Audio Files</button>
+      </div>
+    </div>
+  </div>
+  
   <!-- Rich Text Edit Modal -->
   <div id="richtext-modal" class="modal">
     <div class="modal-content">
@@ -1075,6 +1134,7 @@
         <button id="puzzle-tab-basic" class="active">Basic Info</button>
         <button id="puzzle-tab-clue">Clue Content</button>
         <button id="puzzle-tab-images">Images</button>
+        <button id="puzzle-tab-audio">Audio</button>
         <button id="puzzle-tab-answers">Answers</button>
         <button id="puzzle-tab-crossword">Crossword</button>
       </div>
@@ -1115,6 +1175,14 @@
         </div>
         
         <button id="edit-puzzle-add-image" class="add-image-btn">+ Add Another Image</button>
+      </div>
+      
+      <div id="puzzle-audio-tab" class="puzzle-tab-content hidden">
+        <div id="edit-puzzle-audios" class="audio-gallery" style="margin-top: 15px;">
+          <!-- Audio fields will be added here -->
+        </div>
+        
+        <button id="edit-puzzle-add-audio" class="add-audio-btn">+ Add Another Audio</button>
       </div>
       
       <div id="puzzle-answers-tab" class="puzzle-tab-content hidden">
@@ -1258,6 +1326,11 @@
     const addImageBtn = document.getElementById('add-image-btn');
     const saveImagesBtn = document.getElementById('save-images-btn');
     
+    const audioModal = document.getElementById('audio-modal');
+    const audiosContainer = document.getElementById('audios-container');
+    const addAudioBtn = document.getElementById('add-audio-btn');
+    const saveAudiosBtn = document.getElementById('save-audios-btn');
+    
     const richtextModal = document.getElementById('richtext-modal');
     const richtextPreview = document.getElementById('richtext-preview');
     const saveRichtextBtn = document.getElementById('save-richtext-btn');
@@ -1301,6 +1374,7 @@
     let currentPuzzleBeingEdited = null;
     let currentAnswers = [];
     let currentImages = [];
+    let currentAudios = [];
     let currentClueHtml = '';
     
     // Check if user is logged in and has admin privileges
@@ -1435,20 +1509,23 @@
             });
         });
         
-        // Close modals when clicking outside
+                // Close modals when clicking outside
         window.addEventListener('click', (e) => {
-            if (e.target === answerModal) {
-                closeModal(answerModal);
-            }
-            if (e.target === imageModal) {
-                closeModal(imageModal);
-            }
-            if (e.target === richtextModal) {
-                closeModal(richtextModal);
-            }
-            if (e.target === document.getElementById('puzzle-edit-modal')) {
-                closeModal(document.getElementById('puzzle-edit-modal'));
-            }
+          if (e.target === answerModal) {
+            closeModal(answerModal);
+          }
+          if (e.target === imageModal) {
+            closeModal(imageModal);
+          }
+          if (e.target === audioModal) {
+            closeModal(audioModal);
+          }
+          if (e.target === richtextModal) {
+            closeModal(richtextModal);
+          }
+          if (e.target === document.getElementById('puzzle-edit-modal')) {
+            closeModal(document.getElementById('puzzle-edit-modal'));
+          }
         });
         
         // Add answer button
@@ -1456,22 +1533,31 @@
             addAnswerField({ text: '', questionText: '' });
         });
         
-        // Add image button
+                // Add image button
         addImageBtn.addEventListener('click', () => {
-            addImageField({ url: '' });
+          addImageField({ url: '' });
+        });
+        
+        // Add audio button
+        addAudioBtn.addEventListener('click', () => {
+          addAudioField({ url: '' });
         });
         
         // Save buttons
         saveAnswersBtn.addEventListener('click', () => {
-            saveAnswers();
+          saveAnswers();
         });
         
         saveImagesBtn.addEventListener('click', () => {
-            saveImages();
+          saveImages();
+        });
+        
+        saveAudiosBtn.addEventListener('click', () => {
+          saveAudios();
         });
         
         saveRichtextBtn.addEventListener('click', () => {
-            saveRichtext();
+          saveRichtext();
         });
         
         // Add puzzle button
@@ -1759,6 +1845,11 @@
             puzzleData.imageUrls = puzzleData.imageUrl ? [puzzleData.imageUrl] : [];
           }
           
+          // Ensure audioUrls exists
+          if (!puzzleData.audioUrls) {
+            puzzleData.audioUrls = [];
+          }
+          
           // Create puzzle card
           const card = document.createElement('div');
           card.className = 'puzzle-card';
@@ -1951,6 +2042,96 @@
           imagesSection.appendChild(imagesToggle);
           imagesSection.appendChild(imagesContent);
           card.appendChild(imagesSection);
+          
+          // Audio section
+          const audioSection = document.createElement('div');
+          audioSection.className = 'expandable-section';
+          
+          const audioToggle = document.createElement('button');
+          audioToggle.className = 'section-toggle collapsed';
+          audioToggle.textContent = `Audio (${puzzleData.audioUrls ? puzzleData.audioUrls.length : 0})`;
+          
+          const audioContent = document.createElement('div');
+          audioContent.className = 'section-content collapsed';
+          
+          const audioEditSection = document.createElement('div');
+          audioEditSection.className = 'edit-section';
+          
+          const audioPreview = document.createElement('div');
+          audioPreview.style.display = 'flex';
+          audioPreview.style.gap = '8px';
+          audioPreview.style.flexWrap = 'wrap';
+          audioPreview.style.marginBottom = '10px';
+          
+          if (puzzleData.audioUrls && puzzleData.audioUrls.length > 0) {
+            puzzleData.audioUrls.slice(0, 2).forEach(url => {
+              const audioContainer = document.createElement('div');
+              audioContainer.style.display = 'flex';
+              audioContainer.style.flexDirection = 'column';
+              audioContainer.style.alignItems = 'center';
+              audioContainer.style.padding = '8px';
+              audioContainer.style.border = '1px solid #ddd';
+              audioContainer.style.borderRadius = '4px';
+              audioContainer.style.backgroundColor = '#f9f9f9';
+              audioContainer.style.minWidth = '200px';
+              
+              const audioIcon = document.createElement('div');
+              audioIcon.style.fontSize = '24px';
+              audioIcon.style.marginBottom = '4px';
+              audioIcon.textContent = '🔊';
+              
+              const audioName = document.createElement('div');
+              audioName.style.fontSize = '12px';
+              audioName.style.color = '#666';
+              audioName.style.textAlign = 'center';
+              audioName.style.wordBreak = 'break-word';
+              audioName.textContent = url.split('/').pop() || 'Audio file';
+              
+              audioContainer.appendChild(audioIcon);
+              audioContainer.appendChild(audioName);
+              audioPreview.appendChild(audioContainer);
+            });
+            
+            if (puzzleData.audioUrls.length > 2) {
+              const moreIndicator = document.createElement('div');
+              moreIndicator.style.display = 'flex';
+              moreIndicator.style.alignItems = 'center';
+              moreIndicator.style.justifyContent = 'center';
+              moreIndicator.style.width = '60px';
+              moreIndicator.style.height = '60px';
+              moreIndicator.style.backgroundColor = '#f0f0f0';
+              moreIndicator.style.borderRadius = '4px';
+              moreIndicator.style.fontSize = '12px';
+              moreIndicator.style.color = '#666';
+              moreIndicator.textContent = `+${puzzleData.audioUrls.length - 2}`;
+              audioPreview.appendChild(moreIndicator);
+            }
+          } else {
+            const noAudio = document.createElement('em');
+            noAudio.style.color = '#999';
+            noAudio.textContent = 'No audio files';
+            audioPreview.appendChild(noAudio);
+          }
+          
+          const editAudioBtn = document.createElement('button');
+          editAudioBtn.className = 'btn btn-sm';
+          editAudioBtn.textContent = 'Edit Audio';
+          editAudioBtn.addEventListener('click', () => {
+            openAudioModal(puzzleNum, puzzleData.audioUrls || []);
+          });
+          
+          audioEditSection.appendChild(audioPreview);
+          audioEditSection.appendChild(editAudioBtn);
+          audioContent.appendChild(audioEditSection);
+          
+          audioToggle.addEventListener('click', () => {
+            audioToggle.classList.toggle('collapsed');
+            audioContent.classList.toggle('collapsed');
+          });
+          
+          audioSection.appendChild(audioToggle);
+          audioSection.appendChild(audioContent);
+          card.appendChild(audioSection);
           
           // Answers section
           const answersSection = document.createElement('div');
@@ -2413,6 +2594,28 @@
       openModal(imageModal);
     }
     
+    // Open the audio modal
+    function openAudioModal(puzzleNum, audioUrls) {
+      currentPuzzleBeingEdited = puzzleNum;
+      currentAudios = [...(audioUrls || [])];
+      
+      // Clear the container
+      audiosContainer.innerHTML = '';
+      
+      // Add fields for each audio
+      if (currentAudios && currentAudios.length > 0) {
+        currentAudios.forEach(url => {
+          addAudioField({ url });
+        });
+      } else {
+        // Add at least one empty audio field
+        addAudioField({ url: '' });
+      }
+      
+      // Show the modal
+      openModal(audioModal);
+    }
+    
     // Open the richtext modal
     function openRichtextModal(puzzleNum, content) {
       currentPuzzleBeingEdited = puzzleNum;
@@ -2431,6 +2634,7 @@
     function closeAllModals() {
       closeModal(answerModal);
       closeModal(imageModal);
+      closeModal(audioModal);
       closeModal(richtextModal);
     }
     
@@ -2739,6 +2943,133 @@
       }
     }
     
+    // Add an audio field to the modal
+    function addAudioField(audio = {}) {
+      const audioItem = document.createElement('div');
+      audioItem.className = 'audio-item';
+      
+      // Audio URL field
+      const urlLabel = document.createElement('label');
+      urlLabel.textContent = 'Audio URL:';
+      
+      const urlInput = document.createElement('input');
+      urlInput.type = 'text';
+      urlInput.className = 'audio-url';
+      urlInput.value = (audio && audio.url) || '';
+      urlInput.placeholder = 'Enter audio URL here (MP3, OGG, WAV)';
+      
+      // Preview section
+      const preview = document.createElement('div');
+      preview.className = 'audio-preview';
+      
+      // Check if URL is valid and show preview
+      const updatePreview = () => {
+        const url = urlInput.value.trim();
+        
+        // Clear existing content
+        preview.innerHTML = '';
+        
+        if (url) {
+          // Try to load audio
+          const audio = document.createElement('audio');
+          audio.controls = true;
+          audio.preload = 'metadata';
+          audio.style.width = '100%';
+          audio.style.marginTop = '5px';
+          
+          const errorMsg = document.createElement('div');
+          errorMsg.className = 'audio-preview-error';
+          errorMsg.textContent = 'Could not load audio file';
+          
+          audio.addEventListener('loadedmetadata', () => {
+            // Audio loaded successfully
+            preview.innerHTML = '';
+            preview.appendChild(audio);
+          });
+          
+          audio.addEventListener('error', () => {
+            // Audio failed to load
+            preview.innerHTML = '';
+            preview.appendChild(errorMsg);
+          });
+          
+          audio.src = url;
+        }
+      };
+      
+      // Update preview on input
+      urlInput.addEventListener('input', debounce(updatePreview, 500));
+      
+      // Initial preview
+      setTimeout(updatePreview, 100);
+      
+      // Remove button
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-audio-btn';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove this audio';
+      removeBtn.addEventListener('click', function() {
+        audioItem.style.opacity = '0';
+        setTimeout(() => {
+          audioItem.remove();
+        }, 300);
+      });
+      
+      // Add everything to the item
+      audioItem.appendChild(removeBtn);
+      audioItem.appendChild(urlLabel);
+      audioItem.appendChild(urlInput);
+      audioItem.appendChild(preview);
+      
+      // Add item to container
+      audiosContainer.appendChild(audioItem);
+      
+      // Focus the new field
+      urlInput.focus();
+    }
+    
+    // Save audios from the modal
+    async function saveAudios() {
+      try {
+        // Collect audio URLs from all fields
+        const audioItems = audiosContainer.querySelectorAll('.audio-item');
+        const audioUrls = [];
+        
+        audioItems.forEach(item => {
+          try {
+            const url = item.querySelector('.audio-url')?.value?.trim() || '';
+            
+            if (url) {  // Only add if there's a URL
+              audioUrls.push(url);
+            }
+          } catch (err) {
+            console.warn('Error processing audio item:', err);
+          }
+        });
+        
+        // Save to database
+        const result = await saveToDatabase(
+          Object.values(DB_PATHS),
+          `answers/${currentPuzzleBeingEdited}`,
+          { audioUrls }
+        );
+        
+        if (result.success) {
+          // Close modal and refresh data
+          closeModal(audioModal);
+          loadPuzzles();
+          
+          // Show a temporary success message
+          showSuccessToast('Audio files saved successfully!');
+        } else {
+          alert('Error saving audio files. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error saving audio files:', error);
+        alert('Error saving audio files. Please try again: ' + error.message);
+      }
+    }
+    
     // Save richtext content
     async function saveRichtext() {
       try {
@@ -2925,11 +3256,13 @@
       document.getElementById('puzzle-tab-basic').classList.add('active');
       document.getElementById('puzzle-tab-clue').classList.remove('active');
       document.getElementById('puzzle-tab-images').classList.remove('active');
+      document.getElementById('puzzle-tab-audio').classList.remove('active');
       document.getElementById('puzzle-tab-answers').classList.remove('active');
       
       document.getElementById('puzzle-basic-tab').classList.add('active');
       document.getElementById('puzzle-clue-tab').classList.remove('active');
       document.getElementById('puzzle-images-tab').classList.remove('active');
+      document.getElementById('puzzle-audio-tab').classList.remove('active');
       document.getElementById('puzzle-answers-tab').classList.remove('active');
       
       // Basic info
@@ -2982,6 +3315,20 @@
       } else {
         // Add at least one empty image field
         addImageFieldToEditModal('');
+      }
+      
+      // Set up audio
+      const audiosContainer = document.getElementById('edit-puzzle-audios');
+      audiosContainer.innerHTML = '';
+      
+      // Add fields for each audio
+      if (puzzleData.audioUrls && puzzleData.audioUrls.length > 0) {
+        puzzleData.audioUrls.forEach(url => {
+          addAudioFieldToEditModal(url);
+        });
+      } else {
+        // Add at least one empty audio field
+        addAudioFieldToEditModal('');
       }
       
       // Set up answers
@@ -3039,6 +3386,10 @@
         switchPuzzleTab('images');
       });
       
+      document.getElementById('puzzle-tab-audio').addEventListener('click', function() {
+        switchPuzzleTab('audio');
+      });
+      
       document.getElementById('puzzle-tab-answers').addEventListener('click', function() {
         switchPuzzleTab('answers');
       });
@@ -3053,6 +3404,10 @@
       // Set up add buttons
       document.getElementById('edit-puzzle-add-image').addEventListener('click', function() {
         addImageFieldToEditModal('');
+      });
+      
+      document.getElementById('edit-puzzle-add-audio').addEventListener('click', function() {
+        addAudioFieldToEditModal('');
       });
       
       document.getElementById('edit-puzzle-add-answer').addEventListener('click', function() {
@@ -3074,12 +3429,14 @@
       document.getElementById('puzzle-tab-basic').classList.remove('active');
       document.getElementById('puzzle-tab-clue').classList.remove('active');
       document.getElementById('puzzle-tab-images').classList.remove('active');
+      document.getElementById('puzzle-tab-audio').classList.remove('active');
       document.getElementById('puzzle-tab-answers').classList.remove('active');
       document.getElementById('puzzle-tab-crossword').classList.remove('active');
       
       document.getElementById('puzzle-basic-tab').classList.remove('active');
       document.getElementById('puzzle-clue-tab').classList.remove('active');
       document.getElementById('puzzle-images-tab').classList.remove('active');
+      document.getElementById('puzzle-audio-tab').classList.remove('active');
       document.getElementById('puzzle-answers-tab').classList.remove('active');
       document.getElementById('puzzle-crossword-tab').classList.remove('active');
       
@@ -3165,6 +3522,115 @@
       
       // Add item to container
       document.getElementById('edit-puzzle-images').appendChild(imageItem);
+    }
+    
+    // Add an audio field to the edit modal
+    function addAudioFieldToEditModal(url) {
+      const audioItem = document.createElement('div');
+      audioItem.className = 'audio-item';
+      
+      // Audio URL field
+      const urlLabel = document.createElement('label');
+      urlLabel.textContent = 'Audio URL:';
+      
+      const urlInput = document.createElement('input');
+      urlInput.type = 'text';
+      urlInput.className = 'edit-audio-url';
+      urlInput.value = url || '';
+      urlInput.placeholder = 'Enter audio URL here';
+      
+      // Preview section
+      const preview = document.createElement('div');
+      preview.className = 'audio-preview';
+      
+      // Update preview on input
+      urlInput.addEventListener('input', debounce(() => {
+        const url = urlInput.value.trim();
+        
+        // Clear existing content
+        preview.innerHTML = '';
+        
+        if (url) {
+          // Try to load audio
+          const audio = document.createElement('audio');
+          audio.src = url;
+          audio.controls = true;
+          audio.autoplay = false;
+          audio.muted = false;
+          audio.loop = false;
+          
+          const playBtn = document.createElement('button');
+          playBtn.textContent = 'Play';
+          playBtn.addEventListener('click', function() {
+            audio.play();
+          });
+          
+          const pauseBtn = document.createElement('button');
+          pauseBtn.textContent = 'Pause';
+          pauseBtn.addEventListener('click', function() {
+            audio.pause();
+          });
+          
+          const muteBtn = document.createElement('button');
+          muteBtn.textContent = 'Mute';
+          muteBtn.addEventListener('click', function() {
+            audio.muted = !audio.muted;
+          });
+          
+          const unmuteBtn = document.createElement('button');
+          unmuteBtn.textContent = 'Unmute';
+          unmuteBtn.addEventListener('click', function() {
+            audio.muted = false;
+          });
+          
+          const volumeSlider = document.createElement('input');
+          volumeSlider.type = 'range';
+          volumeSlider.min = '0';
+          volumeSlider.max = '100';
+          volumeSlider.value = audio.volume * 100;
+          volumeSlider.addEventListener('input', function() {
+            audio.volume = this.value / 100;
+          });
+          
+          preview.appendChild(audio);
+          preview.appendChild(playBtn);
+          preview.appendChild(pauseBtn);
+          preview.appendChild(muteBtn);
+          preview.appendChild(unmuteBtn);
+          preview.appendChild(volumeSlider);
+        }
+      }, 500));
+      
+      // Initial preview
+      setTimeout(() => {
+        const url = urlInput.value.trim();
+        if (url) {
+          const audio = document.createElement('audio');
+          audio.src = url;
+          preview.appendChild(audio);
+        }
+      }, 100);
+      
+      // Remove button
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-audio-btn';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove this audio';
+      removeBtn.addEventListener('click', function() {
+        audioItem.style.opacity = '0';
+        setTimeout(() => {
+          audioItem.remove();
+        }, 300);
+      });
+      
+      // Add everything to the item
+      audioItem.appendChild(removeBtn);
+      audioItem.appendChild(urlLabel);
+      audioItem.appendChild(urlInput);
+      audioItem.appendChild(preview);
+      
+      // Add item to container
+      document.getElementById('edit-puzzle-audios').appendChild(audioItem);
     }
     
     // Add an answer field to the edit modal
@@ -3282,6 +3748,17 @@
           }
         });
         
+        // Get audio URLs
+        const audioItems = document.getElementById('edit-puzzle-audios').querySelectorAll('.audio-item');
+        const audioUrls = [];
+        
+        audioItems.forEach(item => {
+          const url = item.querySelector('.edit-audio-url')?.value?.trim() || '';
+          if (url) {
+            audioUrls.push(url);
+          }
+        });
+        
         // Get answers
         const answerRows = document.getElementById('edit-puzzle-answers').querySelectorAll('.answer-row');
         const answers = [];
@@ -3340,6 +3817,7 @@
           clueHtml,
           clue,
           imageUrls,
+          audioUrls,
           answers,
           wrongAnswerMessage,
           partialCorrectMessage,
