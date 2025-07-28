@@ -492,6 +492,129 @@
             z-index: 1001;
         }
         
+        /* Round Details Modal */
+        .round-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        .round-modal.show {
+            display: flex;
+        }
+        
+        .round-modal-content {
+            background: white;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 1200px;
+            max-height: 90%;
+            overflow-y: auto;
+            position: relative;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        
+        .round-modal-header {
+            position: sticky;
+            top: 0;
+            background: white;
+            border-bottom: 2px solid #eee;
+            padding: 20px 24px;
+            border-radius: 12px 12px 0 0;
+            z-index: 1001;
+        }
+        
+        .round-modal-header h2 {
+            margin: 0 0 12px 0;
+            color: var(--text-color);
+            font-size: 24px;
+        }
+        
+        .round-modal-header .drive-link {
+            display: inline-block;
+            background-color: #4285f4;
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 8px;
+            transition: var(--transition);
+        }
+        
+        .round-modal-header .drive-link:hover {
+            background-color: #3367d6;
+            transform: translateY(-1px);
+        }
+        
+        .round-modal-close {
+            position: absolute;
+            top: 20px;
+            right: 24px;
+            background: none;
+            border: none;
+            font-size: 32px;
+            cursor: pointer;
+            color: #666;
+            padding: 4px;
+            border-radius: 4px;
+            transition: var(--transition);
+        }
+        
+        .round-modal-close:hover {
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        
+        .round-modal-body {
+            padding: 24px;
+        }
+        
+        .round-questions {
+            display: grid;
+            gap: 20px;
+        }
+        
+        .question-item {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px;
+            background: #f9f9f9;
+        }
+        
+        .question-item .question-number {
+            font-weight: 600;
+            color: var(--secondary-color);
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .question-item .question {
+            font-weight: 500;
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+        
+        .question-item .answer {
+            color: #2e7d32;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        
+        .question-item .media-preview {
+            margin-top: 12px;
+        }
+        
         /* Responsive Design */
         @media (max-width: 768px) {
             .container {
@@ -549,6 +672,19 @@
                 width: 100px;
                 height: 40px;
             }
+            
+            .round-modal-content {
+                width: 95%;
+                max-height: 95%;
+            }
+            
+            .round-modal-header {
+                padding: 16px;
+            }
+            
+            .round-modal-body {
+                padding: 16px;
+            }
         }
     </style>
 </head>
@@ -595,7 +731,7 @@
                 </div>
                 
                 <div class="search-help">
-                    <strong>Pro tips:</strong> Use <code>*</code> for wildcards, <code>"exact phrase"</code> for exact matches. Click column headers to sort results.
+                    <strong>Pro tips:</strong> Use <code>*</code> for wildcards, <code>"exact phrase"</code> for exact matches. Click column headers to sort results. <strong>Click any question row to see all questions from that round!</strong>
                 </div>
             </div>
             
@@ -661,6 +797,22 @@
         <img id="modal-image" src="" alt="Full size image">
     </div>
     
+    <!-- Round Details Modal -->
+    <div class="round-modal" id="round-modal">
+        <div class="round-modal-content">
+            <div class="round-modal-header">
+                <button class="round-modal-close" id="round-modal-close">&times;</button>
+                <h2 id="round-modal-title">Round Details</h2>
+                <a id="round-drive-link" href="#" target="_blank" class="drive-link hidden">📁 Open Google Drive Folder</a>
+            </div>
+            <div class="round-modal-body">
+                <div id="round-questions" class="round-questions">
+                    <!-- Round questions will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
@@ -694,6 +846,8 @@
                 this.cache = new Map(); // Simple in-memory cache
                 this.roundTypes = new Set(); // Track available round types
                 this.formats = new Set(); // Track available formats
+                this.driveLookup = new Map(); // Google Drive folder lookup
+                this.fullRoundData = new Map(); // Store complete round data for popups
             }
             
             // Safe string extraction with error handling
@@ -711,18 +865,31 @@
                 console.log('Building search index...');
                 
                 try {
-                    // Get data from Firebase
-                    const archiveRef = db.ref('trivia-archive/archive');
-                    const snapshot = await archiveRef.once('value');
-                    const data = snapshot.val();
+                    // Get both archive and drive lookup data
+                    const [archiveSnapshot, driveSnapshot] = await Promise.all([
+                        db.ref('trivia-archive/archive').once('value'),
+                        db.ref('trivia-archive/driveLookup').once('value')
+                    ]);
                     
-                    if (!data) {
+                    const archiveData = archiveSnapshot.val();
+                    const driveData = driveSnapshot.val();
+                    
+                    if (!archiveData) {
                         console.warn('No trivia data found');
                         this.updateProgress(100, 'No data found');
                         return;
                     }
                     
-                    const triviaEntries = Object.entries(data);
+                    // Store drive lookup data
+                    if (driveData) {
+                        Object.entries(driveData).forEach(([triviaNumber, data]) => {
+                            if (data && data.Link) {
+                                this.driveLookup.set(triviaNumber, data.Link);
+                            }
+                        });
+                    }
+                    
+                    const triviaEntries = Object.entries(archiveData);
                     const totalItems = triviaEntries.length;
                     let processedItems = 0;
                     
@@ -776,10 +943,30 @@
                 for (const [roundKey, roundData] of Object.entries(triviaSet.trivia)) {
                     if (!roundData || typeof roundData !== 'object') continue;
                     
+                    // Store complete round data for popup display
+                    const roundId = `${triviaNumber}-${roundKey}`;
+                    if (!this.fullRoundData.has(roundId)) {
+                        this.fullRoundData.set(roundId, {
+                            triviaNumber,
+                            triviaDate,
+                            roundKey,
+                            roundData,
+                            questions: []
+                        });
+                    }
+                    
+                    // Extract round-level instruction (check at round level first)
+                    let roundInstruction = this.safeString(
+                        roundData['Round Instruction'] || 
+                        roundData['roundInstruction'] || 
+                        roundData['instruction'] || 
+                        ''
+                    );
+                    
                     for (const [formatKey, formatData] of Object.entries(roundData)) {
                         if (!formatData || typeof formatData !== 'object') continue;
                         
-                        // Extract round metadata from format data
+                        // Extract round metadata from format data (fallback if not at round level)
                         const roundName = this.safeString(
                             formatData['Round Name'] || 
                             formatData['name'] || 
@@ -794,12 +981,15 @@
                             ''
                         );
                         
-                        const roundInstruction = this.safeString(
-                            formatData['Round Instruction'] || 
-                            formatData['roundInstruction'] || 
-                            formatData['instruction'] || 
-                            ''
-                        );
+                        // Use format-level instruction if round-level is empty
+                        if (!roundInstruction) {
+                            roundInstruction = this.safeString(
+                                formatData['Round Instruction'] || 
+                                formatData['roundInstruction'] || 
+                                formatData['instruction'] || 
+                                ''
+                            );
+                        }
                         
                         // Track round types and formats for filtering
                         if (roundType) this.roundTypes.add(roundType);
@@ -819,7 +1009,7 @@
                                 if (question.length > 0 || answer.length > 0) {
                                     const searchableText = `${question} ${answer} ${roundName} ${roundType} ${roundInstruction}`.toLowerCase();
                                     
-                                    this.questions.push({
+                                    const questionItem = {
                                         id: `${triviaNumber}-${roundKey}-${formatKey}-${questionKey}`,
                                         triviaNumber,
                                         triviaDate,
@@ -833,7 +1023,12 @@
                                         answer,
                                         searchableText,
                                         data: questionData
-                                    });
+                                    };
+                                    
+                                    this.questions.push(questionItem);
+                                    
+                                    // Add to full round data
+                                    this.fullRoundData.get(roundId).questions.push(questionItem);
                                 }
                             } catch (error) {
                                 console.warn(`Error processing question ${triviaNumber}-${roundKey}-${formatKey}-${questionKey}:`, error);
@@ -954,6 +1149,17 @@
                 const regex = escaped.replace(/\*/g, '.*');
                 return new RegExp(regex, 'i');
             }
+            
+            // Get all questions for a specific round
+            getRoundQuestions(triviaNumber, roundKey) {
+                const roundId = `${triviaNumber}-${roundKey}`;
+                return this.fullRoundData.get(roundId) || null;
+            }
+            
+            // Get Google Drive folder link for a trivia number
+            getDriveLink(triviaNumber) {
+                return this.driveLookup.get(triviaNumber) || null;
+            }
         }
         
         // Initialize search engine
@@ -983,6 +1189,11 @@
         const imageModal = document.getElementById('image-modal');
         const modalImage = document.getElementById('modal-image');
         const modalClose = document.getElementById('modal-close');
+        const roundModal = document.getElementById('round-modal');
+        const roundModalClose = document.getElementById('round-modal-close');
+        const roundModalTitle = document.getElementById('round-modal-title');
+        const roundDriveLink = document.getElementById('round-drive-link');
+        const roundQuestions = document.getElementById('round-questions');
         
         // Search timeout for debouncing
         let searchTimeout = null;
@@ -1029,6 +1240,17 @@
         imageModal.addEventListener('click', (e) => {
             if (e.target === imageModal) {
                 imageModal.classList.remove('show');
+            }
+        });
+        
+        // Round modal events
+        roundModalClose.addEventListener('click', () => {
+            roundModal.classList.remove('show');
+        });
+        
+        roundModal.addEventListener('click', (e) => {
+            if (e.target === roundModal) {
+                roundModal.classList.remove('show');
             }
         });
         
@@ -1181,7 +1403,58 @@
                 <td class="media-cell">${createMediaPreview(result.data)}</td>
             `;
             
+            // Add click handler to show round popup
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', () => {
+                showRoundPopup(result.triviaNumber, result.round, result.roundName, result.roundType);
+            });
+            
             return row;
+        }
+        
+        function showRoundPopup(triviaNumber, roundKey, roundName, roundType) {
+            const roundData = searchEngine.getRoundQuestions(triviaNumber, roundKey);
+            if (!roundData) {
+                alert('Unable to load round data.');
+                return;
+            }
+            
+            // Set title
+            const title = `Trivia #${triviaNumber} - Round ${roundKey}${roundName ? `: ${roundName}` : ''}`;
+            roundModalTitle.textContent = title;
+            
+            // Set Google Drive link
+            const driveLink = searchEngine.getDriveLink(triviaNumber);
+            if (driveLink) {
+                roundDriveLink.href = driveLink;
+                roundDriveLink.classList.remove('hidden');
+            } else {
+                roundDriveLink.classList.add('hidden');
+            }
+            
+            // Populate questions
+            roundQuestions.innerHTML = '';
+            
+            if (roundData.questions.length === 0) {
+                roundQuestions.innerHTML = '<p>No questions found for this round.</p>';
+            } else {
+                roundData.questions.forEach((question, index) => {
+                    const questionDiv = document.createElement('div');
+                    questionDiv.className = 'question-item';
+                    
+                    questionDiv.innerHTML = `
+                        <div class="question-number">Question ${question.questionNumber} (${question.format})</div>
+                        <div class="question">${escapeHTML(question.question)}</div>
+                        <div class="answer"><strong>Answer:</strong> ${escapeHTML(question.answer)}</div>
+                        ${createMediaPreview(question.data) ? `<div class="media-preview">${createMediaPreview(question.data)}</div>` : ''}
+                    `;
+                    
+                    roundQuestions.appendChild(questionDiv);
+                });
+            }
+            
+            // Show modal
+            roundModal.classList.add('show');
         }
         
         function highlightSearchTerms(text, query) {
