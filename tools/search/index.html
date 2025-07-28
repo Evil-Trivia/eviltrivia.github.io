@@ -184,7 +184,7 @@
             padding: 16px 12px;
             text-align: left;
             border-bottom: 1px solid #f0f0f0;
-            vertical-align: middle;
+            vertical-align: top;
         }
         
         .results-table th {
@@ -197,6 +197,29 @@
             font-size: 13px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+            transition: var(--transition);
+        }
+        
+        .results-table th:hover {
+            background-color: #e9ecef;
+        }
+        
+        .results-table th.sortable::after {
+            content: ' ↕️';
+            font-size: 12px;
+            opacity: 0.5;
+        }
+        
+        .results-table th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+        
+        .results-table th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
         }
         
         .results-table tr:hover {
@@ -206,7 +229,7 @@
         }
         
         .question-text {
-            max-width: 400px;
+            max-width: 300px;
             min-height: 40px;
             max-height: 120px;
             white-space: normal;
@@ -219,6 +242,56 @@
             padding: 1px 3px;
             border-radius: 3px;
             font-weight: 600;
+        }
+        
+        .media-cell {
+            max-width: 250px;
+            min-width: 200px;
+        }
+        
+        .media-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .image-preview {
+            width: 200px;
+            height: 150px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            object-fit: cover;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .image-preview:hover {
+            transform: scale(1.02);
+            border-color: var(--secondary-color);
+        }
+        
+        .audio-player {
+            width: 200px;
+            height: 60px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .media-link {
+            font-size: 12px;
+            color: #666;
+            text-decoration: none;
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f8f9fa;
+            text-align: center;
+            transition: var(--transition);
+        }
+        
+        .media-link:hover {
+            background: #e9ecef;
+            text-decoration: none;
         }
         
         .auth-container {
@@ -328,6 +401,47 @@
             font-size: 14px;
         }
         
+        .round-name {
+            font-style: italic;
+            color: #666;
+            font-size: 12px;
+        }
+        
+        /* Image Modal */
+        .image-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .image-modal.show {
+            display: flex;
+        }
+        
+        .image-modal img {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        
+        .image-modal .close {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 40px;
+            cursor: pointer;
+            z-index: 1001;
+        }
+        
         /* Responsive Design */
         @media (max-width: 768px) {
             .container {
@@ -350,11 +464,26 @@
             }
             
             .results-table th, .results-table td {
-                padding: 12px 8px;
+                padding: 8px 6px;
             }
             
             .question-text {
-                max-width: 250px;
+                max-width: 200px;
+            }
+            
+            .media-cell {
+                max-width: 150px;
+                min-width: 120px;
+            }
+            
+            .image-preview {
+                width: 120px;
+                height: 90px;
+            }
+            
+            .audio-player {
+                width: 120px;
+                height: 50px;
             }
         }
     </style>
@@ -386,7 +515,7 @@
                 </div>
                 
                 <div class="search-help">
-                    <strong>Pro tips:</strong> Use <code>*</code> for wildcards, <code>"exact phrase"</code> for exact matches
+                    <strong>Pro tips:</strong> Use <code>*</code> for wildcards, <code>"exact phrase"</code> for exact matches. Click column headers to sort results.
                 </div>
             </div>
             
@@ -416,12 +545,13 @@
                     <table class="results-table">
                         <thead>
                             <tr>
-                                <th>Trivia #</th>
-                                <th>Date</th>
-                                <th>Round</th>
-                                <th>Format</th>
-                                <th>Question</th>
-                                <th>Answer</th>
+                                <th class="sortable" data-sort="triviaNumber">Trivia #</th>
+                                <th class="sortable" data-sort="triviaDate">Date</th>
+                                <th class="sortable" data-sort="round">Round</th>
+                                <th class="sortable" data-sort="roundName">Round Name</th>
+                                <th class="sortable" data-sort="format">Format</th>
+                                <th class="sortable" data-sort="question">Question</th>
+                                <th class="sortable" data-sort="answer">Answer</th>
                                 <th>Media</th>
                             </tr>
                         </thead>
@@ -441,6 +571,12 @@
                 </div>
             </div>
         </div>
+    </div>
+    
+    <!-- Image Modal -->
+    <div class="image-modal" id="image-modal">
+        <span class="close" id="modal-close">&times;</span>
+        <img id="modal-image" src="" alt="Full size image">
     </div>
     
     <!-- Firebase -->
@@ -556,6 +692,14 @@
                     for (const [formatKey, formatData] of Object.entries(roundData)) {
                         if (!formatData || typeof formatData !== 'object') continue;
                         
+                        // Extract round name from format data
+                        const roundName = this.safeString(
+                            formatData['Round Name'] || 
+                            formatData['name'] || 
+                            formatData['round_name'] || 
+                            ''
+                        );
+                        
                         for (const [questionKey, questionData] of Object.entries(formatData)) {
                             // Skip metadata fields
                             if (this.isMetadataField(questionKey) || !questionData || typeof questionData !== 'object') {
@@ -568,13 +712,14 @@
                                 
                                 // Only add if we have meaningful content
                                 if (question.length > 0 || answer.length > 0) {
-                                    const searchableText = `${question} ${answer}`.toLowerCase();
+                                    const searchableText = `${question} ${answer} ${roundName}`.toLowerCase();
                                     
                                     this.questions.push({
                                         id: `${triviaNumber}-${roundKey}-${formatKey}-${questionKey}`,
                                         triviaNumber,
                                         triviaDate,
                                         round: roundKey,
+                                        roundName: roundName || `Round ${roundKey}`,
                                         format: formatKey,
                                         questionNumber: questionKey,
                                         question,
@@ -592,7 +737,7 @@
             }
             
             isMetadataField(key) {
-                return ['Round Name', 'Round Type', 'Round Format', 'Round Instruction'].includes(key);
+                return ['Round Name', 'Round Type', 'Round Format', 'Round Instruction', 'name', 'round_name'].includes(key);
             }
             
             // Fast search function
@@ -677,6 +822,11 @@
         // Initialize search engine
         const searchEngine = new FastSearchEngine();
         
+        // Current results for sorting
+        let currentResults = [];
+        let currentSortColumn = null;
+        let currentSortDirection = 'asc';
+        
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
         const searchScreen = document.getElementById('search-screen');
@@ -691,6 +841,9 @@
         const noResults = document.getElementById('no-results');
         const loadMoreSection = document.getElementById('load-more');
         const clearBtn = document.getElementById('clear-btn');
+        const imageModal = document.getElementById('image-modal');
+        const modalImage = document.getElementById('modal-image');
+        const modalClose = document.getElementById('modal-close');
         
         // Search timeout for debouncing
         let searchTimeout = null;
@@ -725,6 +878,44 @@
         searchBtn.addEventListener('click', performSearch);
         clearBtn.addEventListener('click', clearResults);
         
+        // Image modal events
+        modalClose.addEventListener('click', () => {
+            imageModal.classList.remove('show');
+        });
+        
+        imageModal.addEventListener('click', (e) => {
+            if (e.target === imageModal) {
+                imageModal.classList.remove('show');
+            }
+        });
+        
+        // Column sorting
+        document.querySelectorAll('.sortable').forEach(header => {
+            header.addEventListener('click', () => {
+                const sortColumn = header.dataset.sort;
+                
+                if (currentSortColumn === sortColumn) {
+                    currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSortColumn = sortColumn;
+                    currentSortDirection = 'asc';
+                }
+                
+                // Update header indicators
+                document.querySelectorAll('.sortable').forEach(h => {
+                    h.classList.remove('sort-asc', 'sort-desc');
+                });
+                
+                header.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                
+                // Sort and redisplay results
+                if (currentResults.length > 0) {
+                    sortResults();
+                    displayResults({ results: currentResults, searchTime: 0, fromCache: true });
+                }
+            });
+        });
+        
         function performSearch() {
             const query = searchQuery.value.trim();
             if (!query || !searchEngine.isReady) {
@@ -738,6 +929,14 @@
             
             try {
                 const result = searchEngine.search(query);
+                currentResults = result.results;
+                currentSortColumn = null; // Reset sorting when new search
+                
+                // Reset sort indicators
+                document.querySelectorAll('.sortable').forEach(h => {
+                    h.classList.remove('sort-asc', 'sort-desc');
+                });
+                
                 displayResults(result);
                 updateSearchStats(result);
             } catch (error) {
@@ -746,6 +945,37 @@
             } finally {
                 setLoadingState(false);
             }
+        }
+        
+        function sortResults() {
+            if (!currentSortColumn) return;
+            
+            currentResults.sort((a, b) => {
+                let aVal = a[currentSortColumn];
+                let bVal = b[currentSortColumn];
+                
+                // Handle different data types
+                if (currentSortColumn === 'triviaNumber') {
+                    aVal = parseInt(aVal) || 0;
+                    bVal = parseInt(bVal) || 0;
+                } else if (currentSortColumn === 'triviaDate') {
+                    aVal = new Date(aVal) || new Date(0);
+                    bVal = new Date(bVal) || new Date(0);
+                } else if (currentSortColumn === 'round') {
+                    aVal = parseInt(aVal) || 0;
+                    bVal = parseInt(bVal) || 0;
+                } else {
+                    // String comparison
+                    aVal = String(aVal || '').toLowerCase();
+                    bVal = String(bVal || '').toLowerCase();
+                }
+                
+                if (currentSortDirection === 'asc') {
+                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                } else {
+                    return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+                }
+            });
         }
         
         function displayResults(searchResult) {
@@ -789,10 +1019,14 @@
                 <td><strong>#${escapeHTML(result.triviaNumber)}</strong></td>
                 <td>${escapeHTML(dateStr)}</td>
                 <td>R${escapeHTML(result.round)}</td>
+                <td>
+                    ${escapeHTML(result.roundName)}
+                    ${result.roundName !== `Round ${result.round}` ? '<div class="round-name">(' + escapeHTML(`Round ${result.round}`) + ')</div>' : ''}
+                </td>
                 <td>${escapeHTML(result.format)}</td>
                 <td class="question-text">${highlightedQuestion}</td>
                 <td class="question-text">${highlightedAnswer}</td>
-                <td>${createMediaPreview(result.data)}</td>
+                <td class="media-cell">${createMediaPreview(result.data)}</td>
             `;
             
             return row;
@@ -821,18 +1055,106 @@
             const musicClipLink = data['Music Clip Link'] || data['music_clip_link'];
             
             if (imageLink) {
-                items.push(`<a href="${escapeHTML(imageLink)}" target="_blank">🖼️ Image</a>`);
+                items.push(createImagePreview(imageLink, 'Question Image'));
             }
             
             if (answerImageLink) {
-                items.push(`<a href="${escapeHTML(answerImageLink)}" target="_blank">🖼️ Answer</a>`);
+                items.push(createImagePreview(answerImageLink, 'Answer Image'));
             }
             
             if (musicClipLink) {
-                items.push(`<a href="${escapeHTML(musicClipLink)}" target="_blank">🎵 Audio</a>`);
+                items.push(createAudioPreview(musicClipLink));
             }
             
-            return items.join('<br>');
+            return items.length > 0 ? `<div class="media-container">${items.join('')}</div>` : '';
+        }
+        
+        function createImagePreview(url, title) {
+            if (!url) return '';
+            
+            const imageId = 'img_' + Math.random().toString(36).substr(2, 9);
+            
+            return `
+                <div>
+                    <img src="${escapeHTML(url)}" 
+                         alt="${escapeHTML(title)}" 
+                         class="image-preview" 
+                         id="${imageId}"
+                         onclick="openImageModal('${escapeHTML(url)}', '${escapeHTML(title)}')"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                    <a href="${escapeHTML(url)}" target="_blank" class="media-link" style="display:none;">📷 ${escapeHTML(title)}</a>
+                </div>
+            `;
+        }
+        
+        function createAudioPreview(url) {
+            if (!url) return '';
+            
+            // Try to create an embedded audio player
+            if (url.includes('drive.google.com')) {
+                // Extract Google Drive file ID
+                let fileId = '';
+                if (url.includes('/d/')) {
+                    fileId = url.split('/d/')[1].split('/')[0];
+                } else if (url.includes('id=')) {
+                    fileId = new URL(url).searchParams.get('id');
+                }
+                
+                if (fileId) {
+                    return `
+                        <div>
+                            <audio class="audio-player" controls>
+                                <source src="https://drive.google.com/uc?export=download&id=${fileId}" type="audio/mpeg">
+                                <source src="https://drive.google.com/uc?export=download&id=${fileId}" type="audio/wav">
+                                Your browser does not support the audio element.
+                            </audio>
+                            <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Open Audio</a>
+                        </div>
+                    `;
+                }
+            } else if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                // YouTube audio
+                let videoId = '';
+                if (url.includes('youtube.com/watch?v=')) {
+                    videoId = new URL(url).searchParams.get('v');
+                } else if (url.includes('youtu.be/')) {
+                    videoId = url.split('youtu.be/')[1].split('?')[0];
+                }
+                
+                if (videoId) {
+                    return `
+                        <div>
+                            <iframe class="audio-player" 
+                                    src="https://www.youtube.com/embed/${videoId}" 
+                                    frameborder="0" 
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                    allowfullscreen>
+                            </iframe>
+                            <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 YouTube</a>
+                        </div>
+                    `;
+                }
+            } else if (url.match(/\.(mp3|wav|ogg|m4a)$/i)) {
+                // Direct audio file
+                return `
+                    <div>
+                        <audio class="audio-player" controls>
+                            <source src="${escapeHTML(url)}" type="audio/mpeg">
+                            Your browser does not support the audio element.
+                        </audio>
+                        <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Download</a>
+                    </div>
+                `;
+            }
+            
+            // Fallback to link
+            return `<a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Audio Clip</a>`;
+        }
+        
+        function openImageModal(url, title) {
+            modalImage.src = url;
+            modalImage.alt = title;
+            imageModal.classList.add('show');
         }
         
         function updateSearchStats(result) {
@@ -859,6 +1181,13 @@
             searchStats.classList.add('hidden');
             noResults.classList.add('hidden');
             loadMoreSection.classList.add('hidden');
+            currentResults = [];
+            currentSortColumn = null;
+            
+            // Reset sort indicators
+            document.querySelectorAll('.sortable').forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
+            });
         }
         
         function showError(message) {
@@ -956,7 +1285,7 @@
             }
         });
         
-        console.log('🚀 Fast Trivia Search Engine loaded!');
+        console.log('🚀 Enhanced Trivia Search Engine loaded!');
         
     </script>
 </body>
