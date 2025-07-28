@@ -157,6 +157,11 @@
             font-size: 14px;
         }
         
+        .filter-group label input[type="checkbox"] {
+            margin-right: 8px;
+            transform: scale(1.2);
+        }
+        
         select {
             padding: 10px;
             border: 2px solid var(--border-color);
@@ -728,10 +733,20 @@
                             <option value="">All Formats</option>
                         </select>
                     </div>
+                    
+                    <div class="filter-group">
+                        <label for="hidden-fields-toggle">
+                            <input type="checkbox" id="hidden-fields-toggle" checked>
+                            Search Hidden Fields
+                        </label>
+                        <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                            Include writers, themes, hosting notes, options, and other metadata
+                        </small>
+                    </div>
                 </div>
                 
                 <div class="search-help">
-                    <strong>Pro tips:</strong> Use <code>*</code> for wildcards, <code>"exact phrase"</code> for exact matches. Click column headers to sort results. <strong>Click any question row to see all questions from that round!</strong>
+                    <strong>Pro tips:</strong> Use <code>*</code> for wildcards, <code>"exact phrase"</code> for exact matches. Click column headers to sort results. <strong>Click any question row to see all questions from that round!</strong> Toggle "Search Hidden Fields" to include writers, themes, hosting notes, and other metadata.
                 </div>
             </div>
             
@@ -848,6 +863,8 @@
                 this.formats = new Set(); // Track available formats
                 this.driveLookup = new Map(); // Google Drive folder lookup
                 this.fullRoundData = new Map(); // Store complete round data for popups
+                this.includeHiddenFields = true; // Default to searching hidden fields
+                this.rawTriviaData = null; // Store raw data for rebuilding index
             }
             
             // Safe string extraction with error handling
@@ -879,6 +896,9 @@
                         this.updateProgress(100, 'No data found');
                         return;
                     }
+                    
+                    // Store raw data for rebuilding index when settings change
+                    this.rawTriviaData = archiveData;
                     
                     // Store drive lookup data with debugging
                     if (driveData) {
@@ -939,6 +959,45 @@
                     this.updateProgress(100, 'Error building index. Please refresh.');
                     throw error; // Re-throw to handle in calling code
                 }
+            }
+            
+            // Rebuild index with current settings (for hidden fields toggle)
+            async rebuildIndex() {
+                if (!this.rawTriviaData) {
+                    console.warn('No raw data available for rebuilding index');
+                    return;
+                }
+                
+                console.log('Rebuilding search index with hidden fields:', this.includeHiddenFields);
+                
+                // Clear existing data
+                this.questions = [];
+                this.fullRoundData.clear();
+                this.cache.clear(); // Clear search cache
+                
+                const triviaEntries = Object.entries(this.rawTriviaData);
+                const totalItems = triviaEntries.length;
+                let processedItems = 0;
+                
+                // Process data in chunks to avoid blocking
+                for (const [triviaNumber, triviaSet] of triviaEntries) {
+                    await this.processTriviaSetAsync(triviaNumber, triviaSet);
+                    
+                    processedItems++;
+                    const progress = Math.round((processedItems / totalItems) * 100);
+                    this.updateProgress(progress, `Rebuilding ${processedItems}/${totalItems} trivia sets`);
+                    
+                    // Yield control to prevent blocking
+                    if (processedItems % 10 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 1));
+                    }
+                }
+                
+                console.log(`Index rebuilt with ${this.questions.length} questions`);
+                this.updateProgress(100, `Ready! ${this.questions.length} questions indexed`);
+                
+                // Update UI
+                document.getElementById('total-questions').textContent = this.questions.length.toLocaleString();
             }
             
             updateProgress(percent, text) {
@@ -1021,7 +1080,14 @@
                                 
                                 // Only add if we have meaningful content
                                 if (question.length > 0 || answer.length > 0) {
-                                    const searchableText = `${question} ${answer} ${roundName} ${roundType} ${roundInstruction}`.toLowerCase();
+                                    // Build searchable text based on hidden fields setting
+                                    let searchableText = `${question} ${answer} ${roundName} ${roundType} ${roundInstruction}`;
+                                    
+                                    // Add hidden fields if enabled
+                                    if (this.includeHiddenFields) {
+                                        const hiddenFields = this.extractHiddenFields(triviaSet, questionData, formatData);
+                                        searchableText += ` ${hiddenFields}`;
+                                    }
                                     
                                     const questionItem = {
                                         id: `${triviaNumber}-${roundKey}-${formatKey}-${questionKey}`,
@@ -1035,7 +1101,7 @@
                                         questionNumber: questionKey,
                                         question,
                                         answer,
-                                        searchableText,
+                                        searchableText: searchableText.toLowerCase(),
                                         data: questionData
                                     };
                                     
@@ -1054,6 +1120,44 @@
             
             isMetadataField(key) {
                 return ['Round Name', 'Round Type', 'Round Format', 'Round Instruction', 'name', 'round_name', 'type', 'roundType', 'instruction', 'roundInstruction'].includes(key);
+            }
+            
+            // Extract hidden fields for enhanced searching
+            extractHiddenFields(triviaSet, questionData, formatData) {
+                const fields = [];
+                
+                // Trivia-level fields
+                if (triviaSet) {
+                    fields.push(this.safeString(triviaSet['Trivia Name'] || ''));
+                    fields.push(this.safeString(triviaSet['First Hosted Location'] || ''));
+                    fields.push(this.safeString(triviaSet['Writers'] || ''));
+                }
+                
+                // Format-level fields
+                if (formatData) {
+                    fields.push(this.safeString(formatData['Round Sub-Type'] || formatData['Round SubType'] || ''));
+                    fields.push(this.safeString(formatData['Hidden Structure/Theme'] || formatData['Hidden Structure'] || formatData['Theme'] || ''));
+                    fields.push(this.safeString(formatData['Interactives (Bank, Lifelines, Hints)'] || formatData['Interactives'] || ''));
+                    fields.push(this.safeString(formatData['Hosting Instruction'] || formatData['Hosting Instructions'] || ''));
+                    fields.push(this.safeString(formatData['Round Materials'] || ''));
+                    fields.push(this.safeString(formatData['Non-Spoiler Round Name'] || formatData['Non Spoiler Round Name'] || ''));
+                }
+                
+                // Question-level fields
+                if (questionData) {
+                    fields.push(this.safeString(questionData['Option 1'] || questionData['option1'] || ''));
+                    fields.push(this.safeString(questionData['Option 2'] || questionData['option2'] || ''));
+                    fields.push(this.safeString(questionData['Option 3'] || questionData['option3'] || ''));
+                    fields.push(this.safeString(questionData['Option 4'] || questionData['option4'] || ''));
+                    fields.push(this.safeString(questionData['Point Value'] || questionData['Points'] || ''));
+                    fields.push(this.safeString(questionData['Hosting Instruction'] || questionData['Hosting Instructions'] || ''));
+                    fields.push(this.safeString(questionData['Round Materials'] || ''));
+                    fields.push(this.safeString(questionData['Dated?'] || questionData['Dated'] || ''));
+                    fields.push(this.safeString(questionData['Evergreen Overwrite'] || questionData['Evergreen'] || ''));
+                }
+                
+                // Filter out empty fields and join
+                return fields.filter(field => field.trim().length > 0).join(' ');
             }
             
             populateFilters() {
@@ -1200,6 +1304,7 @@
         const searchClear = document.getElementById('search-clear');
         const roundTypeFilter = document.getElementById('round-type-filter');
         const formatFilter = document.getElementById('format-filter');
+        const hiddenFieldsToggle = document.getElementById('hidden-fields-toggle');
         const searchStats = document.getElementById('search-stats');
         const resultsBody = document.getElementById('results-body');
         const resultsCount = document.getElementById('results-count');
@@ -1284,6 +1389,36 @@
             } catch (error) {
                 console.error('Filter change error:', error);
                 setLoadingState(false);
+            }
+        });
+        
+        // Hidden fields toggle
+        hiddenFieldsToggle.addEventListener('change', async () => {
+            try {
+                const wasReady = searchEngine.isReady;
+                if (wasReady) {
+                    searchEngine.isReady = false;
+                    document.getElementById('index-status').classList.remove('hidden');
+                }
+                
+                searchEngine.includeHiddenFields = hiddenFieldsToggle.checked;
+                console.log('Hidden fields toggled:', searchEngine.includeHiddenFields);
+                
+                if (wasReady) {
+                    await searchEngine.rebuildIndex();
+                    searchEngine.isReady = true;
+                    document.getElementById('index-status').classList.add('hidden');
+                    
+                    // Re-run current search if there is one
+                    const currentQuery = searchQuery.value.trim();
+                    if (currentQuery) {
+                        performSearch();
+                    }
+                }
+            } catch (error) {
+                console.error('Hidden fields toggle error:', error);
+                searchEngine.isReady = true;
+                document.getElementById('index-status').classList.add('hidden');
             }
         });
         
@@ -1837,6 +1972,9 @@
                         searchScreen.classList.remove('hidden');
                         
                         try {
+                            // Set initial hidden fields state from checkbox
+                            searchEngine.includeHiddenFields = hiddenFieldsToggle.checked;
+                            
                             // Start building the search index
                             await searchEngine.buildIndex();
                             
