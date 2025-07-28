@@ -986,11 +986,11 @@
         <table id="players-table">
           <thead>
             <tr>
-              <th style="width: 25%;">Name</th>
+              <th style="width: 20%;">Name</th>
               <th style="width: 25%;">Email</th>
               <th style="width: 10%;">Progress</th>
               <th style="width: 15%;">Current Screen</th>
-              <th style="width: 15%;">Actions</th>
+              <th style="width: 20%;">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -2436,7 +2436,17 @@
           viewBtn.addEventListener('click', () => {
             showPlayerDetails(player);
           });
+          
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'btn btn-icon btn-danger';
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.style.marginLeft = '5px';
+          deleteBtn.addEventListener('click', () => {
+            deletePlayer(player);
+          });
+          
           actionsCell.appendChild(viewBtn);
+          actionsCell.appendChild(deleteBtn);
           row.appendChild(actionsCell);
           
           // Add row to table
@@ -2505,6 +2515,82 @@
         const body = encodeURIComponent(`Hi ${player.name || 'there'},\n\nHere's a hint for the wedding puzzle you're working on:\n\n[Add your hint here]\n\nBest of luck!\n`);
         window.open(`mailto:${player.email}?subject=${subject}&body=${body}`);
       };
+    }
+    
+    // Delete a player from the database
+    async function deletePlayer(player) {
+      const playerName = player.name || 'this player';
+      const confirmMessage = `Are you sure you want to delete ${playerName}?\n\nThis will permanently remove all their progress data and cannot be undone.`;
+      
+      if (!confirm(confirmMessage)) {
+        return; // User cancelled
+      }
+      
+      try {
+        // Show loading state
+        showFeedback('Deleting player...', 'info');
+        
+        // Try to delete from the source path first
+        let success = false;
+        let deletedFromPath = '';
+        
+        if (player.sourcePath && player.userId) {
+          try {
+            const response = await fetch(`${DB_URL}/${player.sourcePath}/progress/${player.userId}.json`, {
+              method: 'DELETE'
+            });
+            
+            if (response.ok) {
+              success = true;
+              deletedFromPath = player.sourcePath;
+            } else {
+              console.warn(`Failed to delete from source path ${player.sourcePath}: ${response.status}`);
+            }
+          } catch (error) {
+            console.warn(`Error deleting from source path ${player.sourcePath}:`, error);
+          }
+        }
+        
+        // If source path deletion failed, try both paths
+        if (!success && player.userId) {
+          const paths = Object.values(DB_PATHS);
+          
+          for (const path of paths) {
+            try {
+              const response = await fetch(`${DB_URL}/${path}/progress/${player.userId}.json`, {
+                method: 'DELETE'
+              });
+              
+              if (response.ok) {
+                success = true;
+                deletedFromPath = path;
+                break;
+              }
+            } catch (error) {
+              console.warn(`Error deleting from path ${path}:`, error);
+            }
+          }
+        }
+        
+        if (success) {
+          showSuccessToast(`✅ ${playerName} deleted successfully from ${deletedFromPath}`);
+          
+          // Reload the players table to reflect the changes
+          await loadPlayers();
+          
+          // If player details are currently shown, hide them
+          if (!playerDetails.classList.contains('hidden')) {
+            document.querySelector('#players-table').parentNode.style.display = 'block';
+            playerDetails.classList.add('hidden');
+          }
+        } else {
+          throw new Error('Failed to delete player from database');
+        }
+        
+      } catch (error) {
+        console.error('Error deleting player:', error);
+        showFeedback(`Failed to delete ${playerName}: ${error.message}`, 'error');
+      }
     }
     
     // Save a puzzle field
@@ -3132,7 +3218,16 @@
       tempMsg.style.bottom = '20px';
       tempMsg.style.right = '20px';
       tempMsg.style.padding = '15px 25px';
-      tempMsg.style.backgroundColor = type === 'success' ? '#4caf50' : '#f44336';
+      
+      // Handle different message types
+      if (type === 'success') {
+        tempMsg.style.backgroundColor = '#4caf50';
+      } else if (type === 'info') {
+        tempMsg.style.backgroundColor = '#2196f3';
+      } else {
+        tempMsg.style.backgroundColor = '#f44336'; // error
+      }
+      
       tempMsg.style.color = 'white';
       tempMsg.style.borderRadius = '8px';
       tempMsg.style.zIndex = '9999';
