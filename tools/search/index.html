@@ -880,13 +880,26 @@
                         return;
                     }
                     
-                    // Store drive lookup data
+                    // Store drive lookup data with debugging
                     if (driveData) {
+                        console.log('Drive lookup data sample:', Object.keys(driveData).slice(0, 3));
                         Object.entries(driveData).forEach(([triviaNumber, data]) => {
-                            if (data && data.Link) {
-                                this.driveLookup.set(triviaNumber, data.Link);
+                            if (data) {
+                                // Debug the first few entries
+                                if (Object.keys(this.driveLookup).length < 3) {
+                                    console.log(`Drive data for ${triviaNumber}:`, data);
+                                }
+                                
+                                // Try different possible field names for the link
+                                const link = data.Link || data.link || data.url || data.driveLink || data['Google Drive Link'];
+                                if (link) {
+                                    this.driveLookup.set(triviaNumber, link);
+                                }
                             }
                         });
+                        console.log(`Loaded ${this.driveLookup.size} drive links`);
+                    } else {
+                        console.warn('No drive lookup data found');
                     }
                     
                     const triviaEntries = Object.entries(archiveData);
@@ -924,6 +937,7 @@
                 } catch (error) {
                     console.error('Error building search index:', error);
                     this.updateProgress(100, 'Error building index. Please refresh.');
+                    throw error; // Re-throw to handle in calling code
                 }
             }
             
@@ -1069,57 +1083,62 @@
             
             // Fast search function with filtering
             search(query, filters = {}) {
-                if (!this.isReady) return [];
+                if (!this.isReady) return { results: [], searchTime: 0, fromCache: false };
                 
                 const startTime = performance.now();
                 const cacheKey = `${query}-${JSON.stringify(filters)}`;
                 
-                // Check cache first
-                if (this.cache.has(cacheKey)) {
-                    const cached = this.cache.get(cacheKey);
-                    return {
-                        results: cached,
-                        searchTime: performance.now() - startTime,
-                        fromCache: true
-                    };
-                }
-                
-                let results = [];
-                const queryLower = query.toLowerCase().trim();
-                
-                // Fast linear search - optimized for speed
-                for (const question of this.questions) {
-                    try {
-                        // Apply filters first
-                        if (filters.roundType && question.roundType !== filters.roundType) continue;
-                        if (filters.format && question.format !== filters.format) continue;
-                        
-                        // Then check query match
-                        if (!queryLower || this.matchesQuery(question, queryLower)) {
-                            results.push(question);
-                            
-                            // Limit results for performance
-                            if (results.length >= 100) break;
-                        }
-                    } catch (error) {
-                        console.warn('Search error for question:', question.id, error);
+                try {
+                    // Check cache first
+                    if (this.cache.has(cacheKey)) {
+                        const cached = this.cache.get(cacheKey);
+                        return {
+                            results: cached,
+                            searchTime: performance.now() - startTime,
+                            fromCache: true
+                        };
                     }
+                    
+                    let results = [];
+                    const queryLower = query.toLowerCase().trim();
+                    
+                    // Fast linear search - optimized for speed
+                    for (const question of this.questions) {
+                        try {
+                            // Apply filters first
+                            if (filters.roundType && question.roundType !== filters.roundType) continue;
+                            if (filters.format && question.format !== filters.format) continue;
+                            
+                            // Then check query match
+                            if (!queryLower || this.matchesQuery(question, queryLower)) {
+                                results.push(question);
+                                
+                                // Limit results for performance
+                                if (results.length >= 100) break;
+                            }
+                        } catch (error) {
+                            console.warn('Search error for question:', question.id, error);
+                        }
+                    }
+                    
+                    // Cache results
+                    this.cache.set(cacheKey, results);
+                    
+                    // Clean cache if it gets too large
+                    if (this.cache.size > 100) {
+                        const firstKey = this.cache.keys().next().value;
+                        this.cache.delete(firstKey);
+                    }
+                    
+                    return {
+                        results,
+                        searchTime: performance.now() - startTime,
+                        fromCache: false
+                    };
+                } catch (error) {
+                    console.error('Search function error:', error);
+                    return { results: [], searchTime: performance.now() - startTime, fromCache: false };
                 }
-                
-                // Cache results
-                this.cache.set(cacheKey, results);
-                
-                // Clean cache if it gets too large
-                if (this.cache.size > 100) {
-                    const firstKey = this.cache.keys().next().value;
-                    this.cache.delete(firstKey);
-                }
-                
-                return {
-                    results,
-                    searchTime: performance.now() - startTime,
-                    fromCache: false
-                };
             }
             
             matchesQuery(question, queryLower) {
@@ -1158,7 +1177,9 @@
             
             // Get Google Drive folder link for a trivia number
             getDriveLink(triviaNumber) {
-                return this.driveLookup.get(triviaNumber) || null;
+                const link = this.driveLookup.get(triviaNumber) || this.driveLookup.get(String(triviaNumber)) || null;
+                console.log(`Drive link for trivia ${triviaNumber}:`, link);
+                return link;
             }
         }
         
@@ -1206,7 +1227,14 @@
             // Debounced search
             clearTimeout(searchTimeout);
             if (value.length > 2) {
-                searchTimeout = setTimeout(performSearch, 300);
+                searchTimeout = setTimeout(() => {
+                    try {
+                        performSearch();
+                    } catch (error) {
+                        console.error('Search input error:', error);
+                        setLoadingState(false);
+                    }
+                }, 300);
             } else if (value.length === 0) {
                 clearResults();
             }
@@ -1215,7 +1243,12 @@
         searchQuery.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                performSearch();
+                try {
+                    performSearch();
+                } catch (error) {
+                    console.error('Search keypress error:', error);
+                    setLoadingState(false);
+                }
             }
         });
         
@@ -1225,12 +1258,34 @@
             clearResults();
         });
         
-        searchBtn.addEventListener('click', performSearch);
+        searchBtn.addEventListener('click', () => {
+            try {
+                performSearch();
+            } catch (error) {
+                console.error('Search button error:', error);
+                setLoadingState(false);
+            }
+        });
+        
         clearBtn.addEventListener('click', clearResults);
         
         // Filter change events
-        roundTypeFilter.addEventListener('change', performSearch);
-        formatFilter.addEventListener('change', performSearch);
+        roundTypeFilter.addEventListener('change', () => {
+            try {
+                performSearch();
+            } catch (error) {
+                console.error('Filter change error:', error);
+                setLoadingState(false);
+            }
+        });
+        formatFilter.addEventListener('change', () => {
+            try {
+                performSearch();
+            } catch (error) {
+                console.error('Filter change error:', error);
+                setLoadingState(false);
+            }
+        });
         
         // Image modal events
         modalClose.addEventListener('click', () => {
@@ -1257,42 +1312,47 @@
         // Column sorting
         document.querySelectorAll('.sortable').forEach(header => {
             header.addEventListener('click', () => {
-                const sortColumn = header.dataset.sort;
-                
-                if (currentSortColumn === sortColumn) {
-                    currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
-                } else {
-                    currentSortColumn = sortColumn;
-                    currentSortDirection = 'asc';
-                }
-                
-                // Update header indicators
-                document.querySelectorAll('.sortable').forEach(h => {
-                    h.classList.remove('sort-asc', 'sort-desc');
-                });
-                
-                header.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
-                
-                // Sort and redisplay results
-                if (currentResults.length > 0) {
-                    sortResults();
-                    displayResults({ results: currentResults, searchTime: 0, fromCache: true });
+                try {
+                    const sortColumn = header.dataset.sort;
+                    
+                    if (currentSortColumn === sortColumn) {
+                        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSortColumn = sortColumn;
+                        currentSortDirection = 'asc';
+                    }
+                    
+                    // Update header indicators
+                    document.querySelectorAll('.sortable').forEach(h => {
+                        h.classList.remove('sort-asc', 'sort-desc');
+                    });
+                    
+                    header.classList.add(currentSortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+                    
+                    // Sort and redisplay results
+                    if (currentResults.length > 0) {
+                        sortResults();
+                        displayResults({ results: currentResults, searchTime: 0, fromCache: true });
+                    }
+                } catch (error) {
+                    console.error('Sort error:', error);
                 }
             });
         });
         
         function performSearch() {
             const query = searchQuery.value.trim();
-            if (!searchEngine.isReady) {
-                if (query) {
-                    alert('Search index is still building. Please wait a moment.');
-                }
-                return;
-            }
-            
-            setLoadingState(true);
             
             try {
+                if (!searchEngine.isReady) {
+                    if (query) {
+                        alert('Search index is still building. Please wait a moment.');
+                    }
+                    return;
+                }
+                
+                setLoadingState(true);
+                
                 // Get filter values
                 const filters = {
                     roundType: roundTypeFilter.value,
@@ -1310,10 +1370,12 @@
                 
                 displayResults(result);
                 updateSearchStats(result);
+                
             } catch (error) {
                 console.error('Search error:', error);
                 showError('Search failed. Please try again.');
             } finally {
+                // Ensure loading state is always reset
                 setLoadingState(false);
             }
         }
@@ -1350,290 +1412,369 @@
         }
         
         function displayResults(searchResult) {
-            resultsBody.innerHTML = '';
-            
-            if (searchResult.results.length === 0) {
-                noResults.classList.remove('hidden');
-                searchStats.classList.add('hidden');
-                loadMoreSection.classList.add('hidden');
-                return;
-            }
-            
-            noResults.classList.add('hidden');
-            searchStats.classList.remove('hidden');
-            
-            searchResult.results.forEach((result, index) => {
-                const row = createResultRow(result);
-                resultsBody.appendChild(row);
-            });
-            
-            // Show load more if we hit the limit
-            if (searchResult.results.length >= 100) {
-                loadMoreSection.classList.remove('hidden');
-            } else {
-                loadMoreSection.classList.add('hidden');
+            try {
+                resultsBody.innerHTML = '';
+                
+                if (searchResult.results.length === 0) {
+                    noResults.classList.remove('hidden');
+                    searchStats.classList.add('hidden');
+                    loadMoreSection.classList.add('hidden');
+                    return;
+                }
+                
+                noResults.classList.add('hidden');
+                searchStats.classList.remove('hidden');
+                
+                searchResult.results.forEach((result, index) => {
+                    const row = createResultRow(result);
+                    resultsBody.appendChild(row);
+                });
+                
+                // Show load more if we hit the limit
+                if (searchResult.results.length >= 100) {
+                    loadMoreSection.classList.remove('hidden');
+                } else {
+                    loadMoreSection.classList.add('hidden');
+                }
+            } catch (error) {
+                console.error('Display results error:', error);
             }
         }
         
         function createResultRow(result) {
             const row = document.createElement('tr');
             
-            const question = result.question || '';
-            const answer = result.answer || '';
-            const dateStr = formatDate(result.triviaDate);
-            
-            // Simple highlighting
-            const highlightedQuestion = highlightSearchTerms(question, searchQuery.value);
-            const highlightedAnswer = highlightSearchTerms(answer, searchQuery.value);
-            const highlightedInstruction = highlightSearchTerms(result.roundInstruction, searchQuery.value);
-            
-            row.innerHTML = `
-                <td><strong>#${escapeHTML(result.triviaNumber)}</strong></td>
-                <td>${escapeHTML(dateStr)}</td>
-                <td>R${escapeHTML(result.round)}</td>
-                <td>
-                    ${escapeHTML(result.roundName)}
-                    ${result.roundName !== `Round ${result.round}` ? '<div class="round-name">(' + escapeHTML(`Round ${result.round}`) + ')</div>' : ''}
-                </td>
-                <td>${escapeHTML(result.roundType)}</td>
-                <td>${escapeHTML(result.format)}</td>
-                <td class="instruction-text">${highlightedInstruction}</td>
-                <td class="question-text">${highlightedQuestion}</td>
-                <td class="question-text">${highlightedAnswer}</td>
-                <td class="media-cell">${createMediaPreview(result.data)}</td>
-            `;
-            
-            // Add click handler to show round popup
-            row.style.cursor = 'pointer';
-            row.addEventListener('click', () => {
-                showRoundPopup(result.triviaNumber, result.round, result.roundName, result.roundType);
-            });
+            try {
+                const question = result.question || '';
+                const answer = result.answer || '';
+                const dateStr = formatDate(result.triviaDate);
+                
+                // Simple highlighting
+                const highlightedQuestion = highlightSearchTerms(question, searchQuery.value);
+                const highlightedAnswer = highlightSearchTerms(answer, searchQuery.value);
+                const highlightedInstruction = highlightSearchTerms(result.roundInstruction, searchQuery.value);
+                
+                row.innerHTML = `
+                    <td><strong>#${escapeHTML(result.triviaNumber)}</strong></td>
+                    <td>${escapeHTML(dateStr)}</td>
+                    <td>R${escapeHTML(result.round)}</td>
+                    <td>
+                        ${escapeHTML(result.roundName)}
+                        ${result.roundName !== `Round ${result.round}` ? '<div class="round-name">(' + escapeHTML(`Round ${result.round}`) + ')</div>' : ''}
+                    </td>
+                    <td>${escapeHTML(result.roundType)}</td>
+                    <td>${escapeHTML(result.format)}</td>
+                    <td class="instruction-text">${highlightedInstruction}</td>
+                    <td class="question-text">${highlightedQuestion}</td>
+                    <td class="question-text">${highlightedAnswer}</td>
+                    <td class="media-cell">${createMediaPreview(result.data)}</td>
+                `;
+                
+                // Add click handler to show round popup
+                row.style.cursor = 'pointer';
+                row.addEventListener('click', () => {
+                    try {
+                        showRoundPopup(result.triviaNumber, result.round, result.roundName, result.roundType);
+                    } catch (error) {
+                        console.error('Round popup error:', error);
+                    }
+                });
+            } catch (error) {
+                console.error('Create result row error:', error);
+                row.innerHTML = '<td colspan="10">Error displaying this result</td>';
+            }
             
             return row;
         }
         
         function showRoundPopup(triviaNumber, roundKey, roundName, roundType) {
-            const roundData = searchEngine.getRoundQuestions(triviaNumber, roundKey);
-            if (!roundData) {
-                alert('Unable to load round data.');
-                return;
+            try {
+                const roundData = searchEngine.getRoundQuestions(triviaNumber, roundKey);
+                if (!roundData) {
+                    alert('Unable to load round data.');
+                    return;
+                }
+                
+                // Set title
+                const title = `Trivia #${triviaNumber} - Round ${roundKey}${roundName ? `: ${roundName}` : ''}`;
+                roundModalTitle.textContent = title;
+                
+                // Set Google Drive link with debugging
+                const driveLink = searchEngine.getDriveLink(triviaNumber);
+                console.log(`Setting drive link for trivia ${triviaNumber}:`, driveLink);
+                
+                if (driveLink && driveLink !== '' && driveLink !== '#') {
+                    roundDriveLink.href = driveLink;
+                    roundDriveLink.classList.remove('hidden');
+                    console.log('Drive link set successfully');
+                } else {
+                    roundDriveLink.href = '#';
+                    roundDriveLink.classList.add('hidden');
+                    console.log('No drive link available');
+                }
+                
+                // Populate questions
+                roundQuestions.innerHTML = '';
+                
+                if (roundData.questions.length === 0) {
+                    roundQuestions.innerHTML = '<p>No questions found for this round.</p>';
+                } else {
+                    roundData.questions.forEach((question, index) => {
+                        const questionDiv = document.createElement('div');
+                        questionDiv.className = 'question-item';
+                        
+                        questionDiv.innerHTML = `
+                            <div class="question-number">Question ${question.questionNumber} (${question.format})</div>
+                            <div class="question">${escapeHTML(question.question)}</div>
+                            <div class="answer"><strong>Answer:</strong> ${escapeHTML(question.answer)}</div>
+                            ${createMediaPreview(question.data) ? `<div class="media-preview">${createMediaPreview(question.data)}</div>` : ''}
+                        `;
+                        
+                        roundQuestions.appendChild(questionDiv);
+                    });
+                }
+                
+                // Show modal
+                roundModal.classList.add('show');
+            } catch (error) {
+                console.error('Show round popup error:', error);
+                alert('Error loading round details.');
             }
-            
-            // Set title
-            const title = `Trivia #${triviaNumber} - Round ${roundKey}${roundName ? `: ${roundName}` : ''}`;
-            roundModalTitle.textContent = title;
-            
-            // Set Google Drive link
-            const driveLink = searchEngine.getDriveLink(triviaNumber);
-            if (driveLink) {
-                roundDriveLink.href = driveLink;
-                roundDriveLink.classList.remove('hidden');
-            } else {
-                roundDriveLink.classList.add('hidden');
-            }
-            
-            // Populate questions
-            roundQuestions.innerHTML = '';
-            
-            if (roundData.questions.length === 0) {
-                roundQuestions.innerHTML = '<p>No questions found for this round.</p>';
-            } else {
-                roundData.questions.forEach((question, index) => {
-                    const questionDiv = document.createElement('div');
-                    questionDiv.className = 'question-item';
-                    
-                    questionDiv.innerHTML = `
-                        <div class="question-number">Question ${question.questionNumber} (${question.format})</div>
-                        <div class="question">${escapeHTML(question.question)}</div>
-                        <div class="answer"><strong>Answer:</strong> ${escapeHTML(question.answer)}</div>
-                        ${createMediaPreview(question.data) ? `<div class="media-preview">${createMediaPreview(question.data)}</div>` : ''}
-                    `;
-                    
-                    roundQuestions.appendChild(questionDiv);
-                });
-            }
-            
-            // Show modal
-            roundModal.classList.add('show');
         }
         
         function highlightSearchTerms(text, query) {
             if (!text || !query) return escapeHTML(text);
             
-            const escapedText = escapeHTML(text);
-            const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !w.includes('*') && !w.includes('"'));
-            
-            let highlighted = escapedText;
-            for (const word of words) {
-                const regex = new RegExp(`\\b(${escapeRegex(word)})\\b`, 'gi');
-                highlighted = highlighted.replace(regex, '<span class="highlighted">$1</span>');
+            try {
+                const escapedText = escapeHTML(text);
+                const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !w.includes('*') && !w.includes('"'));
+                
+                let highlighted = escapedText;
+                for (const word of words) {
+                    const regex = new RegExp(`\\b(${escapeRegex(word)})\\b`, 'gi');
+                    highlighted = highlighted.replace(regex, '<span class="highlighted">$1</span>');
+                }
+                
+                return highlighted;
+            } catch (error) {
+                console.error('Highlight search terms error:', error);
+                return escapeHTML(text);
             }
-            
-            return highlighted;
         }
         
         function createMediaPreview(data) {
-            const items = [];
-            
-            const imageLink = data['Image Link'] || data['image_link'];
-            const answerImageLink = data['Answer Image Link'] || data['answer_image_link'];
-            const musicClipLink = data['Music Clip Link'] || data['music_clip_link'];
-            
-            if (imageLink) {
-                items.push(createImagePreview(imageLink, 'Question Image'));
+            try {
+                const items = [];
+                
+                const imageLink = data['Image Link'] || data['image_link'];
+                const answerImageLink = data['Answer Image Link'] || data['answer_image_link'];
+                const musicClipLink = data['Music Clip Link'] || data['music_clip_link'];
+                
+                if (imageLink) {
+                    items.push(createImagePreview(imageLink, 'Question Image'));
+                }
+                
+                if (answerImageLink) {
+                    items.push(createImagePreview(answerImageLink, 'Answer Image'));
+                }
+                
+                if (musicClipLink) {
+                    items.push(createAudioPreview(musicClipLink));
+                }
+                
+                return items.length > 0 ? `<div class="media-container">${items.join('')}</div>` : '';
+            } catch (error) {
+                console.error('Create media preview error:', error);
+                return '';
             }
-            
-            if (answerImageLink) {
-                items.push(createImagePreview(answerImageLink, 'Answer Image'));
-            }
-            
-            if (musicClipLink) {
-                items.push(createAudioPreview(musicClipLink));
-            }
-            
-            return items.length > 0 ? `<div class="media-container">${items.join('')}</div>` : '';
         }
         
         function createImagePreview(url, title) {
             if (!url) return '';
             
-            // Extract Google Drive file ID
-            let driveImageUrl = url;
-            if (url.includes('drive.google.com')) {
-                let fileId = '';
-                if (url.includes('/d/')) {
-                    fileId = url.split('/d/')[1].split('/')[0];
-                } else if (url.includes('id=')) {
-                    fileId = new URL(url).searchParams.get('id');
+            try {
+                // Extract Google Drive file ID and create proper viewing URL
+                let driveImageUrl = url;
+                if (url.includes('drive.google.com')) {
+                    let fileId = '';
+                    
+                    // Handle different Google Drive URL formats
+                    if (url.includes('/file/d/')) {
+                        fileId = url.split('/file/d/')[1].split('/')[0];
+                    } else if (url.includes('/d/')) {
+                        fileId = url.split('/d/')[1].split('/')[0];
+                    } else if (url.includes('id=')) {
+                        const urlObj = new URL(url);
+                        fileId = urlObj.searchParams.get('id');
+                    } else if (url.includes('open?id=')) {
+                        fileId = url.split('open?id=')[1].split('&')[0];
+                    }
+                    
+                    if (fileId) {
+                        // Use thumbnail for preview and direct link for modal
+                        driveImageUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
+                        console.log(`Created image URL: ${driveImageUrl} from ${url}`);
+                    }
                 }
                 
-                if (fileId) {
-                    // Use the direct view URL for images
-                    driveImageUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
-                }
+                return `
+                    <div>
+                        <img src="${escapeHTML(driveImageUrl)}" 
+                             alt="${escapeHTML(title)}" 
+                             class="image-preview" 
+                             onclick="openImageModal('${escapeHTML(driveImageUrl)}', '${escapeHTML(title)}')"
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <a href="${escapeHTML(url)}" target="_blank" class="media-link" style="display:none;">📷 ${escapeHTML(title)}</a>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Create image preview error:', error);
+                return `<a href="${escapeHTML(url)}" target="_blank" class="media-link">📷 ${escapeHTML(title)}</a>`;
             }
-            
-            return `
-                <div>
-                    <img src="${escapeHTML(driveImageUrl)}" 
-                         alt="${escapeHTML(title)}" 
-                         class="image-preview" 
-                         onclick="openImageModal('${escapeHTML(driveImageUrl)}', '${escapeHTML(title)}')"
-                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                    <a href="${escapeHTML(url)}" target="_blank" class="media-link" style="display:none;">📷 ${escapeHTML(title)}</a>
-                </div>
-            `;
         }
         
         function createAudioPreview(url) {
             if (!url) return '';
             
-            // Try to create an embedded audio player for Google Drive
-            if (url.includes('drive.google.com')) {
-                let fileId = '';
-                if (url.includes('/d/')) {
-                    fileId = url.split('/d/')[1].split('/')[0];
-                } else if (url.includes('id=')) {
-                    fileId = new URL(url).searchParams.get('id');
-                }
-                
-                if (fileId) {
-                    // Use iframe preview for Google Drive audio
+            try {
+                // Try to create an embedded audio player for Google Drive
+                if (url.includes('drive.google.com')) {
+                    let fileId = '';
+                    
+                    // Handle different Google Drive URL formats
+                    if (url.includes('/file/d/')) {
+                        fileId = url.split('/file/d/')[1].split('/')[0];
+                    } else if (url.includes('/d/')) {
+                        fileId = url.split('/d/')[1].split('/')[0];
+                    } else if (url.includes('id=')) {
+                        const urlObj = new URL(url);
+                        fileId = urlObj.searchParams.get('id');
+                    } else if (url.includes('open?id=')) {
+                        fileId = url.split('open?id=')[1].split('&')[0];
+                    }
+                    
+                    if (fileId) {
+                        // Use iframe preview for Google Drive audio
+                        return `
+                            <div>
+                                <iframe class="audio-player" 
+                                        src="https://drive.google.com/file/d/${fileId}/preview" 
+                                        frameborder="0"
+                                        allow="autoplay">
+                                </iframe>
+                                <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Open Audio</a>
+                            </div>
+                        `;
+                    }
+                } else if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                    // YouTube audio
+                    let videoId = '';
+                    if (url.includes('youtube.com/watch?v=')) {
+                        const urlObj = new URL(url);
+                        videoId = urlObj.searchParams.get('v');
+                    } else if (url.includes('youtu.be/')) {
+                        videoId = url.split('youtu.be/')[1].split('?')[0];
+                    }
+                    
+                    if (videoId) {
+                        return `
+                            <div>
+                                <iframe class="audio-player" 
+                                        src="https://www.youtube.com/embed/${videoId}" 
+                                        frameborder="0" 
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                        allowfullscreen>
+                                </iframe>
+                                <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 YouTube</a>
+                            </div>
+                        `;
+                    }
+                } else if (url.match(/\.(mp3|wav|ogg|m4a)$/i)) {
+                    // Direct audio file
                     return `
                         <div>
-                            <iframe class="audio-player" 
-                                    src="https://drive.google.com/file/d/${fileId}/preview" 
-                                    frameborder="0"
-                                    allow="autoplay">
-                            </iframe>
-                            <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Open Audio</a>
+                            <audio class="audio-player" controls>
+                                <source src="${escapeHTML(url)}" type="audio/mpeg">
+                                Your browser does not support the audio element.
+                            </audio>
+                            <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Download</a>
                         </div>
                     `;
                 }
-            } else if (url.includes('youtube.com') || url.includes('youtu.be')) {
-                // YouTube audio
-                let videoId = '';
-                if (url.includes('youtube.com/watch?v=')) {
-                    videoId = new URL(url).searchParams.get('v');
-                } else if (url.includes('youtu.be/')) {
-                    videoId = url.split('youtu.be/')[1].split('?')[0];
-                }
                 
-                if (videoId) {
-                    return `
-                        <div>
-                            <iframe class="audio-player" 
-                                    src="https://www.youtube.com/embed/${videoId}" 
-                                    frameborder="0" 
-                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                                    allowfullscreen>
-                            </iframe>
-                            <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 YouTube</a>
-                        </div>
-                    `;
-                }
-            } else if (url.match(/\.(mp3|wav|ogg|m4a)$/i)) {
-                // Direct audio file
-                return `
-                    <div>
-                        <audio class="audio-player" controls>
-                            <source src="${escapeHTML(url)}" type="audio/mpeg">
-                            Your browser does not support the audio element.
-                        </audio>
-                        <a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Download</a>
-                    </div>
-                `;
+                // Fallback to link
+                return `<a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Audio Clip</a>`;
+            } catch (error) {
+                console.error('Create audio preview error:', error);
+                return `<a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Audio Clip</a>`;
             }
-            
-            // Fallback to link
-            return `<a href="${escapeHTML(url)}" target="_blank" class="media-link">🎵 Audio Clip</a>`;
         }
         
         function openImageModal(url, title) {
-            modalImage.src = url;
-            modalImage.alt = title;
-            imageModal.classList.add('show');
+            try {
+                modalImage.src = url;
+                modalImage.alt = title;
+                imageModal.classList.add('show');
+            } catch (error) {
+                console.error('Open image modal error:', error);
+            }
         }
         
         function updateSearchStats(result) {
-            resultsCount.textContent = result.results.length.toLocaleString();
-            searchTime.textContent = `Search completed in ${Math.round(result.searchTime)}ms`;
+            try {
+                resultsCount.textContent = result.results.length.toLocaleString();
+                searchTime.textContent = `Search completed in ${Math.round(result.searchTime)}ms`;
+            } catch (error) {
+                console.error('Update search stats error:', error);
+            }
         }
         
         function setLoadingState(loading) {
-            const btnText = document.querySelector('.search-btn-text');
-            
-            if (loading) {
-                btnText.textContent = 'Searching...';
-                searchSpinner.classList.remove('hidden');
-                searchBtn.disabled = true;
-            } else {
-                btnText.textContent = 'Search';
-                searchSpinner.classList.add('hidden');
-                searchBtn.disabled = false;
+            try {
+                const btnText = document.querySelector('.search-btn-text');
+                
+                if (loading) {
+                    btnText.textContent = 'Searching...';
+                    searchSpinner.classList.remove('hidden');
+                    searchBtn.disabled = true;
+                } else {
+                    btnText.textContent = 'Search';
+                    searchSpinner.classList.add('hidden');
+                    searchBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Set loading state error:', error);
             }
         }
         
         function clearResults() {
-            resultsBody.innerHTML = '';
-            searchStats.classList.add('hidden');
-            noResults.classList.add('hidden');
-            loadMoreSection.classList.add('hidden');
-            currentResults = [];
-            currentSortColumn = null;
-            
-            // Reset sort indicators
-            document.querySelectorAll('.sortable').forEach(h => {
-                h.classList.remove('sort-asc', 'sort-desc');
-            });
-            
-            // Reset filters
-            roundTypeFilter.value = '';
-            formatFilter.value = '';
+            try {
+                resultsBody.innerHTML = '';
+                searchStats.classList.add('hidden');
+                noResults.classList.add('hidden');
+                loadMoreSection.classList.add('hidden');
+                currentResults = [];
+                currentSortColumn = null;
+                
+                // Reset sort indicators
+                document.querySelectorAll('.sortable').forEach(h => {
+                    h.classList.remove('sort-asc', 'sort-desc');
+                });
+                
+                // Reset filters
+                roundTypeFilter.value = '';
+                formatFilter.value = '';
+            } catch (error) {
+                console.error('Clear results error:', error);
+            }
         }
         
         function showError(message) {
-            alert(message);
+            try {
+                alert(message);
+            } catch (error) {
+                console.error('Show error failed:', error);
+            }
         }
         
         function formatDate(dateStr) {
@@ -1695,21 +1836,26 @@
                         authScreen.classList.add('hidden');
                         searchScreen.classList.remove('hidden');
                         
-                        // Start building the search index
-                        await searchEngine.buildIndex();
-                        
-                        // Check for URL parameters
-                        const urlParams = new URLSearchParams(window.location.search);
-                        const searchParam = urlParams.get('q');
-                        const autoSubmit = urlParams.get('autosubmit') === 'true';
-                        
-                        if (searchParam) {
-                            searchQuery.value = searchParam;
-                            searchClear.classList.add('visible');
+                        try {
+                            // Start building the search index
+                            await searchEngine.buildIndex();
                             
-                            if (autoSubmit && searchEngine.isReady) {
-                                performSearch();
+                            // Check for URL parameters
+                            const urlParams = new URLSearchParams(window.location.search);
+                            const searchParam = urlParams.get('q');
+                            const autoSubmit = urlParams.get('autosubmit') === 'true';
+                            
+                            if (searchParam) {
+                                searchQuery.value = searchParam;
+                                searchClear.classList.add('visible');
+                                
+                                if (autoSubmit && searchEngine.isReady) {
+                                    performSearch();
+                                }
                             }
+                        } catch (error) {
+                            console.error('Index building failed:', error);
+                            alert('Failed to build search index. Please refresh the page.');
                         }
                         
                     } else {
