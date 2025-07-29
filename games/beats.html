@@ -213,7 +213,7 @@
   <div class="container">
     <h1>🎵 Rhythm Test 🎵</h1>
     <div class="subtitle">
-      Test your rhythm consistency! Watch the visual beat, then tap to maintain consistent timing for 20 beats.
+      Test your rhythm consistency! Watch the visual beat, then tap 21 times to measure 19 intervals.
     </div>
 
     <div class="game-card">
@@ -251,16 +251,16 @@
         
         <div class="game-stats">
           <div class="stat">
-            <span class="stat-value" id="beatCount">0</span>
-            <span>Beats</span>
-          </div>
-          <div class="stat">
             <span class="stat-value" id="avgError">-</span>
             <span>Avg Interval Error (ms)</span>
           </div>
           <div class="stat">
             <span class="stat-value" id="currentError">-</span>
             <span>Last Interval Error (ms)</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="beatCount">0</span>
+            <span>Taps</span>
           </div>
         </div>
       </div>
@@ -305,7 +305,7 @@
     const BPM = 100; // Beats per minute
     const BEAT_INTERVAL = 60000 / BPM; // 600ms for 100 BPM
     const DEMO_BEATS = -1; // Demo beats continue indefinitely until user starts
-    const GAME_BEATS = 20; // Player taps 20 beats
+    const GAME_BEATS = 21; // Player taps 21 times to get 19 measured intervals (first tap ignored)
     
     let gameState = 'setup'; // setup, demo, playing, finished
     let isPracticeMode = false;
@@ -367,7 +367,7 @@
     
     function startUserGame() {
       gameState = 'playing';
-      instructions.textContent = 'Now tap to keep the beat for 20 beats! Try to keep consistent timing between taps.';
+      instructions.textContent = 'Now tap 21 times to measure 19 intervals! Try to keep consistent timing between taps.';
       
       // Clear previous data
       userTapTimes = [];
@@ -402,8 +402,8 @@
       beatCount = userTapTimes.length;
       let currentError = 0;
       
-      if (userTapTimes.length > 1) {
-        // Calculate interval since last tap
+      if (userTapTimes.length > 2) {
+        // Calculate interval since last tap (skip first tap entirely)
         const lastTapTime = userTapTimes[userTapTimes.length - 2];
         const actualInterval = tapTime - lastTapTime;
         
@@ -417,13 +417,16 @@
         // Update average error
         const avgError = errors.reduce((sum, err) => sum + err, 0) / errors.length;
         avgErrorEl.textContent = Math.round(avgError);
+      } else if (userTapTimes.length === 2) {
+        // Second tap - start measuring intervals but don't count the first interval
+        currentErrorEl.textContent = '-';
       } else {
         // First tap - no error to calculate
         currentErrorEl.textContent = '-';
       }
       
-      // Update beat count
-      beatCountEl.textContent = beatCount;
+      // Update beat count (show actual taps minus 1 to exclude first tap from display)
+      beatCountEl.textContent = Math.max(0, beatCount - 1);
       
       // End game if we have enough beats
       if (beatCount >= GAME_BEATS) {
@@ -435,9 +438,9 @@
     function endGame() {
       gameState = 'finished';
       
-              // Calculate final score (average error per beat)
-        const totalError = errors.reduce((sum, err) => sum + err, 0);
-        const finalScore = Math.round(totalError / Math.max(errors.length, 1));
+                    // Calculate final score (average error per interval)
+      const totalError = errors.reduce((sum, err) => sum + err, 0);
+      const finalScore = Math.round(totalError / Math.max(errors.length, 1));
       
       // Show results
       gameArea.style.display = 'none';
@@ -445,8 +448,9 @@
       
       finalScoreEl.textContent = finalScore;
       
+      const measuredIntervals = errors.length;
       const breakdown = `
-        Total beats: ${beatCount}<br>
+        Measured intervals: ${measuredIntervals}<br>
         Total timing error: ${Math.round(totalError)}ms<br>
         Average error per interval: ${finalScore}ms<br>
         ${errors.length > 0 ? `Most consistent interval: ${Math.round(Math.min(...errors))}ms off<br>` : ''}
@@ -471,7 +475,8 @@
         teamName: teamName,
         barLocation: barLocation,
         score: score,
-        totalBeats: beatCount,
+        totalTaps: Math.max(0, beatCount - 1), // Exclude first tap from display count
+        measuredIntervals: errors.length,
         totalError: errors.reduce((sum, err) => sum + err, 0),
         errors: errors,
         timestamp: Date.now(),
