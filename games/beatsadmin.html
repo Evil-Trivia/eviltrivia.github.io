@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Evil Trivia - Rhythm Test Admin</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 30px;
+            background-color: #FFCC00;
+            margin-top: 60px;
+        }
+        .hidden {
+            display: none;
+        }
+        .section {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-top: 15px;
+            background-color: white;
+            border-radius: 8px;
+            max-width: 1200px;
+        }
+        h1, h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .control-group label {
+            font-weight: bold;
+            font-size: 14px;
+        }
+        button {
+            padding: 8px 16px;
+            font-size: 14px;
+            background-color: #000000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #333333;
+        }
+        input[type="text"], 
+        input[type="date"],
+        select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #000;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .table-container {
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+        th, td {
+            padding: 12px 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+            font-size: 14px;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        tr:hover {
+            background-color: #f9f9f9;
+        }
+        .score-cell {
+            font-weight: bold;
+            text-align: center;
+        }
+        .score-good {
+            color: #28a745;
+        }
+        .score-medium {
+            color: #ffc107;
+        }
+        .score-poor {
+            color: #dc3545;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 16px;
+            color: #666;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-style: italic;
+        }
+        .refresh-info {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            margin-top: 10px;
+        }
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .stats {
+                grid-template-columns: 1fr 1fr;
+            }
+            th, td {
+                padding: 8px 4px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>🎵 Rhythm Test Admin 🎵</h1>
+
+    <div class="section">
+        <div class="controls">
+            <div class="control-group">
+                <label for="barFilter">Filter by Bar:</label>
+                <select id="barFilter">
+                    <option value="">All Locations</option>
+                    <option value="St. Dymphna's">St. Dymphna's</option>
+                    <option value="Radegast Hall">Radegast Hall</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="dateFilter">Filter by Date:</label>
+                <input type="date" id="dateFilter">
+            </div>
+            
+            <div class="control-group">
+                <label for="teamFilter">Search Team:</label>
+                <input type="text" id="teamFilter" placeholder="Team name...">
+            </div>
+            
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadScores()">Refresh Data</button>
+            </div>
+        </div>
+
+        <div id="statsSection" class="stats hidden">
+            <div class="stat-card">
+                <div class="stat-value" id="totalScores">0</div>
+                <div class="stat-label">Total Scores</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="averageScore">0</div>
+                <div class="stat-label">Average Score (ms)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="bestScore">0</div>
+                <div class="stat-label">Best Score (ms)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="todayScores">0</div>
+                <div class="stat-label">Today's Scores</div>
+            </div>
+        </div>
+
+        <div id="errorMessage" class="error hidden"></div>
+        
+        <div id="loadingMessage" class="loading">
+            Click "Refresh Data" to load scores...
+        </div>
+
+        <div id="noDataMessage" class="no-data hidden">
+            No scores found matching the current filters.
+        </div>
+
+        <div class="table-container">
+            <table id="scoresTable" class="hidden">
+                <thead>
+                    <tr>
+                        <th>Date/Time</th>
+                        <th>Team Name</th>
+                        <th>Bar Location</th>
+                        <th>Score (ms)</th>
+                        <th>Total Beats</th>
+                        <th>Best Beat (ms)</th>
+                        <th>Worst Beat (ms)</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="scoresTableBody">
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="refresh-info">
+            Last updated: <span id="lastUpdate">Never</span>
+        </div>
+    </div>
+
+    <!-- Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebaseapp.com",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        window.db = db;
+        window.dbRef = ref;
+        window.dbGet = get;
+    </script>
+
+    <script>
+        let allScores = [];
+        let filteredScores = [];
+
+        // DOM elements
+        const barFilter = document.getElementById('barFilter');
+        const dateFilter = document.getElementById('dateFilter');
+        const teamFilter = document.getElementById('teamFilter');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        const noDataMessage = document.getElementById('noDataMessage');
+        const scoresTable = document.getElementById('scoresTable');
+        const scoresTableBody = document.getElementById('scoresTableBody');
+        const statsSection = document.getElementById('statsSection');
+        const lastUpdate = document.getElementById('lastUpdate');
+
+        // Stats elements
+        const totalScoresEl = document.getElementById('totalScores');
+        const averageScoreEl = document.getElementById('averageScore');
+        const bestScoreEl = document.getElementById('bestScore');
+        const todayScoresEl = document.getElementById('todayScores');
+
+        // Event listeners
+        barFilter.addEventListener('change', applyFilters);
+        dateFilter.addEventListener('change', applyFilters);
+        teamFilter.addEventListener('input', applyFilters);
+
+        async function loadScores() {
+            showLoading();
+            hideError();
+
+            try {
+                allScores = [];
+
+                // Load from main path
+                const mainScoresRef = window.dbRef(window.db, 'games/beats/answers');
+                const mainSnapshot = await window.dbGet(mainScoresRef);
+                
+                if (mainSnapshot.exists()) {
+                    const mainData = mainSnapshot.val();
+                    Object.keys(mainData).forEach(key => {
+                        const score = mainData[key];
+                        score.id = key;
+                        score.source = 'main';
+                        allScores.push(score);
+                    });
+                }
+
+                // Load from fallback path
+                const publicScoresRef = window.dbRef(window.db, 'publicAnswers/beats');
+                const publicSnapshot = await window.dbGet(publicScoresRef);
+                
+                if (publicSnapshot.exists()) {
+                    const publicData = publicSnapshot.val();
+                    Object.keys(publicData).forEach(key => {
+                        const score = publicData[key];
+                        score.id = key;
+                        score.source = 'public';
+                        allScores.push(score);
+                    });
+                }
+
+                // Sort by timestamp (newest first)
+                allScores.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+                hideLoading();
+                applyFilters();
+                updateLastRefresh();
+
+            } catch (error) {
+                console.error('Error loading scores:', error);
+                showError('Failed to load scores: ' + error.message);
+                hideLoading();
+            }
+        }
+
+        function applyFilters() {
+            const barValue = barFilter.value;
+            const dateValue = dateFilter.value;
+            const teamValue = teamFilter.value.toLowerCase().trim();
+
+            filteredScores = allScores.filter(score => {
+                // Bar filter
+                if (barValue && score.barLocation !== barValue) {
+                    return false;
+                }
+
+                // Date filter
+                if (dateValue && score.date !== dateValue) {
+                    return false;
+                }
+
+                // Team filter
+                if (teamValue && !score.teamName.toLowerCase().includes(teamValue)) {
+                    return false;
+                }
+
+                return true;
+            });
+
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            if (filteredScores.length === 0) {
+                showNoData();
+                hideTable();
+                hideStats();
+            } else {
+                hideNoData();
+                showTable();
+                showStats();
+                populateTable();
+                updateStats();
+            }
+        }
+
+        function populateTable() {
+            scoresTableBody.innerHTML = '';
+
+            filteredScores.forEach(score => {
+                const row = document.createElement('tr');
+                
+                const dateTime = new Date(score.timestamp).toLocaleString();
+                const scoreClass = getScoreClass(score.score);
+                const bestBeat = score.errors && score.errors.length > 0 ? Math.min(...score.errors) : 0;
+                const worstBeat = score.errors && score.errors.length > 0 ? Math.max(...score.errors) : 0;
+                
+                row.innerHTML = `
+                    <td>${dateTime}</td>
+                    <td>${escapeHtml(score.teamName || 'Unknown')}</td>
+                    <td>${escapeHtml(score.barLocation || 'Unknown')}</td>
+                    <td class="score-cell ${scoreClass}">${score.score || 0}</td>
+                    <td class="score-cell">${score.totalBeats || 0}</td>
+                    <td class="score-cell">${Math.round(bestBeat)}</td>
+                    <td class="score-cell">${Math.round(worstBeat)}</td>
+                    <td><button onclick="showDetails('${score.id}')">View</button></td>
+                `;
+                
+                scoresTableBody.appendChild(row);
+            });
+        }
+
+        function updateStats() {
+            const total = filteredScores.length;
+            const scores = filteredScores.map(s => s.score || 0);
+            const average = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+            const best = scores.length > 0 ? Math.min(...scores) : 0;
+            
+            const today = new Date().toISOString().split('T')[0];
+            const todayCount = filteredScores.filter(s => s.date === today).length;
+
+            totalScoresEl.textContent = total;
+            averageScoreEl.textContent = average;
+            bestScoreEl.textContent = best;
+            todayScoresEl.textContent = todayCount;
+        }
+
+        function getScoreClass(score) {
+            if (score <= 50) return 'score-good';
+            if (score <= 150) return 'score-medium';
+            return 'score-poor';
+        }
+
+        function showDetails(scoreId) {
+            const score = allScores.find(s => s.id === scoreId);
+            if (!score) return;
+
+            const errors = score.errors || [];
+            const errorDetails = errors.map((err, i) => `Beat ${i + 1}: ${Math.round(err)}ms`).join('\n');
+            
+            const details = `
+Team: ${score.teamName}
+Bar: ${score.barLocation}
+Date: ${new Date(score.timestamp).toLocaleString()}
+Final Score: ${score.score}ms
+Total Beats: ${score.totalBeats}
+Total Error: ${Math.round(score.totalError || 0)}ms
+
+Individual Beat Errors:
+${errorDetails || 'No error data available'}
+            `;
+            
+            alert(details);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showLoading() {
+            loadingMessage.classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            loadingMessage.classList.add('hidden');
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+        }
+
+        function hideError() {
+            errorMessage.classList.add('hidden');
+        }
+
+        function showNoData() {
+            noDataMessage.classList.remove('hidden');
+        }
+
+        function hideNoData() {
+            noDataMessage.classList.add('hidden');
+        }
+
+        function showTable() {
+            scoresTable.classList.remove('hidden');
+        }
+
+        function hideTable() {
+            scoresTable.classList.add('hidden');
+        }
+
+        function showStats() {
+            statsSection.classList.remove('hidden');
+        }
+
+        function hideStats() {
+            statsSection.classList.add('hidden');
+        }
+
+        function updateLastRefresh() {
+            lastUpdate.textContent = new Date().toLocaleString();
+        }
+
+        // Auto-load on page load
+        window.addEventListener('load', () => {
+            loadScores();
+        });
+    </script>
+</body>
+</html> 
