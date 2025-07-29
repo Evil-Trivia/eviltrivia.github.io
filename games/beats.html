@@ -125,9 +125,16 @@
       font-size: 24px;
       font-weight: bold;
       color: white;
-      transition: all 0.1s ease;
+      transition: all 0.08s ease;
       cursor: pointer;
       background-color: #ddd;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -khtml-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
     
     .beat-display.active {
@@ -245,7 +252,7 @@
           Get ready! Watch the beat pattern...
         </div>
         
-        <div class="beat-display" id="beatDisplay" onclick="userTap()">
+        <div class="beat-display" id="beatDisplay" onclick="handleClick()" ontouchstart="handleTouchStart(event)" ontouchend="handleTouchEnd(event)">
           TAP HERE
         </div>
         
@@ -379,7 +386,17 @@
       }, GAME_BEATS * BEAT_INTERVAL + 5000);
     }
     
+    let lastTapTime = 0;
+    const MIN_TAP_INTERVAL = 50; // Minimum 50ms between taps to prevent accidental double taps
+    
     function userTap() {
+      // Debounce rapid taps
+      const now = Date.now();
+      if (now - lastTapTime < MIN_TAP_INTERVAL) {
+        return;
+      }
+      lastTapTime = now;
+      
       if (gameState === 'demo') {
         // First tap starts the game
         clearInterval(demoInterval);
@@ -389,40 +406,34 @@
       
       if (gameState !== 'playing') return;
       
-      const tapTime = Date.now();
+      const tapTime = now;
       userTapTimes.push(tapTime);
       
-      // Visual feedback
+      // Visual feedback with faster response
       beatDisplay.classList.add('active');
       setTimeout(() => {
         beatDisplay.classList.remove('active');
-      }, 100);
+      }, 80);
       
       // Calculate error based on interval between taps
       beatCount = userTapTimes.length;
       let currentError = 0;
       
       if (userTapTimes.length > 1) {
-        // Calculate interval since last tap (skip first tap for display but measure from second tap)
+        // Calculate interval since last tap (measure all intervals after first tap)
         const lastTapTime = userTapTimes[userTapTimes.length - 2];
         const actualInterval = tapTime - lastTapTime;
         
-        // Only measure intervals starting from the second tap (ignore first interval)
-        if (userTapTimes.length > 2) {
-          // Compare to expected interval
-          currentError = Math.abs(actualInterval - BEAT_INTERVAL);
-          errors.push(currentError);
-          
-          // Update current error display
-          currentErrorEl.textContent = Math.round(currentError);
-          
-          // Update average error
-          const avgError = errors.reduce((sum, err) => sum + err, 0) / errors.length;
-          avgErrorEl.textContent = Math.round(avgError);
-        } else {
-          // Second tap - don't measure this interval but show it's registered
-          currentErrorEl.textContent = '-';
-        }
+        // Compare to expected interval (start measuring from second tap onwards)
+        currentError = Math.abs(actualInterval - BEAT_INTERVAL);
+        errors.push(currentError);
+        
+        // Update current error display
+        currentErrorEl.textContent = Math.round(currentError);
+        
+        // Update average error
+        const avgError = errors.reduce((sum, err) => sum + err, 0) / errors.length;
+        avgErrorEl.textContent = Math.round(avgError);
       } else {
         // First tap - no error to calculate
         currentErrorEl.textContent = '-';
@@ -531,15 +542,49 @@
       if (gameTimeout) clearTimeout(gameTimeout);
     }
     
-    // Prevent double-tap zoom on mobile
-    let lastTouchEnd = 0;
-    document.addEventListener('touchend', function (event) {
-        const now = (new Date()).getTime();
-        if (now - lastTouchEnd <= 300) {
-            event.preventDefault();
-        }
-        lastTouchEnd = now;
-    }, false);
+    // Improved mobile touch handling
+    let touchStarted = false;
+    let touchUsed = false;
+    
+    function handleTouchStart(event) {
+      event.preventDefault(); // Prevent scrolling, zooming, etc.
+      touchStarted = true;
+      touchUsed = true;
+      setTimeout(() => { touchUsed = false; }, 500); // Reset after 500ms
+    }
+    
+    function handleTouchEnd(event) {
+      event.preventDefault(); // Prevent mouse events from firing
+      if (touchStarted) {
+        touchStarted = false;
+        userTap();
+      }
+    }
+    
+    function handleClick() {
+      // Only trigger click if touch wasn't used recently
+      if (!touchUsed) {
+        userTap();
+      }
+    }
+    
+    // Make functions globally available
+    window.handleTouchStart = handleTouchStart;
+    window.handleTouchEnd = handleTouchEnd;
+    window.handleClick = handleClick;
+    
+    // Prevent double-tap zoom on mobile - less aggressive version
+    document.addEventListener('touchstart', function(event) {
+      if (event.touches.length > 1) {
+        event.preventDefault();
+      }
+    }, { passive: false });
+    
+    document.addEventListener('touchend', function(event) {
+      if (event.target.closest('.beat-display')) {
+        event.preventDefault(); // Only prevent on beat display
+      }
+    }, { passive: false });
   </script>
 </body>
 </html> 
