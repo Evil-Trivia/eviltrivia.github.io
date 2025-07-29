@@ -311,6 +311,45 @@
         window.dbRef = ref;
         window.dbGet = get;
         window.dbRemove = remove;
+
+        // Authentication check
+        onAuthStateChanged(auth, async (user) => {
+            const authContainer = document.getElementById('authContainer');
+            const adminContainer = document.getElementById('adminContainer');
+            
+            if (user) {
+                console.log("User is signed in:", user.uid);
+                try {
+                    const userRoleRef = ref(db, `users/${user.uid}/role`);
+                    const roleSnapshot = await get(userRoleRef);
+                    
+                    console.log("Role check - exists:", roleSnapshot.exists(), "value:", roleSnapshot.val());
+                    
+                    if (roleSnapshot.exists() && roleSnapshot.val() === 'admin') {
+                        console.log("Admin access granted");
+                        // User is admin, show admin interface
+                        authContainer.style.display = 'none';
+                        adminContainer.classList.remove('hidden');
+                        // Load scores after showing admin container
+                        window.loadScores();
+                    } else {
+                        console.log("User is not admin");
+                        // User is not admin
+                        authContainer.style.display = 'block';
+                        adminContainer.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error("Error checking user role:", error);
+                    authContainer.style.display = 'block';
+                    adminContainer.classList.add('hidden');
+                }
+            } else {
+                console.log("No user signed in");
+                // No user signed in
+                authContainer.style.display = 'block';
+                adminContainer.classList.add('hidden');
+            }
+        });
     </script>
 
     <script>
@@ -341,43 +380,8 @@
         teamFilter.addEventListener('input', applyFilters);
         document.getElementById('sortBy').addEventListener('change', applySorting);
 
-        // Authentication check
-        onAuthStateChanged(auth, async (user) => {
-            const authContainer = document.getElementById('authContainer');
-            const adminContainer = document.getElementById('adminContainer');
-            
-            if (user) {
-                console.log("User is signed in:", user.uid);
-                try {
-                    const userRoleRef = window.dbRef(window.db, `users/${user.uid}/role`);
-                    const roleSnapshot = await window.dbGet(userRoleRef);
-                    
-                    console.log("Role check - exists:", roleSnapshot.exists(), "value:", roleSnapshot.val());
-                    
-                    if (roleSnapshot.exists() && roleSnapshot.val() === 'admin') {
-                        console.log("Admin access granted");
-                        // User is admin, show admin interface
-                        authContainer.style.display = 'none';
-                        adminContainer.classList.remove('hidden');
-                        loadScores();
-                    } else {
-                        console.log("User is not admin");
-                        // User is not admin
-                        authContainer.style.display = 'block';
-                        adminContainer.classList.add('hidden');
-                    }
-                } catch (error) {
-                    console.error("Error checking user role:", error);
-                    authContainer.style.display = 'block';
-                    adminContainer.classList.add('hidden');
-                }
-            } else {
-                console.log("No user signed in");
-                // No user signed in
-                authContainer.style.display = 'block';
-                adminContainer.classList.add('hidden');
-            }
-        });
+        // Make loadScores available globally for the module script
+        window.loadScores = loadScores;
 
         async function loadScores() {
             showLoading();
