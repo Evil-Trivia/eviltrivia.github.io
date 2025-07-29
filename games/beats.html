@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Evil Trivia - Rhythm Test</title>
-  <script src="/js/components/autoload-banner.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
     body {
@@ -12,7 +11,6 @@
       margin: 0;
       padding: 0;
       background-color: #FFCC00;
-      margin-top: 60px;
       min-height: 100vh;
       touch-action: manipulation;
       user-select: none;
@@ -215,7 +213,7 @@
   <div class="container">
     <h1>🎵 Rhythm Test 🎵</h1>
     <div class="subtitle">
-      Keep the beat and test your rhythm! Watch the visual beat, then tap to maintain it for 10 beats.
+      Keep the beat and test your rhythm! Watch the visual beat, then tap to maintain it for 20 beats.
     </div>
 
     <div class="game-card">
@@ -304,10 +302,10 @@
 
   <script>
     // Game variables
-    const BPM = 120; // Beats per minute
-    const BEAT_INTERVAL = 60000 / BPM; // 500ms for 120 BPM
-    const DEMO_BEATS = 4; // Show 4 beats as demo
-    const GAME_BEATS = 10; // Player taps 10 beats
+    const BPM = 100; // Beats per minute
+    const BEAT_INTERVAL = 60000 / BPM; // 600ms for 100 BPM
+    const DEMO_BEATS = -1; // Demo beats continue indefinitely until user starts
+    const GAME_BEATS = 20; // Player taps 20 beats
     
     let gameState = 'setup'; // setup, demo, playing, finished
     let isPracticeMode = false;
@@ -355,13 +353,11 @@
       results.style.display = 'none';
       
       // Start demo
-      instructions.textContent = 'Watch the beat pattern... Get ready to follow!';
+      instructions.textContent = 'Watch the beat pattern... Tap the circle when you\'re ready to start!';
       startDemo();
     }
     
     function startDemo() {
-      let demoCount = 0;
-      
       demoInterval = setInterval(() => {
         // Flash the beat
         beatDisplay.classList.add('active');
@@ -370,18 +366,13 @@
           beatDisplay.classList.remove('active');
         }, 100);
         
-        demoCount++;
-        
-        if (demoCount >= DEMO_BEATS) {
-          clearInterval(demoInterval);
-          setTimeout(startUserGame, BEAT_INTERVAL);
-        }
+        // Demo continues indefinitely until user starts tapping
       }, BEAT_INTERVAL);
     }
     
     function startUserGame() {
       gameState = 'playing';
-      instructions.textContent = 'Now tap to keep the beat! Tap the circle when you think the next beat should be.';
+      instructions.textContent = 'Now tap to keep the beat for 20 beats! Tap the circle when you think the next beat should be.';
       
       // Set up expected beat times
       gameStartTime = Date.now();
@@ -396,6 +387,13 @@
     }
     
     function userTap() {
+      if (gameState === 'demo') {
+        // First tap starts the game
+        clearInterval(demoInterval);
+        startUserGame();
+        return;
+      }
+      
       if (gameState !== 'playing') return;
       
       const tapTime = Date.now();
@@ -435,9 +433,9 @@
     function endGame() {
       gameState = 'finished';
       
-      // Calculate final score
-      const totalError = errors.reduce((sum, err) => sum + err, 0);
-      const finalScore = Math.round(totalError / Math.max(errors.length, 1));
+              // Calculate final score (average error per beat)
+        const totalError = errors.reduce((sum, err) => sum + err, 0);
+        const finalScore = Math.round(totalError / Math.max(errors.length, 1));
       
       // Show results
       gameArea.style.display = 'none';
