@@ -213,7 +213,7 @@
   <div class="container">
     <h1>🎵 Rhythm Test 🎵</h1>
     <div class="subtitle">
-      Test your rhythm consistency! Watch the visual beat, then tap 21 times to measure 19 intervals.
+      Test your rhythm consistency! Watch the visual beat, then tap to measure 20 intervals.
     </div>
 
     <div class="game-card">
@@ -305,7 +305,7 @@
     const BPM = 100; // Beats per minute
     const BEAT_INTERVAL = 60000 / BPM; // 600ms for 100 BPM
     const DEMO_BEATS = -1; // Demo beats continue indefinitely until user starts
-    const GAME_BEATS = 21; // Player taps 21 times to get 19 measured intervals (first tap ignored)
+    const GAME_BEATS = 21; // Player taps 21 times to get 20 measured intervals (first tap ignored for display)
     
     let gameState = 'setup'; // setup, demo, playing, finished
     let isPracticeMode = false;
@@ -367,7 +367,7 @@
     
     function startUserGame() {
       gameState = 'playing';
-      instructions.textContent = 'Now tap 21 times to measure 19 intervals! Try to keep consistent timing between taps.';
+      instructions.textContent = 'Tap to keep the rhythm! Try to keep consistent timing between taps.';
       
       // Clear previous data
       userTapTimes = [];
@@ -402,31 +402,36 @@
       beatCount = userTapTimes.length;
       let currentError = 0;
       
-      if (userTapTimes.length > 2) {
-        // Calculate interval since last tap (skip first tap entirely)
+      if (userTapTimes.length > 1) {
+        // Calculate interval since last tap (skip first tap for display but measure from second tap)
         const lastTapTime = userTapTimes[userTapTimes.length - 2];
         const actualInterval = tapTime - lastTapTime;
         
-        // Compare to expected interval
-        currentError = Math.abs(actualInterval - BEAT_INTERVAL);
-        errors.push(currentError);
-        
-        // Update current error display
-        currentErrorEl.textContent = Math.round(currentError);
-        
-        // Update average error
-        const avgError = errors.reduce((sum, err) => sum + err, 0) / errors.length;
-        avgErrorEl.textContent = Math.round(avgError);
-      } else if (userTapTimes.length === 2) {
-        // Second tap - start measuring intervals but don't count the first interval
-        currentErrorEl.textContent = '-';
+        // Only measure intervals starting from the second tap (ignore first interval)
+        if (userTapTimes.length > 2) {
+          // Compare to expected interval
+          currentError = Math.abs(actualInterval - BEAT_INTERVAL);
+          errors.push(currentError);
+          
+          // Update current error display
+          currentErrorEl.textContent = Math.round(currentError);
+          
+          // Update average error
+          const avgError = errors.reduce((sum, err) => sum + err, 0) / errors.length;
+          avgErrorEl.textContent = Math.round(avgError);
+        } else {
+          // Second tap - don't measure this interval but show it's registered
+          currentErrorEl.textContent = '-';
+        }
       } else {
         // First tap - no error to calculate
         currentErrorEl.textContent = '-';
       }
       
-      // Update beat count (show actual taps minus 1 to exclude first tap from display)
-      beatCountEl.textContent = Math.max(0, beatCount - 1);
+      // Update beat count and taps remaining
+      const displayTaps = Math.max(0, beatCount - 1);
+      const tapsRemaining = Math.max(0, 20 - displayTaps);
+      beatCountEl.textContent = `${displayTaps} (${tapsRemaining} left)`;
       
       // End game if we have enough beats
       if (beatCount >= GAME_BEATS) {
