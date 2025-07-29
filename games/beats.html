@@ -213,7 +213,7 @@
   <div class="container">
     <h1>🎵 Rhythm Test 🎵</h1>
     <div class="subtitle">
-      Keep the beat and test your rhythm! Watch the visual beat, then tap to maintain it for 20 beats.
+      Test your rhythm consistency! Watch the visual beat, then tap to maintain consistent timing for 20 beats.
     </div>
 
     <div class="game-card">
@@ -256,11 +256,11 @@
           </div>
           <div class="stat">
             <span class="stat-value" id="avgError">-</span>
-            <span>Avg Error (ms)</span>
+            <span>Avg Interval Error (ms)</span>
           </div>
           <div class="stat">
             <span class="stat-value" id="currentError">-</span>
-            <span>Last Error (ms)</span>
+            <span>Last Interval Error (ms)</span>
           </div>
         </div>
       </div>
@@ -310,9 +310,6 @@
     let gameState = 'setup'; // setup, demo, playing, finished
     let isPracticeMode = false;
     let beatCount = 0;
-    let demoBeatCount = 0;
-    let gameStartTime = 0;
-    let expectedBeatTimes = [];
     let userTapTimes = [];
     let errors = [];
     let demoInterval;
@@ -342,10 +339,8 @@
       isPracticeMode = practiceMode;
       gameState = 'demo';
       beatCount = 0;
-      demoBeatCount = 0;
       userTapTimes = [];
       errors = [];
-      expectedBeatTimes = [];
       
       // Show game area
       setupForm.style.display = 'none';
@@ -372,18 +367,16 @@
     
     function startUserGame() {
       gameState = 'playing';
-      instructions.textContent = 'Now tap to keep the beat for 20 beats! Tap the circle when you think the next beat should be.';
+      instructions.textContent = 'Now tap to keep the beat for 20 beats! Try to keep consistent timing between taps.';
       
-      // Set up expected beat times
-      gameStartTime = Date.now();
-      for (let i = 0; i < GAME_BEATS; i++) {
-        expectedBeatTimes.push(gameStartTime + (i * BEAT_INTERVAL));
-      }
+      // Clear previous data
+      userTapTimes = [];
+      errors = [];
       
-      // Auto-end game after expected duration
+      // Auto-end game after reasonable duration (give extra time for slower players)
       gameTimeout = setTimeout(() => {
         endGame();
-      }, GAME_BEATS * BEAT_INTERVAL + 2000);
+      }, GAME_BEATS * BEAT_INTERVAL + 5000);
     }
     
     function userTap() {
@@ -405,28 +398,37 @@
         beatDisplay.classList.remove('active');
       }, 100);
       
-      // Calculate error for this tap
-      const beatIndex = userTapTimes.length - 1;
-      if (beatIndex < expectedBeatTimes.length) {
-        const expectedTime = expectedBeatTimes[beatIndex];
-        const error = Math.abs(tapTime - expectedTime);
-        errors.push(error);
+      // Calculate error based on interval between taps
+      beatCount = userTapTimes.length;
+      let currentError = 0;
+      
+      if (userTapTimes.length > 1) {
+        // Calculate interval since last tap
+        const lastTapTime = userTapTimes[userTapTimes.length - 2];
+        const actualInterval = tapTime - lastTapTime;
         
-        // Update display
-        beatCount = userTapTimes.length;
-        beatCountEl.textContent = beatCount;
-        currentErrorEl.textContent = Math.round(error);
+        // Compare to expected interval
+        currentError = Math.abs(actualInterval - BEAT_INTERVAL);
+        errors.push(currentError);
         
-        if (errors.length > 0) {
-          const avgError = errors.reduce((sum, err) => sum + err, 0) / errors.length;
-          avgErrorEl.textContent = Math.round(avgError);
-        }
+        // Update current error display
+        currentErrorEl.textContent = Math.round(currentError);
         
-        // End game if we have enough beats
-        if (beatCount >= GAME_BEATS) {
-          clearTimeout(gameTimeout);
-          endGame();
-        }
+        // Update average error
+        const avgError = errors.reduce((sum, err) => sum + err, 0) / errors.length;
+        avgErrorEl.textContent = Math.round(avgError);
+      } else {
+        // First tap - no error to calculate
+        currentErrorEl.textContent = '-';
+      }
+      
+      // Update beat count
+      beatCountEl.textContent = beatCount;
+      
+      // End game if we have enough beats
+      if (beatCount >= GAME_BEATS) {
+        clearTimeout(gameTimeout);
+        endGame();
       }
     }
     
@@ -445,10 +447,11 @@
       
       const breakdown = `
         Total beats: ${beatCount}<br>
-        Total error: ${Math.round(totalError)}ms<br>
-        Average error per beat: ${finalScore}ms<br>
-        ${errors.length > 0 ? `Best beat: ${Math.round(Math.min(...errors))}ms off<br>` : ''}
-        ${errors.length > 0 ? `Worst beat: ${Math.round(Math.max(...errors))}ms off` : ''}
+        Total timing error: ${Math.round(totalError)}ms<br>
+        Average error per interval: ${finalScore}ms<br>
+        ${errors.length > 0 ? `Most consistent interval: ${Math.round(Math.min(...errors))}ms off<br>` : ''}
+        ${errors.length > 0 ? `Least consistent interval: ${Math.round(Math.max(...errors))}ms off` : ''}
+        <br><small>Expected interval: ${BEAT_INTERVAL}ms between taps</small>
       `;
       scoreBreakdownEl.innerHTML = breakdown;
       
@@ -501,6 +504,11 @@
       setupForm.style.display = 'flex';
       gameArea.style.display = 'none';
       results.style.display = 'none';
+      
+      // Reset game data
+      beatCount = 0;
+      userTapTimes = [];
+      errors = [];
       
       // Reset displays
       beatCountEl.textContent = '0';
