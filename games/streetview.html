@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Evil Trivia - Street View Explorer</title>
+  <title>Evil Trivia - Street View Puzzle</title>
   <script src="/js/components/autoload-banner.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -51,6 +51,7 @@
       overflow: hidden;
       margin-bottom: 20px;
       border: 1px solid #ddd;
+      position: relative;
     }
     
     .streetview-embed {
@@ -86,43 +87,9 @@
       background-color: #28a745;
     }
     
-    .custom-location-section {
-      background-color: #f8f9fa;
-      padding: 20px;
-      border-radius: 8px;
-      margin-top: 20px;
-    }
-    
-    .custom-location-form {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      flex-wrap: wrap;
-      margin-top: 15px;
-    }
-    
-    .location-input {
-      flex: 1;
-      min-width: 250px;
-      max-width: 400px;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    
-    .load-location-btn {
-      padding: 10px 20px;
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    
-    .load-location-btn:hover {
-      background-color: #0056b3;
+    .location-btn:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
     }
     
     .current-location {
@@ -145,6 +112,27 @@
       color: #004499;
     }
     
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    
+    .no-locations {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+      font-style: italic;
+    }
+    
     @media (max-width: 768px) {
       .location-controls {
         flex-direction: column;
@@ -155,184 +143,200 @@
         width: 100%;
         max-width: 300px;
       }
-      
-      .custom-location-form {
-        flex-direction: column;
-        align-items: center;
-      }
-      
-      .location-input {
-        width: 100%;
-        max-width: none;
-      }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Street View Explorer</h1>
-    <p class="subtitle">Explore the world through Google Street View's interactive panoramas</p>
+    <h1>Street View Puzzle</h1>
+    <p class="subtitle">Identify the mystery locations from these Street View panoramas</p>
     
     <div class="game-card">
       <div class="instructions">
-        <h3>How to Use</h3>
-        <p>Click on the preset locations below or enter your own address/coordinates to explore Street View. Use your mouse to look around the 360° panorama, and click and drag to move through the streets!</p>
+        <h3>How to Play</h3>
+        <p>You'll be shown several mystery Street View locations. Use the 360° panorama to look around and identify where you think each location is. Write your answers down on paper!</p>
       </div>
       
-      <div class="current-location" id="current-location">
-        Current Location: Times Square, New York
+      <div id="loading-section" class="loading">
+        Loading puzzle locations...
       </div>
       
-      <div class="streetview-container">
-        <iframe 
-          id="streetview-iframe"
-          class="streetview-embed"
-          src="https://www.google.com/maps/embed?pb=!4v1735592400000!6m8!1m7!1sCAoSLEFGMVFpcE1jMTJpSzBXOWhzYUY0eUJnVVZQc1lrbVpzNy1nVjBmS1FfSGVZ!2m2!1d40.7580!2d-73.9855!3f0!4f0!5f0.7820865974627469"
-          allowfullscreen>
-        </iframe>
+      <div id="error-section" class="error" style="display: none;">
+        <p>Error loading puzzle locations. Please try again later.</p>
       </div>
       
-      <div class="location-controls">
-        <button class="location-btn active" data-location="times-square">Times Square, NY</button>
-        <button class="location-btn" data-location="eiffel-tower">Eiffel Tower, Paris</button>
-        <button class="location-btn" data-location="big-ben">Big Ben, London</button>
-        <button class="location-btn" data-location="colosseum">Colosseum, Rome</button>
-        <button class="location-btn" data-location="golden-gate">Golden Gate Bridge, SF</button>
-        <button class="location-btn" data-location="machu-picchu">Machu Picchu, Peru</button>
+      <div id="no-locations-section" class="no-locations" style="display: none;">
+        <p>No puzzle locations have been set up yet. Check back later!</p>
       </div>
       
-      <div class="custom-location-section">
-        <h3>Explore Any Location</h3>
-        <p>Enter an address, landmark, or coordinates to explore anywhere in the world</p>
-        <div class="custom-location-form">
-          <input 
-            type="text" 
-            id="custom-location-input" 
-            class="location-input" 
-            placeholder="Enter address, landmark, or coordinates (e.g., 'Statue of Liberty' or '40.7589, -73.9851')"
-          >
-          <button id="load-custom-location" class="load-location-btn">Explore</button>
+      <div id="puzzle-content" style="display: none;">
+        <div class="current-location" id="current-location">
+          Location 1 of ?
+        </div>
+        
+        <div class="streetview-container">
+          <iframe 
+            id="streetview-iframe"
+            class="streetview-embed"
+            src=""
+            allowfullscreen>
+          </iframe>
+        </div>
+        
+        <div class="location-controls" id="location-controls">
+          <!-- Location buttons will be generated dynamically -->
         </div>
       </div>
     </div>
   </div>
   
-  <script>
-    // Predefined locations with their Street View embed URLs
-    const locations = {
-      'times-square': {
-        name: 'Times Square, New York',
-        url: 'https://www.google.com/maps/embed?pb=!4v1735592400000!6m8!1m7!1sCAoSLEFGMVFpcE1jMTJpSzBXOWhzYUY0eUJnVVZQc1lrbVpzNy1nVjBmS1FfSGVZ!2m2!1d40.7580!2d-73.9855!3f0!4f0!5f0.7820865974627469'
-      },
-      'eiffel-tower': {
-        name: 'Eiffel Tower, Paris',
-        url: 'https://www.google.com/maps/embed?pb=!4v1735592400000!6m8!1m7!1sCAoSLEFGMVFpcE5oT1V6Y1lxQ0VCaDNSc0JiMmhyNEpEVzE5M1pHSFZiV3NVTUZF!2m2!1d48.8583701!2d2.2944813!3f0!4f0!5f0.7820865974627469'
-      },
-      'big-ben': {
-        name: 'Big Ben, London',
-        url: 'https://www.google.com/maps/embed?pb=!4v1735592400000!6m8!1m7!1sCAoSLEFGMVFpcE5ZVGxCdHJfbXZOQnpVNWJGMWJFVVhHSXdFRkdxVTFjVVlhRWNY!2m2!1d51.4994!2d-0.1245!3f0!4f0!5f0.7820865974627469'
-      },
-      'colosseum': {
-        name: 'Colosseum, Rome',
-        url: 'https://www.google.com/maps/embed?pb=!4v1735592400000!6m8!1m7!1sCAoSLEFGMVFpcE9kbWpGSE5BRjJCZXVzY0JLOWp0VTNvTTRwcmFuTXR3M0xCLWNM!2m2!1d41.8902!2d12.4922!3f0!4f0!5f0.7820865974627469'
-      },
-      'golden-gate': {
-        name: 'Golden Gate Bridge, San Francisco',
-        url: 'https://www.google.com/maps/embed?pb=!4v1735592400000!6m8!1m7!1sCAoSLEFGMVFpcE5CQkJnR0hqUkw1WGZVVjEyRGRWNjFGSGVuN0dDVThFUVNNRFk!2m2!1d37.8199!2d-122.4783!3f0!4f0!5f0.7820865974627469'
-      },
-      'machu-picchu': {
-        name: 'Machu Picchu, Peru',
-        url: 'https://www.google.com/maps/embed?pb=!4v1735592400000!6m8!1m7!1sCAoSLEFGMVFpcE1QQTFCSmJwSGNGQ3Y2QmFvYmFCUU5lVUUyNlE5Y2hJaTZNM3JD!2m2!1d-13.1631!2d-72.5450!3f0!4f0!5f0.7820865974627469'
-      }
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.firebaseapp.com",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
     };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    window.db = db;
+    window.dbRef = ref;
+    window.dbGet = get;
+  </script>
+
+  <script>
+    // Game state
+    let puzzleLocations = [];
+    let currentLocationIndex = 0;
     
     // DOM elements
+    const loadingSection = document.getElementById('loading-section');
+    const errorSection = document.getElementById('error-section');
+    const noLocationsSection = document.getElementById('no-locations-section');
+    const puzzleContent = document.getElementById('puzzle-content');
     const streetviewIframe = document.getElementById('streetview-iframe');
     const currentLocationDiv = document.getElementById('current-location');
-    const locationBtns = document.querySelectorAll('.location-btn');
-    const customLocationInput = document.getElementById('custom-location-input');
-    const loadCustomLocationBtn = document.getElementById('load-custom-location');
+    const locationControls = document.getElementById('location-controls');
     
-    // Function to load a location
-    function loadLocation(locationKey, customName = null) {
-      const location = locations[locationKey];
-      if (location) {
-        streetviewIframe.src = location.url;
-        currentLocationDiv.textContent = `Current Location: ${customName || location.name}`;
+    // Load puzzle locations from Firebase
+    async function loadPuzzleLocations() {
+      try {
+        console.log('Loading puzzle locations from Firebase...');
+        const locationsRef = window.dbRef(window.db, 'games/streetview/locations');
+        const snapshot = await window.dbGet(locationsRef);
         
-        // Update active button
-        locationBtns.forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.querySelector(`[data-location="${locationKey}"]`);
-        if (activeBtn) {
-          activeBtn.classList.add('active');
+        if (snapshot.exists()) {
+          const locationsData = snapshot.val();
+          console.log('Locations data:', locationsData);
+          
+          // Convert to array and sort by order
+          puzzleLocations = Object.entries(locationsData)
+            .map(([key, location]) => ({
+              id: key,
+              ...location
+            }))
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
+          
+          console.log('Processed locations:', puzzleLocations);
+          
+          if (puzzleLocations.length > 0) {
+            initializePuzzle();
+          } else {
+            showNoLocations();
+          }
+        } else {
+          console.log('No locations found in Firebase');
+          showNoLocations();
         }
+      } catch (error) {
+        console.error('Error loading puzzle locations:', error);
+        showError();
       }
     }
     
-    // Function to generate Street View embed URL from location query
-    function generateStreetViewUrl(query) {
-      // This creates a basic Street View embed URL
-      // For more precise control, you'd need the Google Maps JavaScript API
-      const encodedQuery = encodeURIComponent(query);
+    // Initialize the puzzle interface
+    function initializePuzzle() {
+      loadingSection.style.display = 'none';
+      errorSection.style.display = 'none';
+      noLocationsSection.style.display = 'none';
+      puzzleContent.style.display = 'block';
       
-      // Basic Street View embed URL format
-      // Note: This is a simplified approach. For production, you'd want to use the Maps JavaScript API
-      // or get specific coordinates for better reliability
-      return `https://www.google.com/maps/embed?pb=!4v${Date.now()}!6m8!1m7!1s!2m2!1d0!2d0!3f0!4f0!5f0.7820865974627469&q=${encodedQuery}`;
+      // Create navigation buttons
+      createLocationButtons();
+      
+      // Load first location
+      currentLocationIndex = 0;
+      loadCurrentLocation();
     }
     
-    // Handle preset location buttons
-    locationBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const locationKey = btn.getAttribute('data-location');
-        loadLocation(locationKey);
+    // Create navigation buttons for each location
+    function createLocationButtons() {
+      locationControls.innerHTML = '';
+      
+      puzzleLocations.forEach((location, index) => {
+        const button = document.createElement('button');
+        button.className = 'location-btn';
+        button.textContent = `Location ${index + 1}`;
+        button.addEventListener('click', () => {
+          currentLocationIndex = index;
+          loadCurrentLocation();
+          updateActiveButton();
+        });
+        locationControls.appendChild(button);
       });
-    });
-    
-    // Handle custom location input
-    function loadCustomLocation() {
-      const query = customLocationInput.value.trim();
-      if (!query) {
-        alert('Please enter a location to explore');
-        return;
-      }
       
-      // Check if it looks like coordinates (lat, lng)
-      const coordsMatch = query.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
-      if (coordsMatch) {
-        const lat = parseFloat(coordsMatch[1]);
-        const lng = parseFloat(coordsMatch[2]);
-        
-        // Create Street View URL with specific coordinates
-        const coordUrl = `https://www.google.com/maps/embed?pb=!4v${Date.now()}!6m8!1m7!1s!2m2!1d${lat}!2d${lng}!3f0!4f0!5f0.7820865974627469`;
-        streetviewIframe.src = coordUrl;
-        currentLocationDiv.textContent = `Current Location: ${lat}, ${lng}`;
-      } else {
-        // Use the location query approach
-        const customUrl = generateStreetViewUrl(query);
-        streetviewIframe.src = customUrl;
-        currentLocationDiv.textContent = `Current Location: ${query}`;
-      }
-      
-      // Clear active state from preset buttons
-      locationBtns.forEach(btn => btn.classList.remove('active'));
-      
-      // Clear the input
-      customLocationInput.value = '';
+      updateActiveButton();
     }
     
-    loadCustomLocationBtn.addEventListener('click', loadCustomLocation);
-    
-    // Allow Enter key to submit custom location
-    customLocationInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        loadCustomLocation();
+    // Load the current location into the Street View iframe
+    function loadCurrentLocation() {
+      if (currentLocationIndex >= 0 && currentLocationIndex < puzzleLocations.length) {
+        const location = puzzleLocations[currentLocationIndex];
+        streetviewIframe.src = location.url;
+        currentLocationDiv.textContent = `Location ${currentLocationIndex + 1} of ${puzzleLocations.length}`;
       }
-    });
+    }
     
-    // Initialize with default location (Times Square)
+    // Update which button is active
+    function updateActiveButton() {
+      const buttons = locationControls.querySelectorAll('.location-btn');
+      buttons.forEach((btn, index) => {
+        if (index === currentLocationIndex) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+    }
+    
+    // Show error state
+    function showError() {
+      loadingSection.style.display = 'none';
+      errorSection.style.display = 'block';
+      noLocationsSection.style.display = 'none';
+      puzzleContent.style.display = 'none';
+    }
+    
+    // Show no locations state
+    function showNoLocations() {
+      loadingSection.style.display = 'none';
+      errorSection.style.display = 'none';
+      noLocationsSection.style.display = 'block';
+      puzzleContent.style.display = 'none';
+    }
+    
+    // Initialize when page loads
     document.addEventListener('DOMContentLoaded', () => {
-      loadLocation('times-square');
+      loadPuzzleLocations();
     });
   </script>
 </body>
