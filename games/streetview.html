@@ -44,53 +44,10 @@
       position: relative;
     }
     
-    .streetview-embed {
+    #streetview-panorama {
       width: 100%;
       height: 100%;
-      border: none;
     }
-    
-    /* Overlay to hide the address label in top-left corner */
-    .address-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 200px;
-      height: 80px;
-      background: linear-gradient(135deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.6) 100%);
-      z-index: 10;
-      pointer-events: none;
-      border-radius: 0 0 8px 0;
-    }
-    
-    /* Overlay to hide street names on the ground (center-bottom area) */
-    .street-name-overlay {
-      position: absolute;
-      bottom: 60px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 300px;
-      height: 40px;
-      background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 100%);
-      z-index: 10;
-      pointer-events: none;
-      border-radius: 20px;
-    }
-    
-    /* Additional overlay for any other text that might appear */
-    .text-overlay-top-right {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 150px;
-      height: 60px;
-      background: linear-gradient(225deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.6) 100%);
-      z-index: 10;
-      pointer-events: none;
-      border-radius: 0 0 0 8px;
-    }
-    
-
     
     .location-controls {
       display: flex;
@@ -188,16 +145,7 @@
         </div>
         
         <div class="streetview-container">
-          <iframe 
-            id="streetview-iframe"
-            class="streetview-embed"
-            src=""
-            allowfullscreen>
-          </iframe>
-          <!-- Overlays to hide address and street name labels -->
-          <div class="address-overlay"></div>
-          <div class="street-name-overlay"></div>
-          <div class="text-overlay-top-right"></div>
+          <div id="streetview-panorama"></div>
         </div>
         
         <div class="location-controls" id="location-controls">
@@ -230,19 +178,87 @@
     window.dbGet = get;
   </script>
 
+  <!-- Google Maps JavaScript API -->
+  <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc&libraries=streetview&callback=initMap">
+  </script>
+
   <script>
     // Game state
     let puzzleLocations = [];
     let currentLocationIndex = 0;
+    let streetViewPanorama = null;
     
     // DOM elements
     const loadingSection = document.getElementById('loading-section');
     const errorSection = document.getElementById('error-section');
     const noLocationsSection = document.getElementById('no-locations-section');
     const puzzleContent = document.getElementById('puzzle-content');
-    const streetviewIframe = document.getElementById('streetview-iframe');
     const currentLocationDiv = document.getElementById('current-location');
     const locationControls = document.getElementById('location-controls');
+    
+    // Initialize Google Maps
+    function initMap() {
+      console.log('Google Maps API loaded');
+      // Create Street View panorama with hidden controls
+      streetViewPanorama = new google.maps.StreetViewPanorama(
+        document.getElementById('streetview-panorama'),
+        {
+          addressControl: false,        // Hide address label in top-left
+          showRoadLabels: false,        // Hide street names on the ground
+          disableDefaultUI: true,       // Hide all default UI elements
+          linksControl: true,           // Keep navigation arrows
+          panControl: false,            // Hide pan controls
+          zoomControl: false,           // Hide zoom controls
+          fullscreenControl: false,     // Hide fullscreen button
+          enableCloseButton: false,     // Hide close button
+          clickToGo: true,              // Allow clicking to move
+          scrollwheel: true,            // Allow scroll to zoom
+          motionTracking: false,        // Disable motion tracking
+          motionTrackingControl: false  // Hide motion tracking control
+        }
+      );
+      
+      // Load puzzle locations after Maps API is ready
+      loadPuzzleLocations();
+    }
+    
+    // Parse coordinates from Street View URL
+    function parseCoordinatesFromUrl(url) {
+      try {
+        // Extract latitude and longitude from the URL
+        const latMatch = url.match(/!1d(-?\d+\.?\d*)/);
+        const lngMatch = url.match(/!2d(-?\d+\.?\d*)/);
+        const headingMatch = url.match(/!3f(-?\d+\.?\d*)/);
+        const pitchMatch = url.match(/!4f(-?\d+\.?\d*)/);
+        const panoMatch = url.match(/!1s([^!]+)/);
+        
+        if (latMatch && lngMatch) {
+          const result = {
+            position: {
+              lat: parseFloat(latMatch[1]),
+              lng: parseFloat(lngMatch[1])
+            }
+          };
+          
+          if (headingMatch && pitchMatch) {
+            result.pov = {
+              heading: parseFloat(headingMatch[1]),
+              pitch: parseFloat(pitchMatch[1])
+            };
+          }
+          
+          if (panoMatch) {
+            result.pano = panoMatch[1];
+          }
+          
+          return result;
+        }
+      } catch (error) {
+        console.error('Error parsing URL:', error);
+      }
+      return null;
+    }
     
     // Load puzzle locations from Firebase
     async function loadPuzzleLocations() {
@@ -314,12 +330,33 @@
       updateActiveButton();
     }
     
-    // Load the current location into the Street View iframe
+    // Load the current location into the Street View panorama
     function loadCurrentLocation() {
-      if (currentLocationIndex >= 0 && currentLocationIndex < puzzleLocations.length) {
+      if (currentLocationIndex >= 0 && currentLocationIndex < puzzleLocations.length && streetViewPanorama) {
         const location = puzzleLocations[currentLocationIndex];
-        streetviewIframe.src = location.url;
         currentLocationDiv.textContent = `Location ${currentLocationIndex + 1} of ${puzzleLocations.length}`;
+        
+        // Parse the Street View URL to get coordinates and settings
+        const parsedData = parseCoordinatesFromUrl(location.url);
+        
+        if (parsedData) {
+          console.log('Loading location:', parsedData);
+          
+          // Set the panorama position
+          streetViewPanorama.setPosition(parsedData.position);
+          
+          // Set the point of view if available
+          if (parsedData.pov) {
+            streetViewPanorama.setPov(parsedData.pov);
+          }
+          
+          // Set specific panorama ID if available (for exact view)
+          if (parsedData.pano) {
+            streetViewPanorama.setPano(parsedData.pano);
+          }
+        } else {
+          console.error('Could not parse location URL:', location.url);
+        }
       }
     }
     
@@ -351,9 +388,20 @@
       puzzleContent.style.display = 'none';
     }
     
-    // Initialize when page loads
+    // Initialize when page loads (called by Google Maps API)
+    window.initMap = initMap;
+    
+    // Fallback initialization if Firebase loads before Maps API
     document.addEventListener('DOMContentLoaded', () => {
-      loadPuzzleLocations();
+      // If Maps API hasn't loaded yet, wait for it
+      if (typeof google === 'undefined') {
+        console.log('Waiting for Google Maps API to load...');
+      } else {
+        // Maps API is already loaded, initialize if not done already
+        if (!streetViewPanorama) {
+          initMap();
+        }
+      }
     });
   </script>
 </body>
