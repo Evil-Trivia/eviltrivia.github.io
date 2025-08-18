@@ -555,6 +555,10 @@
         let availableFiles = [];
         let lastLoadedItems = {};
         const resultsPerPage = 50;
+        // Fetch up to this many scores per network request (reduces round-trips)
+        const scoreWindowSize = 10;
+        // Timeout per batch before we render partial results
+        const batchTimeoutMs = 45000;
         let userIsAdmin = false;
         // Clipboard array to store terms
         let clipboardTerms = [];
@@ -997,7 +1001,7 @@
             
             // 30 second timeout for the entire batch
             const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error(`Search timed out`)), 30000);
+                setTimeout(() => reject(new Error(`Search timed out`)), batchTimeoutMs);
             });
             
             try {
@@ -1057,34 +1061,56 @@
                         while (scoreRangeIndex < scoreRanges.length) {
                             const range = scoreRanges[scoreRangeIndex];
                             
-                            // Loop through scores in the current range
+                            // Initialize the currentScore if we're just entering this range
+                            if (typeof currentScore !== 'number' || currentScore > range.max) {
+                                currentScore = range.max;
+                            }
+                            
+                            // Loop through scores in windows within the current range
                             while (currentScore >= range.min) {
                                 try {
-                                    // Search for one score at a time
-                                    const scoreResults = await searchScore(filename, currentScore, currentSearchState.pattern);
-                                    results.push(...scoreResults);
-                                    
-                                    // Update total results found
-                                    currentSearchState.resultsFound += scoreResults.length;
-                                    
-                                    // If we have enough results, stop searching
-                                    if (currentSearchState.resultsFound >= resultsPerPage) {
-                                        // Remember where we left off
-                                        currentSearchState.currentScore = currentScore - 1;
-                                        
-                                        // Check if there could be more results
-                                        currentSearchState.hasMoreResults = true;
-                                        
-                                        // Return the current batch
-                                        return results;
-                                    }
+                                   const windowMax = currentScore;
+                                   const windowMin = Math.max(range.min, windowMax - scoreWindowSize + 1);
+                                   const windowData = await fetchScoresWindow(filename, windowMin, windowMax);
+                                   const scoreKeys = Object.keys(windowData)
+                                       .map(k => parseInt(k, 10))
+                                       .filter(k => !Number.isNaN(k))
+                                       .sort((a, b) => b - a);
+                                   
+                                   for (const scoreKey of scoreKeys) {
+                                       const terms = windowData[String(scoreKey)] || {};
+                                       for (const termId in terms) {
+                                           if (!Object.prototype.hasOwnProperty.call(terms, termId)) continue;
+                                           const termData = terms[termId];
+                                           if (!termData || !termData.term) continue;
+                                           if (currentSearchState.pattern.test(termData.term) && !isTermExcluded(termData.term)) {
+                                               results.push({
+                                                   term: termData.term,
+                                                   parentheses: termData.parentheses || '',
+                                                   score: scoreKey,
+                                                   filename: filename,
+                                                   termId: termId
+                                               });
+                                               currentSearchState.resultsFound += 1;
+                                               if (currentSearchState.resultsFound >= resultsPerPage) {
+                                                   currentSearchState.currentScore = scoreKey - 1;
+                                                   currentSearchState.hasMoreResults = true;
+                                                   return results;
+                                               }
+                                           }
+                                       }
+                                       // Update progress if we finished this score
+                                       currentScore = scoreKey - 1;
+                                   }
+                                   // If no scores existed in the window, decrement to just before windowMin
+                                   if (scoreKeys.length === 0) {
+                                       currentScore = windowMin - 1;
+                                   }
                                 } catch (error) {
-                                    console.error(`Error searching score ${currentScore} in ${filename}:`, error);
-                                    // Just skip this score and continue
+                                    console.error(`Error searching scores ${currentScore}.. in ${filename}:`, error);
+                                    // Skip this window and continue
+                                   currentScore--;
                                 }
-                                
-                                // Move to next score
-                                currentScore--;
                             }
                             
                             // Move to next range
@@ -1138,6 +1164,19 @@
                 
                 results.push(errorResult);
                 return results;
+            }
+        }
+
+        // Fetch terms for a filename between two score bounds (inclusive)
+        async function fetchScoresWindow(filename, minScore, maxScore) {
+            try {
+                const ref = db.ref(`tools/${filename}`).orderByKey().startAt(String(minScore)).endAt(String(maxScore));
+                const snapshot = await ref.once('value');
+                return snapshot.val() || {};
+            } catch (err) {
+                console.error(`Error fetching score window ${minScore}-${maxScore} for ${filename}`, err);
+                // Fallback: return empty so search can proceed without blocking
+                return {};
             }
         }
         
