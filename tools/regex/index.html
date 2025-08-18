@@ -377,6 +377,52 @@
                 width: 100%;
             }
         }
+
+        /* Filters UI */
+        .filters-container {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .filters-header {
+            padding: 10px 15px;
+            background-color: #f2f2f2;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+            cursor: pointer;
+        }
+        .filters-title {
+            font-weight: bold;
+            margin: 0;
+        }
+        .filters-content {
+            padding: 10px 15px;
+        }
+        .filters-container.collapsed .filters-content {
+            display: none;
+        }
+        .filter-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .filter-chip {
+            background: #f2f2f2;
+            border: 1px solid #ddd;
+            border-radius: 16px;
+            padding: 6px 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .filter-chip .remove-item {
+            font-size: 16px;
+        }
     </style>
 </head>
 <body>
@@ -424,6 +470,27 @@
                         <h3>Select Files:</h3>
                         <div id="file-select" class="file-select">
                             <p>Loading available files...</p>
+                        </div>
+                    </div>
+
+                    <!-- Filters (optional) -->
+                    <div id="filters-container" class="filters-container collapsed">
+                        <div class="filters-header" id="filters-header">
+                            <h3 class="filters-title">Filters (optional)</h3>
+                            <button id="toggle-filters" class="clipboard-btn clipboard-toggle">▼</button>
+                        </div>
+                        <div class="filters-content">
+                            <div class="info-message" style="margin-bottom: 10px;">
+                                Add patterns to exclude from the results below. Supports wildcards: <code>*</code> (any chars) and <code>?</code> (single char). Matching is case-insensitive and uses "contains" by default.
+                            </div>
+                            <div class="file-input-row">
+                                <input type="text" id="exclude-input" class="search-input" placeholder="Exclude pattern (e.g., the , the *, * the, *the*)">
+                                <button id="add-exclude-btn" class="search-button">Add Filter</button>
+                                <button id="clear-exclusions-btn" class="clipboard-btn clipboard-clear" title="Clear all filters">Clear</button>
+                            </div>
+                            <div id="exclude-list" class="filter-chips">
+                                <!-- Filter chips will appear here -->
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -491,6 +558,8 @@
         let userIsAdmin = false;
         // Clipboard array to store terms
         let clipboardTerms = [];
+        // Exclude patterns (raw strings from UI)
+        let excludePatterns = [];
         // Track search state for pagination
         let currentSearchState = {
             searchTerm: '',
@@ -501,7 +570,8 @@
             scoreRangeIndex: 0,
             currentScore: 0,
             hasMoreResults: false,
-            resultsFound: 0
+            resultsFound: 0,
+            excludeRegexes: []
         };
         
         // Check if user is admin
@@ -785,6 +855,22 @@
                 return new RegExp(`^${regexParts.join('')}$`, 'i');
             }
         }
+
+        // Exclusion: convert wildcard to non-anchored regex ("contains" semantics)
+        function wildcardToRegexForExclusion(pattern) {
+            const crosswordMode = document.getElementById('crossword-mode').checked;
+            // Escape special regex characters except * and ?
+            let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            // Convert *
+            regexPattern = regexPattern.replace(/\*/g, '.*');
+            // Convert ?
+            if (crosswordMode) {
+                regexPattern = regexPattern.replace(/\?/g, '[A-Za-z]');
+            } else {
+                regexPattern = regexPattern.replace(/\?/g, '.');
+            }
+            return new RegExp(`${regexPattern}`, 'i');
+        }
         
         // Search for terms
         async function searchTerms(continueSearch = false) {
@@ -839,6 +925,12 @@
                 // Create regex pattern from search term
                 const regexPattern = wildcardToRegex(searchTerm);
                 
+                // Compile exclusion regexes from current excludePatterns
+                const excludeRegexes = excludePatterns
+                    .map(p => p.trim())
+                    .filter(p => p.length > 0)
+                    .map(p => wildcardToRegexForExclusion(p));
+                
                 // Initialize search state
                 currentSearchState = {
                     searchTerm: searchTerm,
@@ -851,7 +943,8 @@
                     hasMoreResults: false,
                     resultsFound: 0,
                     allResults: [],
-                    errors: []
+                    errors: [],
+                    excludeRegexes: excludeRegexes
                 };
             }
             
@@ -1059,6 +1152,14 @@
             }
         }
         
+        // Determine if a term should be excluded
+        function isTermExcluded(term) {
+            if (!currentSearchState.excludeRegexes || currentSearchState.excludeRegexes.length === 0) {
+                return false;
+            }
+            return currentSearchState.excludeRegexes.some(rx => rx.test(term));
+        }
+        
         // Search a specific score in a file
         async function searchScore(filename, score, regexPattern) {
             try {
@@ -1074,8 +1175,8 @@
                         // Skip items without term property
                         if (!termData.term) continue;
                         
-                        // Check if term matches regex pattern
-                        if (regexPattern.test(termData.term)) {
+                        // Check if term matches regex pattern and is not excluded
+                        if (regexPattern.test(termData.term) && !isTermExcluded(termData.term)) {
                             results.push({
                                 term: termData.term,
                                 parentheses: termData.parentheses || '',
@@ -1375,32 +1476,71 @@
                 toggleBtn.title = 'Hide clipboard';
             }
         }
-        
+
         // Generate Wikipedia link for a term
         function getWikipediaLink(term) {
-            // Replace spaces with underscores
             const formattedTerm = term.replace(/\s+/g, '_');
             return `https://en.wikipedia.org/wiki/${encodeURIComponent(formattedTerm)}`;
         }
         
         // Generate Merriam-Webster link for a term
         function getMerriamWebsterLink(term) {
-            // Replace spaces with %20
             const formattedTerm = term.replace(/\s+/g, '%20');
             return `https://www.merriam-webster.com/dictionary/${formattedTerm}`;
         }
         
         // Generate Search link for a term
         function getSearchLink(term) {
-            // Create wildcarded version of the term (*term*)
             const wildcardedTerm = encodeURIComponent(`*${term}*`);
-            
-            // Use JavaScript to perform the search when clicked
-            // This will ensure reliable auto-submission
             const searchUrl = `/tools/search/index.html?q=${wildcardedTerm}&autosubmit=true&t=${Date.now()}`;
-            
-            // Adding timestamp to prevent caching issues
             return searchUrl;
+        }
+        
+        // Filters UI functions
+        function updateExcludeDisplay() {
+            const list = document.getElementById('exclude-list');
+            if (!list) return;
+            if (excludePatterns.length === 0) {
+                list.innerHTML = '<span style="color:#666;">No filters added.</span>';
+                return;
+            }
+            list.innerHTML = '';
+            excludePatterns.forEach((pat, idx) => {
+                const chip = document.createElement('div');
+                chip.className = 'filter-chip';
+                chip.innerHTML = `<span>${pat}</span><span class="remove-item" title="Remove" onclick="removeExcludePattern(${idx})">×</span>`;
+                list.appendChild(chip);
+            });
+        }
+        function addExcludePattern() {
+            const input = document.getElementById('exclude-input');
+            const value = (input.value || '').trim();
+            if (!value) return;
+            excludePatterns.push(value);
+            input.value = '';
+            updateExcludeDisplay();
+        }
+        function removeExcludePattern(index) {
+            excludePatterns.splice(index, 1);
+            updateExcludeDisplay();
+        }
+        function clearExclusions() {
+            excludePatterns = [];
+            updateExcludeDisplay();
+        }
+        function toggleFilters() {
+            const container = document.getElementById('filters-container');
+            container.classList.toggle('collapsed');
+            const btn = document.getElementById('toggle-filters');
+            if (container.classList.contains('collapsed')) {
+                btn.textContent = '▼';
+                btn.setAttribute('aria-label', 'Expand filters');
+                btn.title = 'Show filters';
+            } else {
+                btn.textContent = '▲';
+                btn.setAttribute('aria-label', 'Collapse filters');
+                btn.title = 'Hide filters';
+            }
         }
         
         // Clipboard event listeners
@@ -1416,6 +1556,19 @@
                 toggleClipboard();
             }
         });
+
+        // Filters event listeners
+        document.getElementById('toggle-filters').addEventListener('click', toggleFilters);
+        document.getElementById('filters-header').addEventListener('click', function(e) {
+            if (e.target === this || e.target.classList.contains('filters-title')) {
+                toggleFilters();
+            }
+        });
+        document.getElementById('add-exclude-btn').addEventListener('click', addExcludePattern);
+        document.getElementById('clear-exclusions-btn').addEventListener('click', clearExclusions);
+        document.getElementById('exclude-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addExcludePattern();
+        });
         
         // Initialize clipboard on page load
         document.addEventListener('DOMContentLoaded', function() {
@@ -1428,6 +1581,15 @@
             toggleBtn.textContent = '▼';
             toggleBtn.setAttribute('aria-label', 'Expand clipboard');
             toggleBtn.title = 'Show clipboard';
+
+            // Initialize filters collapsed and UI paint
+            const filtersContainer = document.getElementById('filters-container');
+            filtersContainer.classList.add('collapsed');
+            const toggleFiltersBtn = document.getElementById('toggle-filters');
+            toggleFiltersBtn.textContent = '▼';
+            toggleFiltersBtn.setAttribute('aria-label', 'Expand filters');
+            toggleFiltersBtn.title = 'Show filters';
+            updateExcludeDisplay();
         });
     </script>
 </body>
