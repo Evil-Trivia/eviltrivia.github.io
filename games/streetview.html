@@ -235,19 +235,36 @@
     // Expose init for the callback
     window.initMap = initMap;
     
-    // Dynamically load Maps JS using saved key (from admin page)
-    function loadMapsJs() {
-      const key = localStorage.getItem('mapsEmbedApiKey') || '';
-      const script = document.createElement('script');
-      const params = new URLSearchParams({ key, libraries: 'streetview', callback: 'initMap' });
-      script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
-      script.async = true;
-      script.defer = true;
-      script.onerror = () => {
-        console.error('Failed to load Google Maps JavaScript API');
+    // Dynamically load Maps JS using key from Firebase (fallback to localStorage)
+    async function loadMapsJs() {
+      try {
+        await waitForFirebaseReady();
+        let key = '';
+        try {
+          const keyRef = window.dbRef(window.db, 'adminSettings/streetview/mapsJsApiKey');
+          const snap = await window.dbGet(keyRef);
+          if (snap.exists()) key = snap.val();
+        } catch {}
+        if (!key) key = localStorage.getItem('mapsEmbedApiKey') || '';
+        if (!key) {
+          console.error('No Maps API key configured');
+          showError();
+          return;
+        }
+        const script = document.createElement('script');
+        const params = new URLSearchParams({ key, libraries: 'streetview', callback: 'initMap' });
+        script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
+        script.async = true;
+        script.defer = true;
+        script.onerror = () => {
+          console.error('Failed to load Google Maps JavaScript API');
+          showError();
+        };
+        document.head.appendChild(script);
+      } catch (e) {
+        console.error(e);
         showError();
-      };
-      document.head.appendChild(script);
+      }
     }
     
     // Parse coordinates from Street View URL
