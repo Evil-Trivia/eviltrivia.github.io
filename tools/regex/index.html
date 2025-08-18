@@ -998,6 +998,8 @@
         async function searchBatch() {
             const results = [];
             const errors = [];
+            // Track results returned in THIS batch only (not cumulative)
+            let resultsInThisBatch = 0;
             
             // 30 second timeout for the entire batch
             const timeoutPromise = new Promise((_, reject) => {
@@ -1069,47 +1071,49 @@
                             // Loop through scores in windows within the current range
                             while (currentScore >= range.min) {
                                 try {
-                                   const windowMax = currentScore;
-                                   const windowMin = Math.max(range.min, windowMax - scoreWindowSize + 1);
-                                   const windowData = await fetchScoresWindow(filename, windowMin, windowMax);
-                                   const scoreKeys = Object.keys(windowData)
-                                       .map(k => parseInt(k, 10))
-                                       .filter(k => !Number.isNaN(k))
-                                       .sort((a, b) => b - a);
-                                   
-                                   for (const scoreKey of scoreKeys) {
-                                       const terms = windowData[String(scoreKey)] || {};
-                                       for (const termId in terms) {
-                                           if (!Object.prototype.hasOwnProperty.call(terms, termId)) continue;
-                                           const termData = terms[termId];
-                                           if (!termData || !termData.term) continue;
-                                           if (currentSearchState.pattern.test(termData.term) && !isTermExcluded(termData.term)) {
-                                               results.push({
-                                                   term: termData.term,
-                                                   parentheses: termData.parentheses || '',
-                                                   score: scoreKey,
-                                                   filename: filename,
-                                                   termId: termId
-                                               });
-                                               currentSearchState.resultsFound += 1;
-                                               if (currentSearchState.resultsFound >= resultsPerPage) {
-                                                   currentSearchState.currentScore = scoreKey - 1;
-                                                   currentSearchState.hasMoreResults = true;
-                                                   return results;
-                                               }
-                                           }
-                                       }
-                                       // Update progress if we finished this score
-                                       currentScore = scoreKey - 1;
-                                   }
-                                   // If no scores existed in the window, decrement to just before windowMin
-                                   if (scoreKeys.length === 0) {
-                                       currentScore = windowMin - 1;
-                                   }
+                                    const windowMax = currentScore;
+                                    const windowMin = Math.max(range.min, windowMax - scoreWindowSize + 1);
+                                    const windowData = await fetchScoresWindow(filename, windowMin, windowMax);
+                                    const scoreKeys = Object.keys(windowData)
+                                        .map(k => parseInt(k, 10))
+                                        .filter(k => !Number.isNaN(k))
+                                        .sort((a, b) => b - a);
+                                    
+                                    for (const scoreKey of scoreKeys) {
+                                        const terms = windowData[String(scoreKey)] || {};
+                                        for (const termId in terms) {
+                                            if (!Object.prototype.hasOwnProperty.call(terms, termId)) continue;
+                                            const termData = terms[termId];
+                                            if (!termData || !termData.term) continue;
+                                            if (currentSearchState.pattern.test(termData.term) && !isTermExcluded(termData.term)) {
+                                                results.push({
+                                                    term: termData.term,
+                                                    parentheses: termData.parentheses || '',
+                                                    score: scoreKey,
+                                                    filename: filename,
+                                                    termId: termId
+                                                });
+                                                // Update counters
+                                                currentSearchState.resultsFound += 1; // cumulative for display
+                                                resultsInThisBatch += 1; // per-batch for pagination
+                                                if (resultsInThisBatch >= resultsPerPage) {
+                                                    currentSearchState.currentScore = scoreKey - 1;
+                                                    currentSearchState.hasMoreResults = true;
+                                                    return results;
+                                                }
+                                            }
+                                        }
+                                        // Update progress if we finished this score
+                                        currentScore = scoreKey - 1;
+                                    }
+                                    // If no scores existed in the window, decrement to just before windowMin
+                                    if (scoreKeys.length === 0) {
+                                        currentScore = windowMin - 1;
+                                    }
                                 } catch (error) {
                                     console.error(`Error searching scores ${currentScore}.. in ${filename}:`, error);
                                     // Skip this window and continue
-                                   currentScore--;
+                                    currentScore--;
                                 }
                             }
                             
