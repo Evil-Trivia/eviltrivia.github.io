@@ -178,11 +178,6 @@
     window.dbGet = get;
   </script>
 
-  <!-- Google Maps JavaScript API -->
-  <script async defer
-    src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=streetview&callback=initMap">
-  </script>
-
   <script>
     // Game state
     let puzzleLocations = [];
@@ -196,6 +191,18 @@
     const puzzleContent = document.getElementById('puzzle-content');
     const currentLocationDiv = document.getElementById('current-location');
     const locationControls = document.getElementById('location-controls');
+    
+    // Ensure Firebase is initialized before reading
+    function waitForFirebaseReady(timeoutMs = 7000) {
+      return new Promise((resolve, reject) => {
+        const start = Date.now();
+        (function check() {
+          if (window.db && window.dbRef && window.dbGet) return resolve();
+          if (Date.now() - start > timeoutMs) return reject(new Error('Firebase not initialized'));
+          setTimeout(check, 50);
+        })();
+      });
+    }
     
     // Initialize Google Maps
     function initMap() {
@@ -218,12 +225,30 @@
         }
       );
       
-      // Load puzzle locations after Maps API is ready
-      loadPuzzleLocations();
+      // Load puzzle locations after Maps API is ready and Firebase is ready
+      waitForFirebaseReady().then(loadPuzzleLocations).catch((e) => {
+        console.error(e);
+        showError();
+      });
     }
     
     // Expose init for the callback
     window.initMap = initMap;
+    
+    // Dynamically load Maps JS using saved key (from admin page)
+    function loadMapsJs() {
+      const key = localStorage.getItem('mapsEmbedApiKey') || '';
+      const script = document.createElement('script');
+      const params = new URLSearchParams({ key, libraries: 'streetview', callback: 'initMap' });
+      script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
+      script.async = true;
+      script.defer = true;
+      script.onerror = () => {
+        console.error('Failed to load Google Maps JavaScript API');
+        showError();
+      };
+      document.head.appendChild(script);
+    }
     
     // Parse coordinates from Street View URL
     function parseCoordinatesFromUrl(url) {
@@ -333,6 +358,9 @@
       noLocationsSection.style.display = 'block';
       puzzleContent.style.display = 'none';
     }
+    
+    // Start by loading Maps JS
+    loadMapsJs();
   </script>
 </body>
 </html> 
