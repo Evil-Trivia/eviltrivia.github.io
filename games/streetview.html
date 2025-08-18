@@ -44,10 +44,9 @@
       position: relative;
     }
     
-    .streetview-embed {
+    #streetview-panorama {
       width: 100%;
       height: 100%;
-      border: none;
     }
     
     .location-controls {
@@ -110,27 +109,6 @@
       font-style: italic;
     }
     
-    .api-setup-notice {
-      background-color: #e7f3ff;
-      color: #0066cc;
-      padding: 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      border-left: 4px solid #0066cc;
-    }
-    
-    .api-setup-notice h3 {
-      margin-top: 0;
-      color: #004499;
-    }
-    
-    .api-setup-notice code {
-      background-color: rgba(0,0,0,0.1);
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-family: monospace;
-    }
-    
     @media (max-width: 768px) {
       .location-controls {
         flex-direction: column;
@@ -149,19 +127,6 @@
     <h1>Face the Nation</h1>
     
     <div class="game-card">
-      <div class="api-setup-notice">
-        <h3>Setup Required</h3>
-        <p>To hide address labels in Street View, you need to set up a <strong>free</strong> Google Maps Embed API key:</p>
-        <ol>
-          <li>Go to <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>
-          <li>Create a new project (or select existing)</li>
-          <li>Enable "Maps Embed API" (it's free with unlimited usage)</li>
-          <li>Create an API key in Credentials</li>
-          <li>Replace <code>YOUR_API_KEY</code> in the admin interface</li>
-        </ol>
-        <p><strong>Note:</strong> The Maps Embed API is completely free - no billing required!</p>
-      </div>
-      
       <div id="loading-section" class="loading">
         Loading puzzle locations...
       </div>
@@ -180,12 +145,7 @@
         </div>
         
         <div class="streetview-container">
-          <iframe 
-            id="streetview-iframe"
-            class="streetview-embed"
-            src=""
-            allowfullscreen>
-          </iframe>
+          <div id="streetview-panorama"></div>
         </div>
         
         <div class="location-controls" id="location-controls">
@@ -218,92 +178,96 @@
     window.dbGet = get;
   </script>
 
+  <!-- Google Maps JavaScript API -->
+  <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&libraries=streetview&callback=initMap">
+  </script>
+
   <script>
     // Game state
     let puzzleLocations = [];
     let currentLocationIndex = 0;
-    const MAPS_API_KEY = 'YOUR_API_KEY'; // Replace with your Maps Embed API key
+    let streetViewPanorama = null;
     
     // DOM elements
     const loadingSection = document.getElementById('loading-section');
     const errorSection = document.getElementById('error-section');
     const noLocationsSection = document.getElementById('no-locations-section');
     const puzzleContent = document.getElementById('puzzle-content');
-    const streetviewIframe = document.getElementById('streetview-iframe');
     const currentLocationDiv = document.getElementById('current-location');
     const locationControls = document.getElementById('location-controls');
     
-    // Convert old embed URL to Maps Embed API v1 format (which allows hiding labels)
-    function convertToMapsEmbedAPI(originalUrl) {
+    // Initialize Google Maps
+    function initMap() {
+      // Create Street View panorama with hidden labels/controls
+      streetViewPanorama = new google.maps.StreetViewPanorama(
+        document.getElementById('streetview-panorama'),
+        {
+          addressControl: false,
+          showRoadLabels: false,
+          disableDefaultUI: true,
+          linksControl: true,
+          panControl: false,
+          zoomControl: false,
+          fullscreenControl: false,
+          enableCloseButton: false,
+          clickToGo: true,
+          scrollwheel: true,
+          motionTracking: false,
+          motionTrackingControl: false
+        }
+      );
+      
+      // Load puzzle locations after Maps API is ready
+      loadPuzzleLocations();
+    }
+    
+    // Expose init for the callback
+    window.initMap = initMap;
+    
+    // Parse coordinates from Street View URL
+    function parseCoordinatesFromUrl(url) {
       try {
-        // Extract coordinates and parameters from the original URL
-        const latMatch = originalUrl.match(/!1d(-?\d+\.?\d*)/);
-        const lngMatch = originalUrl.match(/!2d(-?\d+\.?\d*)/);
-        const headingMatch = originalUrl.match(/!3f(-?\d+\.?\d*)/);
-        const pitchMatch = originalUrl.match(/!4f(-?\d+\.?\d*)/);
-        const panoMatch = originalUrl.match(/!1s([^!]+)/);
+        const latMatch = url.match(/!1d(-?\d+\.?\d*)/);
+        const lngMatch = url.match(/!2d(-?\d+\.?\d*)/);
+        const headingMatch = url.match(/!3f(-?\d+\.?\d*)/);
+        const pitchMatch = url.match(/!4f(-?\d+\.?\d*)/);
+        const panoMatch = url.match(/!1s([^!]+)/);
         
         if (latMatch && lngMatch) {
-          const lat = parseFloat(latMatch[1]);
-          const lng = parseFloat(lngMatch[1]);
-          
-          // Build Maps Embed API v1 URL
-          let embedUrl = `https://www.google.com/maps/embed/v1/streetview?`;
-          embedUrl += `location=${lat}%2C${lng}`;
-          
+          const result = {
+            position: { lat: parseFloat(latMatch[1]), lng: parseFloat(lngMatch[1]) }
+          };
+          if (headingMatch && pitchMatch) {
+            result.pov = { heading: parseFloat(headingMatch[1]), pitch: parseFloat(pitchMatch[1]) };
+          }
           if (panoMatch) {
-            embedUrl += `&pano=${panoMatch[1]}`;
+            result.pano = panoMatch[1];
           }
-          
-          if (headingMatch) {
-            embedUrl += `&heading=${headingMatch[1]}`;
-          }
-          
-          if (pitchMatch) {
-            embedUrl += `&pitch=${pitchMatch[1]}`;
-          }
-          
-          embedUrl += `&key=${MAPS_API_KEY}`;
-          
-          console.log('Converted to Maps Embed API:', embedUrl);
-          return embedUrl;
+          return result;
         }
-      } catch (error) {
-        console.error('Error converting URL:', error);
+      } catch (e) {
+        console.error('Error parsing URL', e);
       }
-      
-      // Fallback to original URL if conversion fails
-      return originalUrl;
+      return null;
     }
     
     // Load puzzle locations from Firebase
     async function loadPuzzleLocations() {
       try {
-        console.log('Loading puzzle locations from Firebase...');
         const locationsRef = window.dbRef(window.db, 'games/streetview/locations');
         const snapshot = await window.dbGet(locationsRef);
-        
         if (snapshot.exists()) {
           const locationsData = snapshot.val();
-          console.log('Locations data:', locationsData);
-          
-          // Convert to array and sort by order
           puzzleLocations = Object.entries(locationsData)
-            .map(([key, location]) => ({
-              id: key,
-              ...location
-            }))
+            .map(([key, location]) => ({ id: key, ...location }))
             .sort((a, b) => (a.order || 0) - (b.order || 0));
-          
-          console.log('Processed locations:', puzzleLocations);
-          
           if (puzzleLocations.length > 0) {
             initializePuzzle();
           } else {
             showNoLocations();
           }
         } else {
-          console.log('No locations found in Firebase');
           showNoLocations();
         }
       } catch (error) {
@@ -318,19 +282,13 @@
       errorSection.style.display = 'none';
       noLocationsSection.style.display = 'none';
       puzzleContent.style.display = 'block';
-      
-      // Create navigation buttons
       createLocationButtons();
-      
-      // Load first location
       currentLocationIndex = 0;
       loadCurrentLocation();
     }
     
-    // Create navigation buttons for each location
     function createLocationButtons() {
       locationControls.innerHTML = '';
-      
       puzzleLocations.forEach((location, index) => {
         const button = document.createElement('button');
         button.className = 'location-btn';
@@ -342,39 +300,26 @@
         });
         locationControls.appendChild(button);
       });
-      
       updateActiveButton();
     }
     
-    // Load the current location into the Street View iframe
     function loadCurrentLocation() {
-      if (currentLocationIndex >= 0 && currentLocationIndex < puzzleLocations.length) {
-        const location = puzzleLocations[currentLocationIndex];
-        
-        // Convert to Maps Embed API format if API key is available
-        let urlToUse = location.url;
-        if (MAPS_API_KEY !== 'YOUR_API_KEY') {
-          urlToUse = convertToMapsEmbedAPI(location.url);
-        }
-        
-        streetviewIframe.src = urlToUse;
-        currentLocationDiv.textContent = `Location ${currentLocationIndex + 1} of ${puzzleLocations.length}`;
+      if (!streetViewPanorama) return;
+      const location = puzzleLocations[currentLocationIndex];
+      currentLocationDiv.textContent = `Location ${currentLocationIndex + 1} of ${puzzleLocations.length}`;
+      const parsed = parseCoordinatesFromUrl(location.url);
+      if (parsed) {
+        streetViewPanorama.setPosition(parsed.position);
+        if (parsed.pov) streetViewPanorama.setPov(parsed.pov);
+        if (parsed.pano) streetViewPanorama.setPano(parsed.pano);
       }
     }
     
-    // Update which button is active
     function updateActiveButton() {
       const buttons = locationControls.querySelectorAll('.location-btn');
-      buttons.forEach((btn, index) => {
-        if (index === currentLocationIndex) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
-      });
+      buttons.forEach((btn, index) => btn.classList.toggle('active', index === currentLocationIndex));
     }
     
-    // Show error state
     function showError() {
       loadingSection.style.display = 'none';
       errorSection.style.display = 'block';
@@ -382,18 +327,12 @@
       puzzleContent.style.display = 'none';
     }
     
-    // Show no locations state
     function showNoLocations() {
       loadingSection.style.display = 'none';
       errorSection.style.display = 'none';
       noLocationsSection.style.display = 'block';
       puzzleContent.style.display = 'none';
     }
-    
-    // Initialize when page loads
-    document.addEventListener('DOMContentLoaded', () => {
-      loadPuzzleLocations();
-    });
   </script>
 </body>
 </html> 
