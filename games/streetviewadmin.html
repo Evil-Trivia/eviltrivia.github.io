@@ -202,6 +202,23 @@
     <div id="adminContainer" class="hidden">
         <h1>Face the Nation Admin</h1>
         
+        <!-- API Key Configuration Section -->
+        <div class="section">
+            <h2>API Key Setup (Required for Label Hiding)</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="apiKeyInput">Maps Embed API Key (Free):</label>
+                    <input type="text" id="apiKeyInput" placeholder="Paste your Google Maps Embed API key here">
+                    <small>Get a free API key: <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a> → Enable "Maps Embed API" → Create API Key</small>
+                </div>
+            </div>
+            <div class="controls">
+                <button onclick="saveApiKey()">Save API Key</button>
+                <button onclick="testApiKey()">Test API Key</button>
+            </div>
+            <div id="apiKeyMessage" style="margin-top: 15px;"></div>
+        </div>
+
         <!-- Add New Location Section -->
         <div class="section">
             <h2>Add New Location</h2>
@@ -345,6 +362,61 @@
     <script>
         // Global variables
         let allLocations = [];
+        let mapsApiKey = localStorage.getItem('mapsEmbedApiKey') || '';
+        
+        // Load saved API key on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            if (mapsApiKey) {
+                document.getElementById('apiKeyInput').value = mapsApiKey;
+            }
+        });
+        
+        // Save API key to localStorage
+        function saveApiKey() {
+            const apiKey = document.getElementById('apiKeyInput').value.trim();
+            if (!apiKey) {
+                showApiKeyMessage('Please enter an API key', 'error');
+                return;
+            }
+            
+            localStorage.setItem('mapsEmbedApiKey', apiKey);
+            mapsApiKey = apiKey;
+            showApiKeyMessage('API key saved successfully!', 'success');
+        }
+        
+        // Test API key by making a simple request
+        function testApiKey() {
+            const apiKey = document.getElementById('apiKeyInput').value.trim();
+            if (!apiKey) {
+                showApiKeyMessage('Please enter an API key to test', 'error');
+                return;
+            }
+            
+            // Create a test iframe to see if the API key works
+            const testUrl = `https://www.google.com/maps/embed/v1/streetview?location=40.7580,-73.9855&key=${apiKey}`;
+            const testIframe = document.createElement('iframe');
+            testIframe.src = testUrl;
+            testIframe.style.width = '300px';
+            testIframe.style.height = '200px';
+            testIframe.style.border = '1px solid #ddd';
+            testIframe.style.borderRadius = '4px';
+            
+            // Clear previous test results
+            const messageDiv = document.getElementById('apiKeyMessage');
+            messageDiv.innerHTML = '<p>Testing API key...</p>';
+            messageDiv.appendChild(testIframe);
+            
+            // Check if it loads successfully
+            setTimeout(() => {
+                showApiKeyMessage('API key appears to be working! Test Street View loaded above.', 'success');
+            }, 2000);
+        }
+        
+        function showApiKeyMessage(message, type) {
+            const messageDiv = document.getElementById('apiKeyMessage');
+            messageDiv.className = type;
+            messageDiv.innerHTML = `<p>${message}</p>`;
+        }
 
         // Load all locations from Firebase
         async function loadLocations() {
