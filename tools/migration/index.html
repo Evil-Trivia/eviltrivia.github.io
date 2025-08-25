@@ -147,7 +147,8 @@
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
     
     <script>
         // Firebase configuration
@@ -165,8 +166,8 @@
         // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
-        const functions = firebase.functions();
         const db = firebase.database();
+        const firestore = firebase.firestore();
         
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
@@ -208,7 +209,7 @@
             }
         });
         
-        // Migration function
+        // Direct client-side migration function
         async function runMigration() {
             if (!userIsAdmin) {
                 updateStatus('❌ Admin privileges required', 'error');
@@ -219,32 +220,145 @@
             migrateBtn.textContent = 'Migration Running...';
             resultsSummary.classList.add('hidden');
             
-            updateStatus('🚀 Starting migration...\nThis may take several minutes depending on data size.', 'info');
+            updateStatus('🚀 Starting direct migration...\nThis will copy data from Realtime Database to Firestore', 'info');
             
             try {
-                const migrateFunction = functions.httpsCallable('migrateToFirestore');
-                const result = await migrateFunction();
+                // Known files in your tools database
+                const knownFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
+                
+                updateStatus('📡 Testing database connections...', 'info');
+                
+                // Test Firestore connection
+                await firestore.collection('test').doc('migration-test').set({
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    test: true
+                });
+                
+                updateStatus('✅ Firestore connection successful\n📥 Starting data migration...', 'info');
+                
+                let totalTerms = 0;
+                let processedFiles = 0;
+                
+                for (const fileName of knownFiles) {
+                    updateStatus(`📂 Processing ${fileName}...`, 'info');
+                    
+                    try {
+                        // Check if file exists
+                        const fileCheck = await db.ref(`tools/${fileName}`).limitToFirst(1).once('value');
+                        if (!fileCheck.exists()) {
+                            updateStatus(`⚠️ ${fileName} not found, skipping...`, 'warning');
+                            continue;
+                        }
+                        
+                        // Get all data for this file
+                        const fileSnapshot = await db.ref(`tools/${fileName}`).once('value');
+                        const fileData = fileSnapshot.val();
+                        
+                        if (!fileData) {
+                            updateStatus(`⚠️ ${fileName} is empty, skipping...`, 'warning');
+                            continue;
+                        }
+                        
+                        let fileTermCount = 0;
+                        let batch = firestore.batch();
+                        let batchCount = 0;
+                        
+                        // Process each score level
+                        for (const score in fileData) {
+                            const scoreNum = parseInt(score, 10);
+                            if (isNaN(scoreNum)) continue;
+                            
+                            const scoreData = fileData[score];
+                            if (!scoreData) continue;
+                            
+                            // Process each term
+                            for (const termId in scoreData) {
+                                const termData = scoreData[termId];
+                                if (!termData || !termData.term) continue;
+                                
+                                // Create Firestore document
+                                const docData = {
+                                    term: termData.term,
+                                    termLower: termData.term.toLowerCase(),
+                                    parentheses: termData.parentheses || '',
+                                    score: scoreNum,
+                                    file: fileName,
+                                    originalTermId: termId,
+                                    migratedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                                    termLength: termData.term.length,
+                                    firstLetter: termData.term.charAt(0).toLowerCase(),
+                                    lastLetter: termData.term.charAt(termData.term.length - 1).toLowerCase()
+                                };
+                                
+                                const docId = `${fileName}_${score}_${termId}`;
+                                const docRef = firestore.collection('tools').doc(docId);
+                                batch.set(docRef, docData);
+                                
+                                batchCount++;
+                                fileTermCount++;
+                                totalTerms++;
+                                
+                                // Commit batch when it gets large
+                                if (batchCount >= 450) {
+                                    updateStatus(`  💾 Committing batch of ${batchCount} terms for ${fileName}...`, 'info');
+                                    await batch.commit();
+                                    
+                                    // Create new batch
+                                    batch = firestore.batch();
+                                    batchCount = 0;
+                                    
+                                    // Small delay to avoid overwhelming Firestore
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                }
+                            }
+                        }
+                        
+                        // Commit remaining terms
+                        if (batchCount > 0) {
+                            updateStatus(`  💾 Final batch for ${fileName}: ${batchCount} terms`, 'info');
+                            await batch.commit();
+                        }
+                        
+                        updateStatus(`✅ ${fileName}: ${fileTermCount.toLocaleString()} terms migrated`, 'success');
+                        processedFiles++;
+                        
+                    } catch (fileError) {
+                        console.error(`Error processing ${fileName}:`, fileError);
+                        updateStatus(`❌ Error processing ${fileName}: ${fileError.message}`, 'error');
+                    }
+                }
+                
+                // Create migration summary
+                await firestore.collection('migration-info').doc('tools-migration').set({
+                    migratedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    totalTerms: totalTerms,
+                    filesProcessed: processedFiles,
+                    fileNames: knownFiles.slice(0, processedFiles),
+                    migrationSource: 'client-side-direct',
+                    version: '1.0'
+                });
                 
                 updateStatus('✅ Migration completed successfully!', 'success');
                 
                 // Show detailed results
-                const data = result.data;
                 resultsContent.innerHTML = `
                     <div class="success">
                         <h4>✅ Migration Successful!</h4>
-                        <p><strong>Total terms migrated:</strong> ${data.totalTerms?.toLocaleString() || 'Unknown'}</p>
-                        <p><strong>Files processed:</strong> ${data.filesProcessed || 'Unknown'}</p>
-                        <p><strong>Files:</strong> ${data.fileNames?.join(', ') || 'Unknown'}</p>
+                        <p><strong>Total terms migrated:</strong> ${totalTerms.toLocaleString()}</p>
+                        <p><strong>Files processed:</strong> ${processedFiles}</p>
                         <p><strong>Firestore collection:</strong> tools</p>
                         <p><strong>Original Realtime Database:</strong> Preserved (no data deleted)</p>
                     </div>
                     <div style="margin-top: 15px;">
                         <h4>🎯 Next Steps:</h4>
                         <ol>
-                            <li>Set up Algolia sync with Firestore</li>
+                            <li>✅ Data is now in Firestore</li>
+                            <li>Set up Algolia account and get API keys</li>
+                            <li>Install Algolia Firebase extension</li>
                             <li>Configure search indexes</li>
-                            <li>Test the new search functionality</li>
+                            <li>Build new search interface with Algolia</li>
                         </ol>
+                        <p><strong>Your Firestore tools collection is ready for Algolia sync!</strong></p>
                     </div>
                 `;
                 resultsSummary.classList.remove('hidden');
@@ -252,14 +366,7 @@
             } catch (error) {
                 console.error('Migration error:', error);
                 
-                let errorMessage = 'Unknown error occurred';
-                if (error.code === 'unauthenticated') {
-                    errorMessage = 'Authentication required. Please sign in as an admin.';
-                } else if (error.code === 'permission-denied') {
-                    errorMessage = 'Admin privileges required to run migration.';
-                } else if (error.message) {
-                    errorMessage = error.message;
-                }
+                let errorMessage = error.message || 'Unknown error occurred';
                 
                 updateStatus(`❌ Migration failed:\n${errorMessage}`, 'error');
                 
@@ -270,9 +377,10 @@
                         <h5>Troubleshooting:</h5>
                         <ul>
                             <li>Ensure you're signed in as an admin</li>
-                            <li>Check Firebase Functions deployment</li>
-                            <li>Verify database permissions</li>
+                            <li>Check Firestore permissions</li>
+                            <li>Verify Realtime Database access</li>
                             <li>Try refreshing the page and running again</li>
+                            <li>Check browser console for detailed errors</li>
                         </ul>
                     </div>
                 `;
