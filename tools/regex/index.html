@@ -540,6 +540,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
     
     <script>
         // Firebase configuration
@@ -558,6 +559,7 @@
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.database();
+        const functions = firebase.functions();
         
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
@@ -1019,13 +1021,105 @@
             return new RegExp(`${regexPattern}`, 'i');
         }
         
-        // Search for terms
+        // Enhanced search function with option to use server-side or client-side search
         async function searchTerms(continueSearch = false) {
             if (!userIsAdmin) {
                 alert('You need admin privileges to perform searches.');
                 return;
             }
             
+            // Check if server-side search is available
+            const useServerSide = typeof firebase.functions !== 'undefined';
+            
+            if (useServerSide && !continueSearch) {
+                // Use optimized server-side search for new searches
+                await searchTermsServerSide();
+            } else {
+                // Fall back to client-side search for continued searches or if functions unavailable
+                await searchTermsClientSide(continueSearch);
+            }
+        }
+
+        // New server-side search function
+        async function searchTermsServerSide() {
+            const searchTerm = searchInput.value.trim();
+            
+            if (!searchTerm) {
+                alert('Please enter a search term');
+                return;
+            }
+            
+            // Get selected files
+            const selectedFiles = [];
+            availableFiles.forEach(file => {
+                const checkbox = document.getElementById(`file-${file}`);
+                if (checkbox && checkbox.checked) {
+                    // Fix file names that incorrectly use dots instead of underscores
+                    let correctedFileName = file;
+                    if (file.includes('.') && !file.includes('_')) {
+                        correctedFileName = file.replace(/\./g, '_');
+                        console.warn(`File name contains dots, attempting to use ${correctedFileName} instead`);
+                    }
+                    selectedFiles.push(correctedFileName);
+                }
+            });
+            
+            if (selectedFiles.length === 0) {
+                alert('Please select at least one file');
+                return;
+            }
+
+            // Show loading
+            resultsContainer.innerHTML = '<div class="loading">Searching on server...</div>';
+
+            try {
+                // Get search options
+                const crosswordMode = document.getElementById('crossword-mode')?.checked || false;
+                const variableMode = document.getElementById('variable-mode')?.checked || false;
+                const ignoreSpaces = document.getElementById('ignore-spaces-mode')?.checked || false;
+
+                // Prepare data for server-side function
+                const searchData = {
+                    searchTerm: searchTerm,
+                    files: selectedFiles,
+                    excludePatterns: excludePatterns,
+                    crosswordMode: crosswordMode,
+                    variableMode: variableMode,
+                    ignoreSpaces: ignoreSpaces,
+                    maxResults: resultsPerPage
+                };
+
+                console.log('Calling server-side search function with:', searchData);
+
+                // Call the server-side function
+                const searchFunction = firebase.functions().httpsCallable('searchTerms');
+                const result = await searchFunction(searchData);
+
+                console.log('Server-side search completed:', result.data);
+
+                // Update search state for potential client-side continuation
+                currentSearchState = {
+                    searchTerm: searchTerm,
+                    selectedFiles: selectedFiles,
+                    hasMoreResults: result.data.hasMore,
+                    resultsFound: result.data.totalFound,
+                    serverSideUsed: true
+                };
+
+                // Display results
+                displayServerSideResults(result.data);
+
+            } catch (error) {
+                console.error('Server-side search error:', error);
+                
+                // Fall back to client-side search if server-side fails
+                console.log('Falling back to client-side search...');
+                await searchTermsClientSide(false);
+            }
+        }
+
+        // Original client-side search function (kept as fallback)
+        async function searchTermsClientSide(continueSearch = false) {
             // If not continuing a previous search, start a new one
             if (!continueSearch) {
                 const searchTerm = searchInput.value.trim();
@@ -1091,13 +1185,14 @@
                     resultsFound: 0,
                     allResults: [],
                     errors: [],
-                    excludeRegexes: excludeRegexes
+                    excludeRegexes: excludeRegexes,
+                    serverSideUsed: false
                 };
             }
             
             // Show loading
             if (!continueSearch) {
-                resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
+                resultsContainer.innerHTML = '<div class="loading">Searching (client-side)...</div>';
             } else {
                 // If continuing, update or create the loading indicator for additional results
                 let loadingElem = document.getElementById('loading-more');
@@ -1134,6 +1229,140 @@
                         </div>
                     `;
                 }
+            }
+        }
+
+        // Display results from server-side search
+        function displayServerSideResults(searchResult) {
+            resultsContainer.innerHTML = '';
+            
+            const { results, totalFound, errors, hasMore } = searchResult;
+            
+            if (results.length === 0 && errors.length === 0) {
+                resultsContainer.innerHTML = '<p class="no-results">No results found. Try a different search term.</p>';
+                return;
+            }
+
+            // Show errors if any
+            if (errors.length > 0) {
+                const errorHtml = errors.map(err => 
+                    `<div class="error-message" style="margin-bottom: 10px;">
+                        <strong>Error with file ${err.filename}:</strong><br>
+                        ${err.error}
+                    </div>`
+                ).join('');
+                
+                const errorContainer = document.createElement('div');
+                errorContainer.innerHTML = errorHtml;
+                resultsContainer.appendChild(errorContainer);
+            }
+
+            if (results.length === 0) {
+                const noResults = document.createElement('p');
+                noResults.className = 'no-results';
+                noResults.textContent = 'No valid results found due to errors.';
+                resultsContainer.appendChild(noResults);
+                return;
+            }
+
+            // Add result count
+            const totalCount = document.createElement('div');
+            totalCount.className = 'result-count';
+            totalCount.id = 'result-count';
+            totalCount.textContent = `Found ${totalFound} result${totalFound !== 1 ? 's' : ''} (showing ${results.length})`;
+            resultsContainer.appendChild(totalCount);
+
+            // Create table
+            const table = document.createElement('table');
+            table.id = 'results-table';
+            table.className = 'results-table';
+            
+            // Create header
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            
+            const headers = ['Score', 'Term', 'Parenthetical', 'Wikipedia Link', 'Merriam Webster Link', 'Trivia Archive Results'];
+            headers.forEach(headerText => {
+                const th = document.createElement('th');
+                th.textContent = headerText;
+                headerRow.appendChild(th);
+            });
+            
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            
+            // Create table body
+            const tbody = document.createElement('tbody');
+            tbody.id = 'results-tbody';
+            
+            // Add results
+            for (const result of results) {
+                const row = document.createElement('tr');
+                
+                // Score cell
+                const scoreCell = document.createElement('td');
+                scoreCell.textContent = result.score;
+                row.appendChild(scoreCell);
+                
+                // Term cell with clipboard button
+                const termCell = document.createElement('td');
+                termCell.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>${result.term}</span>
+                        <button class="add-to-clipboard" onclick="addToClipboard('${result.term.replace(/'/g, "\\'")}')">+</button>
+                    </div>
+                `;
+                row.appendChild(termCell);
+                
+                // Parenthetical cell
+                const parenthesesCell = document.createElement('td');
+                parenthesesCell.textContent = result.parentheses || '';
+                row.appendChild(parenthesesCell);
+                
+                // Wikipedia Link
+                const wikiCell = document.createElement('td');
+                const wikiLink = getWikipediaLink(result.term);
+                wikiCell.innerHTML = `<a href="${wikiLink}" class="dictionary-link" target="_blank">Wikipedia</a>`;
+                row.appendChild(wikiCell);
+                
+                // Merriam Webster Link
+                const mwCell = document.createElement('td');
+                const mwLink = getMerriamWebsterLink(result.term);
+                mwCell.innerHTML = `<a href="${mwLink}" class="dictionary-link" target="_blank">Merriam-Webster</a>`;
+                row.appendChild(mwCell);
+                
+                // Trivia Archive
+                const triviaCell = document.createElement('td');
+                const searchLink = getSearchLink(result.term);
+                triviaCell.innerHTML = `<a href="${searchLink}" class="dictionary-link" target="_blank">Search Archive</a>`;
+                row.appendChild(triviaCell);
+                
+                tbody.appendChild(row);
+            }
+            
+            table.appendChild(tbody);
+            resultsContainer.appendChild(table);
+
+            // Show "Load More" button if there are more results and we can continue client-side
+            if (hasMore) {
+                const loadMoreButton = document.createElement('button');
+                loadMoreButton.id = 'load-more-button';
+                loadMoreButton.className = 'load-more';
+                loadMoreButton.textContent = 'Load More Results (Client-side)';
+                
+                loadMoreButton.addEventListener('click', () => {
+                    // Continue with client-side search for additional results
+                    searchTermsClientSide(true);
+                });
+                
+                resultsContainer.appendChild(loadMoreButton);
+
+                // Add note about client-side continuation
+                const note = document.createElement('div');
+                note.className = 'info-message';
+                note.style.marginTop = '10px';
+                note.innerHTML = '<strong>Note:</strong> Additional results will be loaded using client-side search, which may be slower.';
+                resultsContainer.appendChild(note);
             }
         }
         

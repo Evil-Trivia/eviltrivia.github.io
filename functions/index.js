@@ -610,4 +610,330 @@ exports.checkWeddingAnswer = functions.https.onCall(async (data, context) => {
       'Error checking answer. Please try again.'
     );
   }
-}); 
+});
+
+// Optimized server-side search function for regex tool
+exports.searchTerms = functions.https.onCall(async (data, context) => {
+  // Verify user has admin privileges
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'Authentication required to access search function.'
+    );
+  }
+
+  const uid = context.auth.uid;
+  
+  try {
+    // Check if user is admin
+    const userSnapshot = await admin.database().ref(`users/${uid}`).once('value');
+    const userData = userSnapshot.val() || {};
+    
+    const isAdmin = 
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+      (userData.role === 'admin');
+    
+    if (!isAdmin) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'Admin privileges required to access search function.'
+      );
+    }
+
+    // Validate input data
+    if (!data.searchTerm || !data.files || !Array.isArray(data.files)) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'Request must include searchTerm and files array.'
+      );
+    }
+
+    const { 
+      searchTerm, 
+      files, 
+      excludePatterns = [], 
+      crosswordMode = false, 
+      variableMode = false, 
+      ignoreSpaces = false,
+      maxResults = 50 
+    } = data;
+
+    console.log(`Search request: "${searchTerm}" in files: ${files.join(', ')}`);
+
+    // Server-side pattern compilation
+    const searchPattern = compileSearchPattern(searchTerm, { crosswordMode, variableMode, ignoreSpaces });
+    const excludeRegexes = excludePatterns.map(pattern => 
+      compileExcludePattern(pattern, { crosswordMode })
+    );
+
+    const results = [];
+    const errors = [];
+
+    // Process files in parallel for better performance
+    const filePromises = files.map(async (filename) => {
+      try {
+        const fileResults = await searchFileOptimized(filename, searchPattern, excludeRegexes, maxResults);
+        return fileResults;
+      } catch (error) {
+        console.error(`Error searching file ${filename}:`, error);
+        errors.push({
+          filename,
+          error: error.message || 'Unknown error'
+        });
+        return [];
+      }
+    });
+
+    const fileResultsArrays = await Promise.all(filePromises);
+    
+    // Flatten and combine results
+    for (const fileResults of fileResultsArrays) {
+      results.push(...fileResults);
+    }
+
+    // Sort by score (highest first) and limit results
+    results.sort((a, b) => b.score - a.score);
+    const limitedResults = results.slice(0, maxResults);
+
+    console.log(`Search completed: found ${results.length} total results, returning ${limitedResults.length}`);
+
+    return {
+      results: limitedResults,
+      totalFound: results.length,
+      errors: errors,
+      searchTerm: searchTerm,
+      hasMore: results.length > maxResults
+    };
+
+  } catch (error) {
+    console.error('Error in searchTerms function:', error);
+    
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    
+    throw new functions.https.HttpsError(
+      'internal',
+      'Error performing search. Please try again.'
+    );
+  }
+});
+
+// Helper function to search a single file optimized
+async function searchFileOptimized(filename, searchPattern, excludeRegexes, maxResults) {
+  const results = [];
+  
+  // Check if file exists first
+  const fileRef = admin.database().ref(`tools/${filename}`);
+  const existsSnapshot = await fileRef.limitToFirst(1).once('value');
+  
+  if (!existsSnapshot.exists()) {
+    throw new Error(`File ${filename} does not exist`);
+  }
+
+  // Use intelligent score range strategy
+  // Start with high scores and work down, stopping when we have enough results
+  const scoreRanges = [
+    { min: 90, max: 100 },
+    { min: 75, max: 89 },
+    { min: 50, max: 74 },
+    { min: 25, max: 49 },
+    { min: 0, max: 24 }
+  ];
+
+  for (const range of scoreRanges) {
+    if (results.length >= maxResults) break;
+
+    try {
+      // Fetch score range data
+      const rangeSnapshot = await fileRef
+        .orderByKey()
+        .startAt(String(range.min))
+        .endAt(String(range.max))
+        .once('value');
+      
+      const rangeData = rangeSnapshot.val() || {};
+      
+      // Process scores in descending order for best results first
+      const scores = Object.keys(rangeData)
+        .map(s => parseInt(s, 10))
+        .filter(s => !isNaN(s))
+        .sort((a, b) => b - a);
+
+      for (const score of scores) {
+        if (results.length >= maxResults) break;
+
+        const terms = rangeData[String(score)] || {};
+        
+        for (const termId in terms) {
+          if (results.length >= maxResults) break;
+          
+          const termData = terms[termId];
+          if (!termData || !termData.term) continue;
+
+          // Apply search pattern
+          if (testPattern(searchPattern, termData.term) && !isTermExcluded(termData.term, excludeRegexes)) {
+            results.push({
+              term: termData.term,
+              parentheses: termData.parentheses || '',
+              score: score,
+              filename: filename,
+              termId: termId
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error processing score range ${range.min}-${range.max} in ${filename}:`, error);
+      // Continue with next range rather than failing completely
+    }
+  }
+
+  return results;
+}
+
+// Helper function to compile search patterns (server-side version)
+function compileSearchPattern(pattern, options = {}) {
+  const { crosswordMode, variableMode, ignoreSpaces } = options;
+
+  if (variableMode) {
+    return compileVariablePattern(pattern, ignoreSpaces);
+  }
+
+  if (!crosswordMode) {
+    // Standard wildcard mode
+    let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    regexPattern = regexPattern.replace(/\*/g, '.*');
+    regexPattern = regexPattern.replace(/\?/g, '.');
+    return new RegExp(`^${regexPattern}$`, 'i');
+  }
+
+  // Crossword mode implementation (server-side)
+  return compileCrosswordPattern(pattern);
+}
+
+function compileVariablePattern(pattern, ignoreSpaces) {
+  if (ignoreSpaces) {
+    return createSpaceIgnoringVariablePattern(pattern);
+  }
+
+  const variableMap = new Map();
+  let groupCounter = 1;
+  let regexPattern = '^';
+
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i];
+    
+    if (char === ' ') {
+      regexPattern += ' ';
+      continue;
+    }
+
+    if (/[A-Za-z]/.test(char)) {
+      const upperChar = char.toUpperCase();
+      
+      if (variableMap.has(upperChar)) {
+        const groupNum = variableMap.get(upperChar);
+        regexPattern += `\\${groupNum}`;
+      } else {
+        variableMap.set(upperChar, groupCounter);
+        regexPattern += '(.)';
+        groupCounter++;
+      }
+    } else {
+      regexPattern += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+
+  regexPattern += '$';
+  return new RegExp(regexPattern, 'i');
+}
+
+function createSpaceIgnoringVariablePattern(pattern) {
+  const processedPattern = pattern.replace(/\s+/g, '');
+  
+  return {
+    test: function(target) {
+      const cleanTarget = target.replace(/\s+/g, '');
+      
+      if (cleanTarget.length !== processedPattern.length) {
+        return false;
+      }
+
+      const assignments = new Map();
+      
+      for (let i = 0; i < processedPattern.length; i++) {
+        const patternChar = processedPattern[i].toUpperCase();
+        const targetChar = cleanTarget[i].toLowerCase();
+        
+        if (/[A-Za-z]/.test(patternChar)) {
+          if (assignments.has(patternChar)) {
+            if (assignments.get(patternChar) !== targetChar) {
+              return false;
+            }
+          } else {
+            assignments.set(patternChar, targetChar);
+          }
+        } else {
+          if (patternChar.toLowerCase() !== targetChar) {
+            return false;
+          }
+        }
+      }
+      
+      return true;
+    }
+  };
+}
+
+function compileCrosswordPattern(pattern) {
+  let preparedPattern = pattern.replace(/\*/g, '###ASTERISK###');
+  const questionMarkCount = (preparedPattern.match(/\?/g) || []).length;
+  
+  if (questionMarkCount === 0) {
+    let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    regexPattern = regexPattern.replace(/\*/g, '.*');
+    return new RegExp(`^${regexPattern}$`, 'i');
+  }
+
+  if (preparedPattern.replace(/\?/g, '') === '') {
+    return new RegExp(`^(?=[^A-Za-z]*([A-Za-z][^A-Za-z]*){${questionMarkCount}}$)[\\s\\S]*$`, 'i');
+  }
+
+  // Handle mixed patterns - simplified server-side version
+  let regexPattern = preparedPattern
+    .replace(/\?+/g, (match) => `(?:[^A-Za-z]*[A-Za-z]){${match.length}}[^A-Za-z]*`)
+    .replace(/###ASTERISK###/g, '.*')
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    
+  return new RegExp(`^${regexPattern}$`, 'i');
+}
+
+function compileExcludePattern(pattern, options = {}) {
+  const { crosswordMode } = options;
+  
+  let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  regexPattern = regexPattern.replace(/\*/g, '.*');
+  
+  if (crosswordMode) {
+    regexPattern = regexPattern.replace(/\?/g, '[A-Za-z]');
+  } else {
+    regexPattern = regexPattern.replace(/\?/g, '.');
+  }
+  
+  return new RegExp(regexPattern, 'i');
+}
+
+function testPattern(pattern, text) {
+  if (typeof pattern.test === 'function') {
+    return pattern.test(text);
+  }
+  return false;
+}
+
+function isTermExcluded(term, excludeRegexes) {
+  if (!excludeRegexes || excludeRegexes.length === 0) {
+    return false;
+  }
+  return excludeRegexes.some(regex => regex.test(term));
+} 
