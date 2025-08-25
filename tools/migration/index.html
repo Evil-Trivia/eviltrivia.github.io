@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evil Trivia - Database Migration</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #FFCC00;
+            margin-top: 60px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        
+        .content-box {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .migration-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin: 20px 0;
+            transition: background-color 0.3s;
+        }
+        
+        .migration-btn:hover {
+            background-color: #0056b3;
+        }
+        
+        .migration-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .status-box {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            min-height: 100px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+            overflow-y: auto;
+            max-height: 400px;
+        }
+        
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        
+        .warning {
+            background-color: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+        
+        .info-box {
+            background-color: #e8f4f8;
+            border: 1px solid #4caf50;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Database Migration Tool</h1>
+        
+        <!-- Authentication Required Screen -->
+        <div id="auth-screen" class="content-box hidden">
+            <h2>Access Required</h2>
+            <p>You need admin privileges to run database migrations.</p>
+            <a href="/account" style="color: #007bff; text-decoration: none; font-weight: bold;">Go to Account Page</a>
+        </div>
+        
+        <!-- Migration Interface -->
+        <div id="migration-screen" class="hidden">
+            <div class="info-box">
+                <h3>🔄 Realtime Database → Firestore Migration</h3>
+                <p><strong>What this does:</strong></p>
+                <ul>
+                    <li>✅ <strong>Copies</strong> all tools data from Realtime Database to Firestore</li>
+                    <li>✅ <strong>Preserves</strong> original data (nothing is deleted)</li>
+                    <li>✅ <strong>Optimizes</strong> data structure for search performance</li>
+                    <li>✅ <strong>Prepares</strong> for Algolia integration</li>
+                </ul>
+                <p><strong>Safe to run multiple times</strong> - will overwrite existing Firestore data.</p>
+            </div>
+            
+            <div class="content-box">
+                <h3>Migration Status</h3>
+                <button id="migrate-btn" class="migration-btn">Start Migration</button>
+                
+                <div id="status-display" class="status-box">
+                    Ready to migrate. Click "Start Migration" to begin copying tools data from Realtime Database to Firestore.
+                </div>
+                
+                <div id="results-summary" class="hidden">
+                    <h4>Migration Results:</h4>
+                    <div id="results-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
+    
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebasestorage.app",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const functions = firebase.functions();
+        const db = firebase.database();
+        
+        // DOM Elements
+        const authScreen = document.getElementById('auth-screen');
+        const migrationScreen = document.getElementById('migration-screen');
+        const migrateBtn = document.getElementById('migrate-btn');
+        const statusDisplay = document.getElementById('status-display');
+        const resultsSummary = document.getElementById('results-summary');
+        const resultsContent = document.getElementById('results-content');
+        
+        let userIsAdmin = false;
+        
+        // Check authentication
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                try {
+                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
+                    const userData = snapshot.val() || {};
+                    
+                    const isAdmin = 
+                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+                        (userData.role === 'admin');
+                    
+                    if (isAdmin) {
+                        userIsAdmin = true;
+                        authScreen.classList.add('hidden');
+                        migrationScreen.classList.remove('hidden');
+                    } else {
+                        authScreen.classList.remove('hidden');
+                        migrationScreen.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error('Error checking user role:', error);
+                    authScreen.classList.remove('hidden');
+                    migrationScreen.classList.add('hidden');
+                }
+            } else {
+                authScreen.classList.remove('hidden');
+                migrationScreen.classList.add('hidden');
+            }
+        });
+        
+        // Migration function
+        async function runMigration() {
+            if (!userIsAdmin) {
+                updateStatus('❌ Admin privileges required', 'error');
+                return;
+            }
+            
+            migrateBtn.disabled = true;
+            migrateBtn.textContent = 'Migration Running...';
+            resultsSummary.classList.add('hidden');
+            
+            updateStatus('🚀 Starting migration...\nThis may take several minutes depending on data size.', 'info');
+            
+            try {
+                const migrateFunction = functions.httpsCallable('migrateToFirestore');
+                const result = await migrateFunction();
+                
+                updateStatus('✅ Migration completed successfully!', 'success');
+                
+                // Show detailed results
+                const data = result.data;
+                resultsContent.innerHTML = `
+                    <div class="success">
+                        <h4>✅ Migration Successful!</h4>
+                        <p><strong>Total terms migrated:</strong> ${data.totalTerms?.toLocaleString() || 'Unknown'}</p>
+                        <p><strong>Files processed:</strong> ${data.filesProcessed || 'Unknown'}</p>
+                        <p><strong>Files:</strong> ${data.fileNames?.join(', ') || 'Unknown'}</p>
+                        <p><strong>Firestore collection:</strong> tools</p>
+                        <p><strong>Original Realtime Database:</strong> Preserved (no data deleted)</p>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <h4>🎯 Next Steps:</h4>
+                        <ol>
+                            <li>Set up Algolia sync with Firestore</li>
+                            <li>Configure search indexes</li>
+                            <li>Test the new search functionality</li>
+                        </ol>
+                    </div>
+                `;
+                resultsSummary.classList.remove('hidden');
+                
+            } catch (error) {
+                console.error('Migration error:', error);
+                
+                let errorMessage = 'Unknown error occurred';
+                if (error.code === 'unauthenticated') {
+                    errorMessage = 'Authentication required. Please sign in as an admin.';
+                } else if (error.code === 'permission-denied') {
+                    errorMessage = 'Admin privileges required to run migration.';
+                } else if (error.message) {
+                    errorMessage = error.message;
+                }
+                
+                updateStatus(`❌ Migration failed:\n${errorMessage}`, 'error');
+                
+                resultsContent.innerHTML = `
+                    <div class="error">
+                        <h4>❌ Migration Failed</h4>
+                        <p><strong>Error:</strong> ${errorMessage}</p>
+                        <h5>Troubleshooting:</h5>
+                        <ul>
+                            <li>Ensure you're signed in as an admin</li>
+                            <li>Check Firebase Functions deployment</li>
+                            <li>Verify database permissions</li>
+                            <li>Try refreshing the page and running again</li>
+                        </ul>
+                    </div>
+                `;
+                resultsSummary.classList.remove('hidden');
+            } finally {
+                migrateBtn.disabled = false;
+                migrateBtn.textContent = 'Run Migration Again';
+            }
+        }
+        
+        function updateStatus(message, type = 'info') {
+            statusDisplay.textContent = message;
+            statusDisplay.className = `status-box ${type}`;
+        }
+        
+        // Event listeners
+        migrateBtn.addEventListener('click', runMigration);
+    </script>
+</body>
+</html>

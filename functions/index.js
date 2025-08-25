@@ -936,4 +936,60 @@ function isTermExcluded(term, excludeRegexes) {
     return false;
   }
   return excludeRegexes.some(regex => regex.test(term));
-} 
+}
+
+// Migration function to copy tools data from Realtime Database to Firestore
+exports.migrateToFirestore = functions.https.onCall(async (data, context) => {
+  // Verify user has admin privileges
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'Authentication required to run migration.'
+    );
+  }
+
+  const uid = context.auth.uid;
+  
+  try {
+    // Check if user is admin
+    const userSnapshot = await admin.database().ref(`users/${uid}`).once('value');
+    const userData = userSnapshot.val() || {};
+    
+    const isAdmin = 
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+      (userData.role === 'admin');
+    
+    if (!isAdmin) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'Admin privileges required to run migration.'
+      );
+    }
+
+    console.log(`Migration started by admin user: ${uid}`);
+    
+    // Import and run the migration
+    const { migrateToolsToFirestore } = require('./migrate-to-firestore');
+    const result = await migrateToolsToFirestore();
+    
+    console.log('Migration completed successfully:', result);
+    
+    return {
+      success: true,
+      message: 'Migration completed successfully',
+      ...result
+    };
+
+  } catch (error) {
+    console.error('Migration error:', error);
+    
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    
+    throw new functions.https.HttpsError(
+      'internal',
+      `Migration failed: ${error.message}`
+    );
+  }
+}); 

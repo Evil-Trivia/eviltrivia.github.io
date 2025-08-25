@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+             (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles.hasAny(['admin']));
+    }
+    
+    // Helper function to check if user is patron
+    function isPatron() {
+      return request.auth != null && 
+             (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles.hasAny(['patron', 'admin']) ||
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+    
+    // Tools collection - admin only
+    match /tools/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    }
+    
+    // Trivia archive - patron or admin access
+    match /trivia-archive/{document=**} {
+      allow read: if isPatron();
+      allow write: if isAdmin();
+    }
+    
+    // Public collections
+    match /public/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Wedding data
+    match /wedding/{document=**} {
+      allow read, write: if true;
+    }
+    
+    // Games data
+    match /games/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Grading data
+    match /grading/{document=**} {
+      allow read, write: if isAdmin() || 
+                         (request.auth != null && 
+                          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles.hasAny(['grader']));
+    }
+    
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
