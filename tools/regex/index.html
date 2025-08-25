@@ -442,7 +442,7 @@
                 <h2>Search Terms</h2>
                 
                 <div class="wild-card-info">
-                    <h3>Wildcard Options:</h3>
+                    <h3>Search Options:</h3>
                     <ul>
                         <li><strong>apple</strong> - Exact match (not case sensitive)</li>
                         <li><strong>*apple*</strong> - Contains "apple" anywhere in the term</li>
@@ -450,12 +450,14 @@
                         <li><strong>*apple</strong> - Ends with "apple"</li>
                         <li><strong>?</strong> - Matches any single character (e.g., "apple?" could match "apples")</li>
                         <li><strong>Crossword Mode:</strong> When enabled, ? only counts letters (A-Z) and ignores spaces/punctuation. Example: "?????" matches "Wall-E" (5 letters)</li>
+                        <li><strong>Variable Mode:</strong> Each letter represents a variable that must be consistent. Example: "X Y X" matches "MOM" (M-O-M) or "DAD" (D-A-D)</li>
+                        <li><strong>Variable Mode + Ignore Spaces:</strong> Same as Variable Mode but spaces are ignored. Example: "X Y X" can match "A LA" (A-L-A)</li>
                     </ul>
                 </div>
                 
                 <div class="search-container">
                     <div class="search-row">
-                        <input type="text" id="search-input" class="search-input" placeholder="Enter search term (e.g., apple, *apple*, a?ple)">
+                        <input type="text" id="search-input" class="search-input" placeholder="Enter search term (e.g., apple, *apple*, a?ple, X Y X for Variable Mode)">
                         <button id="search-button" class="search-button">Search</button>
                     </div>
                     
@@ -463,6 +465,20 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
                             <input type="checkbox" id="crossword-mode" style="margin: 0;">
                             <span>Crossword Mode (? only matches letters, not spaces or special characters)</span>
+                        </label>
+                    </div>
+                    
+                    <div class="search-row" style="margin-top: 10px; justify-content: flex-start;">
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="variable-mode" style="margin: 0;">
+                            <span>Variable Mode (each letter represents a variable, e.g., "X Y X" matches patterns like "MOM")</span>
+                        </label>
+                    </div>
+                    
+                    <div id="variable-mode-options" class="search-row" style="margin-top: 5px; margin-left: 20px; justify-content: flex-start; display: none;">
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                            <input type="checkbox" id="ignore-spaces-mode" style="margin: 0;">
+                            <span>Ignore spaces (allows "X Y X" to match "A LA")</span>
                         </label>
                     </div>
                     
@@ -550,6 +566,9 @@
         const searchButton = document.getElementById('search-button');
         const fileSelectContainer = document.getElementById('file-select');
         const resultsContainer = document.getElementById('results-container');
+        const variableModeCheckbox = document.getElementById('variable-mode');
+        const variableModeOptions = document.getElementById('variable-mode-options');
+        const ignoreSpacesCheckbox = document.getElementById('ignore-spaces-mode');
         
         // Global variables
         let availableFiles = [];
@@ -751,8 +770,114 @@
             }
         }
         
+        // Convert variable pattern to regex (for Variable Mode)
+        function variableToRegex(pattern) {
+            const ignoreSpaces = document.getElementById('ignore-spaces-mode').checked;
+            
+            // Pre-process pattern to remove spaces if ignore spaces is enabled
+            let processedPattern = pattern;
+            if (ignoreSpaces) {
+                processedPattern = pattern.replace(/\s+/g, '');
+            }
+            
+            // Create a map to track variables and their corresponding regex groups
+            const variableMap = new Map();
+            let groupCounter = 1;
+            let regexPattern = '^';
+            
+            for (let i = 0; i < processedPattern.length; i++) {
+                const char = processedPattern[i];
+                
+                // Skip spaces if not ignoring them (they should match literally)
+                if (!ignoreSpaces && char === ' ') {
+                    regexPattern += ' ';
+                    continue;
+                }
+                
+                // Check if this character is a variable (letter)
+                if (/[A-Za-z]/.test(char)) {
+                    const upperChar = char.toUpperCase();
+                    
+                    if (variableMap.has(upperChar)) {
+                        // Reference existing group
+                        const groupNum = variableMap.get(upperChar);
+                        regexPattern += `\\${groupNum}`;
+                    } else {
+                        // Create new capturing group
+                        variableMap.set(upperChar, groupCounter);
+                        regexPattern += '(.)';
+                        groupCounter++;
+                    }
+                } else {
+                    // Non-letter characters match literally (escaped if special regex chars)
+                    regexPattern += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                }
+            }
+            
+            regexPattern += '$';
+            
+            // If ignore spaces is enabled, we need to handle spaces in the target string
+            if (ignoreSpaces) {
+                // Create a special regex that ignores spaces in the target
+                // We'll need a more complex approach for this
+                return createSpaceIgnoringRegex(pattern, variableMap);
+            }
+            
+            return new RegExp(regexPattern, 'i');
+        }
+        
+        // Create a regex that ignores spaces when matching variable patterns
+        function createSpaceIgnoringRegex(pattern, variableMap) {
+            // For ignore spaces mode, we need to match the pattern while allowing spaces anywhere in the target
+            // This is complex, so we'll use a different approach: a custom matching function
+            const ignoreSpaces = true;
+            const processedPattern = pattern.replace(/\s+/g, '');
+            
+            return {
+                test: function(target) {
+                    const cleanTarget = target.replace(/\s+/g, '');
+                    if (cleanTarget.length !== processedPattern.length) {
+                        return false;
+                    }
+                    
+                    const assignments = new Map();
+                    
+                    for (let i = 0; i < processedPattern.length; i++) {
+                        const patternChar = processedPattern[i].toUpperCase();
+                        const targetChar = cleanTarget[i].toLowerCase();
+                        
+                        if (/[A-Za-z]/.test(patternChar)) {
+                            // This is a variable
+                            if (assignments.has(patternChar)) {
+                                // Check if it matches the previous assignment
+                                if (assignments.get(patternChar) !== targetChar) {
+                                    return false;
+                                }
+                            } else {
+                                // New assignment
+                                assignments.set(patternChar, targetChar);
+                            }
+                        } else {
+                            // Literal character must match exactly
+                            if (patternChar.toLowerCase() !== targetChar) {
+                                return false;
+                            }
+                        }
+                    }
+                    
+                    return true;
+                }
+            };
+        }
+        
         // Convert wildcard pattern to regex
         function wildcardToRegex(pattern) {
+            // Check if Variable Mode is enabled
+            const variableMode = document.getElementById('variable-mode').checked;
+            if (variableMode) {
+                return variableToRegex(pattern);
+            }
+            
             // Get crossword mode state
             const crosswordMode = document.getElementById('crossword-mode').checked;
             
@@ -862,7 +987,15 @@
 
         // Exclusion: convert wildcard to non-anchored regex ("contains" semantics)
         function wildcardToRegexForExclusion(pattern) {
+            const variableMode = document.getElementById('variable-mode').checked;
             const crosswordMode = document.getElementById('crossword-mode').checked;
+            
+            // Variable Mode doesn't make sense for exclusions (since it's about exact patterns)
+            // So we'll treat variable mode exclusions as regular wildcard exclusions
+            if (variableMode) {
+                console.warn('Variable Mode is not supported for exclusion patterns. Using standard wildcard matching.');
+            }
+            
             // Escape special regex characters except * and ?
             let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
             // Convert *
@@ -1613,6 +1746,17 @@
             if (e.key === 'Enter') addExcludePattern();
         });
         
+        // Variable Mode event listener
+        function toggleVariableModeOptions() {
+            if (variableModeCheckbox.checked) {
+                variableModeOptions.style.display = 'flex';
+            } else {
+                variableModeOptions.style.display = 'none';
+                // Also uncheck the ignore spaces option when Variable Mode is disabled
+                ignoreSpacesCheckbox.checked = false;
+            }
+        }
+        
         // Initialize clipboard on page load
         document.addEventListener('DOMContentLoaded', function() {
             // Set initial clipboard position based on screen size
@@ -1633,6 +1777,9 @@
             toggleFiltersBtn.setAttribute('aria-label', 'Expand filters');
             toggleFiltersBtn.title = 'Show filters';
             updateExcludeDisplay();
+            
+            // Add Variable Mode event listener
+            variableModeCheckbox.addEventListener('change', toggleVariableModeOptions);
         });
     </script>
 </body>
