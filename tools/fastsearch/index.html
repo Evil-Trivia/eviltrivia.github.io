@@ -416,48 +416,127 @@
             // Load all data into memory
             async loadAllData() {
                 try {
-                    this.updateProgress(0, "Loading file list...");
+                    this.updateProgress(0, "Getting file list...");
                     
-                    // Get list of files
-                    const filesSnapshot = await db.ref('tools').shallow(true).once('value');
-                    const fileNames = Object.keys(filesSnapshot.val() || {});
-                    this.files = fileNames;
+                    // Use known file list to avoid initial data download
+                    const knownFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
                     
-                    this.updateProgress(5, `Found ${fileNames.length} files to load...`);
-                    
-                    // Load all files in parallel with progress tracking
-                    const promises = fileNames.map((fileName, index) => 
-                        this.loadFileData(fileName, index, fileNames.length)
-                    );
-                    
-                    await Promise.all(promises);
-                    
-                    this.updateProgress(95, "Optimizing search index...");
-                    
-                    // Sort by score descending for better search performance
-                    this.allTerms.sort((a, b) => b.score - a.score);
-                    
-                    // Calculate statistics
-                    this.totalTerms = this.allTerms.length;
-                    if (this.totalTerms > 0) {
-                        this.minScore = Math.min(...this.allTerms.map(t => t.score));
-                        this.maxScore = Math.max(...this.allTerms.map(t => t.score));
+                    // Try to detect available files by checking if they exist
+                    const availableFiles = [];
+                    for (const fileName of knownFiles) {
+                        try {
+                            const testSnapshot = await db.ref(`tools/${fileName}`).limitToFirst(1).once('value');
+                            if (testSnapshot.exists()) {
+                                availableFiles.push(fileName);
+                            }
+                        } catch (error) {
+                            console.warn(`File ${fileName} not accessible:`, error);
+                        }
                     }
                     
-                    this.updateProgress(100, `Search engine ready! Loaded ${this.totalTerms.toLocaleString()} terms.`);
+                    this.files = availableFiles;
+                    this.updateProgress(10, `Found ${availableFiles.length} files to load...`);
                     
-                    this.isReady = true;
-                    this.showSearchInterface();
+                    if (availableFiles.length === 0) {
+                        throw new Error('No accessible files found. Please check your permissions.');
+                    }
+                    
+                    // Load files sequentially to avoid overwhelming Firebase
+                    for (let i = 0; i < availableFiles.length; i++) {
+                        const fileName = availableFiles[i];
+                        await this.loadFileData(fileName, i, availableFiles.length);
+                    }
+                    
+                    this.finishLoading();
                     
                 } catch (error) {
                     console.error('Error loading data:', error);
-                    this.updateProgress(0, `Error: ${error.message}`, true);
+                    let errorMessage = error.message || 'Unknown error';
+                    
+                    // Provide helpful error messages
+                    if (error.code === 'PERMISSION_DENIED') {
+                        errorMessage = 'Permission denied. Please check if you have admin access.';
+                    } else if (errorMessage.includes('shallow')) {
+                        errorMessage = 'Firebase version issue. Using fallback method...';
+                        // Try alternative loading method
+                        try {
+                            await this.loadDataFallback();
+                            return;
+                        } catch (fallbackError) {
+                            errorMessage = `Fallback failed: ${fallbackError.message}`;
+                        }
+                    }
+                    
+                    this.updateProgress(0, `Error: ${errorMessage}`, true);
+                    
+                    // Show troubleshooting info
+                    const loadingDetails = document.getElementById('loading-details');
+                    if (loadingDetails) {
+                        loadingDetails.innerHTML = `
+                            <div style="text-align: left; margin-top: 15px;">
+                                <strong>Troubleshooting:</strong><br>
+                                • Check if you're signed in as an admin<br>
+                                • Verify database permissions<br>
+                                • Try refreshing the page<br>
+                                • Use the original regex tool as backup: <a href="/tools/regex" style="color: #000;">Regex Tool</a>
+                            </div>
+                        `;
+                    }
                 }
+            }
+            
+            // Fallback loading method
+            async loadDataFallback() {
+                this.updateProgress(5, "Using fallback loading method...");
+                
+                const knownFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
+                
+                for (let i = 0; i < knownFiles.length; i++) {
+                    const fileName = knownFiles[i];
+                    try {
+                        await this.loadFileData(fileName, i, knownFiles.length);
+                        this.files.push(fileName);
+                    } catch (error) {
+                        console.warn(`Could not load ${fileName}:`, error);
+                    }
+                }
+                
+                if (this.allTerms.length === 0) {
+                    throw new Error('No data could be loaded from any files');
+                }
+                
+                this.files = [...new Set(this.files)]; // Remove duplicates
+                this.finishLoading();
+            }
+            
+            finishLoading() {
+                this.updateProgress(95, "Optimizing search index...");
+                
+                // Sort by score descending for better search performance
+                this.allTerms.sort((a, b) => b.score - a.score);
+                
+                // Calculate statistics
+                this.totalTerms = this.allTerms.length;
+                if (this.totalTerms > 0) {
+                    this.minScore = Math.min(...this.allTerms.map(t => t.score));
+                    this.maxScore = Math.max(...this.allTerms.map(t => t.score));
+                }
+                
+                this.updateProgress(100, `Search engine ready! Loaded ${this.totalTerms.toLocaleString()} terms.`);
+                
+                this.isReady = true;
+                this.showSearchInterface();
             }
             
             async loadFileData(fileName, index, total) {
                 try {
-                    const snapshot = await db.ref(`tools/${fileName}`).once('value');
+                    // Add timeout to prevent hanging
+                    const timeoutPromise = new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error('File load timeout')), 30000); // 30 second timeout
+                    });
+                    
+                    const dataPromise = db.ref(`tools/${fileName}`).once('value');
+                    const snapshot = await Promise.race([dataPromise, timeoutPromise]);
                     const fileData = snapshot.val() || {};
                     
                     // Process all scores in this file
@@ -482,7 +561,7 @@
                     }
                     
                     // Update progress
-                    const progress = 5 + (index + 1) / total * 85;
+                    const progress = 10 + (index + 1) / total * 80;
                     this.updateProgress(progress, `Loaded ${fileName} (${index + 1}/${total})`);
                     
                 } catch (error) {
