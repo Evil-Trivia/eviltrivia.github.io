@@ -273,6 +273,9 @@
             <div class="card-body auth-section">
                 <p>Please sign in with your admin account to access the migration tool.</p>
                 <button id="sign-in-btn" class="btn">Sign In with Google</button>
+                <div id="auth-status" class="status-display status-info" style="margin-top: 15px; display: none;">
+                    Checking authentication...
+                </div>
             </div>
         </div>
 
@@ -390,6 +393,7 @@
         const authSection = document.getElementById('auth-section');
         const migrationSection = document.getElementById('migration-section');
         const signInBtn = document.getElementById('sign-in-btn');
+        const authStatus = document.getElementById('auth-status');
         const uploadArea = document.getElementById('upload-area');
         const fileInput = document.getElementById('file-input');
         const fileList = document.getElementById('file-list');
@@ -439,8 +443,30 @@
         });
 
         signInBtn.addEventListener('click', () => {
+            authStatus.style.display = 'block';
+            authStatus.textContent = 'Redirecting to Google Sign-In...';
+            authStatus.className = 'status-display status-info';
+            
             const provider = new firebase.auth.GoogleAuthProvider();
-            auth.signInWithPopup(provider);
+            // Use redirect instead of popup to avoid CORS issues
+            auth.signInWithRedirect(provider).catch((error) => {
+                console.error('Sign-in redirect error:', error);
+                authStatus.textContent = `Sign-in failed: ${error.message}`;
+                authStatus.className = 'status-display status-error';
+            });
+        });
+
+        // Handle redirect result
+        auth.getRedirectResult().then((result) => {
+            if (result.user) {
+                console.log('Successfully signed in via redirect:', result.user.email);
+                authStatus.style.display = 'none';
+            }
+        }).catch((error) => {
+            console.error('Redirect sign-in error:', error);
+            authStatus.style.display = 'block';
+            authStatus.textContent = `Sign-in error: ${error.message}`;
+            authStatus.className = 'status-display status-error';
         });
 
         // File Upload Handling
