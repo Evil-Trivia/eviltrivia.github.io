@@ -575,9 +575,13 @@
         let lastLoadedItems = {};
         const resultsPerPage = 50;
         // Fetch up to this many scores per network request (reduces round-trips)
-        const scoreWindowSize = 10;
+        const scoreWindowSize = 50; // Increased from 10 to reduce network requests
         // Timeout per batch before we render partial results
-        const batchTimeoutMs = 45000;
+        const batchTimeoutMs = 30000; // Reduced to 30s for faster feedback
+        // Cache for file existence checks
+        const fileExistsCache = new Map();
+        // Cache for search results
+        const searchResultsCache = new Map();
         let userIsAdmin = false;
         // Clipboard array to store terms
         let clipboardTerms = [];
@@ -772,20 +776,14 @@
         
         // Convert variable pattern to regex (for Variable Mode)
         function variableToRegex(pattern) {
-            console.log('variableToRegex called with pattern:', pattern);
-            
             const ignoreSpacesElement = document.getElementById('ignore-spaces-mode');
             const ignoreSpaces = ignoreSpacesElement ? ignoreSpacesElement.checked : false;
-            
-            console.log('ignoreSpaces:', ignoreSpaces);
             
             // Pre-process pattern to remove spaces if ignore spaces is enabled
             let processedPattern = pattern;
             if (ignoreSpaces) {
                 processedPattern = pattern.replace(/\s+/g, '');
             }
-            
-            console.log('processedPattern:', processedPattern);
             
             // Create a map to track variables and their corresponding regex groups
             const variableMap = new Map();
@@ -822,38 +820,28 @@
             }
             
             regexPattern += '$';
-            console.log('Generated regex pattern:', regexPattern);
             
             // If ignore spaces is enabled, we need to handle spaces in the target string
             if (ignoreSpaces) {
-                console.log('Creating space-ignoring regex');
                 // Create a special regex that ignores spaces in the target
                 // We'll need a more complex approach for this
                 return createSpaceIgnoringRegex(pattern, variableMap);
             }
             
-            const result = new RegExp(regexPattern, 'i');
-            console.log('Final regex:', result);
-            return result;
+            return new RegExp(regexPattern, 'i');
         }
         
         // Create a regex that ignores spaces when matching variable patterns
         function createSpaceIgnoringRegex(pattern, variableMap) {
             // For ignore spaces mode, we need to match the pattern while allowing spaces anywhere in the target
             // This is complex, so we'll use a different approach: a custom matching function
-            console.log('createSpaceIgnoringRegex called with pattern:', pattern);
-            const ignoreSpaces = true;
             const processedPattern = pattern.replace(/\s+/g, '');
-            console.log('processedPattern for space-ignoring:', processedPattern);
             
             return {
                 test: function(target) {
-                    console.log('Testing target:', target, 'against pattern:', processedPattern);
                     const cleanTarget = target.replace(/\s+/g, '');
-                    console.log('cleanTarget:', cleanTarget);
                     
                     if (cleanTarget.length !== processedPattern.length) {
-                        console.log('Length mismatch:', cleanTarget.length, '!=', processedPattern.length);
                         return false;
                     }
                     
@@ -863,31 +851,25 @@
                         const patternChar = processedPattern[i].toUpperCase();
                         const targetChar = cleanTarget[i].toLowerCase();
                         
-                        console.log(`Comparing position ${i}: pattern '${patternChar}' vs target '${targetChar}'`);
-                        
                         if (/[A-Za-z]/.test(patternChar)) {
                             // This is a variable
                             if (assignments.has(patternChar)) {
                                 // Check if it matches the previous assignment
                                 if (assignments.get(patternChar) !== targetChar) {
-                                    console.log(`Variable mismatch: ${patternChar} was ${assignments.get(patternChar)}, now ${targetChar}`);
                                     return false;
                                 }
                             } else {
                                 // New assignment
                                 assignments.set(patternChar, targetChar);
-                                console.log(`New assignment: ${patternChar} = ${targetChar}`);
                             }
                         } else {
                             // Literal character must match exactly
                             if (patternChar.toLowerCase() !== targetChar) {
-                                console.log(`Literal character mismatch: ${patternChar} != ${targetChar}`);
                                 return false;
                             }
                         }
                     }
                     
-                    console.log('Match successful!');
                     return true;
                 }
             };
@@ -900,10 +882,7 @@
             const variableMode = variableModeElement ? variableModeElement.checked : false;
             
             if (variableMode) {
-                console.log('Variable Mode enabled, converting pattern:', pattern);
-                const result = variableToRegex(pattern);
-                console.log('Variable pattern result:', result);
-                return result;
+                return variableToRegex(pattern);
             }
             
             // Get crossword mode state
@@ -1077,17 +1056,14 @@
                 }
                 
                 // Define the score ranges for the search (highest to lowest)
+                // Use larger ranges to reduce the number of Firebase requests
                 const scoreRanges = [
-                    { min: 90, max: 100 }, // Highest scores first
-                    { min: 80, max: 89 },
-                    { min: 70, max: 79 },
-                    { min: 60, max: 69 },
-                    { min: 50, max: 59 },
-                    { min: 40, max: 49 },
-                    { min: 30, max: 39 },
-                    { min: 20, max: 29 },
-                    { min: 10, max: 19 },
-                    { min: 0, max: 9 }
+                    { min: 95, max: 100 }, // Highest scores first
+                    { min: 85, max: 94 },
+                    { min: 70, max: 84 },
+                    { min: 50, max: 69 },
+                    { min: 25, max: 49 },
+                    { min: 0, max: 24 }
                 ];
                 
                 // Create regex pattern from search term
@@ -1098,6 +1074,9 @@
                     .map(p => p.trim())
                     .filter(p => p.length > 0)
                     .map(p => wildcardToRegexForExclusion(p));
+                
+                // Clear search cache for fresh results (but keep file existence cache)
+                searchResultsCache.clear();
                 
                 // Initialize search state
                 currentSearchState = {
@@ -1261,6 +1240,8 @@
                                                 currentSearchState.resultsFound += 1; // cumulative for display
                                                 resultsInThisBatch += 1; // per-batch for pagination
                                                 if (resultsInThisBatch >= resultsPerPage) {
+                                                    // Sort results by score (highest first) before returning
+                                                    results.sort((a, b) => b.score - a.score);
                                                     currentSearchState.currentScore = scoreKey - 1;
                                                     currentSearchState.hasMoreResults = true;
                                                     return results;
@@ -1299,6 +1280,9 @@
                     // If we get here, we've exhausted all search options
                     currentSearchState.hasMoreResults = false;
                     
+                    // Sort final results by score (highest first)
+                    results.sort((a, b) => b.score - a.score);
+                    
                     return results;
                 })();
                 
@@ -1335,26 +1319,59 @@
             }
         }
 
-        // Fetch terms for a filename between two score bounds (inclusive)
+        // Fetch terms for a filename between two score bounds (inclusive) with caching
         async function fetchScoresWindow(filename, minScore, maxScore) {
+            // Create cache key
+            const cacheKey = `${filename}:${minScore}-${maxScore}`;
+            
+            // Check cache first
+            if (searchResultsCache.has(cacheKey)) {
+                return searchResultsCache.get(cacheKey);
+            }
+            
             try {
-                const ref = db.ref(`tools/${filename}`).orderByKey().startAt(String(minScore)).endAt(String(maxScore));
+                const ref = db.ref(`tools/${filename}`)
+                    .orderByKey()
+                    .startAt(String(minScore))
+                    .endAt(String(maxScore));
+                
                 const snapshot = await ref.once('value');
-                return snapshot.val() || {};
+                const result = snapshot.val() || {};
+                
+                // Cache the result (limit cache size to prevent memory issues)
+                if (searchResultsCache.size > 100) {
+                    // Remove oldest entries if cache gets too large
+                    const firstKey = searchResultsCache.keys().next().value;
+                    searchResultsCache.delete(firstKey);
+                }
+                searchResultsCache.set(cacheKey, result);
+                
+                return result;
             } catch (err) {
                 console.error(`Error fetching score window ${minScore}-${maxScore} for ${filename}`, err);
-                // Fallback: return empty so search can proceed without blocking
+                // Cache empty result to avoid repeated failures
+                searchResultsCache.set(cacheKey, {});
                 return {};
             }
         }
         
-        // Check if a file exists in the database
+        // Check if a file exists in the database (with caching)
         async function checkFileExists(filename) {
+            // Check cache first
+            if (fileExistsCache.has(filename)) {
+                return fileExistsCache.get(filename);
+            }
+            
             try {
                 const snapshot = await db.ref(`tools/${filename}`).limitToFirst(1).once('value');
-                return snapshot.exists();
+                const exists = snapshot.exists();
+                // Cache the result
+                fileExistsCache.set(filename, exists);
+                return exists;
             } catch (error) {
                 console.error(`Error checking if file exists: ${filename}`, error);
+                // Cache negative result to avoid repeated failures
+                fileExistsCache.set(filename, false);
                 throw error;
             }
         }
