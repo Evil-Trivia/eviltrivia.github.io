@@ -772,13 +772,20 @@
         
         // Convert variable pattern to regex (for Variable Mode)
         function variableToRegex(pattern) {
-            const ignoreSpaces = document.getElementById('ignore-spaces-mode').checked;
+            console.log('variableToRegex called with pattern:', pattern);
+            
+            const ignoreSpacesElement = document.getElementById('ignore-spaces-mode');
+            const ignoreSpaces = ignoreSpacesElement ? ignoreSpacesElement.checked : false;
+            
+            console.log('ignoreSpaces:', ignoreSpaces);
             
             // Pre-process pattern to remove spaces if ignore spaces is enabled
             let processedPattern = pattern;
             if (ignoreSpaces) {
                 processedPattern = pattern.replace(/\s+/g, '');
             }
+            
+            console.log('processedPattern:', processedPattern);
             
             // Create a map to track variables and their corresponding regex groups
             const variableMap = new Map();
@@ -815,28 +822,38 @@
             }
             
             regexPattern += '$';
+            console.log('Generated regex pattern:', regexPattern);
             
             // If ignore spaces is enabled, we need to handle spaces in the target string
             if (ignoreSpaces) {
+                console.log('Creating space-ignoring regex');
                 // Create a special regex that ignores spaces in the target
                 // We'll need a more complex approach for this
                 return createSpaceIgnoringRegex(pattern, variableMap);
             }
             
-            return new RegExp(regexPattern, 'i');
+            const result = new RegExp(regexPattern, 'i');
+            console.log('Final regex:', result);
+            return result;
         }
         
         // Create a regex that ignores spaces when matching variable patterns
         function createSpaceIgnoringRegex(pattern, variableMap) {
             // For ignore spaces mode, we need to match the pattern while allowing spaces anywhere in the target
             // This is complex, so we'll use a different approach: a custom matching function
+            console.log('createSpaceIgnoringRegex called with pattern:', pattern);
             const ignoreSpaces = true;
             const processedPattern = pattern.replace(/\s+/g, '');
+            console.log('processedPattern for space-ignoring:', processedPattern);
             
             return {
                 test: function(target) {
+                    console.log('Testing target:', target, 'against pattern:', processedPattern);
                     const cleanTarget = target.replace(/\s+/g, '');
+                    console.log('cleanTarget:', cleanTarget);
+                    
                     if (cleanTarget.length !== processedPattern.length) {
+                        console.log('Length mismatch:', cleanTarget.length, '!=', processedPattern.length);
                         return false;
                     }
                     
@@ -846,25 +863,31 @@
                         const patternChar = processedPattern[i].toUpperCase();
                         const targetChar = cleanTarget[i].toLowerCase();
                         
+                        console.log(`Comparing position ${i}: pattern '${patternChar}' vs target '${targetChar}'`);
+                        
                         if (/[A-Za-z]/.test(patternChar)) {
                             // This is a variable
                             if (assignments.has(patternChar)) {
                                 // Check if it matches the previous assignment
                                 if (assignments.get(patternChar) !== targetChar) {
+                                    console.log(`Variable mismatch: ${patternChar} was ${assignments.get(patternChar)}, now ${targetChar}`);
                                     return false;
                                 }
                             } else {
                                 // New assignment
                                 assignments.set(patternChar, targetChar);
+                                console.log(`New assignment: ${patternChar} = ${targetChar}`);
                             }
                         } else {
                             // Literal character must match exactly
                             if (patternChar.toLowerCase() !== targetChar) {
+                                console.log(`Literal character mismatch: ${patternChar} != ${targetChar}`);
                                 return false;
                             }
                         }
                     }
                     
+                    console.log('Match successful!');
                     return true;
                 }
             };
@@ -873,13 +896,19 @@
         // Convert wildcard pattern to regex
         function wildcardToRegex(pattern) {
             // Check if Variable Mode is enabled
-            const variableMode = document.getElementById('variable-mode').checked;
+            const variableModeElement = document.getElementById('variable-mode');
+            const variableMode = variableModeElement ? variableModeElement.checked : false;
+            
             if (variableMode) {
-                return variableToRegex(pattern);
+                console.log('Variable Mode enabled, converting pattern:', pattern);
+                const result = variableToRegex(pattern);
+                console.log('Variable pattern result:', result);
+                return result;
             }
             
             // Get crossword mode state
-            const crosswordMode = document.getElementById('crossword-mode').checked;
+            const crosswordModeElement = document.getElementById('crossword-mode');
+            const crosswordMode = crosswordModeElement ? crosswordModeElement.checked : false;
             
             if (!crosswordMode) {
                 // Standard mode - same as before
@@ -987,8 +1016,10 @@
 
         // Exclusion: convert wildcard to non-anchored regex ("contains" semantics)
         function wildcardToRegexForExclusion(pattern) {
-            const variableMode = document.getElementById('variable-mode').checked;
-            const crosswordMode = document.getElementById('crossword-mode').checked;
+            const variableModeElement = document.getElementById('variable-mode');
+            const variableMode = variableModeElement ? variableModeElement.checked : false;
+            const crosswordModeElement = document.getElementById('crossword-mode');
+            const crosswordMode = crosswordModeElement ? crosswordModeElement.checked : false;
             
             // Variable Mode doesn't make sense for exclusions (since it's about exact patterns)
             // So we'll treat variable mode exclusions as regular wildcard exclusions
