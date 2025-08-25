@@ -206,9 +206,13 @@
 
         .hidden { display: none; }
 
-        .auth-section {
+        .auth-notice {
+            background: #e7f3ff;
+            border: 1px solid #007bff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
             text-align: center;
-            padding: 40px;
         }
 
         .stats-grid {
@@ -256,6 +260,23 @@
         .instructions li {
             margin: 8px 0;
         }
+
+        .api-key-section {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .api-key-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
@@ -265,101 +286,91 @@
             <p>Upload and migrate your huge JSON files to Firestore with intelligent chunking</p>
         </div>
 
-        <!-- Authentication Section -->
-        <div id="auth-section" class="card">
+        <!-- Auth Notice -->
+        <div class="card auth-notice">
+            <h3>🔑 Authentication</h3>
+            <p>This tool connects directly to your Firestore database using your existing project configuration. No additional sign-in required!</p>
+            <p><strong>Note:</strong> Make sure you're accessing this from your authorized domain.</p>
+        </div>
+
+        <!-- Instructions -->
+        <div class="card instructions">
+            <h3>📋 How to Use This Tool</h3>
+            <ol>
+                <li><strong>Export your data:</strong> Use Firebase CLI to export each file:
+                    <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0;">firebase database:get /tools/RankedWiki_txt --output RankedWiki_txt.json</pre>
+                </li>
+                <li><strong>Upload files:</strong> Drag and drop or click to select your exported JSON files</li>
+                <li><strong>Start migration:</strong> Click "Start Migration" and watch the progress</li>
+                <li><strong>Monitor progress:</strong> Real-time updates show exactly what's happening</li>
+            </ol>
+            <p><strong>💡 This tool handles massive files by processing them in small chunks, avoiding memory issues!</strong></p>
+        </div>
+
+        <!-- File Upload -->
+        <div class="card">
             <div class="card-header">
-                <h2>🔐 Authentication Required</h2>
+                <h2>📁 Upload JSON Files</h2>
             </div>
-            <div class="card-body auth-section">
-                <p>Please sign in with your admin account to access the migration tool.</p>
-                <button id="sign-in-btn" class="btn">Sign In with Google</button>
-                <div id="auth-status" class="status-display status-info" style="margin-top: 15px; display: none;">
-                    Checking authentication...
+            <div class="card-body">
+                <div class="file-upload-area" id="upload-area">
+                    <div class="upload-icon">📁</div>
+                    <h3>Drop your JSON files here or click to browse</h3>
+                    <p>Supports multiple large files (RankedWiki_txt.json, etc.)</p>
+                    <input type="file" id="file-input" class="file-input" multiple accept=".json">
+                </div>
+                
+                <div id="file-list" class="file-list hidden">
+                    <h4>Selected Files:</h4>
+                    <div id="files-container"></div>
                 </div>
             </div>
         </div>
 
-        <!-- Migration Tool Section -->
-        <div id="migration-section" class="hidden">
-            <!-- Instructions -->
-            <div class="card instructions">
-                <h3>📋 How to Use This Tool</h3>
-                <ol>
-                    <li><strong>Export your data:</strong> Use Firebase CLI to export each file:
-                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0;">firebase database:get /tools/RankedWiki_txt --output RankedWiki_txt.json</pre>
-                    </li>
-                    <li><strong>Upload files:</strong> Drag and drop or click to select your exported JSON files</li>
-                    <li><strong>Start migration:</strong> Click "Start Migration" and watch the progress</li>
-                    <li><strong>Monitor progress:</strong> Real-time updates show exactly what's happening</li>
-                </ol>
-                <p><strong>💡 This tool handles massive files by processing them in small chunks, avoiding memory issues!</strong></p>
+        <!-- Migration Controls -->
+        <div class="card">
+            <div class="card-header">
+                <h2>⚙️ Migration Controls</h2>
             </div>
-
-            <!-- File Upload -->
-            <div class="card">
-                <div class="card-header">
-                    <h2>📁 Upload JSON Files</h2>
-                </div>
-                <div class="card-body">
-                    <div class="file-upload-area" id="upload-area">
-                        <div class="upload-icon">📁</div>
-                        <h3>Drop your JSON files here or click to browse</h3>
-                        <p>Supports multiple large files (RankedWiki_txt.json, etc.)</p>
-                        <input type="file" id="file-input" class="file-input" multiple accept=".json">
-                    </div>
-                    
-                    <div id="file-list" class="file-list hidden">
-                        <h4>Selected Files:</h4>
-                        <div id="files-container"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Migration Controls -->
-            <div class="card">
-                <div class="card-header">
-                    <h2>⚙️ Migration Controls</h2>
-                </div>
-                <div class="card-body">
-                    <button id="start-migration" class="btn btn-success" disabled>Start Migration</button>
-                    <button id="pause-migration" class="btn btn-warning hidden">Pause Migration</button>
-                    <button id="clear-files" class="btn btn-danger">Clear Files</button>
-                    
-                    <div class="progress-container">
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="progress-fill">
-                                <div class="progress-text" id="progress-text">0%</div>
-                            </div>
+            <div class="card-body">
+                <button id="start-migration" class="btn btn-success" disabled>Start Migration</button>
+                <button id="pause-migration" class="btn btn-warning hidden">Pause Migration</button>
+                <button id="clear-files" class="btn btn-danger">Clear Files</button>
+                
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill">
+                            <div class="progress-text" id="progress-text">0%</div>
                         </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Status Display -->
-            <div class="card">
-                <div class="card-header">
-                    <h2>📊 Migration Status</h2>
-                </div>
-                <div class="card-body">
-                    <div id="status-display" class="status-display status-info">Ready to start migration...</div>
-                    
-                    <div class="stats-grid" id="stats-grid">
-                        <div class="stat-item">
-                            <div class="stat-number" id="stat-terms">0</div>
-                            <div class="stat-label">Terms Migrated</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-number" id="stat-files">0</div>
-                            <div class="stat-label">Files Completed</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-number" id="stat-batches">0</div>
-                            <div class="stat-label">Batches Processed</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-number" id="stat-errors">0</div>
-                            <div class="stat-label">Errors</div>
-                        </div>
+        <!-- Status Display -->
+        <div class="card">
+            <div class="card-header">
+                <h2>📊 Migration Status</h2>
+            </div>
+            <div class="card-body">
+                <div id="status-display" class="status-display status-info">Ready to start migration...</div>
+                
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-number" id="stat-terms">0</div>
+                        <div class="stat-label">Terms Migrated</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number" id="stat-files">0</div>
+                        <div class="stat-label">Files Completed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number" id="stat-batches">0</div>
+                        <div class="stat-label">Batches Processed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number" id="stat-errors">0</div>
+                        <div class="stat-label">Errors</div>
                     </div>
                 </div>
             </div>
@@ -368,7 +379,6 @@
 
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 
     <script>
@@ -386,14 +396,9 @@
 
         // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
         const firestore = firebase.firestore();
 
         // DOM Elements
-        const authSection = document.getElementById('auth-section');
-        const migrationSection = document.getElementById('migration-section');
-        const signInBtn = document.getElementById('sign-in-btn');
-        const authStatus = document.getElementById('auth-status');
         const uploadArea = document.getElementById('upload-area');
         const fileInput = document.getElementById('file-input');
         const fileList = document.getElementById('file-list');
@@ -415,7 +420,6 @@
         let selectedFiles = [];
         let migrationInProgress = false;
         let migrationPaused = false;
-        let userIsAdmin = false;
         let migrationStats = {
             terms: 0,
             files: 0,
@@ -423,50 +427,15 @@
             errors: 0
         };
 
-        // Authentication
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                // Check if user is admin (you can modify this check)
-                userIsAdmin = user.uid === 'h19MlFLygMdKES2bFVMhg2I377A3';
-                
-                if (userIsAdmin) {
-                    authSection.classList.add('hidden');
-                    migrationSection.classList.remove('hidden');
-                    updateStatus('✅ Authenticated as admin. Ready to migrate!', 'success');
-                } else {
-                    updateStatus('❌ Admin privileges required for migration', 'error');
-                }
-            } else {
-                authSection.classList.remove('hidden');
-                migrationSection.classList.add('hidden');
-            }
-        });
-
-        signInBtn.addEventListener('click', () => {
-            authStatus.style.display = 'block';
-            authStatus.textContent = 'Redirecting to Google Sign-In...';
-            authStatus.className = 'status-display status-info';
-            
-            const provider = new firebase.auth.GoogleAuthProvider();
-            // Use redirect instead of popup to avoid CORS issues
-            auth.signInWithRedirect(provider).catch((error) => {
-                console.error('Sign-in redirect error:', error);
-                authStatus.textContent = `Sign-in failed: ${error.message}`;
-                authStatus.className = 'status-display status-error';
-            });
-        });
-
-        // Handle redirect result
-        auth.getRedirectResult().then((result) => {
-            if (result.user) {
-                console.log('Successfully signed in via redirect:', result.user.email);
-                authStatus.style.display = 'none';
-            }
+        // Test Firestore connection on load
+        firestore.collection('test').doc('connection-test').set({
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            test: true
+        }).then(() => {
+            updateStatus('✅ Connected to Firestore successfully! Ready to migrate.', 'success');
         }).catch((error) => {
-            console.error('Redirect sign-in error:', error);
-            authStatus.style.display = 'block';
-            authStatus.textContent = `Sign-in error: ${error.message}`;
-            authStatus.className = 'status-display status-error';
+            console.error('Firestore connection error:', error);
+            updateStatus(`❌ Firestore connection failed: ${error.message}`, 'error');
         });
 
         // File Upload Handling
@@ -561,11 +530,6 @@
         }
 
         async function startMigration() {
-            if (!userIsAdmin) {
-                updateStatus('❌ Admin privileges required', 'error');
-                return;
-            }
-
             migrationInProgress = true;
             startMigrationBtn.disabled = true;
             pauseMigrationBtn.classList.remove('hidden');
@@ -607,8 +571,8 @@
                     totalBatches: migrationStats.batches,
                     filesProcessed: migrationStats.files,
                     errors: migrationStats.errors,
-                    migrationSource: 'web-interface',
-                    version: '1.0'
+                    migrationSource: 'web-interface-direct',
+                    version: '2.0'
                 });
 
                 updateStatus('🎉 Migration completed successfully!', 'success');
@@ -655,7 +619,7 @@
                     const termIds = Object.keys(scoreData);
                     
                     // Process in small batches
-                    const BATCH_SIZE = 25; // Very small batches for web interface
+                    const BATCH_SIZE = 25; // Small batches for reliability
                     
                     for (let i = 0; i < termIds.length; i += BATCH_SIZE) {
                         if (migrationPaused) {
@@ -686,7 +650,7 @@
                                 firstLetter: termData.term.charAt(0).toLowerCase(),
                                 lastLetter: termData.term.charAt(termData.term.length - 1).toLowerCase(),
                                 migratedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                                migrationSource: 'web-upload'
+                                migrationSource: 'web-upload-direct'
                             };
                             
                             const docId = `${baseFileName}_${score}_${termId}`;
