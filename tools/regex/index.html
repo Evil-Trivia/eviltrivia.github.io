@@ -412,32 +412,44 @@
         }
                 
         function createVariableRegex(pattern) {
-            const variables = new Map();
-            let groupCounter = 1;
-            let regexPattern = '^';
+            // This is a simplified approach since JavaScript doesn't support named backreferences properly
+            // We'll use the dedicated variableMatch function instead
+            return new RegExp(`^${pattern.replace(/[A-Z]/g, '[A-Za-z]').replace(/[.+^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        }
+        
+        // Dedicated variable matching function
+        function variableMatch(pattern, text) {
+            if (pattern.length !== text.length) return false;
+            
+            const variables = {};
             
             for (let i = 0; i < pattern.length; i++) {
-                const char = pattern[i];
+                const patternChar = pattern[i];
+                const textChar = text[i];
                 
-                if (/[A-Za-z]/.test(char)) {
-                    const upperChar = char.toUpperCase();
-                    
-                    if (variables.has(upperChar)) {
-                        regexPattern += `\\${variables.get(upperChar)}`;
-                        } else {
-                        variables.set(upperChar, groupCounter);
-                        regexPattern += '(.)';
-                        groupCounter++;
+                if (/[A-Z]/.test(patternChar)) {
+                    // This is a variable
+                    if (variables[patternChar]) {
+                        // Variable already defined, must match the same letter
+                        if (variables[patternChar].toLowerCase() !== textChar.toLowerCase()) {
+                            return false;
                         }
-                } else if (char === ' ' && crosswordMode.checked) {
-                    continue;
                     } else {
-                    regexPattern += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                        // New variable, must be a letter
+                        if (!/[A-Za-z]/.test(textChar)) {
+                            return false;
+                        }
+                        variables[patternChar] = textChar;
+                    }
+                } else {
+                    // Direct character match (case insensitive)
+                    if (patternChar.toLowerCase() !== textChar.toLowerCase()) {
+                        return false;
+                    }
                 }
             }
             
-            regexPattern += '$';
-            return new RegExp(regexPattern, 'i');
+            return true;
         }
         
         // Collection management
