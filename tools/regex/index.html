@@ -158,12 +158,7 @@
                             <input type="checkbox" id="quickSearch" checked>
                             <label for="quickSearch">Quick Search (limit per score range for speed)</label>
                         </div>
-                        <div style="margin-top: 8px; font-size: 12px;">
-                            <strong>Presets:</strong>
-                            <button type="button" onclick="setScoreRange(50, 100)" style="margin: 2px; padding: 2px 6px; font-size: 11px;">High Quality</button>
-                            <button type="button" onclick="setScoreRange(20, 100)" style="margin: 2px; padding: 2px 6px; font-size: 11px;">Medium+</button>
-                            <button type="button" onclick="setScoreRange(0, 100)" style="margin: 2px; padding: 2px 6px; font-size: 11px;">Everything</button>
-                        </div>
+
                     </div>
                     
                     <div class="option-group">
@@ -501,31 +496,12 @@
             }
         }
         
-        function setScoreRange(min, max) {
-            document.getElementById('minScore').value = min;
-            document.getElementById('maxScore').value = max;
-        }
+
         
         function generateScoreLevels(minScore, maxScore, quickSearch) {
-            const levels = [];
-            
-            if (quickSearch) {
-                // Quick search: limited results per range for speed
-                if (maxScore >= 80) levels.push({ min: Math.max(80, minScore), max: Math.min(100, maxScore), limit: 10000 });
-                if (maxScore >= 50 && minScore <= 79) levels.push({ min: Math.max(50, minScore), max: Math.min(79, maxScore), limit: 15000 });
-                if (maxScore >= 20 && minScore <= 49) levels.push({ min: Math.max(20, minScore), max: Math.min(49, maxScore), limit: 20000 });
-                if (maxScore >= 1 && minScore <= 19) levels.push({ min: Math.max(1, minScore), max: Math.min(19, maxScore), limit: 25000 });
-                if (maxScore >= 0 && minScore <= 0) levels.push({ min: 0, max: 0, limit: 30000 });
-            } else {
-                // Comprehensive search: much higher limits (search everything!)
-                if (maxScore >= 80) levels.push({ min: Math.max(80, minScore), max: Math.min(100, maxScore), limit: 100000 });
-                if (maxScore >= 50 && minScore <= 79) levels.push({ min: Math.max(50, minScore), max: Math.min(79, maxScore), limit: 200000 });
-                if (maxScore >= 20 && minScore <= 49) levels.push({ min: Math.max(20, minScore), max: Math.min(49, maxScore), limit: 300000 });
-                if (maxScore >= 1 && minScore <= 19) levels.push({ min: Math.max(1, minScore), max: Math.min(19, maxScore), limit: 500000 });
-                if (maxScore >= 0 && minScore <= 0) levels.push({ min: 0, max: 0, limit: 1000000 });
-            }
-            
-            return levels.filter(level => level.min <= level.max); // Only valid ranges
+            // SIMPLIFIED: Just one big query with score filter
+            const limit = quickSearch ? 50000 : 200000;
+            return [{ min: minScore, max: maxScore, limit: limit }];
         }
         
         async function searchSingleFile(fileName, searchTerm, regex) {
@@ -545,37 +521,51 @@
                 
                 console.log(`🎯 Score range: ${minScore}-${maxScore}, Quick: ${quickSearch}, Levels: ${scoreLevels.length}`);
                 
-                for (const level of scoreLevels) {
-                    if (results.length >= 200) break; // Allow more results before stopping
+                // SIMPLIFIED: Single query per file with score filter
+                const level = scoreLevels[0]; // Only one level now
+                
+                try {
+                    console.log(`📊 Querying ${fileName} with score ${level.min}-${level.max}, limit ${level.limit}`);
                     
-                    try {
-                        const q = query(
+                    let q;
+                    if (level.min > 0) {
+                        q = query(
                             toolsCollection,
                             where('file', '==', fileName),
                             where('score', '>=', level.min),
-                            where('score', '<=', level.max),
+                            orderBy('score', 'desc'),
                             limit(level.limit)
                         );
-                        
-                        const snapshot = await getDocs(q);
-                        console.log(`  📊 Score ${level.min}-${level.max}: ${snapshot.size} docs`);
-                        
-                        snapshot.forEach(doc => {
-                            const data = doc.data();
-                            if (data.term && regex.test(data.term)) {
-                            results.push({
-                                    term: data.term,
-                                    parentheses: data.parentheses || '',
-                                    score: data.score || 0,
-                                    file: data.file
-                                });
-                            }
-                        });
-                        
-            } catch (error) {
-                        console.warn(`Score range ${level.min}-${level.max} failed:`, error);
-                        // Continue with other score ranges
+                    } else {
+                        // For min score 0, don't use score filter to avoid index issues
+                        q = query(
+                            toolsCollection,
+                            where('file', '==', fileName),
+                            orderBy('score', 'desc'),
+                            limit(level.limit)
+                        );
                     }
+                    
+                    const snapshot = await getDocs(q);
+                    console.log(`✅ ${fileName}: Retrieved ${snapshot.size} docs`);
+                    
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        // Apply score filter client-side if needed
+                        if (data.score >= level.min && data.score <= level.max && data.term && regex.test(data.term)) {
+                            results.push({
+                                term: data.term,
+                                parentheses: data.parentheses || '',
+                                score: data.score || 0,
+                                file: data.file
+                            });
+                        }
+                    });
+                    
+                    console.log(`🎯 ${fileName}: Found ${results.length} matches after filtering`);
+                    
+                } catch (error) {
+                    console.error(`❌ Query failed for ${fileName}:`, error);
                 }
                 
                 console.log(`✅ ${fileName}: ${results.length} matches`);
