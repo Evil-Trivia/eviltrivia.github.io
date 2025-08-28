@@ -148,6 +148,9 @@
                     
                     <div class="option-group">
                         <h3>🎯 Score Range Filter</h3>
+                        <div id="search-engine-status" style="font-size: 12px; color: #666; margin-bottom: 8px;">
+                            Initializing search engine...
+                        </div>
                         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
                             <label>Min Score:</label>
                             <input type="number" id="minScore" value="20" min="0" max="100" style="width: 60px;">
@@ -201,6 +204,7 @@
         
         // Algolia Search Client
         import algoliasearch from 'https://cdn.skypack.dev/algoliasearch@4';
+        import { ALGOLIA_CONFIG } from '/js/algolia-config.js';
 
         // Firebase configuration
         const firebaseConfig = {
@@ -220,15 +224,33 @@
         const firestore = getFirestore(app);
         const db = getDatabase(app);
         
-        // Initialize Algolia (you'll need to replace YOUR_SEARCH_API_KEY)
+        // Initialize Algolia
         let algoliaClient, algoliaIndex;
         
-        // TODO: Replace with your actual Algolia Search API Key from https://www.algolia.com/api-keys
-        const ALGOLIA_SEARCH_API_KEY = 'YOUR_SEARCH_API_KEY'; // Get this from Algolia dashboard
-        
-        if (ALGOLIA_SEARCH_API_KEY !== 'YOUR_SEARCH_API_KEY') {
-            algoliaClient = algoliasearch('AHT0QUAOI5', ALGOLIA_SEARCH_API_KEY);
-            algoliaIndex = algoliaClient.initIndex('EvilTrivia-regex');
+        try {
+            algoliaClient = algoliasearch(ALGOLIA_CONFIG.appId, ALGOLIA_CONFIG.searchApiKey);
+            algoliaIndex = algoliaClient.initIndex(ALGOLIA_CONFIG.indexName);
+            console.log('✅ Algolia initialized successfully');
+            
+            // Update status indicator
+            document.addEventListener('DOMContentLoaded', () => {
+                const statusEl = document.getElementById('search-engine-status');
+                if (statusEl) {
+                    statusEl.innerHTML = '🚀 <strong>Algolia Search</strong> - Lightning fast search across millions of documents';
+                    statusEl.style.color = '#28a745';
+                }
+            });
+        } catch (error) {
+            console.warn('⚠️ Algolia config not found, will use Firestore fallback:', error);
+            
+            // Update status indicator for fallback
+            document.addEventListener('DOMContentLoaded', () => {
+                const statusEl = document.getElementById('search-engine-status');
+                if (statusEl) {
+                    statusEl.innerHTML = '⚡ <strong>Firestore Search</strong> - Paginated search (limited results)';
+                    statusEl.style.color = '#ffc107';
+                }
+            });
         } // For user authentication only
 
         // Global state
