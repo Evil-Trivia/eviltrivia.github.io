@@ -198,6 +198,9 @@
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
         import { getFirestore, collection, query, where, orderBy, limit, getDocs, startAfter } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-firestore.js";
         import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        
+        // Algolia Search Client
+        import algoliasearch from 'https://cdn.skypack.dev/algoliasearch@4';
 
         // Firebase configuration
         const firebaseConfig = {
@@ -215,7 +218,18 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const firestore = getFirestore(app);
-        const db = getDatabase(app); // For user authentication only
+        const db = getDatabase(app);
+        
+        // Initialize Algolia (you'll need to replace YOUR_SEARCH_API_KEY)
+        let algoliaClient, algoliaIndex;
+        
+        // TODO: Replace with your actual Algolia Search API Key from https://www.algolia.com/api-keys
+        const ALGOLIA_SEARCH_API_KEY = 'YOUR_SEARCH_API_KEY'; // Get this from Algolia dashboard
+        
+        if (ALGOLIA_SEARCH_API_KEY !== 'YOUR_SEARCH_API_KEY') {
+            algoliaClient = algoliasearch('AHT0QUAOI5', ALGOLIA_SEARCH_API_KEY);
+            algoliaIndex = algoliaClient.initIndex('EvilTrivia-regex');
+        } // For user authentication only
 
         // Global state
         let availableFiles = [];
@@ -455,7 +469,16 @@
             resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
             
             try {
-                const results = await searchFirestore(searchTerm, selectedFiles);
+                // Use Algolia if available, otherwise fall back to Firestore
+                let results;
+                if (algoliaIndex) {
+                    console.log('🚀 Using Algolia search (fast & comprehensive)');
+                    results = await searchAlgolia(searchTerm, selectedFiles);
+                } else {
+                    console.log('⚡ Using Firestore search (fallback)');
+                    results = await searchFirestore(searchTerm, selectedFiles);
+                }
+                
                 displayResults(results);
             } catch (error) {
                 console.error('Search error:', error);
@@ -502,6 +525,74 @@
             // Respect Firestore's 10K limit per query
             const limit = quickSearch ? 5000 : 10000; // Stay under 10K limit
             return [{ min: minScore, max: maxScore, limit: limit }];
+        }
+        
+        // NEW: Algolia Search Function
+        async function searchAlgolia(searchTerm, selectedFiles) {
+            if (!algoliaIndex) {
+                console.error('❌ Algolia not configured. Please add your Search API Key.');
+                return [];
+            }
+            
+            console.log('🔍 Algolia search for:', searchTerm, 'across', selectedFiles.length, 'files');
+            
+            const minScore = parseInt(document.getElementById('minScore').value) || 0;
+            const maxScore = parseInt(document.getElementById('maxScore').value) || 100;
+            
+            try {
+                // Convert search term to Algolia query
+                let algoliaQuery = searchTerm;
+                
+                // Handle wildcards: Convert * to empty for prefix/suffix matching
+                if (searchTerm.includes('*')) {
+                    algoliaQuery = searchTerm.replace(/\*/g, '');
+                }
+                
+                // Search with filters
+                const searchOptions = {
+                    hitsPerPage: 1000,
+                    filters: `file:${selectedFiles.join(' OR file:')} AND score:${minScore} TO ${maxScore}`,
+                    attributesToRetrieve: ['term', 'parentheses', 'score', 'file'],
+                };
+                
+                const { hits } = await algoliaIndex.search(algoliaQuery, searchOptions);
+                console.log(`🎯 Algolia returned ${hits.length} results`);
+                
+                // Apply additional client-side filtering for complex patterns
+                const regex = wildcardToRegex(searchTerm);
+                const filteredResults = hits.filter(hit => {
+                    if (!hit.term) return false;
+                    
+                    // Apply crossword mode
+                    if (document.getElementById('crossword-mode').checked) {
+                        const cleanTerm = hit.term.replace(/[^a-zA-Z]/g, '');
+                        const cleanPattern = searchTerm.replace(/[^a-zA-Z*?]/g, '');
+                        const cleanRegex = wildcardToRegex(cleanPattern);
+                        return cleanRegex.test(cleanTerm);
+                    }
+                    
+                    // Apply variable mode
+                    if (document.getElementById('variable-mode').checked) {
+                        return variableMatch(searchTerm, hit.term);
+                    }
+                    
+                    // Standard wildcard matching
+                    return regex.test(hit.term);
+                });
+                
+                console.log(`✅ After filtering: ${filteredResults.length} matches`);
+                
+                return filteredResults.map(hit => ({
+                    term: hit.term,
+                    parentheses: hit.parentheses || '',
+                    score: hit.score || 0,
+                    file: hit.file
+                })).sort((a, b) => b.score - a.score);
+                
+            } catch (error) {
+                console.error('❌ Algolia search error:', error);
+                return [];
+            }
         }
         
         async function searchSingleFile(fileName, searchTerm, regex) {
