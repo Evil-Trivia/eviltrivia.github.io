@@ -139,21 +139,21 @@
                         <div class="checkbox-group">
                             <input type="checkbox" id="crossword-mode">
                             <label for="crossword-mode">Crossword Mode (? ignores spaces)</label>
-                        </div>
+                </div>
                         <div class="checkbox-group">
                             <input type="checkbox" id="variable-mode">
                             <label for="variable-mode">Variable Mode (X Y X pattern matching)</label>
-                        </div>
+                    </div>
                     </div>
                     
                     <div class="option-group">
                         <h3>📁 Data Sources</h3>
                         <div id="files-container">
                             <div class="loading">Loading files...</div>
+                    </div>
                         </div>
                     </div>
-                </div>
-                
+
                 <button id="search-btn" class="search-button">🔍 Search</button>
             </div>
             
@@ -176,7 +176,7 @@
             </div>
         </div>
     </div>
-
+    
     <script type="module">
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
@@ -195,7 +195,7 @@
             appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
             measurementId: "G-2W6RK96Y34"
         };
-
+        
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -219,7 +219,7 @@
         const resultsContainer = document.getElementById('results-container');
         const collectionItems = document.getElementById('collection-items');
         const collectionCount = document.getElementById('collection-count');
-
+        
         // Check if user is admin
         async function checkAdminAccess(user) {
             try {
@@ -251,7 +251,7 @@
                     authRequired.classList.add('hidden');
                     mainInterface.classList.remove('hidden');
                     await loadAvailableFiles();
-                } else {
+                    } else {
                     console.log("User is not admin");
                     authRequired.classList.remove('hidden');
                     mainInterface.classList.add('hidden');
@@ -322,7 +322,7 @@
             
             if (crosswordMode.checked) {
                 regexPattern = regexPattern.replace(/\?/g, '[A-Za-z]');
-            } else {
+                    } else {
                 regexPattern = regexPattern.replace(/\?/g, '.');
             }
             
@@ -357,7 +357,7 @@
             regexPattern += '$';
             return new RegExp(regexPattern, 'i');
         }
-
+        
         // Collection management
         function addToCollection(term) {
             if (!collectedTerms.includes(term)) {
@@ -401,22 +401,22 @@
 
         // Search functionality
         async function performSearch() {
-            const searchTerm = searchInput.value.trim();
-            if (!searchTerm) {
-                alert('Please enter a search term');
-                return;
-            }
-            
+                const searchTerm = searchInput.value.trim();
+                if (!searchTerm) {
+                    alert('Please enter a search term');
+                    return;
+                }
+                
             const selectedFiles = availableFiles.filter(file => {
-                const checkbox = document.getElementById(`file-${file}`);
+                    const checkbox = document.getElementById(`file-${file}`);
                 return checkbox && checkbox.checked;
-            });
-            
-            if (selectedFiles.length === 0) {
+                });
+                
+                if (selectedFiles.length === 0) {
                 alert('Please select at least one data source');
-                return;
-            }
-            
+                    return;
+                }
+                
             searchBtn.textContent = '🔍 Searching...';
             searchBtn.disabled = true;
             resultsSection.classList.remove('hidden');
@@ -434,35 +434,51 @@
             }
         }
 
-        async function searchFirestore(searchTerm, selectedFiles) {
+                async function searchFirestore(searchTerm, selectedFiles) {
             console.log('Searching Firestore for:', searchTerm);
             const regex = wildcardToRegex(searchTerm);
-            console.log('Generated regex:', regex);
             const results = [];
-            const maxResultsPerFile = 200;
+            const batchSize = 1000; // Large batches for speed
             
             for (const fileName of selectedFiles) {
                 try {
-                    console.log(`Searching in ${fileName}...`);
+                    console.log(`Searching ALL documents in ${fileName}...`);
                     
-                    // Query Firestore for this file (no orderBy to avoid index issues)
+                    // Get ALL documents for this file using pagination
                     const toolsCollection = collection(firestore, 'tools');
-                    const q = query(
-                        toolsCollection,
-                        where('file', '==', fileName),
-                        limit(maxResultsPerFile)
-                    );
+                    let lastDoc = null;
+                    let hasMore = true;
+                    let totalDocs = 0;
                     
-                    const snapshot = await getDocs(q);
-                    console.log(`Got ${snapshot.size} documents from ${fileName}`);
-                    
-                    let matchCount = 0;
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        if (data.term) {
-                            const matches = regex.test(data.term);
-                            if (matches) {
-                                matchCount++;
+                    while (hasMore) {
+                        let q;
+                        if (lastDoc) {
+                            q = query(
+                                toolsCollection,
+                                where('file', '==', fileName),
+                                startAfter(lastDoc),
+                                limit(batchSize)
+                            );
+                        } else {
+                            q = query(
+                                toolsCollection,
+                                where('file', '==', fileName),
+                                limit(batchSize)
+                            );
+                        }
+                        
+                        const snapshot = await getDocs(q);
+                        totalDocs += snapshot.size;
+                        console.log(`Batch: ${snapshot.size} docs, Total: ${totalDocs} docs`);
+                        
+                        if (snapshot.empty) {
+                            hasMore = false;
+                            break;
+                        }
+                        
+                        snapshot.forEach(doc => {
+                            const data = doc.data();
+                            if (data.term && regex.test(data.term)) {
                                 results.push({
                                     term: data.term,
                                     parentheses: data.parentheses || '',
@@ -470,15 +486,17 @@
                                     file: data.file
                                 });
                             }
-                            // Debug: log first few terms to see what we're getting
-                            if (results.length + matchCount < 5) {
-                                console.log(`Term: "${data.term}", Matches: ${matches}, Score: ${data.score}`);
-                            }
+                        });
+                        
+                        // Set up for next batch
+                        if (snapshot.size < batchSize) {
+                            hasMore = false;
+                        } else {
+                            lastDoc = snapshot.docs[snapshot.docs.length - 1];
                         }
-                    });
-                    console.log(`Found ${matchCount} matches in ${fileName}`);
+                    }
                     
-                    console.log(`Found ${results.length} matching results so far`);
+                    console.log(`Finished ${fileName}: searched ${totalDocs} docs, found ${results.length} matches`);
                     
                 } catch (error) {
                     console.error(`Error searching ${fileName}:`, error);
@@ -488,12 +506,12 @@
                 }
             }
             
-            // Sort by score (highest first) and limit final results
+            // Sort by score (highest first) and limit final results for display
             const sortedResults = results
                 .sort((a, b) => b.score - a.score)
-                .slice(0, 50);
+                .slice(0, 100); // Show top 100 results
             
-            console.log('Final results:', sortedResults);
+            console.log(`Final results: ${sortedResults.length} matches from ${results.length} total`);
             return sortedResults;
         }
 
@@ -535,9 +553,9 @@
             `;
             
             resultsContainer.innerHTML = '';
-            resultsContainer.appendChild(table);
+                resultsContainer.appendChild(table);
         }
-
+        
         // Event listeners
         searchBtn.addEventListener('click', performSearch);
         searchInput.addEventListener('keypress', (e) => {
@@ -557,4 +575,4 @@
         window.removeFromCollection = removeFromCollection;
     </script>
 </body>
-</html>
+</html> 
