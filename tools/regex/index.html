@@ -499,8 +499,8 @@
 
         
         function generateScoreLevels(minScore, maxScore, quickSearch) {
-            // SIMPLIFIED: Just one big query with score filter
-            const limit = quickSearch ? 50000 : 200000;
+            // Respect Firestore's 10K limit per query
+            const limit = quickSearch ? 5000 : 10000; // Stay under 10K limit
             return [{ min: minScore, max: maxScore, limit: limit }];
         }
         
@@ -521,51 +521,75 @@
                 
                 console.log(`🎯 Score range: ${minScore}-${maxScore}, Quick: ${quickSearch}, Levels: ${scoreLevels.length}`);
                 
-                // SIMPLIFIED: Single query per file with score filter
+                // PAGINATION: Multiple 10K queries to search more data
                 const level = scoreLevels[0]; // Only one level now
+                const maxBatches = quickSearch ? 2 : 5; // 2-5 batches of 10K each
+                let lastDoc = null;
                 
-                try {
-                    console.log(`📊 Querying ${fileName} with score ${level.min}-${level.max}, limit ${level.limit}`);
-                    
-                    let q;
-                    if (level.min > 0) {
-                        q = query(
-                            toolsCollection,
-                            where('file', '==', fileName),
-                            where('score', '>=', level.min),
-                            orderBy('score', 'desc'),
-                            limit(level.limit)
-                        );
-                    } else {
-                        // For min score 0, don't use score filter to avoid index issues
-                        q = query(
-                            toolsCollection,
-                            where('file', '==', fileName),
-                            orderBy('score', 'desc'),
-                            limit(level.limit)
-                        );
-                    }
-                    
-                    const snapshot = await getDocs(q);
-                    console.log(`✅ ${fileName}: Retrieved ${snapshot.size} docs`);
-                    
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        // Apply score filter client-side if needed
-                        if (data.score >= level.min && data.score <= level.max && data.term && regex.test(data.term)) {
-                            results.push({
-                                term: data.term,
-                                parentheses: data.parentheses || '',
-                                score: data.score || 0,
-                                file: data.file
-                            });
+                for (let batch = 0; batch < maxBatches; batch++) {
+                    try {
+                        console.log(`📊 Batch ${batch + 1}/${maxBatches}: Querying ${fileName} with score ${level.min}-${level.max}, limit ${level.limit}`);
+                        
+                        let q;
+                        if (level.min > 0) {
+                            q = query(
+                                toolsCollection,
+                                where('file', '==', fileName),
+                                where('score', '>=', level.min),
+                                orderBy('score', 'desc'),
+                                limit(level.limit)
+                            );
+                        } else {
+                            // For min score 0, don't use score filter to avoid index issues
+                            q = query(
+                                toolsCollection,
+                                where('file', '==', fileName),
+                                orderBy('score', 'desc'),
+                                limit(level.limit)
+                            );
                         }
-                    });
-                    
-                    console.log(`🎯 ${fileName}: Found ${results.length} matches after filtering`);
-                    
-                } catch (error) {
-                    console.error(`❌ Query failed for ${fileName}:`, error);
+                        
+                        // Add pagination cursor if not first batch
+                        if (lastDoc) {
+                            q = query(q, startAfter(lastDoc));
+                        }
+                        
+                        const snapshot = await getDocs(q);
+                        console.log(`✅ ${fileName} Batch ${batch + 1}: Retrieved ${snapshot.size} docs`);
+                        
+                        if (snapshot.empty) {
+                            console.log(`🏁 ${fileName}: No more documents, stopping pagination`);
+                            break; // No more documents
+                        }
+                        
+                        snapshot.forEach(doc => {
+                            const data = doc.data();
+                            // Apply score filter client-side if needed
+                            if (data.score >= level.min && data.score <= level.max && data.term && regex.test(data.term)) {
+                                results.push({
+                                    term: data.term,
+                                    parentheses: data.parentheses || '',
+                                    score: data.score || 0,
+                                    file: data.file
+                                });
+                            }
+                        });
+                        
+                        // Set cursor for next batch
+                        lastDoc = snapshot.docs[snapshot.docs.length - 1];
+                        
+                        console.log(`🎯 ${fileName} Batch ${batch + 1}: Found ${results.length} total matches so far`);
+                        
+                        // Stop if we found enough results
+                        if (results.length >= 100) {
+                            console.log(`🎯 ${fileName}: Found enough results (${results.length}), stopping search`);
+                            break;
+                        }
+                        
+                    } catch (error) {
+                        console.error(`❌ Batch ${batch + 1} failed for ${fileName}:`, error);
+                        break; // Stop on error
+                    }
                 }
                 
                 console.log(`✅ ${fileName}: ${results.length} matches`);
