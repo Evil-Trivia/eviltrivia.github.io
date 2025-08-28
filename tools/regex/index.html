@@ -153,7 +153,7 @@
                          </div>
                          <div class="checkbox-group">
                              <input type="checkbox" id="simple-mode">
-                             <label for="simple-mode">Simple Mode (match whole words or word parts)</label>
+                             <label for="simple-mode">Simple Mode (match whole words or word parts at boundaries)</label>
                          </div>
                      </div>
 
@@ -378,79 +378,79 @@
             });
         }
 
-                // Wildcard to regex conversion
-        function wildcardToRegex(pattern) {
-            const crosswordMode = document.getElementById('crossword-mode');
-            const variableMode = document.getElementById('variable-mode');
-            const simpleMode = document.getElementById('simple-mode');
-            
-            // Simple mode: match whole words or word parts at boundaries
-            if (simpleMode && simpleMode.checked) {
-                const escapedPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-                // Match at word boundaries, spaces, special chars, string edges, or capital letter transitions
-                return new RegExp(`(^|\\s|[^a-zA-Z0-9]|(?<=[a-z])(?=[A-Z]))${escapedPattern}(?=\\s|[^a-zA-Z0-9]|$|(?<=[a-z])(?=[A-Z]))`, 'i');
-            }
-            
-            // Variable mode (most specific - handle first)
-            if (variableMode && variableMode.checked) {
-                return createVariableRegex(pattern);
-            }
-            
-            // Standard wildcard mode
-            let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-            regexPattern = regexPattern.replace(/\*/g, '.*');
-            
-            // Crossword mode: ? matches only letters, ignoring spaces/punctuation
-            if (crosswordMode && crosswordMode.checked) {
-                regexPattern = regexPattern.replace(/\?/g, '[A-Za-z]');
-            } else {
-                // Standard mode: ? matches any single character
-                regexPattern = regexPattern.replace(/\?/g, '.');
-            }
-            
-            return new RegExp(`^${regexPattern}$`, 'i');
-        }
+                 // Wildcard to regex conversion
+         function wildcardToRegex(pattern) {
+             const crosswordMode = document.getElementById('crossword-mode');
+             const variableMode = document.getElementById('variable-mode');
+             const simpleMode = document.getElementById('simple-mode');
+             
+             // Simple mode: match whole words or word parts at boundaries
+             if (simpleMode && simpleMode.checked) {
+                 const escapedPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                 // Match at word boundaries, spaces, special chars, string edges, or capital letter transitions
+                 return new RegExp(`(^|\\s|[^a-zA-Z0-9]|(?<=[a-z])(?=[A-Z]))${escapedPattern}(?=\\s|[^a-zA-Z0-9]|$|(?<=[a-z])(?=[A-Z]))`, 'i');
+             }
+             
+             // Variable mode (most specific - handle first)
+             if (variableMode && variableMode.checked) {
+                 return createVariableRegex(pattern);
+             }
+             
+             // Standard wildcard mode
+             let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+             regexPattern = regexPattern.replace(/\*/g, '.*');
+             
+             // Crossword mode: ? matches only letters, ignoring spaces/punctuation
+             if (crosswordMode && crosswordMode.checked) {
+                 regexPattern = regexPattern.replace(/\?/g, '[A-Za-z]');
+             } else {
+                 // Standard mode: ? matches any single character
+                 regexPattern = regexPattern.replace(/\?/g, '.');
+             }
+             
+             return new RegExp(`^${regexPattern}$`, 'i');
+         }
                 
-        function createVariableRegex(pattern) {
-            // This is a simplified approach since JavaScript doesn't support named backreferences properly
-            // We'll use the dedicated variableMatch function instead
-            return new RegExp(`^${pattern.replace(/[A-Z]/g, '[A-Za-z]').replace(/[.+^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-        }
-        
-        // Dedicated variable matching function
-        function variableMatch(pattern, text) {
-            if (pattern.length !== text.length) return false;
-            
-            const variables = {};
-            
-            for (let i = 0; i < pattern.length; i++) {
-                const patternChar = pattern[i];
-                const textChar = text[i];
-                
-                if (/[A-Z]/.test(patternChar)) {
-                    // This is a variable
-                    if (variables[patternChar]) {
-                        // Variable already defined, must match the same letter
-                        if (variables[patternChar].toLowerCase() !== textChar.toLowerCase()) {
-                            return false;
-                        }
-                    } else {
-                        // New variable, must be a letter
-                        if (!/[A-Za-z]/.test(textChar)) {
-                            return false;
-                        }
-                        variables[patternChar] = textChar;
-                    }
-                } else {
-                    // Direct character match (case insensitive)
-                    if (patternChar.toLowerCase() !== textChar.toLowerCase()) {
-                        return false;
-                    }
-                }
-            }
-            
-            return true;
-        }
+                 function createVariableRegex(pattern) {
+             // This is a simplified approach since JavaScript doesn't support named backreferences properly
+             // We'll use the dedicated variableMatch function instead
+             return new RegExp(`^${pattern.replace(/[A-Z]/g, '[A-Za-z]').replace(/[.+^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+         }
+         
+         // Dedicated variable matching function
+         function variableMatch(pattern, text) {
+             if (pattern.length !== text.length) return false;
+             
+             const variables = {};
+             
+             for (let i = 0; i < pattern.length; i++) {
+                 const patternChar = pattern[i];
+                 const textChar = text[i];
+                 
+                 if (/[A-Z]/.test(patternChar)) {
+                     // This is a variable
+                     if (variables[patternChar]) {
+                         // Variable already defined, must match the same letter
+                         if (variables[patternChar].toLowerCase() !== textChar.toLowerCase()) {
+                             return false;
+                         }
+                     } else {
+                         // New variable, must be a letter
+                         if (!/[A-Za-z]/.test(textChar)) {
+                             return false;
+                         }
+                         variables[patternChar] = textChar;
+                     }
+                 } else {
+                     // Direct character match (case insensitive)
+                     if (patternChar.toLowerCase() !== textChar.toLowerCase()) {
+                         return false;
+                     }
+                 }
+             }
+             
+             return true;
+         }
         
         // Collection management
         function addToCollection(term) {
@@ -582,8 +582,11 @@
                 return [];
             }
             
-            console.log('🔍 Algolia search for:', searchTerm, 'across', selectedFiles.length, 'files');
-            console.log('🔍 Index name:', ALGOLIA_CONFIG.indexName);
+                         console.log('🔍 Algolia search for:', searchTerm, 'across', selectedFiles.length, 'files');
+             console.log('🔍 Index name:', ALGOLIA_CONFIG.indexName);
+             
+             const minScore = 0; // No score filtering needed
+             const maxScore = 100;
             
             try {
                 // First, try a simple search without filters to test if index has data
@@ -604,11 +607,12 @@
                     algoliaQuery = searchTerm.replace(/\*/g, '');
                 }
                 
-                // Search with filters
+                // Search with filters (but try without file filter first)
                 console.log('🔍 Searching with query:', algoliaQuery);
                 const searchOptions = {
                     hitsPerPage: 1000,
-                    filters: selectedFiles.length > 0 ? `file:${selectedFiles.join(' OR file:')}` : '',
+                    // Remove file filter for now to test
+                    filters: `score:${minScore} TO ${maxScore}`,
                     attributesToRetrieve: ['term', 'parentheses', 'score', 'file'],
                 };
                 
@@ -619,35 +623,35 @@
                     console.log('📝 Sample results:', hits.slice(0, 3));
                 }
                 
-                // Apply client-side filtering for complex patterns
-                const crosswordMode = document.getElementById('crossword-mode');
-                const variableMode = document.getElementById('variable-mode');
-                
-                const filteredResults = hits.filter(hit => {
-                    if (!hit.term) return false;
-                    
-                    // Apply variable mode first (most specific)
-                    if (variableMode && variableMode.checked) {
-                        return variableMatch(searchTerm, hit.term);
-                    }
-                    
-                    // Apply crossword mode
-                    if (crosswordMode && crosswordMode.checked) {
-                        const cleanTerm = hit.term.replace(/[^a-zA-Z]/g, '');
-                        const cleanPattern = searchTerm.replace(/[^a-zA-Z*?]/g, '');
-                        if (cleanPattern !== searchTerm) {
-                            // Has wildcards - create regex for clean pattern
-                            const cleanRegex = wildcardToRegex(cleanPattern);
-                            return cleanRegex.test(cleanTerm);
-                        }
-                        // No wildcards - simple letter-only match
-                        return cleanTerm.toLowerCase().includes(cleanPattern.toLowerCase());
-                    }
-                    
-                    // Standard wildcard/simple matching
-                    const regex = wildcardToRegex(searchTerm);
-                    return regex.test(hit.term);
-                });
+                                 // Apply client-side filtering for complex patterns
+                 const crosswordMode = document.getElementById('crossword-mode');
+                 const variableMode = document.getElementById('variable-mode');
+                 
+                 const filteredResults = hits.filter(hit => {
+                     if (!hit.term) return false;
+                     
+                     // Apply variable mode first (most specific)
+                     if (variableMode && variableMode.checked) {
+                         return variableMatch(searchTerm, hit.term);
+                     }
+                     
+                     // Apply crossword mode
+                     if (crosswordMode && crosswordMode.checked) {
+                         const cleanTerm = hit.term.replace(/[^a-zA-Z]/g, '');
+                         const cleanPattern = searchTerm.replace(/[^a-zA-Z*?]/g, '');
+                         if (cleanPattern !== searchTerm) {
+                             // Has wildcards - create regex for clean pattern
+                             const cleanRegex = wildcardToRegex(cleanPattern);
+                             return cleanRegex.test(cleanTerm);
+                         }
+                         // No wildcards - simple letter-only match
+                         return cleanTerm.toLowerCase().includes(cleanPattern.toLowerCase());
+                     }
+                     
+                     // Standard wildcard/simple matching
+                     const regex = wildcardToRegex(searchTerm);
+                     return regex.test(hit.term);
+                 });
                 
                 console.log(`✅ After filtering: ${filteredResults.length} matches`);
                 
