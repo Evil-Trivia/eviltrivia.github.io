@@ -143,7 +143,27 @@
                         <div class="checkbox-group">
                             <input type="checkbox" id="variable-mode">
                             <label for="variable-mode">Variable Mode (X Y X pattern matching)</label>
+                        </div>
                     </div>
+                    
+                    <div class="option-group">
+                        <h3>🎯 Score Range Filter</h3>
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+                            <label>Min Score:</label>
+                            <input type="number" id="minScore" value="20" min="0" max="100" style="width: 60px;">
+                            <label>Max Score:</label>
+                            <input type="number" id="maxScore" value="100" min="0" max="100" style="width: 60px;">
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="quickSearch" checked>
+                            <label for="quickSearch">Quick Search (limit per score range for speed)</label>
+                        </div>
+                        <div style="margin-top: 8px; font-size: 12px;">
+                            <strong>Presets:</strong>
+                            <button type="button" onclick="setScoreRange(50, 100)" style="margin: 2px; padding: 2px 6px; font-size: 11px;">High Quality</button>
+                            <button type="button" onclick="setScoreRange(20, 100)" style="margin: 2px; padding: 2px 6px; font-size: 11px;">Medium+</button>
+                            <button type="button" onclick="setScoreRange(0, 100)" style="margin: 2px; padding: 2px 6px; font-size: 11px;">Everything</button>
+                        </div>
                     </div>
                     
                     <div class="option-group">
@@ -481,21 +501,49 @@
             }
         }
         
+        function setScoreRange(min, max) {
+            document.getElementById('minScore').value = min;
+            document.getElementById('maxScore').value = max;
+        }
+        
+        function generateScoreLevels(minScore, maxScore, quickSearch) {
+            const levels = [];
+            
+            if (quickSearch) {
+                // Quick search: limited results per range for speed
+                if (maxScore >= 80) levels.push({ min: Math.max(80, minScore), max: Math.min(100, maxScore), limit: 10000 });
+                if (maxScore >= 50 && minScore <= 79) levels.push({ min: Math.max(50, minScore), max: Math.min(79, maxScore), limit: 15000 });
+                if (maxScore >= 20 && minScore <= 49) levels.push({ min: Math.max(20, minScore), max: Math.min(49, maxScore), limit: 20000 });
+                if (maxScore >= 1 && minScore <= 19) levels.push({ min: Math.max(1, minScore), max: Math.min(19, maxScore), limit: 25000 });
+                if (maxScore >= 0 && minScore <= 0) levels.push({ min: 0, max: 0, limit: 30000 });
+            } else {
+                // Comprehensive search: much higher limits (search everything!)
+                if (maxScore >= 80) levels.push({ min: Math.max(80, minScore), max: Math.min(100, maxScore), limit: 100000 });
+                if (maxScore >= 50 && minScore <= 79) levels.push({ min: Math.max(50, minScore), max: Math.min(79, maxScore), limit: 200000 });
+                if (maxScore >= 20 && minScore <= 49) levels.push({ min: Math.max(20, minScore), max: Math.min(49, maxScore), limit: 300000 });
+                if (maxScore >= 1 && minScore <= 19) levels.push({ min: Math.max(1, minScore), max: Math.min(19, maxScore), limit: 500000 });
+                if (maxScore >= 0 && minScore <= 0) levels.push({ min: 0, max: 0, limit: 1000000 });
+            }
+            
+            return levels.filter(level => level.min <= level.max); // Only valid ranges
+        }
+        
         async function searchSingleFile(fileName, searchTerm, regex) {
             console.log(`🔍 Searching ${fileName}...`);
             const results = [];
             
+            // Get UI filter settings
+            const minScore = parseInt(document.getElementById('minScore').value) || 0;
+            const maxScore = parseInt(document.getElementById('maxScore').value) || 100;
+            const quickSearch = document.getElementById('quickSearch').checked;
+            
             try {
                 const toolsCollection = collection(firestore, 'tools');
                 
-                // Strategy: Search much larger scope with indexes now built
-                const scoreLevels = [
-                    { min: 80, max: 100, limit: 10000 },
-                    { min: 50, max: 79, limit: 15000 },
-                    { min: 20, max: 49, limit: 20000 },
-                    { min: 1, max: 19, limit: 25000 },
-                    { min: 0, max: 0, limit: 30000 }    // Zero score items
-                ];
+                // Generate score levels based on user range and search mode
+                const scoreLevels = generateScoreLevels(minScore, maxScore, quickSearch);
+                
+                console.log(`🎯 Score range: ${minScore}-${maxScore}, Quick: ${quickSearch}, Levels: ${scoreLevels.length}`);
                 
                 for (const level of scoreLevels) {
                     if (results.length >= 200) break; // Allow more results before stopping
