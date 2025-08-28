@@ -181,7 +181,8 @@
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
-        import { getDatabase, ref, get, query, orderByKey, startAt, endAt, limitToFirst } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        import { getFirestore, collection, query, where, orderBy, limit, getDocs, startAfter } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-firestore.js";
+        import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
 
         // Firebase configuration
         const firebaseConfig = {
@@ -198,7 +199,8 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-        const db = getDatabase(app);
+        const firestore = getFirestore(app);
+        const db = getDatabase(app); // For user authentication only
 
         // Global state
         let availableFiles = [];
@@ -261,19 +263,29 @@
             }
         });
 
-        // Load available files from Realtime Database
+        // Load available files from Firestore
         async function loadAvailableFiles() {
             try {
-                console.log('Loading available files from Realtime Database...');
-                const toolsRef = ref(db, 'tools');
-                const snapshot = await get(toolsRef);
+                console.log('Loading available files from Firestore...');
                 
-                if (snapshot.exists()) {
-                    const data = snapshot.val();
-                    availableFiles = Object.keys(data).sort();
+                // Get unique file names from Firestore tools collection
+                const toolsCollection = collection(firestore, 'tools');
+                const q = query(toolsCollection, limit(100)); // Get a sample to find unique files
+                const snapshot = await getDocs(q);
+                
+                const fileSet = new Set();
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.file) {
+                        fileSet.add(data.file);
+                    }
+                });
+                
+                if (fileSet.size > 0) {
+                    availableFiles = Array.from(fileSet).sort();
                     console.log('Found files:', availableFiles);
                 } else {
-                    console.log('No tools data found, using defaults');
+                    console.log('No files found in Firestore, using defaults');
                     availableFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
                 }
                 
@@ -411,7 +423,7 @@
             resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
             
             try {
-                const results = await searchRealtimeDatabase(searchTerm, selectedFiles);
+                const results = await searchFirestore(searchTerm, selectedFiles);
                 displayResults(results);
             } catch (error) {
                 console.error('Search error:', error);
@@ -422,57 +434,51 @@
             }
         }
 
-        async function searchRealtimeDatabase(searchTerm, selectedFiles) {
-            console.log('Searching Realtime Database for:', searchTerm);
+        async function searchFirestore(searchTerm, selectedFiles) {
+            console.log('Searching Firestore for:', searchTerm);
             const regex = wildcardToRegex(searchTerm);
             const results = [];
-            const maxResultsPerFile = 100;
+            const maxResultsPerFile = 200;
             
             for (const fileName of selectedFiles) {
                 try {
                     console.log(`Searching in ${fileName}...`);
-                    const fileRef = ref(db, `tools/${fileName}`);
-                    const snapshot = await get(fileRef);
                     
-                    if (snapshot.exists()) {
-                        const fileData = snapshot.val();
-                        
-                        // Search through all score buckets
-                        for (const score in fileData) {
-                            const scoreData = fileData[score];
-                            
-                            for (const termId in scoreData) {
-                                const termData = scoreData[termId];
-                                
-                                if (termData && termData.term && regex.test(termData.term)) {
-                                    results.push({
-                                        term: termData.term,
-                                        parentheses: termData.parentheses || '',
-                                        score: parseInt(score) || 0,
-                                        file: fileName
-                                    });
-                                    
-                                    // Limit results to prevent overwhelming the UI
-                                    if (results.length >= maxResultsPerFile) {
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            if (results.length >= maxResultsPerFile) {
-                                break;
-                            }
+                    // Query Firestore for this file
+                    const toolsCollection = collection(firestore, 'tools');
+                    const q = query(
+                        toolsCollection,
+                        where('file', '==', fileName),
+                        orderBy('score', 'desc'),
+                        limit(maxResultsPerFile)
+                    );
+                    
+                    const snapshot = await getDocs(q);
+                    console.log(`Got ${snapshot.size} documents from ${fileName}`);
+                    
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        if (data.term && regex.test(data.term)) {
+                            results.push({
+                                term: data.term,
+                                parentheses: data.parentheses || '',
+                                score: data.score || 0,
+                                file: data.file
+                            });
                         }
-                    }
+                    });
                     
-                    console.log(`Found ${results.length} total results so far`);
+                    console.log(`Found ${results.length} matching results so far`);
                     
                 } catch (error) {
                     console.error(`Error searching ${fileName}:`, error);
+                    if (error.code === 'failed-precondition') {
+                        console.error('Missing index! Check Firebase console for index creation links.');
+                    }
                 }
             }
             
-            // Sort by score (highest first) and limit results
+            // Sort by score (highest first) and limit final results
             const sortedResults = results
                 .sort((a, b) => b.score - a.score)
                 .slice(0, 50);
