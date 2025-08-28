@@ -263,30 +263,47 @@
             }
         });
 
-        // Load available files from Firestore
+        // Load available files from Firestore using proper discovery
         async function loadAvailableFiles() {
             try {
-                console.log('Loading available files from Firestore...');
+                console.log('Discovering all available files in Firestore...');
                 
-                // Get unique file names from Firestore tools collection
-                const toolsCollection = collection(firestore, 'tools');
-                const q = query(toolsCollection, limit(100)); // Get a sample to find unique files
-                const snapshot = await getDocs(q);
-                
+                // Use multiple sampling approaches to find all files
                 const fileSet = new Set();
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    if (data.file) {
-                        fileSet.add(data.file);
+                const toolsCollection = collection(firestore, 'tools');
+                
+                // Strategy 1: Sample from different parts of the collection
+                const sampleQueries = [
+                    query(toolsCollection, limit(500)),
+                    query(toolsCollection, where('score', '>=', 90), limit(100)),
+                    query(toolsCollection, where('score', '>=', 50), limit(100)),
+                    query(toolsCollection, where('score', '>=', 10), limit(100))
+                ];
+                
+                for (const q of sampleQueries) {
+                    try {
+                        const snapshot = await getDocs(q);
+                        snapshot.forEach(doc => {
+                            const data = doc.data();
+                            if (data.file) {
+                                fileSet.add(data.file);
+                            }
+                        });
+                    } catch (error) {
+                        console.warn('Sample query failed:', error);
                     }
-                });
+                }
+                
+                // Strategy 2: Known files as fallback/supplement
+                const knownFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
+                knownFiles.forEach(file => fileSet.add(file));
                 
                 if (fileSet.size > 0) {
                     availableFiles = Array.from(fileSet).sort();
-                    console.log('Found files:', availableFiles);
+                    console.log(`Found ${availableFiles.length} files:`, availableFiles);
                 } else {
-                    console.log('No files found in Firestore, using defaults');
-                    availableFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
+                    console.log('No files found, using fallback');
+                    availableFiles = knownFiles;
                 }
                 
                 displayFileOptions();
@@ -435,91 +452,64 @@
         }
 
                 async function searchFirestore(searchTerm, selectedFiles) {
-            console.log('Searching Firestore for:', searchTerm);
-            const results = [];
-            
-            // For simple terms (no wildcards), use efficient Firestore queries
-            if (!searchTerm.includes('*') && !searchTerm.includes('?')) {
-                return await searchExactTerm(searchTerm, selectedFiles);
-            }
-            
-            // For wildcard searches, use optimized approach
-            return await searchWithWildcards(searchTerm, selectedFiles);
-        }
-        
-        async function searchExactTerm(searchTerm, selectedFiles) {
-            console.log('Searching for exact term:', searchTerm);
-            const results = [];
-            
-            for (const fileName of selectedFiles) {
-                try {
-                    const toolsCollection = collection(firestore, 'tools');
-                    
-                    // Search for exact match (case-insensitive)
-                    const q = query(
-                        toolsCollection,
-                        where('file', '==', fileName),
-                        where('termLower', '==', searchTerm.toLowerCase()),
-                        limit(50)
-                    );
-                    
-                    const snapshot = await getDocs(q);
-                    console.log(`Found ${snapshot.size} exact matches in ${fileName}`);
-                    
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        results.push({
-                            term: data.term,
-                            parentheses: data.parentheses || '',
-                            score: data.score || 0,
-                            file: data.file
-                        });
-                    });
-                    
-                } catch (error) {
-                    console.error(`Error searching ${fileName}:`, error);
-                }
-            }
-            
-            return results.sort((a, b) => b.score - a.score);
-        }
-        
-        async function searchWithWildcards(searchTerm, selectedFiles) {
-            console.log('Searching with wildcards:', searchTerm);
+            console.log('🔍 High-performance search for:', searchTerm, 'across', selectedFiles.length, 'files');
             const results = [];
             const regex = wildcardToRegex(searchTerm);
             
-            // For wildcard searches, limit to high-score terms for speed
-            const maxBatches = 5; // Limit to prevent infinite searching
-            const batchSize = 500; // Smaller batches for wildcards
+            // Use Promise.all for parallel file searching
+            const searchPromises = selectedFiles.map(fileName => searchSingleFile(fileName, searchTerm, regex));
             
-            for (const fileName of selectedFiles) {
-                try {
-                    console.log(`Smart wildcard search in ${fileName}...`);
+            try {
+                const fileResults = await Promise.all(searchPromises);
+                
+                // Combine all results
+                for (const fileResult of fileResults) {
+                    results.push(...fileResult);
+                }
+                
+                // Sort by score and return top results
+                const sortedResults = results
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 100);
+                
+                console.log(`🎯 Found ${sortedResults.length} results from ${results.length} total matches`);
+                return sortedResults;
+                
+            } catch (error) {
+                console.error('Search error:', error);
+                return [];
+            }
+        }
+        
+        async function searchSingleFile(fileName, searchTerm, regex) {
+            console.log(`🔍 Searching ${fileName}...`);
+            const results = [];
+            
+            try {
+                const toolsCollection = collection(firestore, 'tools');
+                
+                // Strategy: Search high-score documents first for better results
+                const scoreLevels = [
+                    { min: 80, max: 100, limit: 1000 },
+                    { min: 50, max: 79, limit: 800 },
+                    { min: 20, max: 49, limit: 600 },
+                    { min: 1, max: 19, limit: 400 }
+                ];
+                
+                for (const level of scoreLevels) {
+                    if (results.length >= 50) break; // Stop when we have enough results
                     
-                    const toolsCollection = collection(firestore, 'tools');
-                    let batchCount = 0;
-                    let lastDoc = null;
-                    
-                    while (batchCount < maxBatches) {
-                        let q;
-                        if (lastDoc) {
-                            q = query(
-                                toolsCollection,
-                                where('file', '==', fileName),
-                                startAfter(lastDoc),
-                                limit(batchSize)
-                            );
-                        } else {
-                            q = query(
-                                toolsCollection,
-                                where('file', '==', fileName),
-                                limit(batchSize)
-                            );
-                        }
+                    try {
+                        const q = query(
+                            toolsCollection,
+                            where('file', '==', fileName),
+                            where('score', '>=', level.min),
+                            where('score', '<=', level.max),
+                            limit(level.limit)
+                        );
                         
                         const snapshot = await getDocs(q);
-                        if (snapshot.empty) break;
+                        console.log(`  📊 Score ${level.min}-${level.max}: ${snapshot.size} docs`);
                         
                         snapshot.forEach(doc => {
                             const data = doc.data();
@@ -533,26 +523,19 @@
                             }
                         });
                         
-                        lastDoc = snapshot.docs[snapshot.docs.length - 1];
-                        batchCount++;
-                        
-                        console.log(`Batch ${batchCount}/${maxBatches}: ${results.length} matches found`);
-                        
-                        // Early exit if we have enough results
-                        if (results.length >= 100) break;
+                    } catch (error) {
+                        console.warn(`Score range ${level.min}-${level.max} failed:`, error);
+                        // Continue with other score ranges
                     }
-                    
-                    console.log(`Finished ${fileName}: found ${results.length} matches in ${batchCount} batches`);
-                    
-                } catch (error) {
-                    console.error(`Error searching ${fileName}:`, error);
                 }
+                
+                console.log(`✅ ${fileName}: ${results.length} matches`);
+                return results;
+                
+            } catch (error) {
+                console.error(`❌ Error searching ${fileName}:`, error);
+                return [];
             }
-            
-            // Sort by score and return top results
-            return results
-                .sort((a, b) => b.score - a.score)
-                .slice(0, 50);
         }
 
         function displayResults(results) {
