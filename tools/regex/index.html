@@ -182,6 +182,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
         import { getFirestore, collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-firestore.js";
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-functions.js";
         import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
 
         // Firebase configuration
@@ -201,6 +202,7 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const rtdb = getDatabase(app);
+        const functions = getFunctions(app);
 
         // Global state
         let availableFiles = [];
@@ -397,76 +399,47 @@
             resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
             
             try {
-                const results = await searchFirestore(searchTerm, selectedFiles);
+                const results = await searchUsingCloudFunction(searchTerm, selectedFiles);
                 displayResults(results);
             } catch (error) {
                 console.error('Search error:', error);
-                resultsContainer.innerHTML = `<div style="color: red;">Error: ${error.message}</div>`;
+                resultsContainer.innerHTML = `<div style="color: red; padding: 20px;">Search error: ${error.message}</div>`;
             } finally {
                 searchBtn.textContent = '🔍 Search';
                 searchBtn.disabled = false;
             }
         }
 
-        async function searchFirestore(searchTerm, selectedFiles) {
-            const regex = wildcardToRegex(searchTerm);
-            const results = [];
+        async function searchUsingCloudFunction(searchTerm, selectedFiles) {
+            console.log('Using cloud function for search:', searchTerm);
             
-            console.log('Starting search for:', searchTerm);
-            console.log('Selected files:', selectedFiles);
-            console.log('Regex pattern:', regex);
+            const searchTermsFunction = httpsCallable(functions, 'searchTerms');
             
-            for (const fileName of selectedFiles) {
-                try {
-                    console.log(`Searching in ${fileName}...`);
-                    
-                    // Try a simpler query first - just get documents for this file
-                    const toolsCollection = collection(db, 'tools');
-                    const q = query(
-                        toolsCollection,
-                        where('file', '==', fileName),
-                        limit(200)
-                    );
-                    
-                    console.log('Executing query...');
-                    const snapshot = await getDocs(q);
-                    console.log(`Got ${snapshot.size} documents from ${fileName}`);
-                    
-                    snapshot.forEach(doc => {
-                        const data = doc.data();
-                        if (data.term && regex.test(data.term)) {
-                            results.push({
-                                term: data.term,
-                                parentheses: data.parentheses || '',
-                                score: data.score || 0,
-                                file: data.file
-                            });
-                        }
-                    });
-                    
-                    console.log(`Found ${results.length} matching results so far`);
-                    
-                } catch (error) {
-                    console.error(`Error searching ${fileName}:`, error);
-                    // Add error to results for debugging
-                    results.push({
-                        term: `Error searching ${fileName}`,
-                        parentheses: error.message,
-                        score: 0,
-                        file: fileName,
-                        isError: true
-                    });
+            const searchData = {
+                searchTerm: searchTerm,
+                files: selectedFiles,
+                excludePatterns: [], // Add filters support later
+                crosswordMode: crosswordMode.checked,
+                variableMode: variableMode.checked,
+                ignoreSpaces: false, // Add if needed
+                maxResults: 50
+            };
+            
+            console.log('Calling searchTerms function with:', searchData);
+            
+            try {
+                const result = await searchTermsFunction(searchData);
+                console.log('Cloud function result:', result.data);
+                
+                if (result.data && result.data.results) {
+                    return result.data.results;
+                } else {
+                    throw new Error('Invalid response from search function');
                 }
+            } catch (error) {
+                console.error('Cloud function error:', error);
+                throw error;
             }
-            
-            // Sort by score and limit results
-            const sortedResults = results
-                .filter(r => !r.isError)
-                .sort((a, b) => b.score - a.score)
-                .slice(0, 50);
-            
-            console.log('Final results:', sortedResults);
-            return sortedResults;
         }
 
         function displayResults(results) {
