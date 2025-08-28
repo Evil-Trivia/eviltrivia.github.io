@@ -436,21 +436,72 @@
 
                 async function searchFirestore(searchTerm, selectedFiles) {
             console.log('Searching Firestore for:', searchTerm);
-            const regex = wildcardToRegex(searchTerm);
             const results = [];
-            const batchSize = 1000; // Large batches for speed
+            
+            // For simple terms (no wildcards), use efficient Firestore queries
+            if (!searchTerm.includes('*') && !searchTerm.includes('?')) {
+                return await searchExactTerm(searchTerm, selectedFiles);
+            }
+            
+            // For wildcard searches, use optimized approach
+            return await searchWithWildcards(searchTerm, selectedFiles);
+        }
+        
+        async function searchExactTerm(searchTerm, selectedFiles) {
+            console.log('Searching for exact term:', searchTerm);
+            const results = [];
             
             for (const fileName of selectedFiles) {
                 try {
-                    console.log(`Searching ALL documents in ${fileName}...`);
-                    
-                    // Get ALL documents for this file using pagination
                     const toolsCollection = collection(firestore, 'tools');
-                    let lastDoc = null;
-                    let hasMore = true;
-                    let totalDocs = 0;
                     
-                    while (hasMore) {
+                    // Search for exact match (case-insensitive)
+                    const q = query(
+                        toolsCollection,
+                        where('file', '==', fileName),
+                        where('termLower', '==', searchTerm.toLowerCase()),
+                        limit(50)
+                    );
+                    
+                    const snapshot = await getDocs(q);
+                    console.log(`Found ${snapshot.size} exact matches in ${fileName}`);
+                    
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        results.push({
+                            term: data.term,
+                            parentheses: data.parentheses || '',
+                            score: data.score || 0,
+                            file: data.file
+                        });
+                    });
+                    
+                } catch (error) {
+                    console.error(`Error searching ${fileName}:`, error);
+                }
+            }
+            
+            return results.sort((a, b) => b.score - a.score);
+        }
+        
+        async function searchWithWildcards(searchTerm, selectedFiles) {
+            console.log('Searching with wildcards:', searchTerm);
+            const results = [];
+            const regex = wildcardToRegex(searchTerm);
+            
+            // For wildcard searches, limit to high-score terms for speed
+            const maxBatches = 5; // Limit to prevent infinite searching
+            const batchSize = 500; // Smaller batches for wildcards
+            
+            for (const fileName of selectedFiles) {
+                try {
+                    console.log(`Smart wildcard search in ${fileName}...`);
+                    
+                    const toolsCollection = collection(firestore, 'tools');
+                    let batchCount = 0;
+                    let lastDoc = null;
+                    
+                    while (batchCount < maxBatches) {
                         let q;
                         if (lastDoc) {
                             q = query(
@@ -468,13 +519,7 @@
                         }
                         
                         const snapshot = await getDocs(q);
-                        totalDocs += snapshot.size;
-                        console.log(`Batch: ${snapshot.size} docs, Total: ${totalDocs} docs`);
-                        
-                        if (snapshot.empty) {
-                            hasMore = false;
-                            break;
-                        }
+                        if (snapshot.empty) break;
                         
                         snapshot.forEach(doc => {
                             const data = doc.data();
@@ -488,31 +533,26 @@
                             }
                         });
                         
-                        // Set up for next batch
-                        if (snapshot.size < batchSize) {
-                            hasMore = false;
-                        } else {
-                            lastDoc = snapshot.docs[snapshot.docs.length - 1];
-                        }
+                        lastDoc = snapshot.docs[snapshot.docs.length - 1];
+                        batchCount++;
+                        
+                        console.log(`Batch ${batchCount}/${maxBatches}: ${results.length} matches found`);
+                        
+                        // Early exit if we have enough results
+                        if (results.length >= 100) break;
                     }
                     
-                    console.log(`Finished ${fileName}: searched ${totalDocs} docs, found ${results.length} matches`);
+                    console.log(`Finished ${fileName}: found ${results.length} matches in ${batchCount} batches`);
                     
                 } catch (error) {
                     console.error(`Error searching ${fileName}:`, error);
-                    if (error.code === 'failed-precondition') {
-                        console.error('Missing index! Check Firebase console for index creation links.');
-                    }
                 }
             }
             
-            // Sort by score (highest first) and limit final results for display
-            const sortedResults = results
+            // Sort by score and return top results
+            return results
                 .sort((a, b) => b.score - a.score)
-                .slice(0, 100); // Show top 100 results
-            
-            console.log(`Final results: ${sortedResults.length} matches from ${results.length} total`);
-            return sortedResults;
+                .slice(0, 50);
         }
 
         function displayResults(results) {
