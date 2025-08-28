@@ -563,11 +563,22 @@
             }
             
             console.log('🔍 Algolia search for:', searchTerm, 'across', selectedFiles.length, 'files');
+            console.log('🔍 Index name:', ALGOLIA_CONFIG.indexName);
             
             const minScore = parseInt(document.getElementById('minScore').value) || 0;
             const maxScore = parseInt(document.getElementById('maxScore').value) || 100;
             
             try {
+                // First, try a simple search without filters to test if index has data
+                console.log('🧪 Testing simple search...');
+                const testResult = await algoliaIndex.search('', { hitsPerPage: 10 });
+                console.log(`📊 Index contains ${testResult.nbHits} total documents`);
+                
+                if (testResult.nbHits === 0) {
+                    console.warn('⚠️ Index is empty - still indexing or index name mismatch');
+                    return [];
+                }
+                
                 // Convert search term to Algolia query
                 let algoliaQuery = searchTerm;
                 
@@ -576,15 +587,21 @@
                     algoliaQuery = searchTerm.replace(/\*/g, '');
                 }
                 
-                // Search with filters
+                // Search with filters (but try without file filter first)
+                console.log('🔍 Searching with query:', algoliaQuery);
                 const searchOptions = {
                     hitsPerPage: 1000,
-                    filters: `file:${selectedFiles.join(' OR file:')} AND score:${minScore} TO ${maxScore}`,
+                    // Remove file filter for now to test
+                    filters: `score:${minScore} TO ${maxScore}`,
                     attributesToRetrieve: ['term', 'parentheses', 'score', 'file'],
                 };
                 
-                const { hits } = await algoliaIndex.search(algoliaQuery, searchOptions);
-                console.log(`🎯 Algolia returned ${hits.length} results`);
+                const { hits, nbHits } = await algoliaIndex.search(algoliaQuery, searchOptions);
+                console.log(`🎯 Algolia returned ${hits.length} results out of ${nbHits} total matches`);
+                
+                if (hits.length > 0) {
+                    console.log('📝 Sample results:', hits.slice(0, 3));
+                }
                 
                 // Apply additional client-side filtering for complex patterns
                 const regex = wildcardToRegex(searchTerm);
@@ -619,6 +636,7 @@
                 
             } catch (error) {
                 console.error('❌ Algolia search error:', error);
+                console.error('Error details:', error.message);
                 return [];
             }
         }
