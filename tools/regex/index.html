@@ -543,12 +543,13 @@
     </div>
     
     <!-- Firebase -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
-    
-    <script>
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+        import { getFirestore, collection, query, where, orderBy, limit, getDocs, startAfter } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-firestore.js";
+        import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
         // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -562,10 +563,10 @@
         };
         
         // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.database();
-        const functions = firebase.functions();
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const rtdb = getDatabase(app); // Keep for user authentication checks
         
         // DOM Elements
         const authScreen = document.getElementById('auth-screen');
@@ -610,11 +611,12 @@
         };
         
         // Check if user is admin
-        auth.onAuthStateChanged(async (user) => {
+        onAuthStateChanged(auth, async (user) => {
             if (user) {
                 try {
-                    // Get user data
-                    const snapshot = await db.ref(`users/${user.uid}`).once('value');
+                    // Get user data from Realtime Database (still used for user profiles)
+                    const userRef = ref(rtdb, `users/${user.uid}`);
+                    const snapshot = await get(userRef);
                     const userData = snapshot.val() || {};
                     
                     // Check for admin role - in both new roles array and old role field
@@ -628,8 +630,8 @@
                         toolScreen.classList.remove('hidden');
                         userIsAdmin = true;
                         
-                        // Try to load file names from tools branch
-                        loadToolsFileNames();
+                        // Load available files from Firestore
+                        loadAvailableFiles();
                     } else {
                         // User does not have access
                         authScreen.classList.remove('hidden');
@@ -647,42 +649,42 @@
             }
         });
         
-        // Load file names directly from the tools branch
-        async function loadToolsFileNames() {
+        // Load available files from Firestore
+        async function loadAvailableFiles() {
             // Hard-coded fallback list - using this if Firebase fails
             const knownFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
             
             try {
-                // Add a timeout for the file loading
-                const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('File loading timed out')), 5000); // 5 second timeout
+                console.log('Loading available files from Firestore...');
+                
+                // Get unique file names from the tools collection
+                const toolsCollection = collection(db, 'tools');
+                const q = query(toolsCollection, limit(50));
+                const querySnapshot = await getDocs(q);
+                
+                const fileNames = new Set();
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.file) {
+                        fileNames.add(data.file);
+                    }
                 });
                 
-                // Use the shallow option to only get the keys without any data
-                const fetchPromise = db.ref('tools').shallow(true).once('value');
+                const filesArray = Array.from(fileNames);
                 
-                // Race the fetch against the timeout
-                const snapshot = await Promise.race([fetchPromise, timeoutPromise]);
-                
-                if (snapshot.exists()) {
-                    // Extract just the file names (which are the direct children keys)
-                    const fileNames = Object.keys(snapshot.val() || {});
-                    
-                    if (fileNames.length > 0) {
-                        // Successfully got file names
-                        console.log("Found files in database:", fileNames);
-                        availableFiles = fileNames;
-                        showFileSelectionInterface(fileNames);
-                        return;
-                    }
+                if (filesArray.length > 0) {
+                    console.log("Found files in Firestore:", filesArray);
+                    availableFiles = filesArray;
+                    showFileSelectionInterface(filesArray);
+                    return;
                 }
                 
-                // If we can't get the files from Firebase, use the hard-coded list
+                // If we can't get files from Firestore, use the hard-coded list
                 console.log("Using fallback file list");
                 availableFiles = knownFiles;
                 showFileSelectionInterface(knownFiles);
             } catch (error) {
-                console.error('Error loading tool file names:', error);
+                console.error('Error loading file names from Firestore:', error);
                 
                 // Always fall back to the known files if there's any error
                 availableFiles = knownFiles;
@@ -1027,106 +1029,18 @@
             return new RegExp(`${regexPattern}`, 'i');
         }
         
-        // Enhanced search function with option to use server-side or client-side search
+        // Enhanced search function using Firestore
         async function searchTerms(continueSearch = false) {
             if (!userIsAdmin) {
                 alert('You need admin privileges to perform searches.');
                 return;
             }
             
-            // Check if server-side search is available
-            const useServerSide = typeof firebase.functions !== 'undefined';
-            
-            if (useServerSide && !continueSearch) {
-                // Use optimized server-side search for new searches
-                await searchTermsServerSide();
-            } else {
-                // Fall back to client-side search for continued searches or if functions unavailable
-                await searchTermsClientSide(continueSearch);
-            }
+            await searchTermsFirestore(continueSearch);
         }
 
-        // New server-side search function
-        async function searchTermsServerSide() {
-            const searchTerm = searchInput.value.trim();
-            
-            if (!searchTerm) {
-                alert('Please enter a search term');
-                return;
-            }
-            
-            // Get selected files
-            const selectedFiles = [];
-            availableFiles.forEach(file => {
-                const checkbox = document.getElementById(`file-${file}`);
-                if (checkbox && checkbox.checked) {
-                    // Fix file names that incorrectly use dots instead of underscores
-                    let correctedFileName = file;
-                    if (file.includes('.') && !file.includes('_')) {
-                        correctedFileName = file.replace(/\./g, '_');
-                        console.warn(`File name contains dots, attempting to use ${correctedFileName} instead`);
-                    }
-                    selectedFiles.push(correctedFileName);
-                }
-            });
-            
-            if (selectedFiles.length === 0) {
-                alert('Please select at least one file');
-                return;
-            }
-
-            // Show loading
-            resultsContainer.innerHTML = '<div class="loading">Searching on server...</div>';
-
-            try {
-                // Get search options
-                const crosswordMode = document.getElementById('crossword-mode')?.checked || false;
-                const variableMode = document.getElementById('variable-mode')?.checked || false;
-                const ignoreSpaces = document.getElementById('ignore-spaces-mode')?.checked || false;
-
-                // Prepare data for server-side function
-                const searchData = {
-                    searchTerm: searchTerm,
-                    files: selectedFiles,
-                    excludePatterns: excludePatterns,
-                    crosswordMode: crosswordMode,
-                    variableMode: variableMode,
-                    ignoreSpaces: ignoreSpaces,
-                    maxResults: resultsPerPage
-                };
-
-                console.log('Calling server-side search function with:', searchData);
-
-                // Call the server-side function
-                const searchFunction = firebase.functions().httpsCallable('searchTerms');
-                const result = await searchFunction(searchData);
-
-                console.log('Server-side search completed:', result.data);
-
-                // Update search state for potential client-side continuation
-                currentSearchState = {
-                    searchTerm: searchTerm,
-                    selectedFiles: selectedFiles,
-                    hasMoreResults: result.data.hasMore,
-                    resultsFound: result.data.totalFound,
-                    serverSideUsed: true
-                };
-
-                // Display results
-                displayServerSideResults(result.data);
-
-            } catch (error) {
-                console.error('Server-side search error:', error);
-                
-                // Fall back to client-side search if server-side fails
-                console.log('Falling back to client-side search...');
-                await searchTermsClientSide(false);
-            }
-        }
-
-        // Original client-side search function (kept as fallback)
-        async function searchTermsClientSide(continueSearch = false) {
-            // If not continuing a previous search, start a new one
+        // New Firestore-based search function
+        async function searchTermsFirestore(continueSearch = false) {
             if (!continueSearch) {
                 const searchTerm = searchInput.value.trim();
                 
@@ -1140,6 +1054,555 @@
                 availableFiles.forEach(file => {
                     const checkbox = document.getElementById(`file-${file}`);
                     if (checkbox && checkbox.checked) {
+                        selectedFiles.push(file);
+                    }
+                });
+                
+                if (selectedFiles.length === 0) {
+                    alert('Please select at least one file');
+                    return;
+                }
+                
+                // Get search options
+                const crosswordMode = document.getElementById('crossword-mode')?.checked || false;
+                const variableMode = document.getElementById('variable-mode')?.checked || false;
+                const ignoreSpaces = document.getElementById('ignore-spaces-mode')?.checked || false;
+                
+                // Create regex pattern from search term
+                const regexPattern = wildcardToRegex(searchTerm);
+                
+                // Compile exclusion regexes
+                const excludeRegexes = excludePatterns
+                    .map(p => p.trim())
+                    .filter(p => p.length > 0)
+                    .map(p => wildcardToRegexForExclusion(p));
+                
+                // Initialize search state
+                currentSearchState = {
+                    searchTerm: searchTerm,
+                    pattern: regexPattern,
+                    selectedFiles: selectedFiles,
+                    crosswordMode: crosswordMode,
+                    variableMode: variableMode,
+                    ignoreSpaces: ignoreSpaces,
+                    excludeRegexes: excludeRegexes,
+                    resultsFound: 0,
+                    lastDoc: null,
+                    hasMoreResults: true
+                };
+            }
+            
+            // Show loading
+            if (!continueSearch) {
+                resultsContainer.innerHTML = '<div class="loading">Searching Firestore...</div>';
+            } else {
+                let loadingElem = document.getElementById('loading-more');
+                if (!loadingElem) {
+                    loadingElem = document.createElement('div');
+                    loadingElem.id = 'loading-more';
+                    loadingElem.className = 'loading';
+                    loadingElem.textContent = 'Loading more results...';
+                    resultsContainer.appendChild(loadingElem);
+                }
+            }
+            
+            try {
+                const results = await performFirestoreSearch();
+                displayResults(results, continueSearch);
+            } catch (error) {
+                console.error('Error searching Firestore:', error);
+                resultsContainer.innerHTML = `
+                    <div class="error-message">
+                        <strong>Error searching terms:</strong> ${error.message || 'Unknown error'}
+                    </div>
+                `;
+            }
+        }
+
+        // Perform the actual Firestore search
+        async function performFirestoreSearch() {
+            const { selectedFiles, pattern, excludeRegexes, lastDoc } = currentSearchState;
+            const batchSize = 100; // Number of documents to fetch at once
+            const maxResults = 50; // Maximum results to return
+            const results = [];
+            
+            for (const fileName of selectedFiles) {
+                console.log(`Searching in file: ${fileName}`);
+                
+                try {
+                    // Build Firestore query
+                    const toolsCollection = collection(db, 'tools');
+                    let q = query(
+                        toolsCollection,
+                        where('file', '==', fileName),
+                        orderBy('score', 'desc'),
+                        limit(batchSize)
+                    );
+                    
+                    // Add pagination if continuing search
+                    if (lastDoc && selectedFiles.indexOf(fileName) === 0) {
+                        q = query(
+                            toolsCollection,
+                            where('file', '==', fileName),
+                            orderBy('score', 'desc'),
+                            startAfter(lastDoc),
+                            limit(batchSize)
+                        );
+                    }
+                    
+                    const querySnapshot = await getDocs(q);
+                    
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        const term = data.term;
+                        
+                        if (!term) return;
+                        
+                        // Check if term matches the pattern
+                        let matches = false;
+                        if (pattern.test) {
+                            matches = pattern.test(term);
+                        } else if (typeof pattern.test === 'function') {
+                            matches = pattern.test(term);
+                        }
+                        
+                        if (matches && !isTermExcluded(term, excludeRegexes)) {
+                            results.push({
+                                id: doc.id,
+                                term: data.term,
+                                parentheses: data.parentheses || '',
+                                score: data.score,
+                                file: data.file,
+                                doc: doc
+                            });
+                            
+                            currentSearchState.resultsFound += 1;
+                            
+                            // Stop if we have enough results
+                            if (results.length >= maxResults) {
+                                currentSearchState.lastDoc = doc;
+                                currentSearchState.hasMoreResults = true;
+                                return results;
+                            }
+                        }
+                    });
+                    
+                    // Update last document for pagination
+                    if (querySnapshot.docs.length > 0) {
+                        currentSearchState.lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
+                    }
+                    
+                    // If we got fewer docs than requested, we've reached the end for this file
+                    if (querySnapshot.docs.length < batchSize) {
+                        console.log(`Reached end of file: ${fileName}`);
+                    }
+                    
+                } catch (error) {
+                    console.error(`Error searching file ${fileName}:`, error);
+                    results.push({
+                        term: `Error searching file: ${fileName}`,
+                        parentheses: error.message || 'Unknown error',
+                        score: 0,
+                        file: fileName,
+                        isError: true
+                    });
+                }
+                
+                // Stop searching other files if we have enough results
+                if (results.length >= maxResults) {
+                    break;
+                }
+            }
+            
+            // Check if there are more results
+            currentSearchState.hasMoreResults = results.length >= maxResults;
+            
+            return results;
+        }
+        
+        // Determine if a term should be excluded
+        function isTermExcluded(term, excludeRegexes) {
+            if (!excludeRegexes || excludeRegexes.length === 0) {
+                return false;
+            }
+            return excludeRegexes.some(rx => rx.test(term));
+        }
+
+        // Event listeners
+        searchButton.addEventListener('click', searchTerms);
+        
+        // Allow Enter key to trigger search
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchTerms();
+            }
+        });
+        
+        // Make functions global for onclick handlers
+        window.addToClipboard = addToClipboard;
+        window.removeFromClipboard = removeFromClipboard;
+        window.removeExcludePattern = removeExcludePattern;
+        
+        // Display search results
+        function displayResults(results, isLoadMore) {
+            // Remove loading more indicator if it exists
+            const loadingMore = document.getElementById('loading-more');
+            if (loadingMore) {
+                loadingMore.remove();
+            }
+            
+            if (!isLoadMore) {
+                resultsContainer.innerHTML = '';
+            }
+            
+            if (results.length === 0 && !isLoadMore) {
+                resultsContainer.innerHTML = '<p class="no-results">No results found. Try a different search term.</p>';
+                return;
+            }
+            
+            // Check if all results are errors
+            const errorResults = results.filter(r => r.isError);
+            if (errorResults.length === results.length && !isLoadMore) {
+                const errorHtml = errorResults.map(err => 
+                    `<div class="error-message" style="margin-bottom: 10px;">
+                        <strong>${err.term}</strong><br>
+                        ${err.parentheses}
+                    </div>`
+                ).join('');
+                
+                resultsContainer.innerHTML = `
+                    <p class="no-results">Encountered errors while searching:</p>
+                    ${errorHtml}
+                `;
+                return;
+            }
+            
+            // Filter out error results for normal display
+            const validResults = results.filter(r => !r.isError);
+            
+            // Create table if it doesn't exist
+            let table = document.getElementById('results-table');
+            
+            if (!table) {
+                table = document.createElement('table');
+                table.id = 'results-table';
+                table.className = 'results-table';
+                
+                // Create header
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                
+                const headers = ['Score', 'Term', 'Parenthetical', 'Wikipedia Link', 'Merriam Webster Link', 'Trivia Archive Results'];
+                headers.forEach(headerText => {
+                    const th = document.createElement('th');
+                    th.textContent = headerText;
+                    headerRow.appendChild(th);
+                });
+                
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+                
+                // Create table body
+                const tbody = document.createElement('tbody');
+                tbody.id = 'results-tbody';
+                table.appendChild(tbody);
+                
+                resultsContainer.appendChild(table);
+            }
+            
+            // Get or create table body
+            const tbody = document.getElementById('results-tbody');
+            
+            // Add count of results if this is the first batch
+            if (!isLoadMore) {
+                const totalCount = document.createElement('div');
+                totalCount.className = 'result-count';
+                totalCount.id = 'result-count';
+                totalCount.textContent = `Found ${validResults.length} result${validResults.length !== 1 ? 's' : ''}`;
+                resultsContainer.insertBefore(totalCount, table);
+            } else {
+                // If we're loading more, update the count
+                const totalCount = document.getElementById('result-count');
+                if (totalCount) {
+                    const currentCount = parseInt(totalCount.textContent.match(/\d+/)[0], 10);
+                    const newCount = currentCount + validResults.length;
+                    totalCount.textContent = `Found ${newCount} result${newCount !== 1 ? 's' : ''}`;
+                }
+            }
+            
+            // Display valid results
+            for (const result of validResults) {
+                const row = document.createElement('tr');
+                
+                // Score cell
+                const scoreCell = document.createElement('td');
+                scoreCell.textContent = result.score;
+                row.appendChild(scoreCell);
+                
+                // Term cell with clipboard button
+                const termCell = document.createElement('td');
+                termCell.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>${result.term}</span>
+                        <button class="add-to-clipboard" onclick="addToClipboard('${result.term.replace(/'/g, "\\'")}')">+</button>
+                    </div>
+                `;
+                row.appendChild(termCell);
+                
+                // Parenthetical cell
+                const parenthesesCell = document.createElement('td');
+                parenthesesCell.textContent = result.parentheses || '';
+                row.appendChild(parenthesesCell);
+                
+                // Wikipedia Link
+                const wikiCell = document.createElement('td');
+                const wikiLink = getWikipediaLink(result.term);
+                wikiCell.innerHTML = `<a href="${wikiLink}" class="dictionary-link" target="_blank">Wikipedia</a>`;
+                row.appendChild(wikiCell);
+                
+                // Merriam Webster Link
+                const mwCell = document.createElement('td');
+                const mwLink = getMerriamWebsterLink(result.term);
+                mwCell.innerHTML = `<a href="${mwLink}" class="dictionary-link" target="_blank">Merriam-Webster</a>`;
+                row.appendChild(mwCell);
+                
+                // Trivia Archive
+                const triviaCell = document.createElement('td');
+                const searchLink = getSearchLink(result.term);
+                triviaCell.innerHTML = `<a href="${searchLink}" class="dictionary-link" target="_blank">Search Archive</a>`;
+                row.appendChild(triviaCell);
+                
+                tbody.appendChild(row);
+            }
+            
+            // Show "Load More" button if there are potentially more results
+            const existingButton = document.getElementById('load-more-button');
+            if (existingButton) {
+                existingButton.remove();
+            }
+            
+            if (currentSearchState.hasMoreResults) {
+                const loadMoreButton = document.createElement('button');
+                loadMoreButton.id = 'load-more-button';
+                loadMoreButton.className = 'load-more';
+                loadMoreButton.textContent = 'Load More Results';
+                
+                loadMoreButton.addEventListener('click', () => {
+                    // Continue the search from where we left off
+                    searchTerms(true);
+                });
+                
+                resultsContainer.appendChild(loadMoreButton);
+            }
+        }
+        
+        // Clipboard management functions
+        function addToClipboard(term) {
+            if (!clipboardTerms.includes(term)) {
+                clipboardTerms.push(term);
+                updateClipboardDisplay();
+            }
+        }
+        
+        function removeFromClipboard(index) {
+            clipboardTerms.splice(index, 1);
+            updateClipboardDisplay();
+        }
+        
+        function clearClipboard() {
+            clipboardTerms = [];
+            updateClipboardDisplay();
+        }
+        
+        function copyAllTerms() {
+            if (clipboardTerms.length === 0) {
+                alert('No terms to copy');
+                return;
+            }
+            
+            const textToCopy = clipboardTerms.join('\n');
+            navigator.clipboard.writeText(textToCopy)
+                .then(() => {
+                    alert('All terms copied to clipboard!');
+                })
+                .catch(err => {
+                    console.error('Could not copy text: ', err);
+                    const textarea = document.createElement('textarea');
+                    textarea.value = textToCopy;
+                    textarea.style.position = 'fixed';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    alert('All terms copied to clipboard!');
+                });
+        }
+        
+        function updateClipboardDisplay() {
+            const clipboardContent = document.getElementById('clipboard-content');
+            
+            if (clipboardTerms.length === 0) {
+                clipboardContent.innerHTML = '<p>No terms added yet.</p>';
+                return;
+            }
+            
+            let html = '';
+            clipboardTerms.forEach((term, index) => {
+                html += `
+                    <div class="clipboard-item">
+                        <span>${term}</span>
+                        <span class="remove-item" onclick="removeFromClipboard(${index})">×</span>
+                    </div>
+                `;
+            });
+            
+            clipboardContent.innerHTML = html;
+        }
+        
+        function toggleClipboard() {
+            const container = document.getElementById('clipboard-container');
+            container.classList.toggle('collapsed');
+            
+            const toggleBtn = document.getElementById('toggle-clipboard');
+            if (container.classList.contains('collapsed')) {
+                toggleBtn.textContent = '▼';
+                toggleBtn.setAttribute('aria-label', 'Expand clipboard');
+                toggleBtn.title = 'Show clipboard';
+            } else {
+                toggleBtn.textContent = '▲';
+                toggleBtn.setAttribute('aria-label', 'Collapse clipboard');
+                toggleBtn.title = 'Hide clipboard';
+            }
+        }
+
+        // Generate Wikipedia link for a term
+        function getWikipediaLink(term) {
+            const formattedTerm = term.replace(/\s+/g, '_');
+            return `https://en.wikipedia.org/wiki/${encodeURIComponent(formattedTerm)}`;
+        }
+        
+        // Generate Merriam-Webster link for a term
+        function getMerriamWebsterLink(term) {
+            const formattedTerm = term.replace(/\s+/g, '%20');
+            return `https://www.merriam-webster.com/dictionary/${formattedTerm}`;
+        }
+        
+        // Generate Search link for a term
+        function getSearchLink(term) {
+            const wildcardedTerm = encodeURIComponent(`*${term}*`);
+            const searchUrl = `/tools/search/index.html?q=${wildcardedTerm}&autosubmit=true&t=${Date.now()}`;
+            return searchUrl;
+        }
+        
+        // Filters UI functions
+        function updateExcludeDisplay() {
+            const list = document.getElementById('exclude-list');
+            if (!list) return;
+            if (excludePatterns.length === 0) {
+                list.innerHTML = '<span style="color:#666;">No filters added.</span>';
+                return;
+            }
+            list.innerHTML = '';
+            excludePatterns.forEach((pat, idx) => {
+                const chip = document.createElement('div');
+                chip.className = 'filter-chip';
+                chip.innerHTML = `<span>${pat}</span><span class="remove-item" title="Remove" onclick="removeExcludePattern(${idx})">×</span>`;
+                list.appendChild(chip);
+            });
+        }
+        
+        function addExcludePattern() {
+            const input = document.getElementById('exclude-input');
+            const value = (input.value || '').trim();
+            if (!value) return;
+            excludePatterns.push(value);
+            input.value = '';
+            updateExcludeDisplay();
+        }
+        
+        function removeExcludePattern(index) {
+            excludePatterns.splice(index, 1);
+            updateExcludeDisplay();
+        }
+        
+        function clearExclusions() {
+            excludePatterns = [];
+            updateExcludeDisplay();
+        }
+        
+        function toggleFilters() {
+            const container = document.getElementById('filters-container');
+            container.classList.toggle('collapsed');
+            const btn = document.getElementById('toggle-filters');
+            if (container.classList.contains('collapsed')) {
+                btn.textContent = '▼';
+                btn.setAttribute('aria-label', 'Expand filters');
+                btn.title = 'Show filters';
+            } else {
+                btn.textContent = '▲';
+                btn.setAttribute('aria-label', 'Collapse filters');
+                btn.title = 'Hide filters';
+            }
+        }
+        
+        // Clipboard event listeners
+        document.getElementById('toggle-clipboard').addEventListener('click', toggleClipboard);
+        document.getElementById('clear-clipboard').addEventListener('click', clearClipboard);
+        document.getElementById('copy-clipboard').addEventListener('click', copyAllTerms);
+        
+        // Make the entire header clickable
+        document.querySelector('.clipboard-header').addEventListener('click', function(e) {
+            if (e.target === this || e.target.classList.contains('clipboard-title')) {
+                toggleClipboard();
+            }
+        });
+
+        // Filters event listeners
+        document.getElementById('toggle-filters').addEventListener('click', toggleFilters);
+        document.getElementById('filters-header').addEventListener('click', function(e) {
+            if (e.target === this || e.target.classList.contains('filters-title')) {
+                toggleFilters();
+            }
+        });
+        document.getElementById('add-exclude-btn').addEventListener('click', addExcludePattern);
+        document.getElementById('clear-exclusions-btn').addEventListener('click', clearExclusions);
+        document.getElementById('exclude-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addExcludePattern();
+        });
+        
+        // Variable Mode event listener
+        function toggleVariableModeOptions() {
+            if (variableModeCheckbox.checked) {
+                variableModeOptions.style.display = 'flex';
+            } else {
+                variableModeOptions.style.display = 'none';
+                ignoreSpacesCheckbox.checked = false;
+            }
+        }
+        
+        // Initialize clipboard on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('clipboard-container');
+            
+            container.classList.add('collapsed');
+            const toggleBtn = document.getElementById('toggle-clipboard');
+            toggleBtn.textContent = '▼';
+            toggleBtn.setAttribute('aria-label', 'Expand clipboard');
+            toggleBtn.title = 'Show clipboard';
+
+            const filtersContainer = document.getElementById('filters-container');
+            filtersContainer.classList.add('collapsed');
+            const toggleFiltersBtn = document.getElementById('toggle-filters');
+            toggleFiltersBtn.textContent = '▼';
+            toggleFiltersBtn.setAttribute('aria-label', 'Expand filters');
+            toggleFiltersBtn.title = 'Show filters';
+            updateExcludeDisplay();
+            
+            variableModeCheckbox.addEventListener('change', toggleVariableModeOptions);
+        });
+    </script>
+</body>
+</html>
                         // Fix file names that incorrectly use dots instead of underscores
                         let correctedFileName = file;
                         if (file.includes('.') && !file.includes('_')) {
