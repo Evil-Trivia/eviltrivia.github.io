@@ -40,8 +40,9 @@
             padding: 16px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
-            width: 100%;
+            width: calc(100% - 34px);
             margin-bottom: 16px;
+            box-sizing: border-box;
         }
         
         .search-button {
@@ -411,17 +412,25 @@
             const regex = wildcardToRegex(searchTerm);
             const results = [];
             
+            console.log('Starting search for:', searchTerm);
+            console.log('Selected files:', selectedFiles);
+            console.log('Regex pattern:', regex);
+            
             for (const fileName of selectedFiles) {
                 try {
+                    console.log(`Searching in ${fileName}...`);
+                    
+                    // Try a simpler query first - just get documents for this file
                     const toolsCollection = collection(db, 'tools');
                     const q = query(
                         toolsCollection,
                         where('file', '==', fileName),
-                        orderBy('score', 'desc'),
-                        limit(100)
+                        limit(200)
                     );
                     
+                    console.log('Executing query...');
                     const snapshot = await getDocs(q);
+                    console.log(`Got ${snapshot.size} documents from ${fileName}`);
                     
                     snapshot.forEach(doc => {
                         const data = doc.data();
@@ -429,17 +438,35 @@
                             results.push({
                                 term: data.term,
                                 parentheses: data.parentheses || '',
-                                score: data.score,
+                                score: data.score || 0,
                                 file: data.file
                             });
                         }
                     });
+                    
+                    console.log(`Found ${results.length} matching results so far`);
+                    
                 } catch (error) {
                     console.error(`Error searching ${fileName}:`, error);
+                    // Add error to results for debugging
+                    results.push({
+                        term: `Error searching ${fileName}`,
+                        parentheses: error.message,
+                        score: 0,
+                        file: fileName,
+                        isError: true
+                    });
                 }
             }
             
-            return results.sort((a, b) => b.score - a.score).slice(0, 50);
+            // Sort by score and limit results
+            const sortedResults = results
+                .filter(r => !r.isError)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 50);
+            
+            console.log('Final results:', sortedResults);
+            return sortedResults;
         }
 
         function displayResults(results) {
