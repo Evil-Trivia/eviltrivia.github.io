@@ -128,63 +128,44 @@
         
         <!-- Main Interface -->
         <div id="main-interface" class="hidden">
-            <!-- Tab Navigation -->
-            <div class="tab-navigation" style="margin-bottom: 20px;">
-                <button class="tab-button active" data-tab="search">🔍 Search</button>
-                <button class="tab-button" data-tab="scripts">⚙️ Special Scripts</button>
-            </div>
-
-            <!-- Search Tab -->
-            <div id="search-tab" class="tab-content">
-                <!-- Search Section -->
-                <div class="card">
-                    <input type="text" id="search-input" class="search-input" 
-                           placeholder="Enter search term (e.g., apple, *app*, app?, X Y X for variables)">
-                    
-                    <div class="options-grid">
-                        <div class="option-group">
-                            <h3>🎯 Search Modes</h3>
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="crossword-mode">
-                                <label for="crossword-mode">Crossword Mode (? ignores spaces)</label>
-                            </div>
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="variable-mode">
-                                <label for="variable-mode">Variable Mode (X Y X pattern matching)</label>
-                            </div>
-                        </div>
-                        
-                        <div class="option-group">
-                            <h3>🔍 Search Settings</h3>
-                            <div id="search-engine-status" style="font-size: 12px; color: #666; margin-bottom: 8px;">
-                                Initializing search engine...
-                            </div>
-                            <div class="checkbox-group">
-                                <input type="checkbox" id="simple-mode">
-                                <label for="simple-mode">Simple Mode (match whole words or word parts)</label>
-                            </div>
-                        </div>
-
-                        <div class="option-group">
-                            <h3>📁 Data Sources</h3>
-                            <div id="files-container">
-                                <div class="loading">Loading files...</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button id="search-btn" class="search-button">🔍 Search</button>
-                </div>
-            </div>
-
-            <!-- Special Scripts Tab -->
-            <div id="scripts-tab" class="tab-content hidden">
-                <div class="card">
+            <!-- Search Section -->
+            <div class="card">
+                <input type="text" id="search-input" class="search-input" 
+                       placeholder="Enter search term (e.g., apple, *app*, app?, X Y X for variables)">
+                
+                <div class="options-grid">
                     <div class="option-group">
-                        <h3>⚙️ Special Scripts</h3>
-                        <p style="color: #666; font-style: italic;">Coming soon! This section will contain specialized search tools and scripts.</p>
-                    </div>
+                        <h3>🎯 Search Modes</h3>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="crossword-mode">
+                            <label for="crossword-mode">Crossword Mode (? ignores spaces)</label>
                 </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="variable-mode">
+                            <label for="variable-mode">Variable Mode (X Y X pattern matching)</label>
+                    </div>
+                    </div>
+                    
+                                         <div class="option-group">
+                         <h3>🔍 Search Settings</h3>
+                         <div id="search-engine-status" style="font-size: 12px; color: #666; margin-bottom: 8px;">
+                             Initializing search engine...
+                         </div>
+                         <div class="checkbox-group">
+                             <input type="checkbox" id="simple-mode">
+                             <label for="simple-mode">Simple Mode (match whole words or word parts)</label>
+                         </div>
+                     </div>
+
+                    <div class="option-group">
+                        <h3>📁 Data Sources</h3>
+                        <div id="files-container">
+                            <div class="loading">Loading files...</div>
+                        </div>
+                            </div>
+                            </div>
+
+                <button id="search-btn" class="search-button">🔍 Search</button>
             </div>
             
             <!-- Collection Box -->
@@ -397,24 +378,33 @@
             });
         }
 
-        // Wildcard to regex conversion
+                // Wildcard to regex conversion
         function wildcardToRegex(pattern) {
             const crosswordMode = document.getElementById('crossword-mode');
+            const variableMode = document.getElementById('variable-mode');
             const simpleMode = document.getElementById('simple-mode');
             
-            // Simple mode: match whole words or word parts
+            // Simple mode: match whole words or word parts at boundaries
             if (simpleMode && simpleMode.checked) {
                 const escapedPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-                // Match at word boundaries, start of string, or at capital letters
-                return new RegExp(`(^|\\s|[^a-zA-Z]|(?<=[a-z])(?=[A-Z]))${escapedPattern}(?=\\s|[^a-zA-Z]|$|(?<=[a-z])(?=[A-Z]))`, 'i');
+                // Match at word boundaries, spaces, special chars, string edges, or capital letter transitions
+                return new RegExp(`(^|\\s|[^a-zA-Z0-9]|(?<=[a-z])(?=[A-Z]))${escapedPattern}(?=\\s|[^a-zA-Z0-9]|$|(?<=[a-z])(?=[A-Z]))`, 'i');
             }
             
+            // Variable mode (most specific - handle first)
+            if (variableMode && variableMode.checked) {
+                return createVariableRegex(pattern);
+            }
+            
+            // Standard wildcard mode
             let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
             regexPattern = regexPattern.replace(/\*/g, '.*');
-                 
+            
+            // Crossword mode: ? matches only letters, ignoring spaces/punctuation
             if (crosswordMode && crosswordMode.checked) {
                 regexPattern = regexPattern.replace(/\?/g, '[A-Za-z]');
             } else {
+                // Standard mode: ? matches any single character
                 regexPattern = regexPattern.replace(/\?/g, '.');
             }
             
@@ -580,7 +570,7 @@
                 return [];
             }
             
-                        console.log('🔍 Algolia search for:', searchTerm, 'across', selectedFiles.length, 'files');
+            console.log('🔍 Algolia search for:', searchTerm, 'across', selectedFiles.length, 'files');
             console.log('🔍 Index name:', ALGOLIA_CONFIG.indexName);
             
             try {
@@ -617,7 +607,7 @@
                     console.log('📝 Sample results:', hits.slice(0, 3));
                 }
                 
-                                // Apply client-side filtering for complex patterns
+                // Apply client-side filtering for complex patterns
                 const crosswordMode = document.getElementById('crossword-mode');
                 const variableMode = document.getElementById('variable-mode');
                 
@@ -634,10 +624,11 @@
                         const cleanTerm = hit.term.replace(/[^a-zA-Z]/g, '');
                         const cleanPattern = searchTerm.replace(/[^a-zA-Z*?]/g, '');
                         if (cleanPattern !== searchTerm) {
+                            // Has wildcards - create regex for clean pattern
                             const cleanRegex = wildcardToRegex(cleanPattern);
                             return cleanRegex.test(cleanTerm);
                         }
-                        // For crossword mode without wildcards, just match letters
+                        // No wildcards - simple letter-only match
                         return cleanTerm.toLowerCase().includes(cleanPattern.toLowerCase());
                     }
                     
