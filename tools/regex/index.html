@@ -143,34 +143,27 @@
                         <div class="checkbox-group">
                             <input type="checkbox" id="variable-mode">
                             <label for="variable-mode">Variable Mode (X Y X pattern matching)</label>
-                        </div>
+                    </div>
                     </div>
                     
                     <div class="option-group">
-                        <h3>🎯 Score Range Filter</h3>
+                        <h3>🔍 Search Settings</h3>
                         <div id="search-engine-status" style="font-size: 12px; color: #666; margin-bottom: 8px;">
                             Initializing search engine...
                         </div>
-                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
-                            <label>Min Score:</label>
-                            <input type="number" id="minScore" value="20" min="0" max="100" style="width: 60px;">
-                            <label>Max Score:</label>
-                            <input type="number" id="maxScore" value="100" min="0" max="100" style="width: 60px;">
-                        </div>
                         <div class="checkbox-group">
-                            <input type="checkbox" id="quickSearch" checked>
-                            <label for="quickSearch">Quick Search (limit per score range for speed)</label>
+                            <input type="checkbox" id="simple-mode">
+                            <label for="simple-mode">Simple Mode (match whole words or word parts)</label>
                         </div>
-
                     </div>
-                    
+
                     <div class="option-group">
                         <h3>📁 Data Sources</h3>
                         <div id="files-container">
                             <div class="loading">Loading files...</div>
-                    </div>
                         </div>
-                    </div>
+                            </div>
+                            </div>
 
                 <button id="search-btn" class="search-button">🔍 Search</button>
             </div>
@@ -246,7 +239,7 @@
                     statusEl.style.color = '#28a745';
                 }
             });
-        } catch (error) {
+                } catch (error) {
             console.warn('⚠️ Algolia initialization failed, using Firestore fallback:', error);
             
             // Update status indicator for fallback
@@ -312,8 +305,8 @@
                     console.log("User is not admin");
                     authRequired.classList.remove('hidden');
                     mainInterface.classList.add('hidden');
-                }
-            } else {
+                    }
+                } else {
                 console.log("User is not signed in");
                 authRequired.classList.remove('hidden');
                 mainInterface.classList.add('hidden');
@@ -358,7 +351,7 @@
                 if (fileSet.size > 0) {
                     availableFiles = Array.from(fileSet).sort();
                     console.log(`Found ${availableFiles.length} files:`, availableFiles);
-                } else {
+                    } else {
                     console.log('No files found, using fallback');
                 availableFiles = knownFiles;
                 }
@@ -391,18 +384,18 @@
                 return createVariableRegex(pattern);
             }
             
-            let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-            regexPattern = regexPattern.replace(/\*/g, '.*');
-            
+                let regexPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                regexPattern = regexPattern.replace(/\*/g, '.*');
+                
             if (crosswordMode.checked) {
                 regexPattern = regexPattern.replace(/\?/g, '[A-Za-z]');
                     } else {
                 regexPattern = regexPattern.replace(/\?/g, '.');
             }
             
-            return new RegExp(`^${regexPattern}$`, 'i');
-        }
-
+                    return new RegExp(`^${regexPattern}$`, 'i');
+                }
+                
         function createVariableRegex(pattern) {
             const variables = new Map();
             let groupCounter = 1;
@@ -416,14 +409,14 @@
                     
                     if (variables.has(upperChar)) {
                         regexPattern += `\\${variables.get(upperChar)}`;
-                    } else {
+                        } else {
                         variables.set(upperChar, groupCounter);
                         regexPattern += '(.)';
                         groupCounter++;
-                    }
+                        }
                 } else if (char === ' ' && crosswordMode.checked) {
                     continue;
-                } else {
+                    } else {
                     regexPattern += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
                 }
             }
@@ -502,7 +495,7 @@
                 if (algoliaIndex) {
                     console.log('🚀 Using Algolia search (fast & comprehensive)');
                     results = await searchAlgolia(searchTerm, selectedFiles);
-                } else {
+            } else {
                     console.log('⚡ Using Firestore search (fallback)');
                     results = await searchFirestore(searchTerm, selectedFiles);
                 }
@@ -562,11 +555,8 @@
                 return [];
             }
             
-            console.log('🔍 Algolia search for:', searchTerm, 'across', selectedFiles.length, 'files');
+                        console.log('🔍 Algolia search for:', searchTerm, 'across', selectedFiles.length, 'files');
             console.log('🔍 Index name:', ALGOLIA_CONFIG.indexName);
-            
-            const minScore = parseInt(document.getElementById('minScore').value) || 0;
-            const maxScore = parseInt(document.getElementById('maxScore').value) || 100;
             
             try {
                 // First, try a simple search without filters to test if index has data
@@ -587,12 +577,11 @@
                     algoliaQuery = searchTerm.replace(/\*/g, '');
                 }
                 
-                // Search with filters (but try without file filter first)
+                // Search with filters
                 console.log('🔍 Searching with query:', algoliaQuery);
                 const searchOptions = {
                     hitsPerPage: 1000,
-                    // Remove file filter for now to test
-                    filters: `score:${minScore} TO ${maxScore}`,
+                    filters: selectedFiles.length > 0 ? `file:${selectedFiles.join(' OR file:')}` : '',
                     attributesToRetrieve: ['term', 'parentheses', 'score', 'file'],
                 };
                 
@@ -603,25 +592,32 @@
                     console.log('📝 Sample results:', hits.slice(0, 3));
                 }
                 
-                // Apply additional client-side filtering for complex patterns
-                const regex = wildcardToRegex(searchTerm);
+                                // Apply client-side filtering for complex patterns
+                const crosswordMode = document.getElementById('crossword-mode');
+                const variableMode = document.getElementById('variable-mode');
+                
                 const filteredResults = hits.filter(hit => {
                     if (!hit.term) return false;
                     
-                    // Apply crossword mode
-                    if (document.getElementById('crossword-mode').checked) {
-                        const cleanTerm = hit.term.replace(/[^a-zA-Z]/g, '');
-                        const cleanPattern = searchTerm.replace(/[^a-zA-Z*?]/g, '');
-                        const cleanRegex = wildcardToRegex(cleanPattern);
-                        return cleanRegex.test(cleanTerm);
-                    }
-                    
-                    // Apply variable mode
-                    if (document.getElementById('variable-mode').checked) {
+                    // Apply variable mode first (most specific)
+                    if (variableMode && variableMode.checked) {
                         return variableMatch(searchTerm, hit.term);
                     }
                     
-                    // Standard wildcard matching
+                    // Apply crossword mode
+                    if (crosswordMode && crosswordMode.checked) {
+                        const cleanTerm = hit.term.replace(/[^a-zA-Z]/g, '');
+                        const cleanPattern = searchTerm.replace(/[^a-zA-Z*?]/g, '');
+                        if (cleanPattern !== searchTerm) {
+                            const cleanRegex = wildcardToRegex(cleanPattern);
+                            return cleanRegex.test(cleanTerm);
+                        }
+                        // For crossword mode without wildcards, just match letters
+                        return cleanTerm.toLowerCase().includes(cleanPattern.toLowerCase());
+                    }
+                    
+                    // Standard wildcard/simple matching
+                    const regex = wildcardToRegex(searchTerm);
                     return regex.test(hit.term);
                 });
                 
