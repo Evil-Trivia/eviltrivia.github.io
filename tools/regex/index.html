@@ -387,8 +387,12 @@
              // Simple mode: match whole words or word parts at boundaries
              if (simpleMode && simpleMode.checked) {
                  const escapedPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-                 // Match at word boundaries, spaces, special chars, string edges, or capital letter transitions
-                 return new RegExp(`(^|\\s|[^a-zA-Z0-9]|(?<=[a-z])(?=[A-Z]))${escapedPattern}(?=\\s|[^a-zA-Z0-9]|$|(?<=[a-z])(?=[A-Z]))`, 'i');
+                 // Boundary conditions:
+                 // BEFORE: start of string, space, non-alphanumeric, OR after lowercase before uppercase
+                 // AFTER: end of string, space, non-alphanumeric, OR before uppercase letter
+                 const beforeBoundary = `(^|\\s|[^a-zA-Z0-9]|(?<=[a-z])(?=[A-Z]))`;
+                 const afterBoundary = `(?=\\s|[^a-zA-Z0-9]|$|[A-Z])`;
+                 return new RegExp(beforeBoundary + escapedPattern + afterBoundary, 'i');
              }
              
              // Variable mode (most specific - handle first)
@@ -602,9 +606,9 @@
                 // Convert search term to Algolia query
                 let algoliaQuery = searchTerm;
                 
-                // Handle wildcards: Convert * to empty for prefix/suffix matching
-                if (searchTerm.includes('*')) {
-                    algoliaQuery = searchTerm.replace(/\*/g, '');
+                // Handle wildcards: Convert * to empty, remove ? for broader search
+                if (searchTerm.includes('*') || searchTerm.includes('?')) {
+                    algoliaQuery = searchTerm.replace(/[\*\?]/g, '');
                 }
                 
                 // Search with filters (but try without file filter first)
@@ -650,7 +654,14 @@
                      
                      // Standard wildcard/simple matching
                      const regex = wildcardToRegex(searchTerm);
-                     return regex.test(hit.term);
+                     const matches = regex.test(hit.term);
+                     
+                     // Debug logging for pattern matching
+                     if (searchTerm.toLowerCase() === 'gun' || searchTerm.toLowerCase() === 'gun?') {
+                         console.log(`🔍 Testing "${searchTerm}" against "${hit.term}":`, matches, 'Regex:', regex);
+                     }
+                     
+                     return matches;
                  });
                 
                 console.log(`✅ After filtering: ${filteredResults.length} matches`);
