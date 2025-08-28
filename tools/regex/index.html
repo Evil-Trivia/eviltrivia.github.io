@@ -181,9 +181,7 @@
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
-        import { getFirestore, collection, query, where, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-firestore.js";
-        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-functions.js";
-        import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        import { getDatabase, ref, get, query, orderByKey, startAt, endAt, limitToFirst } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
 
         // Firebase configuration
         const firebaseConfig = {
@@ -200,9 +198,7 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-        const db = getFirestore(app);
-        const rtdb = getDatabase(app);
-        const functions = getFunctions(app, 'us-central1');
+        const db = getDatabase(app);
 
         // Global state
         let availableFiles = [];
@@ -222,46 +218,62 @@
         const collectionItems = document.getElementById('collection-items');
         const collectionCount = document.getElementById('collection-count');
 
+        // Check if user is admin
+        async function checkAdminAccess(user) {
+            try {
+                const userSnapshot = await get(ref(db, `users/${user.uid}`));
+                if (!userSnapshot.exists()) {
+                    return false;
+                }
+                
+                const userData = userSnapshot.val();
+                
+                // Check both legacy and new role formats
+                return userData.role === 'admin' || 
+                       (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin'));
+            } catch (error) {
+                console.error('Error checking admin access:', error);
+                return false;
+            }
+        }
+
         // Authentication check
         onAuthStateChanged(auth, async (user) => {
             if (user) {
-                try {
-                    const userRef = ref(rtdb, `users/${user.uid}`);
-                    const snapshot = await get(userRef);
-                    const userData = snapshot.val() || {};
-                    
-                    const isAdmin = 
-                        (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
-                        (userData.role === 'admin');
-                    
-                    if (isAdmin) {
-                        authRequired.classList.add('hidden');
-                        mainInterface.classList.remove('hidden');
-                        await loadAvailableFiles();
-                    } else {
-                        authRequired.classList.remove('hidden');
-                    }
-                } catch (error) {
-                    console.error('Error checking user role:', error);
+                console.log("User is signed in:", user.uid);
+                
+                const isAdmin = await checkAdminAccess(user);
+                
+                if (isAdmin) {
+                    console.log("Admin access granted");
+                    authRequired.classList.add('hidden');
+                    appContent.classList.remove('hidden');
+                    await loadAvailableFiles();
+                } else {
+                    console.log("User is not admin");
                     authRequired.classList.remove('hidden');
+                    appContent.classList.add('hidden');
                 }
             } else {
+                console.log("User is not signed in");
                 authRequired.classList.remove('hidden');
+                appContent.classList.add('hidden');
             }
         });
 
-        // Load available files using cloud function
+        // Load available files from Realtime Database
         async function loadAvailableFiles() {
             try {
-                console.log('Loading available files via cloud function...');
-                const getFilesFunction = httpsCallable(functions, 'getAvailableFiles');
-                const result = await getFilesFunction();
+                console.log('Loading available files from Realtime Database...');
+                const toolsRef = ref(db, 'tools');
+                const snapshot = await get(toolsRef);
                 
-                if (result.data && result.data.files && result.data.files.length > 0) {
-                    availableFiles = result.data.files;
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    availableFiles = Object.keys(data).sort();
                     console.log('Found files:', availableFiles);
                 } else {
-                    console.log('No files returned, using defaults');
+                    console.log('No tools data found, using defaults');
                     availableFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
                 }
                 
@@ -399,7 +411,7 @@
             resultsContainer.innerHTML = '<div class="loading">Searching...</div>';
             
             try {
-                const results = await searchUsingCloudFunction(searchTerm, selectedFiles);
+                const results = await searchRealtimeDatabase(searchTerm, selectedFiles);
                 displayResults(results);
             } catch (error) {
                 console.error('Search error:', error);
@@ -410,36 +422,63 @@
             }
         }
 
-        async function searchUsingCloudFunction(searchTerm, selectedFiles) {
-            console.log('Using cloud function for search:', searchTerm);
+        async function searchRealtimeDatabase(searchTerm, selectedFiles) {
+            console.log('Searching Realtime Database for:', searchTerm);
+            const regex = wildcardToRegex(searchTerm);
+            const results = [];
+            const maxResultsPerFile = 100;
             
-            const searchTermsFunction = httpsCallable(functions, 'searchTerms');
-            
-            const searchData = {
-                searchTerm: searchTerm,
-                files: selectedFiles,
-                excludePatterns: [], // Add filters support later
-                crosswordMode: crosswordMode.checked,
-                variableMode: variableMode.checked,
-                ignoreSpaces: false, // Add if needed
-                maxResults: 50
-            };
-            
-            console.log('Calling searchTerms function with:', searchData);
-            
-            try {
-                const result = await searchTermsFunction(searchData);
-                console.log('Cloud function result:', result.data);
-                
-                if (result.data && result.data.results) {
-                    return result.data.results;
-                } else {
-                    throw new Error('Invalid response from search function');
+            for (const fileName of selectedFiles) {
+                try {
+                    console.log(`Searching in ${fileName}...`);
+                    const fileRef = ref(db, `tools/${fileName}`);
+                    const snapshot = await get(fileRef);
+                    
+                    if (snapshot.exists()) {
+                        const fileData = snapshot.val();
+                        
+                        // Search through all score buckets
+                        for (const score in fileData) {
+                            const scoreData = fileData[score];
+                            
+                            for (const termId in scoreData) {
+                                const termData = scoreData[termId];
+                                
+                                if (termData && termData.term && regex.test(termData.term)) {
+                                    results.push({
+                                        term: termData.term,
+                                        parentheses: termData.parentheses || '',
+                                        score: parseInt(score) || 0,
+                                        file: fileName
+                                    });
+                                    
+                                    // Limit results to prevent overwhelming the UI
+                                    if (results.length >= maxResultsPerFile) {
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (results.length >= maxResultsPerFile) {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    console.log(`Found ${results.length} total results so far`);
+                    
+                } catch (error) {
+                    console.error(`Error searching ${fileName}:`, error);
                 }
-            } catch (error) {
-                console.error('Cloud function error:', error);
-                throw error;
             }
+            
+            // Sort by score (highest first) and limit results
+            const sortedResults = results
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 50);
+            
+            console.log('Final results:', sortedResults);
+            return sortedResults;
         }
 
         function displayResults(results) {
