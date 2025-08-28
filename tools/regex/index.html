@@ -202,7 +202,7 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const rtdb = getDatabase(app);
-        const functions = getFunctions(app);
+        const functions = getFunctions(app, 'us-central1');
 
         // Global state
         let availableFiles = [];
@@ -250,25 +250,25 @@
             }
         });
 
-        // Load available files
+        // Load available files using cloud function
         async function loadAvailableFiles() {
             try {
-                const toolsCollection = collection(db, 'tools');
-                const q = query(toolsCollection, limit(50));
-                const snapshot = await getDocs(q);
+                console.log('Loading available files via cloud function...');
+                const getFilesFunction = httpsCallable(functions, 'getAvailableFiles');
+                const result = await getFilesFunction();
                 
-                const fileSet = new Set();
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    if (data.file) {
-                        fileSet.add(data.file);
-                    }
-                });
+                if (result.data && result.data.files && result.data.files.length > 0) {
+                    availableFiles = result.data.files;
+                    console.log('Found files:', availableFiles);
+                } else {
+                    console.log('No files returned, using defaults');
+                    availableFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
+                }
                 
-                availableFiles = Array.from(fileSet).sort();
                 displayFileOptions();
             } catch (error) {
                 console.error('Error loading files:', error);
+                // Fallback to known files
                 availableFiles = ['RankedWiki_txt', 'RankedWiktionary_txt', 'ScrabbleDict_txt', 'jeopardy_wordlist_txt'];
                 displayFileOptions();
             }

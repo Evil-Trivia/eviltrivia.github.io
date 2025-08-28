@@ -613,7 +613,7 @@ exports.checkWeddingAnswer = functions.https.onCall(async (data, context) => {
 });
 
 // Optimized server-side search function for regex tool
-exports.searchTerms = functions.https.onCall(async (data, context) => {
+exports.searchTerms = functions.region('us-central1').https.onCall(async (data, context) => {
   // Verify user has admin privileges
   if (!context.auth) {
     throw new functions.https.HttpsError(
@@ -937,6 +937,59 @@ function isTermExcluded(term, excludeRegexes) {
   }
   return excludeRegexes.some(regex => regex.test(term));
 }
+
+// Get available files for search tool
+exports.getAvailableFiles = functions.region('us-central1').https.onCall(async (data, context) => {
+  // Verify user has admin privileges
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'Authentication required to access files.'
+    );
+  }
+
+  const uid = context.auth.uid;
+  
+  try {
+    // Check if user is admin
+    const userSnapshot = await admin.database().ref(`users/${uid}`).once('value');
+    const userData = userSnapshot.val() || {};
+    
+    const isAdmin = 
+      (userData.roles && Array.isArray(userData.roles) && userData.roles.includes('admin')) ||
+      (userData.role === 'admin');
+    
+    if (!isAdmin) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'Admin privileges required to access files.'
+      );
+    }
+
+    // Get available files from tools data
+    const toolsSnapshot = await admin.database().ref('tools').once('value');
+    
+    if (!toolsSnapshot.exists()) {
+      return { files: [] };
+    }
+    
+    const files = Object.keys(toolsSnapshot.val()).sort();
+    
+    return { files: files };
+
+  } catch (error) {
+    console.error('Error in getAvailableFiles function:', error);
+    
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    
+    throw new functions.https.HttpsError(
+      'internal',
+      'Error getting available files. Please try again.'
+    );
+  }
+});
 
 // Migration function to copy tools data from Realtime Database to Firestore
 exports.migrateToFirestore = functions.https.onCall(async (data, context) => {
