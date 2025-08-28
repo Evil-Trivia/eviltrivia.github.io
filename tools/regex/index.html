@@ -437,6 +437,7 @@
         async function searchFirestore(searchTerm, selectedFiles) {
             console.log('Searching Firestore for:', searchTerm);
             const regex = wildcardToRegex(searchTerm);
+            console.log('Generated regex:', regex);
             const results = [];
             const maxResultsPerFile = 200;
             
@@ -455,17 +456,27 @@
                     const snapshot = await getDocs(q);
                     console.log(`Got ${snapshot.size} documents from ${fileName}`);
                     
+                    let matchCount = 0;
                     snapshot.forEach(doc => {
                         const data = doc.data();
-                        if (data.term && regex.test(data.term)) {
-                            results.push({
-                                term: data.term,
-                                parentheses: data.parentheses || '',
-                                score: data.score || 0,
-                                file: data.file
-                            });
+                        if (data.term) {
+                            const matches = regex.test(data.term);
+                            if (matches) {
+                                matchCount++;
+                                results.push({
+                                    term: data.term,
+                                    parentheses: data.parentheses || '',
+                                    score: data.score || 0,
+                                    file: data.file
+                                });
+                            }
+                            // Debug: log first few terms to see what we're getting
+                            if (results.length + matchCount < 5) {
+                                console.log(`Term: "${data.term}", Matches: ${matches}, Score: ${data.score}`);
+                            }
                         }
                     });
+                    console.log(`Found ${matchCount} matches in ${fileName}`);
                     
                     console.log(`Found ${results.length} matching results so far`);
                     
