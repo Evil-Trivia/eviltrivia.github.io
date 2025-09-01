@@ -17,15 +17,31 @@ This directory contains automated tools for fetching and maintaining the latest 
 games/jeopardy/
 ├── fetch-jeopardy-data.js    # Main data fetcher script
 ├── install-cron.js           # Cron job installer
+├── split-dataset.js          # Dataset chunking utility
+├── setup-dataset.js          # First-time setup script
 ├── package.json              # Node.js dependencies
 ├── README.md                 # This file
 └── data/                    # Generated data directory
-    ├── jeopardy_clues_latest.json    # Latest dataset
+    ├── jeopardy_clues_latest.json    # Latest dataset (generated)
+    ├── chunks/                       # Dataset chunks for git storage
+    │   ├── chunk_000.json           # 50K clues (0-49,999)
+    │   ├── chunk_001.json           # 50K clues (50K-99,999)
+    │   └── ...                      # 11 total chunks
+    ├── dataset-metadata.json        # Chunk metadata
     ├── backups/                      # Historical backups
     ├── fetch_log.json               # Activity logs
     ├── last_update.json             # Last update metadata
     └── cron.log                     # Cron execution logs
 ```
+
+## 🔪 Dataset Chunking System
+
+The large dataset (178MB) is automatically split into 11 manageable chunks (50K clues each) for git storage:
+
+- **Chunks**: Stored in git (each <100MB)
+- **Full Dataset**: Automatically reassembled when needed
+- **Setup**: Run `npm run setup` after cloning to reassemble
+- **Updates**: Automatic chunking after each fetch
 
 ## 🚀 Quick Start
 
@@ -36,19 +52,27 @@ cd games/jeopardy
 npm install
 ```
 
-### 2. Test the Fetcher
+### 2. Setup Dataset (First Time Only)
+
+```bash
+npm run setup
+```
+
+This will automatically reassemble the dataset from the stored chunks.
+
+### 3. Test the Fetcher
 
 ```bash
 npm test
 ```
 
-### 3. Run Manual Fetch
+### 4. Run Manual Fetch
 
 ```bash
 npm run fetch
 ```
 
-### 4. Install Monthly Cron Job
+### 5. Install Monthly Cron Job
 
 ```bash
 npm run install-cron
@@ -115,6 +139,24 @@ node install-cron.js remove
 
 ```bash
 node install-cron.js help
+```
+
+### Split Dataset into Chunks
+
+```bash
+npm run split
+```
+
+### Reassemble Dataset from Chunks
+
+```bash
+npm run reassemble
+```
+
+### Setup Dataset (First Time)
+
+```bash
+npm run setup
 ```
 
 ## 📝 Logging
