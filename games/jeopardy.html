@@ -263,7 +263,11 @@
         let availableGames = [];
         let gameProgress = {};
         let userSettings = {
-            speedPerWord: 400 // default 400ms per word
+            speedPerWord: 400, // default 400ms per word
+            minClueDisplayTime: 2000, // minimum time to show clue
+            buzzResponseTime: 2000, // time to respond after buzzing in
+            buzzThinkTime: 1000, // time to think before showing answer
+            answerDisplayTime: 2000 // time to show answer when no buzz
         };
         
         async function showGameList(mode = 'untimed') {
@@ -457,13 +461,30 @@
                 // Organize clues by round and prepare for different modes
                 const organizedClues = organizeCluesByRound(game.clues);
                 
+                // Determine starting round and index for resume
+                let startRound = 1;
+                let startIndex = 0;
+                
+                if (progress && !progress.completed) {
+                    // Find the lowest round with incomplete clues
+                    const rounds = Object.keys(organizedClues).sort();
+                    for (const round of rounds) {
+                        const roundProgress = progress.roundProgress?.[round] || { completed: 0 };
+                        if (roundProgress.completed < organizedClues[round].length) {
+                            startRound = parseInt(round);
+                            startIndex = roundProgress.completed || 0;
+                            break;
+                        }
+                    }
+                }
+                
                 currentGame = {
                     gameId: gameId,
                     gameDate: game.date,
                     mode: currentGame.mode,
                     clues: currentGame.mode === 'untimed' ? game.clues : organizedClues,
-                    currentIndex: progress ? progress.currentIndex : 0,
-                    currentRound: progress ? progress.currentRound : 1,
+                    currentIndex: startIndex,
+                    currentRound: startRound,
                     correct: progress ? progress.correct : 0,
                     incorrect: progress ? progress.incorrect : 0,
                     passed: progress ? progress.passed : 0,
@@ -471,6 +492,7 @@
                     startTime: progress ? progress.startTime : Date.now(),
                     categoryStats: progress ? progress.categoryStats : {},
                     buzzStats: progress ? progress.buzzStats : [],
+                    roundProgress: progress ? progress.roundProgress : {},
                     answerShown: false,
                     buzzedIn: false,
                     buzzTime: null,
@@ -521,8 +543,12 @@
                         return aValue - bValue;
                     });
                 } else if (currentGame.mode === 'timed-random') {
-                    // Random: shuffle within round
-                    rounds[round] = rounds[round].sort(() => Math.random() - 0.5);
+                    // Random: truly shuffle within round using Fisher-Yates algorithm
+                    const array = rounds[round];
+                    for (let i = array.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [array[i], array[j]] = [array[j], array[i]];
+                    }
                 }
             }
             
@@ -571,14 +597,30 @@
             const currentRoundClues = currentGame.clues[currentGame.currentRound] || [];
             
             if (currentGame.currentIndex >= currentRoundClues.length) {
-                // Move to next round or end game
-                currentGame.currentRound++;
-                currentGame.currentIndex = 0;
+                // Check if all rounds are complete before moving to next
+                const rounds = Object.keys(currentGame.clues).sort();
+                let nextRound = null;
                 
-                if (currentGame.clues[currentGame.currentRound]) {
+                // Find next incomplete round
+                for (const round of rounds) {
+                    const roundProgress = currentGame.roundProgress[round] || { completed: 0 };
+                    if (roundProgress.completed < currentGame.clues[round].length) {
+                        nextRound = parseInt(round);
+                        break;
+                    }
+                }
+                
+                if (nextRound !== null) {
+                    // Move to next incomplete round
+                    currentGame.currentRound = nextRound;
+                    currentGame.currentIndex = currentGame.roundProgress[nextRound]?.completed || 0;
+                    
+                    console.log(`Moving to round ${nextRound}, starting at clue ${currentGame.currentIndex}`);
+                    
                     await showRoundCategories();
                     await displayTimedClue();
                 } else {
+                    // All rounds complete
                     endGame();
                 }
                 return;
@@ -600,7 +642,7 @@
             
             // Calculate clue display time
             const clueWords = (clue.answer || '').split(' ').length;
-            const clueDisplayTime = Math.max(clueWords * userSettings.speedPerWord, 2000);
+            const clueDisplayTime = Math.max(clueWords * userSettings.speedPerWord, userSettings.minClueDisplayTime);
             
             console.log(`Displaying clue for ${clueDisplayTime}ms (${clueWords} words) before buzz-in`);
             
@@ -681,8 +723,8 @@
         async function handleBuzzedIn() {
             console.log('User buzzed in, waiting 1000ms before showing answer...');
             
-            // Wait 1000ms for user to think/respond
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Wait for user to think/respond
+            await new Promise(resolve => setTimeout(resolve, userSettings.buzzThinkTime));
             
             // Now show the answer
             document.getElementById('clue-answer').style.display = 'block';
@@ -702,13 +744,13 @@
             
             document.addEventListener('keydown', responseHandler);
             
-            // Wait 2000ms for response after showing answer
+            // Wait for response after showing answer
             setTimeout(() => {
                 if (!responded) {
                     document.removeEventListener('keydown', responseHandler);
                     handleCorrectAnswer();
                 }
-            }, 2000);
+            }, userSettings.buzzResponseTime);
         }
         
         function handleTimeout() {
@@ -729,7 +771,7 @@
             
             setTimeout(() => {
                 nextTimedClue();
-            }, 2000);
+            }, userSettings.answerDisplayTime);
         }
         
         function handleCorrectAnswer() {
@@ -802,7 +844,17 @@
         
         async function nextTimedClue() {
             currentGame.currentIndex++;
+            
+            // Update round progress
+            if (!currentGame.roundProgress[currentGame.currentRound]) {
+                currentGame.roundProgress[currentGame.currentRound] = { completed: 0 };
+            }
+            currentGame.roundProgress[currentGame.currentRound].completed = currentGame.currentIndex;
+            
+            // Save progress after each clue
             await saveGameProgress();
+            
+            // Continue with next clue
             await displayTimedClue();
         }
         
@@ -969,6 +1021,7 @@
                     startTime: currentGame.startTime,
                     categoryStats: currentGame.categoryStats,
                     buzzStats: currentGame.buzzStats,
+                    roundProgress: currentGame.roundProgress,
                     completed: currentClueCount >= totalClues,
                     lastPlayed: Date.now()
                 };
@@ -1126,33 +1179,79 @@
             if (!currentUser) return;
             
             try {
-                const gamesRef = ref(db, `users/${currentUser.uid}/jeopardy/games`);
-                const snapshot = await get(gamesRef);
+                // Load both completed games and in-progress games
+                const [gamesSnapshot, progressSnapshot] = await Promise.all([
+                    get(ref(db, `users/${currentUser.uid}/jeopardy/games`)),
+                    get(ref(db, `users/${currentUser.uid}/jeopardy/gameProgress`))
+                ]);
                 
                 const gameHistoryDiv = document.getElementById('game-history');
+                const allGames = [];
                 
-                if (!snapshot.exists()) {
+                // Add completed games
+                if (gamesSnapshot.exists()) {
+                    const completedGames = gamesSnapshot.val();
+                    Object.entries(completedGames).forEach(([timestamp, game]) => {
+                        allGames.push({
+                            timestamp,
+                            ...game,
+                            status: 'completed',
+                            isCompleted: true
+                        });
+                    });
+                }
+                
+                // Add in-progress games
+                if (progressSnapshot.exists()) {
+                    const progressGames = progressSnapshot.val();
+                    Object.entries(progressGames).forEach(([gameId, progress]) => {
+                        if (!progress.completed) {
+                            allGames.push({
+                                timestamp: progress.lastPlayed || Date.now(),
+                                gameId: gameId,
+                                date: progress.gameDate,
+                                coryat: progress.coryat,
+                                correct: progress.correct,
+                                incorrect: progress.incorrect,
+                                passed: progress.passed,
+                                status: 'in-progress',
+                                isCompleted: false,
+                                progress: progress
+                            });
+                        }
+                    });
+                }
+                
+                if (allGames.length === 0) {
                     gameHistoryDiv.innerHTML = '<p>Play some games to see your game history!</p>';
                     return;
                 }
                 
-                const games = snapshot.val();
-                const gameEntries = Object.entries(games)
-                    .sort(([a], [b]) => parseInt(b) - parseInt(a)) // Sort by timestamp (newest first)
-                    .slice(0, 10); // Show last 10 games
+                // Sort by timestamp (newest first) and limit to 10
+                allGames.sort((a, b) => parseInt(b.timestamp) - parseInt(a.timestamp));
+                const recentGames = allGames.slice(0, 10);
                 
-                const html = gameEntries.map(([timestamp, game]) => `
+                const html = recentGames.map((game) => `
                     <div class="game-history-item">
                         <div class="game-history-header">
-                            <div class="game-history-title">${formatDate(game.date || '1984-01-01')}</div>
+                            <div class="game-history-title">
+                                ${formatDate(game.date || '1984-01-01')} 
+                                <span style="font-size: 0.8rem; opacity: 0.8;">(${game.status})</span>
+                            </div>
                             <div class="game-history-coryat">$${game.coryat}</div>
                         </div>
-                        <div class="clue-results" id="clue-results-${timestamp}">
-                            <p>Loading clue details...</p>
+                        <div class="clue-results" id="clue-results-${game.timestamp}">
+                            <p>Click "Show/Edit Results" to view details</p>
                         </div>
-                        <button class="edit-game-btn" onclick="loadGameDetails('${timestamp}')">
-                            Show/Edit Results
-                        </button>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button class="edit-game-btn" onclick="loadGameDetails('${game.timestamp}', '${game.gameId || game.timestamp}', ${game.isCompleted})">
+                                Show/Edit Results
+                            </button>
+                            <button class="edit-game-btn" onclick="clearGameData('${game.gameId || game.timestamp}', ${game.isCompleted})" 
+                                    style="background: #f44336;">
+                                Clear Game
+                            </button>
+                        </div>
                     </div>
                 `).join('');
                 
@@ -1276,6 +1375,34 @@
             }
         }
         
+        async function clearGameData(gameId, isCompleted) {
+            if (!confirm('Are you sure you want to clear this game data? This action cannot be undone.')) {
+                return;
+            }
+            
+            try {
+                if (isCompleted) {
+                    // Clear from completed games
+                    await set(ref(db, `users/${currentUser.uid}/jeopardy/games/${gameId}`), null);
+                } else {
+                    // Clear from game progress
+                    await set(ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${gameId}`), null);
+                    delete gameProgress[gameId];
+                }
+                
+                console.log('Game data cleared for:', gameId);
+                
+                // Refresh the display
+                await displayGameHistory();
+                
+                alert('Game data cleared successfully!');
+                
+            } catch (error) {
+                console.error('Error clearing game data:', error);
+                showError('Failed to clear game data: ' + error.message);
+            }
+        }
+        
         async function loadUserSettings() {
             if (!currentUser) return;
             
@@ -1289,6 +1416,10 @@
                 
                 // Update UI
                 document.getElementById('speed-setting').value = userSettings.speedPerWord;
+                document.getElementById('min-clue-time').value = userSettings.minClueDisplayTime;
+                document.getElementById('buzz-think-time').value = userSettings.buzzThinkTime;
+                document.getElementById('buzz-response-time').value = userSettings.buzzResponseTime;
+                document.getElementById('answer-display-time').value = userSettings.answerDisplayTime;
                 
                 console.log('Loaded user settings:', userSettings);
             } catch (error) {
@@ -1310,13 +1441,26 @@
             try {
                 if (!currentUser) return;
                 
+                // Validate all settings
                 const speedValue = parseInt(document.getElementById('speed-setting').value);
+                const minClueTime = parseInt(document.getElementById('min-clue-time').value);
+                const buzzThinkTime = parseInt(document.getElementById('buzz-think-time').value);
+                const buzzResponseTime = parseInt(document.getElementById('buzz-response-time').value);
+                const answerDisplayTime = parseInt(document.getElementById('answer-display-time').value);
+                
                 if (speedValue < 100 || speedValue > 2000) {
-                    showError('Speed must be between 100 and 2000 ms per word');
+                    showError('Reading speed must be between 100 and 2000 ms per word');
                     return;
                 }
                 
-                userSettings.speedPerWord = speedValue;
+                // Update all settings
+                userSettings = {
+                    speedPerWord: speedValue,
+                    minClueDisplayTime: minClueTime,
+                    buzzThinkTime: buzzThinkTime,
+                    buzzResponseTime: buzzResponseTime,
+                    answerDisplayTime: answerDisplayTime
+                };
                 
                 const settingsRef = ref(db, `users/${currentUser.uid}/jeopardy/settings`);
                 await set(settingsRef, userSettings);
@@ -1331,12 +1475,48 @@
         }
         
         function resetSettings() {
-            userSettings.speedPerWord = 400;
+            userSettings = {
+                speedPerWord: 400,
+                minClueDisplayTime: 2000,
+                buzzResponseTime: 2000,
+                buzzThinkTime: 1000,
+                answerDisplayTime: 2000
+            };
+            
             document.getElementById('speed-setting').value = 400;
+            document.getElementById('min-clue-time').value = 2000;
+            document.getElementById('buzz-think-time').value = 1000;
+            document.getElementById('buzz-response-time').value = 2000;
+            document.getElementById('answer-display-time').value = 2000;
+            
             saveSettings();
         }
         
+        function pauseAllTimers() {
+            // Clear any active timeouts
+            if (currentGame.buzzTimeout) {
+                clearTimeout(currentGame.buzzTimeout);
+                currentGame.buzzTimeout = null;
+            }
+            
+            // Remove event listeners
+            document.removeEventListener('keydown', handleBuzzIn);
+            
+            // Remove buzz border
+            const clueDisplay = document.querySelector('.clue-display');
+            if (clueDisplay) {
+                clueDisplay.classList.remove('buzz-border');
+            }
+            
+            // Reset game state
+            currentGame.canBuzz = false;
+            currentGame.buzzedIn = false;
+            
+            console.log('All timers paused and game state reset');
+        }
+        
         function backToSelector() {
+            pauseAllTimers();
             showGameSelector();
         }
         
@@ -1435,6 +1615,7 @@
         window.selectTimedMode = selectTimedMode;
         window.startGame = startGame;
         window.editGameFromList = editGameFromList;
+        window.clearGameData = clearGameData;
         window.showStats = showStats;
         window.showSettings = showSettings;
         window.saveSettings = saveSettings;
@@ -2376,6 +2557,34 @@
                         <div class="setting-input-group">
                             <input type="number" id="speed-setting" min="100" max="2000" step="50" value="400" class="setting-input">
                             <span class="setting-description">Default: 400ms per word</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label for="min-clue-time" class="setting-label">Minimum Clue Display Time (ms)</label>
+                        <div class="setting-input-group">
+                            <input type="number" id="min-clue-time" min="1000" max="5000" step="100" value="2000" class="setting-input">
+                            <span class="setting-description">Default: 2000ms minimum</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label for="buzz-think-time" class="setting-label">Buzz Think Time (ms)</label>
+                        <div class="setting-input-group">
+                            <input type="number" id="buzz-think-time" min="500" max="3000" step="100" value="1000" class="setting-input">
+                            <span class="setting-description">Time to think before answer shown</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label for="buzz-response-time" class="setting-label">Buzz Response Time (ms)</label>
+                        <div class="setting-input-group">
+                            <input type="number" id="buzz-response-time" min="1000" max="5000" step="100" value="2000" class="setting-input">
+                            <span class="setting-description">Time to respond after answer shown</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label for="answer-display-time" class="setting-label">Answer Display Time (ms)</label>
+                        <div class="setting-input-group">
+                            <input type="number" id="answer-display-time" min="1000" max="5000" step="100" value="2000" class="setting-input">
+                            <span class="setting-description">Time to show answer when no buzz</span>
                         </div>
                     </div>
                     <div class="settings-group">
