@@ -386,70 +386,38 @@
         
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
-            // Wait longer for banner and Firebase to be ready
-            setTimeout(initializeApp, 2000);
+            // Firebase is already available from the module script above
+            // Just wait a moment for everything to settle
+            setTimeout(initializeApp, 500);
         });
         
         function initializeApp() {
             try {
-                // Check if Firebase is available from banner
-                if (window.auth && window.db) {
-                    console.log('Using Firebase from banner');
-                    // Use the banner's Firebase instance
-                    const bannerAuth = window.auth;
-                    const bannerDb = window.db;
-                    
-                    // Check authentication state
-                    onAuthStateChanged(bannerAuth, async (user) => {
-                        if (user) {
-                            currentUser = user;
-                            await checkAdminStatus(user);
-                        } else {
-                            showAuthSection();
-                        }
-                    });
-                } else if (typeof onAuthStateChanged !== 'undefined' && auth && db) {
-                    console.log('Using local Firebase instance');
-                    // Use our local Firebase instance
-                    onAuthStateChanged(auth, async (user) => {
-                        if (user) {
-                            currentUser = user;
-                            await checkAdminStatus(user);
-                        } else {
-                            showAuthSection();
-                        }
-                    });
-                } else {
-                    console.log('Firebase not ready yet, retrying...');
-                    // Firebase not ready, wait and try again
-                    setTimeout(initializeApp, 1000);
-                    return;
-                }
+                console.log('Initializing Jeopardy app with Firebase...');
+                
+                // Check authentication state using our local Firebase instance
+                onAuthStateChanged(auth, async (user) => {
+                    console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
+                    if (user) {
+                        currentUser = user;
+                        console.log('Current user:', user.email);
+                        await checkAdminStatus(user);
+                    } else {
+                        console.log('No user logged in');
+                        showAuthSection();
+                    }
+                });
                 
             } catch (error) {
                 console.error('Error initializing app:', error);
                 showError('Failed to initialize app: ' + error.message);
-                // Try again after a delay
-                setTimeout(initializeApp, 2000);
             }
         }
-        
-        // Alternative initialization method - wait for banner Firebase
-        function waitForBannerFirebase() {
-            if (window.auth && window.db && typeof window.onAuthStateChanged !== 'undefined') {
-                console.log('Banner Firebase detected, initializing...');
-                initializeApp();
-            } else {
-                console.log('Waiting for banner Firebase...');
-                setTimeout(waitForBannerFirebase, 500);
-            }
-        }
-        
-        // Start waiting for banner Firebase after a longer delay
-        setTimeout(waitForBannerFirebase, 3000);
         
         async function checkAdminStatus(user) {
             try {
+                console.log('Checking admin status for:', user.email);
+                
                 // Check if user is admin (you can customize this logic)
                 const adminEmails = [
                     'graham@eviltrivia.com',
@@ -458,12 +426,15 @@
                 ];
                 
                 const isAdmin = adminEmails.includes(user.email);
+                console.log('Is admin?', isAdmin);
                 
                 if (isAdmin) {
+                    console.log('Admin access granted, loading data...');
                     await loadJeopardyData();
                     await loadUserStats();
                     showGameSelector();
                 } else {
+                    console.log('Access denied - not admin');
                     showError('Access denied. Admin privileges required.');
                 }
             } catch (error) {
@@ -474,6 +445,7 @@
         
         async function loadJeopardyData() {
             try {
+                console.log('Loading Jeopardy data...');
                 showLoading();
                 
                 // Try to load from local dataset first
@@ -498,22 +470,15 @@
             try {
                 if (!currentUser) return;
                 
-                // Use Firebase from banner if available, otherwise use local
-                const dbInstance = window.db || db;
-                const refFunction = window.ref || ref;
-                const getFunction = window.get || get;
-                const setFunction = window.set || set;
+                console.log('Loading user stats...');
                 
-                if (!dbInstance || !refFunction || !getFunction || !setFunction) {
-                    console.warn('Firebase functions not available for stats');
-                    return;
-                }
-                
-                const statsRef = refFunction(dbInstance, `users/${currentUser.uid}/scores/jeopardy/stats`);
-                const snapshot = await getFunction(statsRef);
+                // Use our local Firebase instance
+                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                const snapshot = await get(statsRef);
                 
                 if (snapshot.exists()) {
                     userStats = snapshot.val();
+                    console.log('Loaded existing user stats:', userStats);
                 } else {
                     // Initialize default stats
                     userStats = {
@@ -523,7 +488,8 @@
                         totalScore: 0,
                         lastPlayed: null
                     };
-                    await setFunction(statsRef, userStats);
+                    await set(statsRef, userStats);
+                    console.log('Initialized new user stats');
                 }
                 
             } catch (error) {
@@ -536,17 +502,10 @@
             try {
                 if (!currentUser) return;
                 
-                // Use Firebase from banner if available, otherwise use local
-                const dbInstance = window.db || db;
-                const refFunction = window.ref || ref;
-                const setFunction = window.set || set;
+                console.log('Saving user stats:', result, clueValue);
                 
-                if (!dbInstance || !refFunction || !setFunction) {
-                    console.warn('Firebase functions not available for saving stats');
-                    return;
-                }
-                
-                const statsRef = refFunction(dbInstance, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                // Use our local Firebase instance
+                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
                 
                 // Update stats
                 userStats.totalClues++;
@@ -559,7 +518,8 @@
                 userStats.lastPlayed = new Date().toISOString();
                 
                 // Save to Firebase
-                await setFunction(statsRef, userStats);
+                await set(statsRef, userStats);
+                console.log('User stats saved successfully');
                 
             } catch (error) {
                 console.error('Error saving user stats:', error);
@@ -571,6 +531,8 @@
                 showError('Jeopardy data not loaded');
                 return;
             }
+            
+            console.log('Starting random game...');
             
             // Get random clues
             currentClues = getRandomClues(50);
@@ -631,6 +593,7 @@
         
         // UI State functions
         function showAuthSection() {
+            console.log('Showing auth section');
             document.getElementById('auth-section').style.display = 'block';
             document.getElementById('game-selector').style.display = 'none';
             document.getElementById('game-board').style.display = 'none';
@@ -638,6 +601,7 @@
         }
         
         function showGameSelector() {
+            console.log('Showing game selector');
             document.getElementById('auth-section').style.display = 'none';
             document.getElementById('game-selector').style.display = 'block';
             document.getElementById('game-board').style.display = 'none';
@@ -645,6 +609,7 @@
         }
         
         function showGameBoard() {
+            console.log('Showing game board');
             document.getElementById('auth-section').style.display = 'none';
             document.getElementById('game-selector').style.display = 'none';
             document.getElementById('game-board').style.display = 'block';
@@ -660,6 +625,7 @@
         }
         
         function showError(message) {
+            console.error('Showing error:', message);
             const errorDiv = document.createElement('div');
             errorDiv.className = 'error-message';
             errorDiv.textContent = message;
