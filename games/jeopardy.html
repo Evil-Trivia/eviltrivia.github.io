@@ -399,15 +399,15 @@
                 let statusText = 'Not Started';
                 let scoreText = '';
                 
-                if (progress) {
+                                if (progress) {
                     if (progress.completed) {
                         status = 'completed';
                         statusText = 'Completed';
-                        scoreText = `Coryat: $${progress.coryat}`;
-        } else {
+                        scoreText = `Coryat: $${progress.coryat} <button class="edit-game-btn" onclick="editGameFromList('${game.gameId}')" style="margin-left: 10px; padding: 4px 8px; font-size: 0.8rem;">Edit</button>`;
+                    } else {
                         status = 'in-progress';
                         statusText = 'In Progress';
-                        scoreText = `${progress.currentIndex}/${game.totalClues} clues`;
+                        scoreText = `${progress.currentIndex}/${game.totalClues} clues <button class="edit-game-btn" onclick="editGameFromList('${game.gameId}')" style="margin-left: 10px; padding: 4px 8px; font-size: 0.8rem;">Edit</button>`;
                     }
                 }
                 
@@ -679,8 +679,14 @@
         }
         
         async function handleBuzzedIn() {
-            // Show the answer
+            console.log('User buzzed in, waiting 1000ms before showing answer...');
+            
+            // Wait 1000ms for user to think/respond
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Now show the answer
             document.getElementById('clue-answer').style.display = 'block';
+            console.log('Answer shown, waiting for user response...');
             
             // Set up second spacebar listener for wrong answer
             let responded = false;
@@ -696,7 +702,7 @@
             
             document.addEventListener('keydown', responseHandler);
             
-            // Wait 2000ms for response
+            // Wait 2000ms for response after showing answer
             setTimeout(() => {
                 if (!responded) {
                     document.removeEventListener('keydown', responseHandler);
@@ -829,8 +835,38 @@
         }
         
         function updateGameStats() {
-            document.getElementById('current-clue-num').textContent = currentGame.currentIndex + 1;
-            document.getElementById('total-clues').textContent = currentGame.clues.length;
+            // Calculate current clue number and total clues based on mode
+            let currentClueNum, totalClues;
+            
+            if (currentGame.mode === 'untimed') {
+                currentClueNum = currentGame.currentIndex + 1;
+                totalClues = currentGame.clues.length;
+            } else {
+                // For timed modes, calculate across all rounds
+                const rounds = Object.keys(currentGame.clues).sort();
+                let cluesSoFar = 0;
+                
+                // Add clues from completed rounds
+                for (let i = 0; i < currentGame.currentRound - 1; i++) {
+                    const roundKey = rounds[i];
+                    if (currentGame.clues[roundKey]) {
+                        cluesSoFar += currentGame.clues[roundKey].length;
+                    }
+                }
+                
+                // Add current position in current round
+                cluesSoFar += currentGame.currentIndex + 1;
+                
+                // Calculate total clues across all rounds
+                totalClues = rounds.reduce((sum, roundKey) => {
+                    return sum + (currentGame.clues[roundKey] ? currentGame.clues[roundKey].length : 0);
+                }, 0);
+                
+                currentClueNum = cluesSoFar;
+            }
+            
+            document.getElementById('current-clue-num').textContent = currentClueNum;
+            document.getElementById('total-clues').textContent = totalClues;
             document.getElementById('session-correct').textContent = currentGame.correct;
             document.getElementById('session-incorrect').textContent = currentGame.incorrect;
             document.getElementById('session-coryat').textContent = currentGame.coryat;
@@ -1204,6 +1240,42 @@
             // In a full implementation, you'd recalculate and save the game data
         }
         
+        async function editGameFromList(gameId) {
+            try {
+                // Find the game in progress
+                const progress = gameProgress[gameId];
+                if (!progress) {
+                    showError('No game data found to edit');
+                    return;
+                }
+                
+                // Load the game data for editing
+                const gameData = availableGames.find(g => g.gameId === gameId);
+                if (!gameData) {
+                    showError('Game data not found');
+                    return;
+                }
+                
+                // Show detailed edit view (for now, just show stats)
+                showStats();
+                
+                // Automatically load this game's details
+                setTimeout(() => {
+                    // Find this game in the history and expand it
+                    const games = document.querySelectorAll('.edit-game-btn');
+                    games.forEach(btn => {
+                        if (btn.onclick.toString().includes(gameId)) {
+                            btn.click();
+                        }
+                    });
+                }, 500);
+                
+            } catch (error) {
+                console.error('Error editing game:', error);
+                showError('Failed to edit game: ' + error.message);
+            }
+        }
+        
         async function loadUserSettings() {
             if (!currentUser) return;
             
@@ -1362,6 +1434,7 @@
         window.showGameList = showGameList;
         window.selectTimedMode = selectTimedMode;
         window.startGame = startGame;
+        window.editGameFromList = editGameFromList;
         window.showStats = showStats;
         window.showSettings = showSettings;
         window.saveSettings = saveSettings;
@@ -2155,12 +2228,8 @@
         <div id="game-selector" class="game-selector">
             <h2>Jeopardy Studying Game</h2>
             <div class="selector-grid">
-                <div class="selector-card" onclick="showGameList('untimed')">
-                    <h3>Untimed Mode</h3>
-                    <p>Self-paced practice with actual Jeopardy games</p>
-                </div>
                 <div class="selector-card" onclick="showGameList('timed')">
-                    <h3>Timed Mode</h3>
+                    <h3>Play Jeopardy</h3>
                     <p>Realistic timed practice with buzz-in mechanics</p>
                 </div>
                 <div class="selector-card" onclick="showStats()">
