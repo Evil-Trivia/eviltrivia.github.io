@@ -556,6 +556,9 @@
         }
         
         async function startTimedGame() {
+            // Make sure all timers are cleared before starting
+            pauseAllTimers();
+            
             // Show categories for current round first
             await showRoundCategories();
             
@@ -922,6 +925,21 @@
             document.getElementById('session-correct').textContent = currentGame.correct;
             document.getElementById('session-incorrect').textContent = currentGame.incorrect;
             document.getElementById('session-coryat').textContent = currentGame.coryat;
+            
+            // Update buzz stats for timed mode
+            if (currentGame.mode.startsWith('timed') && currentGame.buzzStats.length > 0) {
+                const buzzStatsEl = document.getElementById('buzz-stats');
+                const latestBuzz = currentGame.buzzStats[currentGame.buzzStats.length - 1];
+                const avgBuzz = Math.round(
+                    currentGame.buzzStats.reduce((sum, b) => sum + b.buzzTime, 0) / currentGame.buzzStats.length
+                );
+                
+                document.getElementById('latest-buzz').textContent = `${latestBuzz.buzzTime}ms`;
+                document.getElementById('avg-buzz-game').textContent = `${avgBuzz}ms`;
+                buzzStatsEl.style.display = 'inline';
+            } else {
+                document.getElementById('buzz-stats').style.display = 'none';
+            }
         }
         
         function showAnswer() {
@@ -1341,33 +1359,28 @@
         
         async function editGameFromList(gameId) {
             try {
-                // Find the game in progress
-                const progress = gameProgress[gameId];
-                if (!progress) {
-                    showError('No game data found to edit');
-                    return;
-                }
+                console.log('Editing game:', gameId);
                 
-                // Load the game data for editing
-                const gameData = availableGames.find(g => g.gameId === gameId);
-                if (!gameData) {
-                    showError('Game data not found');
-                    return;
-                }
+                // Pause any active timers first
+                pauseAllTimers();
                 
-                // Show detailed edit view (for now, just show stats)
+                // Show stats view
                 showStats();
                 
-                // Automatically load this game's details
-                setTimeout(() => {
-                    // Find this game in the history and expand it
-                    const games = document.querySelectorAll('.edit-game-btn');
-                    games.forEach(btn => {
-                        if (btn.onclick.toString().includes(gameId)) {
-                            btn.click();
-                        }
-                    });
-                }, 500);
+                // Wait for stats to load, then automatically expand this game
+                setTimeout(async () => {
+                    await displayGameHistory();
+                    
+                    // Find and expand this specific game
+                    const gameTimestamp = Object.keys(gameProgress).find(key => 
+                        gameProgress[key].gameId === gameId || key === gameId
+                    );
+                    
+                    if (gameTimestamp) {
+                        // Directly load the game details without clicking
+                        await loadGameDetails(gameTimestamp, gameId, false);
+                    }
+                }, 1000);
                 
             } catch (error) {
                 console.error('Error editing game:', error);
@@ -1493,14 +1506,23 @@
         }
         
         function pauseAllTimers() {
+            console.log('Pausing all timers and resetting game state');
+            
             // Clear any active timeouts
             if (currentGame.buzzTimeout) {
                 clearTimeout(currentGame.buzzTimeout);
                 currentGame.buzzTimeout = null;
             }
             
-            // Remove event listeners
+            // Remove ALL event listeners that might be active
             document.removeEventListener('keydown', handleBuzzIn);
+            
+            // Remove any response handlers that might be lingering
+            const clonedDocument = document.cloneNode(true);
+            const newKeydownHandlers = clonedDocument.querySelectorAll('*');
+            newKeydownHandlers.forEach(el => {
+                el.removeEventListener?.('keydown', () => {});
+            });
             
             // Remove buzz border
             const clueDisplay = document.querySelector('.clue-display');
@@ -1508,9 +1530,12 @@
                 clueDisplay.classList.remove('buzz-border');
             }
             
-            // Reset game state
+            // Reset game state completely
             currentGame.canBuzz = false;
             currentGame.buzzedIn = false;
+            currentGame.buzzTime = null;
+            currentGame.clueStartTime = null;
+            currentGame.answerShown = false;
             
             console.log('All timers paused and game state reset');
         }
@@ -2469,6 +2494,7 @@
                     <span>Correct: <span id="session-correct">0</span></span>
                     <span>Incorrect: <span id="session-incorrect">0</span></span>
                     <span>Coryat: $<span id="session-coryat">0</span></span>
+                    <span id="buzz-stats" style="display: none;">Latest: <span id="latest-buzz">0ms</span> | Avg: <span id="avg-buzz-game">0ms</span></span>
                 </div>
             </div>
             <div class="clue-display">
