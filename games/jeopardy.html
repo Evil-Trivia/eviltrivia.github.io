@@ -93,6 +93,20 @@
       align-items: center;
     }
     
+    /* Dataset info styles */
+    .dataset-info {
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    
+    .dataset-info strong {
+      color: #495057;
+    }
+    
+    .dataset-info small {
+      color: #6c757d;
+    }
+    
     .stats-bar {
       display: flex;
       justify-content: space-between;
@@ -944,6 +958,21 @@
               <button id="resume-game-btn" class="btn menu-btn" disabled>Resume Existing Game</button>
               <button id="settings-btn" class="btn settings-btn">Settings</button>
             </div>
+            
+            <!-- Dataset Info Section -->
+            <div id="dataset-info" class="dataset-info" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #28a745;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                  <strong>📊 Dataset:</strong> 
+                  <span id="dataset-source">Loading...</span>
+                  <br>
+                  <small id="dataset-stats">Loading statistics...</small>
+                </div>
+                <div style="text-align: right;">
+                  <small id="dataset-update">Last updated: Loading...</small>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Game Selection Section (initially hidden) -->
@@ -1468,35 +1497,137 @@
     // Initialize the Jeopardy app
     async function initializeJeopardyApp() {
       try {
-        console.log('Initializing Jeopardy app...');
+        console.log('Initializing Jeopardy app with local dataset...');
         
-        // 1. Load Jeopardy data from Firebase
-        const jeopardySnapshot = await get(ref(db, 'tools/jeopardy'));
-        if (!jeopardySnapshot.exists()) {
-          throw new Error('Jeopardy data not found');
-        }
-        
-        jeopardyData = jeopardySnapshot.val();
-        console.log('Loaded Jeopardy data');
-        
-        // Extract available dates (convert keys to date objects for sorting)
-        availableDates = Object.keys(jeopardyData)
-          .filter(key => {
-            // Check if key is a valid date in format YYYY-MM-DD
-            return /^\d{4}-\d{2}-\d{2}$/.test(key);
-          })
-          .sort((a, b) => {
-            // Sort dates in reverse chronological order (newest first)
-            return new Date(b) - new Date(a);
+        // 1. Load Jeopardy data from local JSON file
+        try {
+          const response = await fetch('/games/jeopardy/data/jeopardy_clues_latest.json');
+          if (!response.ok) {
+            throw new Error(`Failed to load dataset: ${response.status} ${response.statusText}`);
+          }
+          
+          const dataset = await response.json();
+          jeopardyData = dataset;
+          console.log(`Loaded Jeopardy dataset: ${dataset.clues.length.toLocaleString()} clues`);
+          
+          // Create a date-based structure for compatibility with existing code
+          const cluesByDate = {};
+          
+          dataset.clues.forEach((clue, index) => {
+            const airDate = clue.air_date || 'unknown';
+            if (!cluesByDate[airDate]) {
+              cluesByDate[airDate] = {};
+            }
+            
+            // Create unique ID for the clue
+            const clueId = `${airDate}_${index}`;
+            
+            // Structure: date -> category -> value -> clueId -> clueData
+            if (!cluesByDate[airDate][clue.category]) {
+              cluesByDate[airDate][clue.category] = {};
+            }
+            
+            if (!cluesByDate[airDate][clue.category][clue.clue_value]) {
+              cluesByDate[airDate][clue.category][clue.clue_value] = {};
+            }
+            
+            cluesByDate[airDate][clue.category][clue.clue_value][clueId] = {
+              id: clueId,
+              category: clue.category,
+              value: clue.clue_value,
+              question: clue.question,
+              answer: clue.answer,
+              round: clue.round,
+              air_date: clue.air_date,
+              daily_double_value: clue.daily_double_value || '0',
+              comments: clue.comments || '',
+              notes: clue.notes || ''
+            };
           });
           
-        // Log success or failure
-        console.log(`Found ${availableDates.length} date entries`);
-        
-        if (availableDates.length === 0) {
-          console.error('No Jeopardy dates found');
-          showDebugError('No date-formatted keys found in tools/jeopardy. Data structure: ' + JSON.stringify(Object.keys(jeopardyData)));
-          return;
+          // Convert to the format expected by existing code: date -> gameNumber -> category -> value -> index -> questionData
+          const convertedData = {};
+          
+          Object.keys(cluesByDate).forEach(date => {
+            convertedData[date] = {};
+            convertedData[date]['1'] = {}; // Single game per date
+            
+            Object.keys(cluesByDate[date]).forEach(category => {
+              convertedData[date]['1'][category] = {};
+              
+              Object.keys(cluesByDate[date][category]).forEach(value => {
+                convertedData[date]['1'][category][value] = {};
+                
+                Object.keys(cluesByDate[date][category][value]).forEach(clueId => {
+                  const clueData = cluesByDate[date][category][value][clueId];
+                  // Use the clue index as the key for compatibility
+                  const clueIndex = clueId.split('_')[1];
+                  convertedData[date]['1'][category][value][clueIndex] = clueData;
+                });
+              });
+            });
+          });
+          
+          // Replace the original data structure
+          jeopardyData = convertedData;
+          
+          // Update dataset info display
+          updateDatasetInfo(dataset, true);
+          
+          // Extract available dates (convert keys to date objects for sorting)
+          availableDates = Object.keys(jeopardyData)
+            .filter(key => {
+              // Check if key is a valid date in format YYYY-MM-DD
+              return /^\d{4}-\d{2}-\d{2}$/.test(key);
+            })
+            .sort((a, b) => {
+              // Sort dates in reverse chronological order (newest first)
+              return new Date(b) - new Date(a);
+            });
+            
+          // Log success or failure
+          console.log(`Found ${availableDates.length} date entries`);
+          
+          if (availableDates.length === 0) {
+            console.error('No Jeopardy dates found');
+            showDebugError('No valid dates found in dataset. Data structure: ' + JSON.stringify(Object.keys(jeopardyData)));
+            return;
+          }
+          
+        } catch (fetchError) {
+          console.error('Failed to load local dataset, falling back to Firebase:', fetchError);
+          
+          // Fallback to Firebase if local file fails
+          const jeopardySnapshot = await get(ref(db, 'tools/jeopardy'));
+          if (!jeopardySnapshot.exists()) {
+            throw new Error('Neither local dataset nor Firebase data found');
+          }
+          
+          jeopardyData = jeopardySnapshot.val();
+          console.log('Loaded Jeopardy data from Firebase fallback');
+          
+          // Update dataset info display
+          updateDatasetInfo(jeopardyData, false);
+          
+          // Extract available dates (convert keys to date objects for sorting)
+          availableDates = Object.keys(jeopardyData)
+            .filter(key => {
+              // Check if key is a valid date in format YYYY-MM-DD
+              return /^\d{4}-\d{2}-\d{2}$/.test(key);
+            })
+            .sort((a, b) => {
+              // Sort dates in reverse chronological order (newest first)
+              return new Date(b) - new Date(a);
+            });
+            
+          // Log success or failure
+          console.log(`Found ${availableDates.length} date entries in Firebase`);
+          
+          if (availableDates.length === 0) {
+            console.error('No Jeopardy dates found');
+            showDebugError('No date-formatted keys found in tools/jeopardy. Data structure: ' + JSON.stringify(Object.keys(jeopardyData)));
+            return;
+          }
         }
         
         // 2. Populate date selector
@@ -1524,6 +1655,51 @@
       } catch (error) {
         console.error('Error initializing Jeopardy app:', error);
         showDebugError('Error initializing app: ' + error.message + '\n\nStack: ' + error.stack);
+      }
+    }
+    
+    // Update dataset info display
+    function updateDatasetInfo(dataset, isLocal = true) {
+      try {
+        const sourceElement = document.getElementById('dataset-source');
+        const statsElement = document.getElementById('dataset-stats');
+        const updateElement = document.getElementById('dataset-update');
+        
+        if (sourceElement && statsElement && updateElement) {
+          if (isLocal && dataset.clues) {
+            // Local dataset info
+            sourceElement.textContent = 'Local Dataset (Updated)';
+            sourceElement.style.color = '#28a745';
+            
+            const totalClues = dataset.clues.length;
+            const dateRange = dataset.metadata?.dateRange || {};
+            const earliest = dateRange.earliest || 'Unknown';
+            const latest = dateRange.latest || 'Unknown';
+            
+            statsElement.textContent = `${totalClues.toLocaleString()} clues | ${earliest} to ${latest}`;
+            
+            const lastUpdate = dataset.metadata?.processedAt || 'Unknown';
+            const updateDate = new Date(lastUpdate).toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+            updateElement.textContent = `Last updated: ${updateDate}`;
+            
+          } else {
+            // Firebase fallback info
+            sourceElement.textContent = 'Firebase Fallback';
+            sourceElement.style.color = '#ffc107';
+            
+            const totalDates = Object.keys(dataset).length;
+            statsElement.textContent = `${totalDates} date entries`;
+            updateElement.textContent = 'Last updated: Firebase realtime';
+          }
+        }
+      } catch (error) {
+        console.error('Error updating dataset info:', error);
       }
     }
     
