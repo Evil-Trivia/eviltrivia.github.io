@@ -386,27 +386,67 @@
         
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
-            // Wait for Firebase to be ready
-            setTimeout(initializeApp, 1000);
+            // Wait longer for banner and Firebase to be ready
+            setTimeout(initializeApp, 2000);
         });
         
         function initializeApp() {
             try {
-                // Check authentication state
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        currentUser = user;
-                        await checkAdminStatus(user);
-                    } else {
-                        showAuthSection();
-                    }
-                });
+                // Check if Firebase is available from banner
+                if (window.auth && window.db) {
+                    console.log('Using Firebase from banner');
+                    // Use the banner's Firebase instance
+                    const bannerAuth = window.auth;
+                    const bannerDb = window.db;
+                    
+                    // Check authentication state
+                    onAuthStateChanged(bannerAuth, async (user) => {
+                        if (user) {
+                            currentUser = user;
+                            await checkAdminStatus(user);
+                        } else {
+                            showAuthSection();
+                        }
+                    });
+                } else if (typeof onAuthStateChanged !== 'undefined' && auth && db) {
+                    console.log('Using local Firebase instance');
+                    // Use our local Firebase instance
+                    onAuthStateChanged(auth, async (user) => {
+                        if (user) {
+                            currentUser = user;
+                            await checkAdminStatus(user);
+                        } else {
+                            showAuthSection();
+                        }
+                    });
+                } else {
+                    console.log('Firebase not ready yet, retrying...');
+                    // Firebase not ready, wait and try again
+                    setTimeout(initializeApp, 1000);
+                    return;
+                }
                 
             } catch (error) {
                 console.error('Error initializing app:', error);
                 showError('Failed to initialize app: ' + error.message);
+                // Try again after a delay
+                setTimeout(initializeApp, 2000);
             }
         }
+        
+        // Alternative initialization method - wait for banner Firebase
+        function waitForBannerFirebase() {
+            if (window.auth && window.db && typeof window.onAuthStateChanged !== 'undefined') {
+                console.log('Banner Firebase detected, initializing...');
+                initializeApp();
+            } else {
+                console.log('Waiting for banner Firebase...');
+                setTimeout(waitForBannerFirebase, 500);
+            }
+        }
+        
+        // Start waiting for banner Firebase after a longer delay
+        setTimeout(waitForBannerFirebase, 3000);
         
         async function checkAdminStatus(user) {
             try {
@@ -458,9 +498,19 @@
             try {
                 if (!currentUser) return;
                 
-                // Use Firebase directly
-                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
-                const snapshot = await get(statsRef);
+                // Use Firebase from banner if available, otherwise use local
+                const dbInstance = window.db || db;
+                const refFunction = window.ref || ref;
+                const getFunction = window.get || get;
+                const setFunction = window.set || set;
+                
+                if (!dbInstance || !refFunction || !getFunction || !setFunction) {
+                    console.warn('Firebase functions not available for stats');
+                    return;
+                }
+                
+                const statsRef = refFunction(dbInstance, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                const snapshot = await getFunction(statsRef);
                 
                 if (snapshot.exists()) {
                     userStats = snapshot.val();
@@ -473,7 +523,7 @@
                         totalScore: 0,
                         lastPlayed: null
                     };
-                    await set(statsRef, userStats);
+                    await setFunction(statsRef, userStats);
                 }
                 
             } catch (error) {
@@ -486,7 +536,17 @@
             try {
                 if (!currentUser) return;
                 
-                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                // Use Firebase from banner if available, otherwise use local
+                const dbInstance = window.db || db;
+                const refFunction = window.ref || ref;
+                const setFunction = window.set || set;
+                
+                if (!dbInstance || !refFunction || !setFunction) {
+                    console.warn('Firebase functions not available for saving stats');
+                    return;
+                }
+                
+                const statsRef = refFunction(dbInstance, `users/${currentUser.uid}/scores/jeopardy/stats`);
                 
                 // Update stats
                 userStats.totalClues++;
@@ -499,7 +559,7 @@
                 userStats.lastPlayed = new Date().toISOString();
                 
                 // Save to Firebase
-                await set(statsRef, userStats);
+                await setFunction(statsRef, userStats);
                 
             } catch (error) {
                 console.error('Error saving user stats:', error);
