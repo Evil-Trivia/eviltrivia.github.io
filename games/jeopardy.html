@@ -1147,49 +1147,65 @@
         async function loadAndDisplayStats() {
             if (!currentUser) return;
             
-            const statsRef = ref(db, `users/${currentUser.uid}/jeopardy/stats`);
-            const statsSnapshot = await get(statsRef);
+            console.log('Loading stats for user:', currentUser.uid);
             
-            if (statsSnapshot.exists()) {
-                const stats = statsSnapshot.val();
+            try {
+                const statsRef = ref(db, `users/${currentUser.uid}/jeopardy/stats`);
+                const statsSnapshot = await get(statsRef);
                 
-                // Update overall stats
-                document.getElementById('total-games').textContent = stats.totalGames || 0;
-                document.getElementById('avg-coryat').textContent = stats.totalGames > 0 ? 
-                    `$${Math.round(stats.totalCoryat / stats.totalGames)}` : '$0';
-                document.getElementById('latest-coryat').textContent = `$${stats.latestCoryat || 0}`;
-                document.getElementById('best-coryat').textContent = `$${stats.bestCoryat || 0}`;
+                console.log('Stats snapshot exists:', statsSnapshot.exists());
                 
-                // Update buzz-in stats
-                const buzzStats = stats.buzzStats || [];
-                if (buzzStats.length > 0) {
-                    const avgBuzzTime = Math.round(buzzStats.reduce((sum, b) => sum + b.buzzTime, 0) / buzzStats.length);
-                    const fastestBuzz = Math.min(...buzzStats.map(b => b.buzzTime));
-                    const correctBuzzes = buzzStats.filter(b => b.correct).length;
-                    const buzzAccuracy = Math.round((correctBuzzes / buzzStats.length) * 100);
+                if (statsSnapshot.exists()) {
+                    const stats = statsSnapshot.val();
+                    console.log('Loaded stats:', stats);
                     
-                    document.getElementById('avg-buzz-time').textContent = `${avgBuzzTime}ms`;
-                    document.getElementById('fastest-buzz').textContent = `${fastestBuzz}ms`;
-                    document.getElementById('buzz-accuracy').textContent = `${buzzAccuracy}%`;
-                    document.getElementById('total-buzzes').textContent = buzzStats.length;
+                    // Update overall stats
+                    document.getElementById('total-games').textContent = stats.totalGames || 0;
+                    document.getElementById('avg-coryat').textContent = stats.totalGames > 0 ? 
+                        `$${Math.round(stats.totalCoryat / stats.totalGames)}` : '$0';
+                    document.getElementById('latest-coryat').textContent = `$${stats.latestCoryat || 0}`;
+                    document.getElementById('best-coryat').textContent = `$${stats.bestCoryat || 0}`;
+                    
+                    // Update buzz-in stats
+                    const buzzStats = stats.buzzStats || [];
+                    console.log('Buzz stats:', buzzStats);
+                    
+                    if (buzzStats.length > 0) {
+                        const avgBuzzTime = Math.round(buzzStats.reduce((sum, b) => sum + b.buzzTime, 0) / buzzStats.length);
+                        const fastestBuzz = Math.min(...buzzStats.map(b => b.buzzTime));
+                        const correctBuzzes = buzzStats.filter(b => b.correct).length;
+                        const buzzAccuracy = Math.round((correctBuzzes / buzzStats.length) * 100);
+                        
+                        document.getElementById('avg-buzz-time').textContent = `${avgBuzzTime}ms`;
+                        document.getElementById('fastest-buzz').textContent = `${fastestBuzz}ms`;
+                        document.getElementById('buzz-accuracy').textContent = `${buzzAccuracy}%`;
+                        document.getElementById('total-buzzes').textContent = buzzStats.length;
+                    } else {
+                        document.getElementById('avg-buzz-time').textContent = '0ms';
+                        document.getElementById('fastest-buzz').textContent = '0ms';
+                        document.getElementById('buzz-accuracy').textContent = '0%';
+                        document.getElementById('total-buzzes').textContent = '0';
+                    }
                 } else {
+                    console.log('No stats found, showing defaults');
+                    // No stats yet
+                    document.getElementById('total-games').textContent = '0';
+                    document.getElementById('avg-coryat').textContent = '$0';
+                    document.getElementById('latest-coryat').textContent = '$0';
+                    document.getElementById('best-coryat').textContent = '$0';
+                    
                     document.getElementById('avg-buzz-time').textContent = '0ms';
                     document.getElementById('fastest-buzz').textContent = '0ms';
                     document.getElementById('buzz-accuracy').textContent = '0%';
                     document.getElementById('total-buzzes').textContent = '0';
                 }
                 
-                // Update game history
+                // Always load game history
                 await displayGameHistory();
-          } else {
-                // No stats yet
-                document.getElementById('total-games').textContent = '0';
-                document.getElementById('avg-coryat').textContent = '$0';
-                document.getElementById('latest-coryat').textContent = '$0';
-                document.getElementById('best-coryat').textContent = '$0';
                 
-                document.getElementById('game-history').innerHTML = 
-                    '<p>Play some games to see your game history!</p>';
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                showError('Failed to load stats: ' + error.message);
             }
         }
         
@@ -1383,34 +1399,171 @@
         }
         
         async function toggleResult(timestamp, clueIndex) {
-            // Cycle through C → I → P → C
-            const resultDiv = event.target;
-            const currentResult = resultDiv.textContent;
-            
-            let newResult;
-            switch (currentResult) {
-                case 'C':
-                    newResult = 'I';
-                    resultDiv.className = 'result-indicator result-incorrect';
-                    resultDiv.textContent = 'I';
-                    break;
-                case 'I':
-                    newResult = 'P';
-                    resultDiv.className = 'result-indicator result-passed';
-                    resultDiv.textContent = 'P';
-                    break;
-                case 'P':
-                    newResult = 'C';
-                    resultDiv.className = 'result-indicator result-correct';
-                    resultDiv.textContent = 'C';
-                    break;
+            try {
+                // Cycle through C → I → P → C
+                const resultDiv = event.target;
+                const currentResult = resultDiv.textContent;
+                
+                let newResult;
+                switch (currentResult) {
+                    case 'C':
+                        newResult = 'incorrect';
+                        resultDiv.className = 'result-indicator result-incorrect';
+                        resultDiv.textContent = 'I';
+                        break;
+                    case 'I':
+                        newResult = 'passed';
+                        resultDiv.className = 'result-indicator result-passed';
+                        resultDiv.textContent = 'P';
+                        break;
+                    case 'P':
+                        newResult = 'correct';
+                        resultDiv.className = 'result-indicator result-correct';
+                        resultDiv.textContent = 'C';
+                        break;
+                }
+                
+                console.log(`Changing clue ${clueIndex} in game ${timestamp} to ${newResult}`);
+                
+                // Load the game data and recalculate
+                await recalculateGameStats(timestamp, clueIndex, newResult);
+                
+            } catch (error) {
+                console.error('Error toggling result:', error);
+                showError('Failed to update result: ' + error.message);
             }
-            
-            // TODO: Update the game data and recalculate Coryat
-            console.log(`Changed clue ${clueIndex} in game ${timestamp} to ${newResult}`);
-            
-            // For now, just update the display
-            // In a full implementation, you'd recalculate and save the game data
+        }
+        
+        async function recalculateGameStats(timestamp, changedClueIndex, newResult) {
+            try {
+                // Load game data
+                const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
+                const snapshot = await get(gameRef);
+                
+                if (!snapshot.exists()) {
+                    console.error('Game not found for recalculation');
+                    return;
+                }
+                
+                const game = snapshot.val();
+                
+                // Get the actual clues for this game
+                const gameData = availableGames.find(g => g.gameId === (game.gameId || game.date));
+                if (!gameData) {
+                    console.error('Game clues not found for recalculation');
+                    return;
+                }
+                
+                // Create a results array to track all clue results
+                const clueResults = [];
+                
+                // Initialize with current game results (simplified)
+                for (let i = 0; i < Math.min(gameData.clues.length, 30); i++) {
+                    if (i === changedClueIndex) {
+                        clueResults[i] = newResult;
+                    } else if (i < game.correct) {
+                        clueResults[i] = 'correct';
+                    } else if (i < (game.correct + game.incorrect)) {
+                        clueResults[i] = 'incorrect';
+                    } else {
+                        clueResults[i] = 'passed';
+                    }
+                }
+                
+                // Recalculate stats
+                let newCorrect = 0;
+                let newIncorrect = 0;
+                let newPassed = 0;
+                let newCoryat = 0;
+                
+                clueResults.forEach((result, index) => {
+                    const clue = gameData.clues[index];
+                    const clueValue = parseInt(clue.clue_value) || 200;
+                    
+                    switch (result) {
+                        case 'correct':
+                            newCorrect++;
+                            newCoryat += clueValue;
+                            break;
+                        case 'incorrect':
+                            newIncorrect++;
+                            newCoryat -= clueValue;
+                            break;
+                        case 'passed':
+                            newPassed++;
+                            break;
+                    }
+                });
+                
+                // Update the game record
+                const updatedGame = {
+                    ...game,
+                    correct: newCorrect,
+                    incorrect: newIncorrect,
+                    passed: newPassed,
+                    coryat: newCoryat,
+                    clueResults: clueResults // Store the detailed results
+                };
+                
+                await set(gameRef, updatedGame);
+                
+                // Update the display
+                const gameHistoryItem = document.querySelector(`#clue-results-${timestamp}`).closest('.game-history-item');
+                const coryatDisplay = gameHistoryItem.querySelector('.game-history-coryat');
+                coryatDisplay.textContent = `$${newCoryat}`;
+                
+                console.log('Game stats recalculated and saved:', updatedGame);
+                
+                // Refresh overall stats
+                await refreshOverallStats();
+                
+            } catch (error) {
+                console.error('Error recalculating game stats:', error);
+            }
+        }
+        
+        async function refreshOverallStats() {
+            try {
+                // Recalculate overall stats from all games
+                const gamesRef = ref(db, `users/${currentUser.uid}/jeopardy/games`);
+                const snapshot = await get(gamesRef);
+                
+                if (!snapshot.exists()) return;
+                
+                const games = snapshot.val();
+                const gameEntries = Object.values(games);
+                
+                const totalGames = gameEntries.length;
+                const totalCoryat = gameEntries.reduce((sum, game) => sum + (game.coryat || 0), 0);
+                const bestCoryat = Math.max(...gameEntries.map(game => game.coryat || 0));
+                const latestGame = gameEntries.sort((a, b) => (b.date || 0) - (a.date || 0))[0];
+                
+                // Collect all buzz stats
+                const allBuzzStats = [];
+                gameEntries.forEach(game => {
+                    if (game.buzzStats && Array.isArray(game.buzzStats)) {
+                        allBuzzStats.push(...game.buzzStats);
+                    }
+                });
+                
+                const updatedStats = {
+                    totalGames,
+                    totalCoryat,
+                    bestCoryat,
+                    latestCoryat: latestGame ? latestGame.coryat : 0,
+                    buzzStats: allBuzzStats
+                };
+                
+                // Save updated stats
+                const statsRef = ref(db, `users/${currentUser.uid}/jeopardy/stats`);
+                await set(statsRef, updatedStats);
+                
+                // Refresh the display
+                await loadAndDisplayStats();
+                
+            } catch (error) {
+                console.error('Error refreshing overall stats:', error);
+            }
         }
         
         async function editGameFromList(gameId) {
