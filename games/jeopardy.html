@@ -292,7 +292,13 @@
         function selectTimedMode(timedMode) {
             currentGame.mode = `timed-${timedMode}`;
             console.log('Selected timed mode:', currentGame.mode);
-            // The game list is already displayed, user can now select a game
+            
+            // Hide the mode selector and show the game list
+            document.getElementById('timed-mode-selector').style.display = 'none';
+            
+            // Update title to show selected mode
+            document.getElementById('game-list-title').textContent = 
+                `Choose a Jeopardy Game (${timedMode === 'sequential' ? 'Sequential' : 'Random'} Mode)`;
         }
         
         async function loadAvailableGames() {
@@ -506,12 +512,13 @@
             // Sort clues within each round
             for (const round in rounds) {
                 if (currentGame.mode === 'timed-sequential') {
-                    // Sequential: sort by value, then by category
+                    // Sequential: sort by category first, then by value (all clues in category before moving to next)
                     rounds[round].sort((a, b) => {
+                        const categoryCompare = (a.category || '').localeCompare(b.category || '');
+                        if (categoryCompare !== 0) return categoryCompare;
                         const aValue = parseInt(a.clue_value) || 0;
                         const bValue = parseInt(b.clue_value) || 0;
-                        if (aValue !== bValue) return aValue - bValue;
-                        return (a.category || '').localeCompare(b.category || '');
+                        return aValue - bValue;
                     });
                 } else if (currentGame.mode === 'timed-random') {
                     // Random: shuffle within round
@@ -595,7 +602,18 @@
             const clueWords = (clue.answer || '').split(' ').length;
             const clueDisplayTime = Math.max(clueWords * userSettings.speedPerWord, 2000);
             
-            console.log(`Displaying clue for ${clueDisplayTime}ms (${clueWords} words)`);
+            console.log(`Displaying clue for ${clueDisplayTime}ms (${clueWords} words) before buzz-in`);
+            
+            // Wait for clue display time, THEN enable buzz-in
+            setTimeout(() => {
+                if (currentGame.gameId) { // Make sure game is still active
+                    enableBuzzIn(clueDisplayTime);
+                }
+            }, clueDisplayTime);
+        }
+        
+        function enableBuzzIn(buzzWindow) {
+            console.log('Enabling buzz-in window');
             
             // Start buzz-in timing
             currentGame.clueStartTime = Date.now();
@@ -609,12 +627,12 @@
             // Set up spacebar listener
             document.addEventListener('keydown', handleBuzzIn);
             
-            // Wait for buzz-in or timeout
+            // Wait for buzz-in or timeout (use same time as clue display)
             const buzzTimeout = setTimeout(() => {
                 if (!currentGame.buzzedIn) {
                     handleTimeout();
                 }
-            }, clueDisplayTime);
+            }, buzzWindow);
             
             // Store timeout for potential clearing
             currentGame.buzzTimeout = buzzTimeout;
@@ -1054,8 +1072,8 @@
                     document.getElementById('total-buzzes').textContent = '0';
                 }
                 
-                // Update category stats
-                displayCategoryStats(stats.categoryStats || {});
+                // Update game history
+                await displayGameHistory();
           } else {
                 // No stats yet
                 document.getElementById('total-games').textContent = '0';
@@ -1063,42 +1081,127 @@
                 document.getElementById('latest-coryat').textContent = '$0';
                 document.getElementById('best-coryat').textContent = '$0';
                 
-                document.getElementById('category-stats').innerHTML = 
-                    '<p>Play some games to see your category performance!</p>';
+                document.getElementById('game-history').innerHTML = 
+                    '<p>Play some games to see your game history!</p>';
             }
         }
         
-        function displayCategoryStats(categoryStats) {
-            const categoryStatsDiv = document.getElementById('category-stats');
+                async function displayGameHistory() {
+            if (!currentUser) return;
             
-            if (Object.keys(categoryStats).length === 0) {
-                categoryStatsDiv.innerHTML = '<p>Play some games to see your category performance!</p>';
-        return;
-      }
-      
-            // Calculate percentages and sort by performance
-            const categoryPerformance = Object.entries(categoryStats)
-                .map(([category, stats]) => ({
-                    category,
-                    correct: stats.correct,
-                    total: stats.total,
-                    percentage: Math.round((stats.correct / stats.total) * 100)
-                }))
-                .sort((a, b) => b.percentage - a.percentage);
-            
-            // Create HTML
-            const html = `
-                <div class="category-performance">
-                    ${categoryPerformance.map(cat => `
-                        <div class="category-item">
-                            <span class="category-name">${cat.category}</span>
-                            <span class="category-percentage">${cat.percentage}% (${cat.correct}/${cat.total})</span>
+            try {
+                const gamesRef = ref(db, `users/${currentUser.uid}/jeopardy/games`);
+                const snapshot = await get(gamesRef);
+                
+                const gameHistoryDiv = document.getElementById('game-history');
+                
+                if (!snapshot.exists()) {
+                    gameHistoryDiv.innerHTML = '<p>Play some games to see your game history!</p>';
+                    return;
+                }
+                
+                const games = snapshot.val();
+                const gameEntries = Object.entries(games)
+                    .sort(([a], [b]) => parseInt(b) - parseInt(a)) // Sort by timestamp (newest first)
+                    .slice(0, 10); // Show last 10 games
+                
+                const html = gameEntries.map(([timestamp, game]) => `
+                    <div class="game-history-item">
+                        <div class="game-history-header">
+                            <div class="game-history-title">${formatDate(game.date || '1984-01-01')}</div>
+                            <div class="game-history-coryat">$${game.coryat}</div>
                         </div>
-                    `).join('')}
-                </div>
-            `;
+                        <div class="clue-results" id="clue-results-${timestamp}">
+                            <p>Loading clue details...</p>
+                        </div>
+                        <button class="edit-game-btn" onclick="loadGameDetails('${timestamp}')">
+                            Show/Edit Results
+                        </button>
+                    </div>
+                `).join('');
+                
+                gameHistoryDiv.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading game history:', error);
+                document.getElementById('game-history').innerHTML = '<p>Error loading game history</p>';
+            }
+        }
+        
+        async function loadGameDetails(timestamp) {
+            try {
+                const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
+                const snapshot = await get(gameRef);
+                
+                if (!snapshot.exists()) return;
+                
+                const game = snapshot.val();
+                const resultsDiv = document.getElementById(`clue-results-${timestamp}`);
+                
+                // Get the actual clues for this game
+                const gameData = availableGames.find(g => g.gameId === game.date);
+                if (!gameData) {
+                    resultsDiv.innerHTML = '<p>Game data not found</p>';
+                    return;
+                }
+                
+                // Create editable clue results
+                const html = gameData.clues.slice(0, game.totalClues || 30).map((clue, index) => {
+                    // Determine result from game data (simplified for now)
+                    const resultType = index < game.correct ? 'correct' : 
+                                     index < (game.correct + game.incorrect) ? 'incorrect' : 'passed';
+                    
+                    return `
+                        <div class="clue-result-item">
+                            <div class="result-indicator result-${resultType}" 
+                                 onclick="toggleResult('${timestamp}', ${index})">
+                                ${resultType === 'correct' ? 'C' : resultType === 'incorrect' ? 'I' : 'P'}
+                            </div>
+                            <div class="clue-content">
+                                <span class="clue-category-small">${clue.category}</span>
+                                <span class="clue-value-small">$${clue.clue_value}</span>
+                                <div class="clue-text-small">${clue.answer} → ${clue.question}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                resultsDiv.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading game details:', error);
+            }
+        }
+        
+        async function toggleResult(timestamp, clueIndex) {
+            // Cycle through C → I → P → C
+            const resultDiv = event.target;
+            const currentResult = resultDiv.textContent;
             
-            categoryStatsDiv.innerHTML = html;
+            let newResult;
+            switch (currentResult) {
+                case 'C':
+                    newResult = 'I';
+                    resultDiv.className = 'result-indicator result-incorrect';
+                    resultDiv.textContent = 'I';
+                    break;
+                case 'I':
+                    newResult = 'P';
+                    resultDiv.className = 'result-indicator result-passed';
+                    resultDiv.textContent = 'P';
+                    break;
+                case 'P':
+                    newResult = 'C';
+                    resultDiv.className = 'result-indicator result-correct';
+                    resultDiv.textContent = 'C';
+                    break;
+            }
+            
+            // TODO: Update the game data and recalculate Coryat
+            console.log(`Changed clue ${clueIndex} in game ${timestamp} to ${newResult}`);
+            
+            // For now, just update the display
+            // In a full implementation, you'd recalculate and save the game data
         }
         
         async function loadUserSettings() {
@@ -1263,6 +1366,8 @@
         window.showSettings = showSettings;
         window.saveSettings = saveSettings;
         window.resetSettings = resetSettings;
+        window.loadGameDetails = loadGameDetails;
+        window.toggleResult = toggleResult;
         window.nextClue = nextClue;
         window.showAnswer = showAnswer;
         window.markCorrect = markCorrect;
@@ -1639,6 +1744,125 @@
             margin: 0 auto 20px;
         }
         
+        /* Game History */
+        .game-history-item {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .game-history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .game-history-title {
+            color: var(--jeopardy-gold);
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+        
+        .game-history-coryat {
+            color: var(--jeopardy-gold);
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+        
+        .clue-results {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 5px;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+        }
+        
+        .clue-result-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            font-size: 0.9rem;
+        }
+        
+        .clue-result-item:last-child {
+            border-bottom: none;
+        }
+        
+        .result-indicator {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            margin-right: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .result-correct {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .result-incorrect {
+            background: #f44336;
+            color: white;
+        }
+        
+        .result-passed {
+            background: #FFA500;
+            color: white;
+        }
+        
+        .result-indicator:hover {
+            transform: scale(1.1);
+        }
+        
+        .clue-content {
+            flex: 1;
+            margin-right: 10px;
+        }
+        
+        .clue-category-small {
+            color: var(--jeopardy-gold);
+            font-weight: 600;
+            margin-right: 5px;
+        }
+        
+        .clue-value-small {
+            color: var(--jeopardy-gold);
+            font-weight: 600;
+            margin-right: 10px;
+        }
+        
+        .clue-text-small {
+            color: var(--jeopardy-white);
+        }
+        
+        .edit-game-btn {
+            background: var(--jeopardy-light-blue);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+        
+        .edit-game-btn:hover {
+            background: #5BA0F0;
+        }
+        
         /* Settings */
         .settings-group {
             margin-bottom: 30px;
@@ -1759,8 +1983,20 @@
         
         .categories-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(6, 1fr);
             gap: 15px;
+        }
+        
+        @media (max-width: 1200px) {
+            .categories-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .categories-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
         
         .category-name {
@@ -2049,9 +2285,9 @@
                 </div>
                 
                 <div class="stats-section">
-                    <h3>Category Performance</h3>
-                    <div id="category-stats">
-                        <p>Play some games to see your category performance!</p>
+                    <h3>Game History</h3>
+                    <div id="game-history">
+                        <p>Play some games to see your game history!</p>
                     </div>
                 </div>
             </div>
