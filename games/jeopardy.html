@@ -68,18 +68,31 @@
             }
         }
         
-        async function checkAdminStatus(user) {
+                async function checkAdminStatus(user) {
             try {
                 console.log('Checking admin status for:', user.email);
                 
-                // Check if user is admin (you can customize this logic)
-                const adminEmails = [
-                    'graham@eviltrivia.com',
-                    'admin@eviltrivia.com'
-                    // Add more admin emails as needed
-                ];
+                // Check user roles in Firebase database (same as banner does)
+                const userSnapshot = await get(ref(db, `users/${user.uid}`));
+                if (!userSnapshot.exists()) {
+                    console.log('User not found in database');
+                    showError('User not found in database. Please contact admin.');
+                    return;
+                }
                 
-                const isAdmin = adminEmails.includes(user.email);
+                const userData = userSnapshot.val();
+                console.log('User data:', userData);
+                
+                // Get user roles - handle both new array format and legacy string format
+                let userRoles = [];
+                if (userData?.roles && Array.isArray(userData.roles)) {
+                    userRoles = userData.roles;
+                } else if (userData?.role && typeof userData.role === 'string') {
+                    userRoles = [userData.role];
+                }
+                
+                console.log('User roles:', userRoles);
+                const isAdmin = userRoles.includes('admin');
                 console.log('Is admin?', isAdmin);
                 
                 if (isAdmin) {
@@ -87,7 +100,7 @@
                     await loadJeopardyData();
                     await loadUserStats();
                     showGameSelector();
-        } else {
+                } else {
                     console.log('Access denied - not admin');
                     showError('Access denied. Admin privileges required.');
                 }
