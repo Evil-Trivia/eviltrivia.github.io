@@ -456,7 +456,7 @@
             25% { transform: translateX(-3px); }
             75% { transform: translateX(3px); }
         }
-git 
+
         /* Archive popup styles */
         .archive-popup {
             position: fixed;
@@ -1275,11 +1275,20 @@ git
 
         // Archive search functionality
         async function searchArchive(term, buttonIndex) {
+            console.log('🍋 Lemon button clicked for term:', term, 'button index:', buttonIndex);
+            
             const button = document.getElementById(`lemon-btn-${buttonIndex}`);
-            if (!button) return;
+            if (!button) {
+                console.error('Button not found for index:', buttonIndex);
+                return;
+            }
+            
+            console.log('Current user:', currentUser);
+            console.log('Firebase ready:', isFirebaseReady);
             
             // Check if user is authenticated and has access
             if (!currentUser) {
+                console.log('No user authenticated');
                 alert('Please sign in to search the archive. You need Patreon supporter access or admin/grader privileges.');
                 return;
             }
@@ -1450,23 +1459,13 @@ git
                 const resultItem = document.createElement('div');
                 resultItem.className = 'archive-result-item';
                 
-                // Format date with better handling
-                let formattedDate = 'Unknown Date';
-                if (result.triviaDate && result.triviaDate.trim()) {
-                    try {
-                        const date = new Date(result.triviaDate);
-                        if (!isNaN(date.getTime())) {
-                            formattedDate = date.toLocaleDateString('en-US', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric'
-                            });
-                        }
-                    } catch (e) {
-                        // If date parsing fails, keep 'Unknown Date'
-                        console.warn('Failed to parse date:', result.triviaDate);
-                    }
-                }
+                // Format date
+                const formattedDate = result.triviaDate ? 
+                    new Date(result.triviaDate).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                    }) : 'Unknown Date';
                 
                 let html = `
                     <div class="archive-result-header">
@@ -1524,14 +1523,17 @@ git
         
         // Firebase auth state change handler
         auth.onAuthStateChanged(async (user) => {
+            console.log('🔥 Firebase auth state changed:', user ? 'User logged in' : 'No user');
             currentUser = user;
             isFirebaseReady = true;
             
             if (user) {
+                console.log('👤 User UID:', user.uid);
                 try {
                     // Get user data to check permissions
                     const snapshot = await db.ref(`users/${user.uid}`).once('value');
                     const userData = snapshot.val() || {};
+                    console.log('📋 User data:', userData);
                     
                     // Check for admin, grader, or patreon access
                     const isAdmin = 
@@ -1544,15 +1546,19 @@ git
                     
                     const hasPatreonAccess = userData.patreonId;
                     
+                    console.log('🔑 Access check - Admin:', isAdmin, 'Grader:', isGrader, 'Patreon:', hasPatreonAccess);
+                    
                     if (isAdmin || isGrader || hasPatreonAccess) {
-                        console.log('User has archive access');
+                        console.log('✅ User has archive access');
                     } else {
-                        console.log('User does not have archive access');
+                        console.log('❌ User does not have archive access');
                     }
                     
                 } catch (error) {
-                    console.error('Error checking user permissions:', error);
+                    console.error('❌ Error checking user permissions:', error);
                 }
+            } else {
+                console.log('❌ No user authenticated');
             }
         });
         
