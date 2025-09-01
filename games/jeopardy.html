@@ -10,6 +10,7 @@
     
     <!-- Firebase SDK -->
     <script type="module">
+        // Import Firebase modules directly like the working trivia page
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
         import { getDatabase, ref, get, set, push } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
@@ -30,13 +31,275 @@
         const auth = getAuth(app);
         const db = getDatabase(app);
         
-        // Make Firebase available globally
-        window.auth = auth;
-        window.db = db;
-        window.ref = ref;
-        window.get = get;
-        window.set = set;
-        window.push = push;
+        // Global variables
+        let currentUser = null;
+        let jeopardyData = null;
+        let currentClues = [];
+        let currentClueIndex = 0;
+        let userStats = {};
+        
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            // Firebase is already available from the module script above
+            // Just wait a moment for everything to settle
+            setTimeout(initializeApp, 500);
+        });
+        
+        function initializeApp() {
+            try {
+                console.log('Initializing Jeopardy app with Firebase...');
+                
+                // Check authentication state using our local Firebase instance
+                onAuthStateChanged(auth, async (user) => {
+                    console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
+                    if (user) {
+                        currentUser = user;
+                        console.log('Current user:', user.email);
+                        await checkAdminStatus(user);
+                    } else {
+                        console.log('No user logged in');
+                        showAuthSection();
+                    }
+                });
+                
+            } catch (error) {
+                console.error('Error initializing app:', error);
+                showError('Failed to initialize app: ' + error.message);
+            }
+        }
+        
+        async function checkAdminStatus(user) {
+            try {
+                console.log('Checking admin status for:', user.email);
+                
+                // Check if user is admin (you can customize this logic)
+                const adminEmails = [
+                    'graham@eviltrivia.com',
+                    'admin@eviltrivia.com'
+                    // Add more admin emails as needed
+                ];
+                
+                const isAdmin = adminEmails.includes(user.email);
+                console.log('Is admin?', isAdmin);
+                
+                if (isAdmin) {
+                    console.log('Admin access granted, loading data...');
+                    await loadJeopardyData();
+                    await loadUserStats();
+                    showGameSelector();
+                } else {
+                    console.log('Access denied - not admin');
+                    showError('Access denied. Admin privileges required.');
+                }
+            } catch (error) {
+                console.error('Error checking admin status:', error);
+                showError('Failed to verify admin status: ' + error.message);
+            }
+        }
+        
+        async function loadJeopardyData() {
+            try {
+                console.log('Loading Jeopardy data...');
+                showLoading();
+                
+                // Try to load from local dataset first
+                const response = await fetch('/games/jeopardy/data/jeopardy_clues_latest.json');
+                if (response.ok) {
+                    jeopardyData = await response.json();
+                    console.log(`Loaded ${jeopardyData.clues.length} clues from local dataset`);
+                } else {
+                    throw new Error('Local dataset not found');
+                }
+                
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Error loading Jeopardy data:', error);
+                showError('Failed to load Jeopardy data. Please ensure the dataset is available.');
+                hideLoading();
+            }
+        }
+        
+        async function loadUserStats() {
+            try {
+                if (!currentUser) return;
+                
+                console.log('Loading user stats...');
+                
+                // Use our local Firebase instance
+                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                const snapshot = await get(statsRef);
+                
+                if (snapshot.exists()) {
+                    userStats = snapshot.val();
+                    console.log('Loaded existing user stats:', userStats);
+                } else {
+                    // Initialize default stats
+                    userStats = {
+                        totalClues: 0,
+                        correctAnswers: 0,
+                        incorrectAnswers: 0,
+                        totalScore: 0,
+                        lastPlayed: null
+                    };
+                    await set(statsRef, userStats);
+                    console.log('Initialized new user stats');
+                }
+                
+            } catch (error) {
+                console.error('Error loading user stats:', error);
+                // Don't show error for stats loading failure
+            }
+        }
+        
+        async function saveUserStats(result, clueValue) {
+            try {
+                if (!currentUser) return;
+                
+                console.log('Saving user stats:', result, clueValue);
+                
+                // Use our local Firebase instance
+                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                
+                // Update stats
+                userStats.totalClues++;
+                if (result === 'correct') {
+                    userStats.correctAnswers++;
+                    userStats.totalScore += parseInt(clueValue.replace(/[^\d]/g, '')) || 0;
+                } else {
+                    userStats.incorrectAnswers++;
+                }
+                userStats.lastPlayed = new Date().toISOString();
+                
+                // Save to Firebase
+                await set(statsRef, userStats);
+                console.log('User stats saved successfully');
+                
+            } catch (error) {
+                console.error('Error saving user stats:', error);
+            }
+        }
+        
+        function startRandomGame() {
+            if (!jeopardyData || !jeopardyData.clues) {
+                showError('Jeopardy data not loaded');
+                return;
+            }
+            
+            console.log('Starting random game...');
+            
+            // Get random clues
+            currentClues = getRandomClues(50);
+            currentClueIndex = 0;
+            
+            showGameBoard();
+            displayCurrentClue();
+        }
+        
+        function startCategoryGame() {
+            // For now, just start random game
+            // TODO: Implement category selection
+            startRandomGame();
+        }
+        
+        function startDifficultyGame() {
+            // For now, just start random game
+            // TODO: Implement difficulty selection
+            startRandomGame();
+        }
+        
+        function getRandomClues(count) {
+            const shuffled = [...jeopardyData.clues].sort(() => Math.random() - 0.5);
+            return shuffled.slice(0, count);
+        }
+        
+        function displayCurrentClue() {
+            if (currentClues.length === 0 || currentClueIndex >= currentClues.length) {
+                document.getElementById('clue-text').textContent = 'No more clues available!';
+                return;
+            }
+            
+            const clue = currentClues[currentClueIndex];
+            
+            document.getElementById('clue-category').textContent = clue.category || 'CATEGORY';
+            document.getElementById('clue-value').textContent = `$${clue.clue_value || '200'}`;
+            document.getElementById('clue-text').textContent = clue.question || 'No question available';
+            document.getElementById('clue-answer').textContent = clue.answer || 'No answer available';
+            document.getElementById('clue-answer').style.display = 'none';
+        }
+        
+        function nextClue() {
+            currentClueIndex++;
+            if (currentClueIndex >= currentClues.length) {
+                currentClueIndex = 0; // Loop back to start
+            }
+            displayCurrentClue();
+        }
+        
+        function showAnswer() {
+            const answerElement = document.getElementById('clue-answer');
+            answerElement.style.display = 'block';
+        }
+        
+        function backToSelector() {
+            showGameSelector();
+        }
+        
+        // UI State functions
+        function showAuthSection() {
+            console.log('Showing auth section');
+            document.getElementById('auth-section').style.display = 'block';
+            document.getElementById('game-selector').style.display = 'none';
+            document.getElementById('game-board').style.display = 'none';
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function showGameSelector() {
+            console.log('Showing game selector');
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('game-selector').style.display = 'block';
+            document.getElementById('game-board').style.display = 'none';
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function showGameBoard() {
+            console.log('Showing game board');
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('game-selector').style.display = 'none';
+            document.getElementById('game-board').style.display = 'block';
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function showError(message) {
+            console.error('Showing error:', message);
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message;
+            
+            const container = document.querySelector('.main-container');
+            container.insertBefore(errorDiv, container.firstChild);
+            
+            // Remove error after 5 seconds
+            setTimeout(() => {
+                errorDiv.remove();
+            }, 5000);
+        }
+        
+        // Make functions available globally for onclick handlers
+        window.startRandomGame = startRandomGame;
+        window.startCategoryGame = startCategoryGame;
+        window.startDifficultyGame = startDifficultyGame;
+        window.nextClue = nextClue;
+        window.showAnswer = showAnswer;
+        window.backToSelector = backToSelector;
     </script>
     
     <!-- Authentic Jeopardy Fonts -->
@@ -377,267 +640,9 @@
     </div>
 
     <script>
-        // Global variables
-        let currentUser = null;
-        let jeopardyData = null;
-        let currentClues = [];
-        let currentClueIndex = 0;
-        let userStats = {};
-        
-        // Initialize the app
-        document.addEventListener('DOMContentLoaded', function() {
-            // Firebase is already available from the module script above
-            // Just wait a moment for everything to settle
-            setTimeout(initializeApp, 500);
-        });
-        
-        function initializeApp() {
-            try {
-                console.log('Initializing Jeopardy app with Firebase...');
-                
-                // Check authentication state using our local Firebase instance
-                onAuthStateChanged(auth, async (user) => {
-                    console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
-                    if (user) {
-                        currentUser = user;
-                        console.log('Current user:', user.email);
-                        await checkAdminStatus(user);
-                    } else {
-                        console.log('No user logged in');
-                        showAuthSection();
-                    }
-                });
-                
-            } catch (error) {
-                console.error('Error initializing app:', error);
-                showError('Failed to initialize app: ' + error.message);
-            }
-        }
-        
-        async function checkAdminStatus(user) {
-            try {
-                console.log('Checking admin status for:', user.email);
-                
-                // Check if user is admin (you can customize this logic)
-                const adminEmails = [
-                    'graham@eviltrivia.com',
-                    'admin@eviltrivia.com'
-                    // Add more admin emails as needed
-                ];
-                
-                const isAdmin = adminEmails.includes(user.email);
-                console.log('Is admin?', isAdmin);
-                
-                if (isAdmin) {
-                    console.log('Admin access granted, loading data...');
-                    await loadJeopardyData();
-                    await loadUserStats();
-                    showGameSelector();
-                } else {
-                    console.log('Access denied - not admin');
-                    showError('Access denied. Admin privileges required.');
-                }
-            } catch (error) {
-                console.error('Error checking admin status:', error);
-                showError('Failed to verify admin status: ' + error.message);
-            }
-        }
-        
-        async function loadJeopardyData() {
-            try {
-                console.log('Loading Jeopardy data...');
-                showLoading();
-                
-                // Try to load from local dataset first
-                const response = await fetch('/games/jeopardy/data/jeopardy_clues_latest.json');
-                if (response.ok) {
-                    jeopardyData = await response.json();
-                    console.log(`Loaded ${jeopardyData.clues.length} clues from local dataset`);
-                } else {
-                    throw new Error('Local dataset not found');
-                }
-                
-                hideLoading();
-                
-            } catch (error) {
-                console.error('Error loading Jeopardy data:', error);
-                showError('Failed to load Jeopardy data. Please ensure the dataset is available.');
-                hideLoading();
-            }
-        }
-        
-        async function loadUserStats() {
-            try {
-                if (!currentUser) return;
-                
-                console.log('Loading user stats...');
-                
-                // Use our local Firebase instance
-                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
-                const snapshot = await get(statsRef);
-                
-                if (snapshot.exists()) {
-                    userStats = snapshot.val();
-                    console.log('Loaded existing user stats:', userStats);
-                } else {
-                    // Initialize default stats
-                    userStats = {
-                        totalClues: 0,
-                        correctAnswers: 0,
-                        incorrectAnswers: 0,
-                        totalScore: 0,
-                        lastPlayed: null
-                    };
-                    await set(statsRef, userStats);
-                    console.log('Initialized new user stats');
-                }
-                
-            } catch (error) {
-                console.error('Error loading user stats:', error);
-                // Don't show error for stats loading failure
-            }
-        }
-        
-        async function saveUserStats(result, clueValue) {
-            try {
-                if (!currentUser) return;
-                
-                console.log('Saving user stats:', result, clueValue);
-                
-                // Use our local Firebase instance
-                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
-                
-                // Update stats
-                userStats.totalClues++;
-                if (result === 'correct') {
-                    userStats.correctAnswers++;
-                    userStats.totalScore += parseInt(clueValue.replace(/[^\d]/g, '')) || 0;
-                } else {
-                    userStats.incorrectAnswers++;
-                }
-                userStats.lastPlayed = new Date().toISOString();
-                
-                // Save to Firebase
-                await set(statsRef, userStats);
-                console.log('User stats saved successfully');
-                
-            } catch (error) {
-                console.error('Error saving user stats:', error);
-            }
-        }
-        
-        function startRandomGame() {
-            if (!jeopardyData || !jeopardyData.clues) {
-                showError('Jeopardy data not loaded');
-                return;
-            }
-            
-            console.log('Starting random game...');
-            
-            // Get random clues
-            currentClues = getRandomClues(50);
-            currentClueIndex = 0;
-            
-            showGameBoard();
-            displayCurrentClue();
-        }
-        
-        function startCategoryGame() {
-            // For now, just start random game
-            // TODO: Implement category selection
-            startRandomGame();
-        }
-        
-        function startDifficultyGame() {
-            // For now, just start random game
-            // TODO: Implement difficulty selection
-            startRandomGame();
-        }
-        
-        function getRandomClues(count) {
-            const shuffled = [...jeopardyData.clues].sort(() => Math.random() - 0.5);
-            return shuffled.slice(0, count);
-        }
-        
-        function displayCurrentClue() {
-            if (currentClues.length === 0 || currentClueIndex >= currentClues.length) {
-                document.getElementById('clue-text').textContent = 'No more clues available!';
-                return;
-            }
-            
-            const clue = currentClues[currentClueIndex];
-            
-            document.getElementById('clue-category').textContent = clue.category || 'CATEGORY';
-            document.getElementById('clue-value').textContent = `$${clue.clue_value || '200'}`;
-            document.getElementById('clue-text').textContent = clue.question || 'No question available';
-            document.getElementById('clue-answer').textContent = clue.answer || 'No answer available';
-            document.getElementById('clue-answer').style.display = 'none';
-        }
-        
-        function nextClue() {
-            currentClueIndex++;
-            if (currentClueIndex >= currentClues.length) {
-                currentClueIndex = 0; // Loop back to start
-            }
-            displayCurrentClue();
-        }
-        
-        function showAnswer() {
-            const answerElement = document.getElementById('clue-answer');
-            answerElement.style.display = 'block';
-        }
-        
-        function backToSelector() {
-            showGameSelector();
-        }
-        
-        // UI State functions
-        function showAuthSection() {
-            console.log('Showing auth section');
-            document.getElementById('auth-section').style.display = 'block';
-            document.getElementById('game-selector').style.display = 'none';
-            document.getElementById('game-board').style.display = 'none';
-            document.getElementById('loading').style.display = 'none';
-        }
-        
-        function showGameSelector() {
-            console.log('Showing game selector');
-            document.getElementById('auth-section').style.display = 'none';
-            document.getElementById('game-selector').style.display = 'block';
-            document.getElementById('game-board').style.display = 'none';
-            document.getElementById('loading').style.display = 'none';
-        }
-        
-        function showGameBoard() {
-            console.log('Showing game board');
-            document.getElementById('auth-section').style.display = 'none';
-            document.getElementById('game-selector').style.display = 'none';
-            document.getElementById('game-board').style.display = 'block';
-            document.getElementById('loading').style.display = 'none';
-        }
-        
-        function showLoading() {
-            document.getElementById('loading').style.display = 'block';
-        }
-        
-        function hideLoading() {
-            document.getElementById('loading').style.display = 'none';
-        }
-        
-        function showError(message) {
-            console.error('Showing error:', message);
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-message';
-            errorDiv.textContent = message;
-            
-            const container = document.querySelector('.main-container');
-            container.insertBefore(errorDiv, container.firstChild);
-            
-            // Remove error after 5 seconds
-            setTimeout(() => {
-                errorDiv.remove();
-            }, 5000);
-        }
+        // The JavaScript code for Jeopardy Study is now embedded in the module script.
+        // The functions like startRandomGame, nextClue, showAnswer, etc.
+        // are now available globally via the window object.
     </script>
 </body>
 </html> 
