@@ -8,6 +8,37 @@
     <!-- Use existing banner authentication system -->
     <script src="/js/components/autoload-banner.js"></script>
     
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+        import { getDatabase, ref, get, set, push } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:abcdefghijklmnop"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+        
+        // Make Firebase available globally
+        window.auth = auth;
+        window.db = db;
+        window.ref = ref;
+        window.get = get;
+        window.set = set;
+        window.push = push;
+    </script>
+    
     <!-- Authentic Jeopardy Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -355,22 +386,29 @@
         
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
-            // Wait for banner to load and check auth
-            setTimeout(checkAuthState, 1000);
+            // Wait for Firebase to be ready
+            setTimeout(initializeApp, 1000);
         });
         
-        function checkAuthState() {
-            // Check if user is authenticated via banner
-            if (window.userData && window.userData.uid) {
-                currentUser = window.userData;
-                checkAdminStatus();
-            } else {
-                // Check again in a moment
-                setTimeout(checkAuthState, 500);
+        function initializeApp() {
+            try {
+                // Check authentication state
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        currentUser = user;
+                        await checkAdminStatus(user);
+                    } else {
+                        showAuthSection();
+                    }
+                });
+                
+            } catch (error) {
+                console.error('Error initializing app:', error);
+                showError('Failed to initialize app: ' + error.message);
             }
         }
         
-        function checkAdminStatus() {
+        async function checkAdminStatus(user) {
             try {
                 // Check if user is admin (you can customize this logic)
                 const adminEmails = [
@@ -379,11 +417,11 @@
                     // Add more admin emails as needed
                 ];
                 
-                const isAdmin = adminEmails.includes(currentUser.email);
+                const isAdmin = adminEmails.includes(user.email);
                 
                 if (isAdmin) {
-                    loadJeopardyData();
-                    loadUserStats();
+                    await loadJeopardyData();
+                    await loadUserStats();
                     showGameSelector();
                 } else {
                     showError('Access denied. Admin privileges required.');
@@ -420,24 +458,22 @@
             try {
                 if (!currentUser) return;
                 
-                // Use the existing Firebase reference from banner
-                if (window.dbRef && window.db) {
-                    const statsRef = window.dbRef(window.db, `users/${currentUser.uid}/scores/jeopardy/stats`);
-                    const snapshot = await window.get(statsRef);
-                    
-                    if (snapshot.exists()) {
-                        userStats = snapshot.val();
-                    } else {
-                        // Initialize default stats
-                        userStats = {
-                            totalClues: 0,
-                            correctAnswers: 0,
-                            incorrectAnswers: 0,
-                            totalScore: 0,
-                            lastPlayed: null
-                        };
-                        await window.set(statsRef, userStats);
-                    }
+                // Use Firebase directly
+                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                const snapshot = await get(statsRef);
+                
+                if (snapshot.exists()) {
+                    userStats = snapshot.val();
+                } else {
+                    // Initialize default stats
+                    userStats = {
+                        totalClues: 0,
+                        correctAnswers: 0,
+                        incorrectAnswers: 0,
+                        totalScore: 0,
+                        lastPlayed: null
+                    };
+                    await set(statsRef, userStats);
                 }
                 
             } catch (error) {
@@ -448,9 +484,9 @@
         
         async function saveUserStats(result, clueValue) {
             try {
-                if (!currentUser || !window.dbRef || !window.db) return;
+                if (!currentUser) return;
                 
-                const statsRef = window.dbRef(window.db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
                 
                 // Update stats
                 userStats.totalClues++;
@@ -463,7 +499,7 @@
                 userStats.lastPlayed = new Date().toISOString();
                 
                 // Save to Firebase
-                await window.set(statsRef, userStats);
+                await set(statsRef, userStats);
                 
             } catch (error) {
                 console.error('Error saving user stats:', error);
