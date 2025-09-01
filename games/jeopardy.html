@@ -1073,63 +1073,41 @@
             try {
                 if (!currentUser) return;
                 
+                console.log('Saving game results for:', currentGame.gameDate);
+                
+                const gameTimestamp = Date.now();
                 const gameResult = {
-                    date: new Date().toISOString(),
+                    gameId: currentGame.gameId,
+                    date: currentGame.gameDate,
+                    mode: currentGame.mode,
                     correct: currentGame.correct,
                     incorrect: currentGame.incorrect,
+                    passed: currentGame.passed,
                     coryat: currentGame.coryat,
-                    totalClues: currentGame.clues.length,
+                    totalClues: currentGame.mode === 'untimed' ? currentGame.clues.length : 
+                        Object.values(currentGame.clues).reduce((sum, round) => sum + round.length, 0),
                     categoryStats: currentGame.categoryStats,
-                    duration: Date.now() - currentGame.startTime
+                    buzzStats: currentGame.buzzStats,
+                    duration: Date.now() - currentGame.startTime,
+                    completedAt: new Date().toISOString()
                 };
                 
-                // Save individual game
-                const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${Date.now()}`);
+                console.log('Game result to save:', gameResult);
+                
+                // Save individual game with timestamp as key
+                const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${gameTimestamp}`);
                 await set(gameRef, gameResult);
                 
-                // Update overall stats
-                const statsRef = ref(db, `users/${currentUser.uid}/jeopardy/stats`);
-                const statsSnapshot = await get(statsRef);
+                console.log('Game saved to:', `users/${currentUser.uid}/jeopardy/games/${gameTimestamp}`);
                 
-                let stats = {
-                    totalGames: 0,
-                    totalCorrect: 0,
-                    totalIncorrect: 0,
-                    totalCoryat: 0,
-                    bestCoryat: 0,
-                    categoryStats: {}
-                };
+                // Update overall stats using the refresh function
+                await refreshOverallStats();
                 
-                if (statsSnapshot.exists()) {
-                    stats = statsSnapshot.val();
-                }
-                
-                // Update stats
-                stats.totalGames++;
-                stats.totalCorrect += currentGame.correct;
-                stats.totalIncorrect += currentGame.incorrect;
-                stats.totalCoryat += currentGame.coryat;
-                stats.bestCoryat = Math.max(stats.bestCoryat, currentGame.coryat);
-                stats.latestCoryat = currentGame.coryat;
-                
-                // Update buzz stats
-                if (!stats.buzzStats) stats.buzzStats = [];
-                stats.buzzStats.push(...currentGame.buzzStats);
-                
-                // Update category stats
-                for (const [category, catStats] of Object.entries(currentGame.categoryStats)) {
-                    if (!stats.categoryStats[category]) {
-                        stats.categoryStats[category] = { correct: 0, total: 0 };
-                    }
-                    stats.categoryStats[category].correct += catStats.correct;
-                    stats.categoryStats[category].total += catStats.total;
-                }
-                
-                await set(statsRef, stats);
-                console.log('Game results saved successfully');
+                console.log('Game results saved and stats updated successfully');
                 
             } catch (error) {
                 console.error('Error saving game results:', error);
+                showError('Failed to save game results: ' + error.message);
             }
         }
         
@@ -1436,22 +1414,64 @@
         
         async function recalculateGameStats(timestamp, changedClueIndex, newResult) {
             try {
-                // Load game data
-                const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
-                const snapshot = await get(gameRef);
+                console.log('Recalculating stats for timestamp:', timestamp);
                 
-                if (!snapshot.exists()) {
-                    console.error('Game not found for recalculation');
-                    return;
+                // Try both completed games and game progress
+                let game = null;
+                let gameRef = null;
+                
+                // First try completed games
+                const completedGameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
+                const completedSnapshot = await get(completedGameRef);
+                
+                if (completedSnapshot.exists()) {
+                    game = completedSnapshot.val();
+                    gameRef = completedGameRef;
+                    console.log('Found game in completed games');
+                } else {
+                    // Try game progress
+                    const progressRef = ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${timestamp}`);
+                    const progressSnapshot = await get(progressRef);
+                    
+                    if (progressSnapshot.exists()) {
+                        game = progressSnapshot.val();
+                        gameRef = progressRef;
+                        console.log('Found game in progress');
+                    } else {
+                        console.error('Game not found in either completed or progress:', timestamp);
+                        showError('Game not found for editing');
+                        return;
+                    }
                 }
                 
-                const game = snapshot.val();
+                console.log('Loaded game for recalculation:', game);
                 
                 // Get the actual clues for this game
-                const gameData = availableGames.find(g => g.gameId === (game.gameId || game.date));
+                const searchGameId = game.gameId || game.date;
+                console.log('Searching for game clues with ID:', searchGameId);
+                console.log('Available games count:', availableGames.length);
+                console.log('First few available game IDs:', availableGames.slice(0, 5).map(g => g.gameId));
+                
+                let gameData = availableGames.find(g => g.gameId === searchGameId);
                 if (!gameData) {
-                    console.error('Game clues not found for recalculation');
-                    return;
+                    console.error('Game clues not found for recalculation. SearchID:', searchGameId);
+                    
+                    // Try to reload available games if they're not loaded
+                    if (availableGames.length === 0) {
+                        console.log('No available games, trying to reload...');
+                        await loadAvailableGames();
+                        gameData = availableGames.find(g => g.gameId === searchGameId);
+                        if (!gameData) {
+                            showError('Game clues not found even after reload');
+                            return;
+                        }
+                        console.log('Found game after reload');
+                    } else {
+                        showError('Game clues not found for editing');
+                        return;
+                    }
+                } else {
+                    console.log('Found game clues:', gameData.clues.length);
                 }
                 
                 // Create a results array to track all clue results
