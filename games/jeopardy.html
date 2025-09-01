@@ -5,41 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Evil Trivia - Jeopardy Study</title>
     
+    <!-- Use existing banner authentication system -->
+    <script src="/js/components/autoload-banner.js"></script>
+    
     <!-- Authentic Jeopardy Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Korinna:wght@400;700&family=Swiss+911+Compressed:wght@400;700&display=swap" rel="stylesheet">
-    
-    <!-- Firebase SDK -->
-    <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-        import { getDatabase, ref, get, set, push } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
-        
-        // Firebase configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
-            authDomain: "eviltrivia-47664.firebaseapp.com",
-            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
-            projectId: "eviltrivia-47664",
-            storageBucket: "eviltrivia-47664.appspot.com",
-            messagingSenderId: "123456789012",
-            appId: "1:123456789012:web:abcdefghijklmnop"
-        };
-        
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getDatabase(app);
-        
-        // Make Firebase available globally
-        window.auth = auth;
-        window.db = db;
-        window.ref = ref;
-        window.get = get;
-        window.set = set;
-        window.push = push;
-    </script>
     
     <style>
         /* Reset and Base Styles */
@@ -55,6 +27,7 @@
             color: white;
             min-height: 100vh;
             overflow-x: hidden;
+            padding-top: 60px; /* Space for banner */
         }
         
         /* Authentic Jeopardy Colors */
@@ -114,58 +87,6 @@
             font-size: 2rem;
             margin-bottom: 20px;
             color: var(--jeopardy-gold);
-        }
-        
-        .login-btn {
-            background: var(--jeopardy-gold);
-            color: var(--jeopardy-black);
-            border: none;
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            font-weight: 700;
-            border-radius: 8px;
-            cursor: pointer;
-            font-family: 'Korinna', serif;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        }
-        
-        .login-btn:hover {
-            background: #FFED4E;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        
-        .user-avatar {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background: var(--jeopardy-gold);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--jeopardy-black);
-        }
-        
-        .user-details h3 {
-            font-size: 1.5rem;
-            color: var(--jeopardy-gold);
-            margin-bottom: 5px;
-        }
-        
-        .user-details p {
-            color: var(--jeopardy-white);
-            opacity: 0.8;
         }
         
         /* Game Selector */
@@ -379,8 +300,7 @@
         <!-- Authentication Section -->
         <div id="auth-section" class="auth-section">
             <h2>Welcome to Jeopardy Study</h2>
-            <p style="margin-bottom: 20px; font-size: 1.1rem;">Please sign in to access the study tools</p>
-            <button id="login-btn" class="login-btn">Sign In with Google</button>
+            <p style="margin-bottom: 20px; font-size: 1.1rem;">Please sign in using the banner above to access the study tools</p>
         </div>
         
         <!-- Game Selector (Admin Only) -->
@@ -400,7 +320,6 @@
                     <p>Practice with clues of specific difficulty levels</p>
                 </div>
             </div>
-            <button class="game-btn secondary" onclick="signOut()">Sign Out</button>
         </div>
         
         <!-- Game Board -->
@@ -436,31 +355,22 @@
         
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
-            initializeApp();
+            // Wait for banner to load and check auth
+            setTimeout(checkAuthState, 1000);
         });
         
-        async function initializeApp() {
-            try {
-                // Check authentication state
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        currentUser = user;
-                        await checkAdminStatus(user);
-                    } else {
-                        showAuthSection();
-                    }
-                });
-                
-                // Set up login button
-                document.getElementById('login-btn').addEventListener('click', signIn);
-                
-            } catch (error) {
-                console.error('Error initializing app:', error);
-                showError('Failed to initialize app: ' + error.message);
+        function checkAuthState() {
+            // Check if user is authenticated via banner
+            if (window.userData && window.userData.uid) {
+                currentUser = window.userData;
+                checkAdminStatus();
+            } else {
+                // Check again in a moment
+                setTimeout(checkAuthState, 500);
             }
         }
         
-        async function checkAdminStatus(user) {
+        function checkAdminStatus() {
             try {
                 // Check if user is admin (you can customize this logic)
                 const adminEmails = [
@@ -469,11 +379,11 @@
                     // Add more admin emails as needed
                 ];
                 
-                const isAdmin = adminEmails.includes(user.email);
+                const isAdmin = adminEmails.includes(currentUser.email);
                 
                 if (isAdmin) {
-                    await loadJeopardyData();
-                    await loadUserStats();
+                    loadJeopardyData();
+                    loadUserStats();
                     showGameSelector();
                 } else {
                     showError('Access denied. Admin privileges required.');
@@ -510,21 +420,24 @@
             try {
                 if (!currentUser) return;
                 
-                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
-                const snapshot = await get(statsRef);
-                
-                if (snapshot.exists()) {
-                    userStats = snapshot.val();
-                } else {
-                    // Initialize default stats
-                    userStats = {
-                        totalClues: 0,
-                        correctAnswers: 0,
-                        incorrectAnswers: 0,
-                        totalScore: 0,
-                        lastPlayed: null
-                    };
-                    await set(statsRef, userStats);
+                // Use the existing Firebase reference from banner
+                if (window.dbRef && window.db) {
+                    const statsRef = window.dbRef(window.db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                    const snapshot = await window.get(statsRef);
+                    
+                    if (snapshot.exists()) {
+                        userStats = snapshot.val();
+                    } else {
+                        // Initialize default stats
+                        userStats = {
+                            totalClues: 0,
+                            correctAnswers: 0,
+                            incorrectAnswers: 0,
+                            totalScore: 0,
+                            lastPlayed: null
+                        };
+                        await window.set(statsRef, userStats);
+                    }
                 }
                 
             } catch (error) {
@@ -535,9 +448,9 @@
         
         async function saveUserStats(result, clueValue) {
             try {
-                if (!currentUser) return;
+                if (!currentUser || !window.dbRef || !window.db) return;
                 
-                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                const statsRef = window.dbRef(window.db, `users/${currentUser.uid}/scores/jeopardy/stats`);
                 
                 // Update stats
                 userStats.totalClues++;
@@ -550,7 +463,7 @@
                 userStats.lastPlayed = new Date().toISOString();
                 
                 // Save to Firebase
-                await set(statsRef, userStats);
+                await window.set(statsRef, userStats);
                 
             } catch (error) {
                 console.error('Error saving user stats:', error);
@@ -618,21 +531,6 @@
         
         function backToSelector() {
             showGameSelector();
-        }
-        
-        // Authentication functions
-        async function signIn() {
-            try {
-                const provider = new GoogleAuthProvider();
-                await signInWithPopup(auth, provider);
-            } catch (error) {
-                console.error('Error signing in:', error);
-                showError('Failed to sign in: ' + error.message);
-            }
-        }
-        
-        function signOut() {
-            auth.signOut();
         }
         
         // UI State functions
