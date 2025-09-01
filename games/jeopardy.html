@@ -237,65 +237,289 @@
             }
         }
         
-        function startRandomGame() {
+                // Game state variables
+        let currentGame = {
+            clues: [],
+            currentIndex: 0,
+            correct: 0,
+            incorrect: 0,
+            coryat: 0,
+            startTime: null,
+            categoryStats: {},
+            answerShown: false
+        };
+        
+        function startCoryatGame() {
             if (!jeopardyData || !jeopardyData.clues) {
                 showError('Jeopardy data not loaded');
-        return;
-      }
-      
-            console.log('Starting random game...');
+                return;
+            }
             
-            // Get random clues
-            currentClues = getRandomClues(50);
-            currentClueIndex = 0;
+            console.log('Starting Coryat game...');
+            
+            // Initialize game
+            currentGame = {
+                clues: getRandomClues(30),
+                currentIndex: 0,
+                correct: 0,
+                incorrect: 0,
+                coryat: 0,
+                startTime: Date.now(),
+                categoryStats: {},
+                answerShown: false
+            };
             
             showGameBoard();
             displayCurrentClue();
+            updateGameStats();
         }
         
-        function startCategoryGame() {
-            // For now, just start random game
-            // TODO: Implement category selection
-            startRandomGame();
-        }
-        
-        function startDifficultyGame() {
-            // For now, just start random game
-            // TODO: Implement difficulty selection
-            startRandomGame();
-        }
-        
-        function getRandomClues(count) {
+                function getRandomClues(count) {
             const shuffled = [...jeopardyData.clues].sort(() => Math.random() - 0.5);
             return shuffled.slice(0, count);
         }
         
         function displayCurrentClue() {
-            if (currentClues.length === 0 || currentClueIndex >= currentClues.length) {
-                document.getElementById('clue-text').textContent = 'No more clues available!';
-        return;
-      }
-      
-            const clue = currentClues[currentClueIndex];
+            if (currentGame.clues.length === 0 || currentGame.currentIndex >= currentGame.clues.length) {
+                endGame();
+                return;
+            }
             
+            const clue = currentGame.clues[currentGame.currentIndex];
+            
+            // Flip question and answer for authentic Jeopardy format
             document.getElementById('clue-category').textContent = clue.category || 'CATEGORY';
             document.getElementById('clue-value').textContent = `$${clue.clue_value || '200'}`;
-            document.getElementById('clue-text').textContent = clue.question || 'No question available';
-            document.getElementById('clue-answer').textContent = clue.answer || 'No answer available';
+            document.getElementById('clue-text').textContent = clue.answer || 'No answer available'; // Show answer as clue
+            document.getElementById('clue-answer').textContent = clue.question || 'No question available'; // Show question as answer
             document.getElementById('clue-answer').style.display = 'none';
+            
+            // Reset button states
+            currentGame.answerShown = false;
+            document.getElementById('show-answer-btn').style.display = 'inline-block';
+            document.getElementById('correct-btn').style.display = 'none';
+            document.getElementById('incorrect-btn').style.display = 'none';
+            document.getElementById('next-clue-btn').style.display = 'none';
         }
         
-        function nextClue() {
-            currentClueIndex++;
-            if (currentClueIndex >= currentClues.length) {
-                currentClueIndex = 0; // Loop back to start
-            }
-            displayCurrentClue();
+        function updateGameStats() {
+            document.getElementById('current-clue-num').textContent = currentGame.currentIndex + 1;
+            document.getElementById('total-clues').textContent = currentGame.clues.length;
+            document.getElementById('session-correct').textContent = currentGame.correct;
+            document.getElementById('session-incorrect').textContent = currentGame.incorrect;
+            document.getElementById('session-coryat').textContent = currentGame.coryat;
         }
         
         function showAnswer() {
+            if (currentGame.answerShown) return;
+            
             const answerElement = document.getElementById('clue-answer');
             answerElement.style.display = 'block';
+            currentGame.answerShown = true;
+            
+            // Show scoring buttons
+            document.getElementById('show-answer-btn').style.display = 'none';
+            document.getElementById('correct-btn').style.display = 'inline-block';
+            document.getElementById('incorrect-btn').style.display = 'inline-block';
+        }
+        
+        function markCorrect() {
+            if (!currentGame.answerShown) return;
+            
+            const clue = currentGame.clues[currentGame.currentIndex];
+            const clueValue = parseInt(clue.clue_value) || 200;
+            
+            currentGame.correct++;
+            currentGame.coryat += clueValue;
+            
+            // Track category performance
+            const category = clue.category || 'Unknown';
+            if (!currentGame.categoryStats[category]) {
+                currentGame.categoryStats[category] = { correct: 0, total: 0 };
+            }
+            currentGame.categoryStats[category].correct++;
+            currentGame.categoryStats[category].total++;
+            
+            updateGameStats();
+            showNextButton();
+        }
+        
+        function markIncorrect() {
+            if (!currentGame.answerShown) return;
+            
+            const clue = currentGame.clues[currentGame.currentIndex];
+            currentGame.incorrect++;
+            
+            // Track category performance
+            const category = clue.category || 'Unknown';
+            if (!currentGame.categoryStats[category]) {
+                currentGame.categoryStats[category] = { correct: 0, total: 0 };
+            }
+            currentGame.categoryStats[category].total++;
+            
+            updateGameStats();
+            showNextButton();
+        }
+        
+        function showNextButton() {
+            document.getElementById('correct-btn').style.display = 'none';
+            document.getElementById('incorrect-btn').style.display = 'none';
+            document.getElementById('next-clue-btn').style.display = 'inline-block';
+        }
+        
+        function nextClue() {
+            currentGame.currentIndex++;
+            if (currentGame.currentIndex >= currentGame.clues.length) {
+                endGame();
+            } else {
+                displayCurrentClue();
+                updateGameStats();
+            }
+        }
+        
+        async function endGame() {
+            // Save game results
+            await saveGameResults();
+            
+            // Show final results
+            alert(`Game Complete!\n\nCorrect: ${currentGame.correct}\nIncorrect: ${currentGame.incorrect}\nCoryat Score: $${currentGame.coryat}`);
+            
+            // Return to selector
+            backToSelector();
+        }
+        
+        async function saveGameResults() {
+            try {
+                if (!currentUser) return;
+                
+                const gameResult = {
+                    date: new Date().toISOString(),
+                    correct: currentGame.correct,
+                    incorrect: currentGame.incorrect,
+                    coryat: currentGame.coryat,
+                    totalClues: currentGame.clues.length,
+                    categoryStats: currentGame.categoryStats,
+                    duration: Date.now() - currentGame.startTime
+                };
+                
+                // Save individual game
+                const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${Date.now()}`);
+                await set(gameRef, gameResult);
+                
+                // Update overall stats
+                const statsRef = ref(db, `users/${currentUser.uid}/jeopardy/stats`);
+                const statsSnapshot = await get(statsRef);
+                
+                let stats = {
+                    totalGames: 0,
+                    totalCorrect: 0,
+                    totalIncorrect: 0,
+                    totalCoryat: 0,
+                    bestCoryat: 0,
+                    categoryStats: {}
+                };
+                
+                if (statsSnapshot.exists()) {
+                    stats = statsSnapshot.val();
+                }
+                
+                // Update stats
+                stats.totalGames++;
+                stats.totalCorrect += currentGame.correct;
+                stats.totalIncorrect += currentGame.incorrect;
+                stats.totalCoryat += currentGame.coryat;
+                stats.bestCoryat = Math.max(stats.bestCoryat, currentGame.coryat);
+                stats.latestCoryat = currentGame.coryat;
+                
+                // Update category stats
+                for (const [category, catStats] of Object.entries(currentGame.categoryStats)) {
+                    if (!stats.categoryStats[category]) {
+                        stats.categoryStats[category] = { correct: 0, total: 0 };
+                    }
+                    stats.categoryStats[category].correct += catStats.correct;
+                    stats.categoryStats[category].total += catStats.total;
+                }
+                
+                await set(statsRef, stats);
+                console.log('Game results saved successfully');
+                
+            } catch (error) {
+                console.error('Error saving game results:', error);
+            }
+        }
+        
+        async function showStats() {
+            try {
+                console.log('Loading user stats...');
+                await loadAndDisplayStats();
+                showStatsView();
+            } catch (error) {
+                console.error('Error showing stats:', error);
+                showError('Failed to load stats: ' + error.message);
+            }
+        }
+        
+        async function loadAndDisplayStats() {
+            if (!currentUser) return;
+            
+            const statsRef = ref(db, `users/${currentUser.uid}/jeopardy/stats`);
+            const statsSnapshot = await get(statsRef);
+            
+            if (statsSnapshot.exists()) {
+                const stats = statsSnapshot.val();
+                
+                // Update overall stats
+                document.getElementById('total-games').textContent = stats.totalGames || 0;
+                document.getElementById('avg-coryat').textContent = stats.totalGames > 0 ? 
+                    `$${Math.round(stats.totalCoryat / stats.totalGames)}` : '$0';
+                document.getElementById('latest-coryat').textContent = `$${stats.latestCoryat || 0}`;
+                document.getElementById('best-coryat').textContent = `$${stats.bestCoryat || 0}`;
+                
+                // Update category stats
+                displayCategoryStats(stats.categoryStats || {});
+            } else {
+                // No stats yet
+                document.getElementById('total-games').textContent = '0';
+                document.getElementById('avg-coryat').textContent = '$0';
+                document.getElementById('latest-coryat').textContent = '$0';
+                document.getElementById('best-coryat').textContent = '$0';
+                
+                document.getElementById('category-stats').innerHTML = 
+                    '<p>Play some games to see your category performance!</p>';
+            }
+        }
+        
+        function displayCategoryStats(categoryStats) {
+            const categoryStatsDiv = document.getElementById('category-stats');
+            
+            if (Object.keys(categoryStats).length === 0) {
+                categoryStatsDiv.innerHTML = '<p>Play some games to see your category performance!</p>';
+                return;
+            }
+            
+            // Calculate percentages and sort by performance
+            const categoryPerformance = Object.entries(categoryStats)
+                .map(([category, stats]) => ({
+                    category,
+                    correct: stats.correct,
+                    total: stats.total,
+                    percentage: Math.round((stats.correct / stats.total) * 100)
+                }))
+                .sort((a, b) => b.percentage - a.percentage);
+            
+            // Create HTML
+            const html = `
+                <div class="category-performance">
+                    ${categoryPerformance.map(cat => `
+                        <div class="category-item">
+                            <span class="category-name">${cat.category}</span>
+                            <span class="category-percentage">${cat.percentage}% (${cat.correct}/${cat.total})</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            categoryStatsDiv.innerHTML = html;
         }
         
         function backToSelector() {
@@ -308,6 +532,7 @@
             document.getElementById('auth-section').style.display = 'block';
             document.getElementById('game-selector').style.display = 'none';
             document.getElementById('game-board').style.display = 'none';
+            document.getElementById('stats-view').style.display = 'none';
             document.getElementById('loading').style.display = 'none';
         }
         
@@ -316,6 +541,7 @@
             document.getElementById('auth-section').style.display = 'none';
             document.getElementById('game-selector').style.display = 'block';
             document.getElementById('game-board').style.display = 'none';
+            document.getElementById('stats-view').style.display = 'none';
             document.getElementById('loading').style.display = 'none';
         }
         
@@ -324,6 +550,16 @@
             document.getElementById('auth-section').style.display = 'none';
             document.getElementById('game-selector').style.display = 'none';
             document.getElementById('game-board').style.display = 'block';
+            document.getElementById('stats-view').style.display = 'none';
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function showStatsView() {
+            console.log('Showing stats view');
+            document.getElementById('auth-section').style.display = 'none';
+            document.getElementById('game-selector').style.display = 'none';
+            document.getElementById('game-board').style.display = 'none';
+            document.getElementById('stats-view').style.display = 'block';
             document.getElementById('loading').style.display = 'none';
         }
         
@@ -351,11 +587,12 @@
         }
         
         // Make functions available globally for onclick handlers
-        window.startRandomGame = startRandomGame;
-        window.startCategoryGame = startCategoryGame;
-        window.startDifficultyGame = startDifficultyGame;
+        window.startCoryatGame = startCoryatGame;
+        window.showStats = showStats;
         window.nextClue = nextClue;
         window.showAnswer = showAnswer;
+        window.markCorrect = markCorrect;
+        window.markIncorrect = markIncorrect;
         window.backToSelector = backToSelector;
     </script>
     
@@ -512,6 +749,101 @@
             color: var(--jeopardy-gold);
         }
         
+        /* Game Info */
+        .game-info {
+            margin-bottom: 30px;
+        }
+        
+        .game-stats {
+            background: var(--jeopardy-dark-blue);
+            border: 2px solid var(--jeopardy-gold);
+            border-radius: 10px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .game-stats span {
+            color: var(--jeopardy-white);
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        
+        /* Stats View */
+        .stats-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .stats-section {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .stats-section h3 {
+            color: var(--jeopardy-gold);
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+        }
+        
+        .stat-item {
+            text-align: center;
+            background: var(--jeopardy-blue);
+            border: 2px solid var(--jeopardy-gold);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--jeopardy-gold);
+            margin-bottom: 8px;
+        }
+        
+        .stat-label {
+            font-size: 1rem;
+            color: var(--jeopardy-white);
+            opacity: 0.9;
+        }
+        
+        .category-performance {
+            margin-top: 20px;
+        }
+        
+        .category-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            margin: 10px 0;
+            background: var(--jeopardy-dark-blue);
+            border-radius: 5px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .category-name {
+            font-weight: 600;
+            color: var(--jeopardy-white);
+        }
+        
+        .category-percentage {
+            font-weight: 700;
+            color: var(--jeopardy-gold);
+        }
+        
         .clue-display {
             background: var(--jeopardy-blue);
             border: 4px solid var(--jeopardy-gold);
@@ -656,35 +988,79 @@
         
         <!-- Game Selector (Admin Only) -->
         <div id="game-selector" class="game-selector">
-            <h2>Choose Your Study Mode</h2>
+            <h2>Jeopardy Study</h2>
             <div class="selector-grid">
-                <div class="selector-card" onclick="startRandomGame()">
-                    <h3>Random Clues</h3>
-                    <p>Practice with random clues from all categories and difficulty levels</p>
+                <div class="selector-card" onclick="startCoryatGame()">
+                    <h3>Coryat Practice</h3>
+                    <p>Practice with authentic Jeopardy clues and track your performance</p>
                 </div>
-                <div class="selector-card" onclick="startCategoryGame()">
-                    <h3>Category Focus</h3>
-                    <p>Focus on specific categories to improve your knowledge</p>
-                </div>
-                <div class="selector-card" onclick="startDifficultyGame()">
-                    <h3>Difficulty Training</h3>
-                    <p>Practice with clues of specific difficulty levels</p>
+                <div class="selector-card" onclick="showStats()">
+                    <h3>Your Stats</h3>
+                    <p>View your performance history and category strengths</p>
                 </div>
             </div>
         </div>
         
-        <!-- Game Board -->
+                <!-- Game Board -->
         <div id="game-board" class="game-board">
-            <h2 id="game-title">Jeopardy Study</h2>
+            <h2 id="game-title">Coryat Practice</h2>
+            <div class="game-info">
+                <div class="game-stats">
+                    <span>Clue <span id="current-clue-num">1</span> of <span id="total-clues">30</span></span>
+                    <span>Correct: <span id="session-correct">0</span></span>
+                    <span>Incorrect: <span id="session-incorrect">0</span></span>
+                    <span>Coryat: $<span id="session-coryat">0</span></span>
+                </div>
+            </div>
             <div class="clue-display">
                 <div class="clue-category" id="clue-category">CATEGORY</div>
                 <div class="clue-value" id="clue-value">$200</div>
-                <div class="clue-text" id="clue-text">Click "Next Clue" to start studying!</div>
-                <div class="clue-answer" id="clue-answer">ANSWER</div>
-              </div>
+                <div class="clue-text" id="clue-text">Click "Start Coryat" to begin!</div>
+                <div class="clue-answer" id="clue-answer" style="display: none;">QUESTION</div>
+            </div>
             <div class="game-controls">
-                <button class="game-btn" onclick="nextClue()">Next Clue</button>
-                <button class="game-btn secondary" onclick="showAnswer()">Show Answer</button>
+                <button class="game-btn" id="correct-btn" onclick="markCorrect()" style="display: none;">Correct</button>
+                <button class="game-btn secondary" id="incorrect-btn" onclick="markIncorrect()" style="display: none;">Incorrect</button>
+                <button class="game-btn secondary" id="show-answer-btn" onclick="showAnswer()">Show Question</button>
+                <button class="game-btn" id="next-clue-btn" onclick="nextClue()" style="display: none;">Next Clue</button>
+                <button class="game-btn secondary" onclick="backToSelector()">Back to Menu</button>
+            </div>
+        </div>
+        
+        <!-- Stats View -->
+        <div id="stats-view" class="game-board" style="display: none;">
+            <h2>Your Jeopardy Stats</h2>
+            <div class="stats-container">
+                <div class="stats-section">
+                    <h3>Overall Performance</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="total-games">0</div>
+                            <div class="stat-label">Games Played</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="avg-coryat">$0</div>
+                            <div class="stat-label">Average Coryat</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="latest-coryat">$0</div>
+                            <div class="stat-label">Latest Coryat</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="best-coryat">$0</div>
+                            <div class="stat-label">Best Coryat</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="stats-section">
+                    <h3>Category Performance</h3>
+                    <div id="category-stats">
+                        <p>Play some games to see your category performance!</p>
+                    </div>
+                </div>
+            </div>
+            <div class="game-controls">
                 <button class="game-btn secondary" onclick="backToSelector()">Back to Menu</button>
             </div>
         </div>
