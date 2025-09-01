@@ -1345,8 +1345,6 @@
                 for (const [triviaNumber, triviaData] of Object.entries(archiveData)) {
                     if (!triviaData.trivia) continue;
                     
-                    const triviaDate = triviaData.metadata && triviaData.metadata.date ? triviaData.metadata.date : '';
-                    
                     // Search through all rounds
                     for (const [roundNumber, roundData] of Object.entries(triviaData.trivia)) {
                         if (isNaN(parseInt(roundNumber)) || typeof roundData !== 'object') continue;
@@ -1363,6 +1361,9 @@
                             // Search through all questions in the format
                             for (const [questionNumber, questionData] of Object.entries(formatData)) {
                                 if (isNaN(parseInt(questionNumber)) || typeof questionData !== 'object') continue;
+                                
+                                // Get the date from the question level (Date field)
+                                const questionDate = questionData.Date || questionData.date || '';
                                 
                                 // Check all fields for the search term
                                 const fieldsToSearch = {
@@ -1394,7 +1395,7 @@
                                 if (foundInFields.length > 0) {
                                     results.push({
                                         triviaNumber,
-                                        triviaDate,
+                                        triviaDate: questionDate, // Use the question-level date
                                         roundName,
                                         roundInstruction,
                                         formatName: format,
@@ -1459,13 +1460,23 @@
                 const resultItem = document.createElement('div');
                 resultItem.className = 'archive-result-item';
                 
-                // Format date
-                const formattedDate = result.triviaDate ? 
-                    new Date(result.triviaDate).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                    }) : 'Unknown Date';
+                // Format date with better handling for ISO dates
+                let formattedDate = 'Unknown Date';
+                if (result.triviaDate && result.triviaDate.trim()) {
+                    try {
+                        const date = new Date(result.triviaDate);
+                        if (!isNaN(date.getTime())) {
+                            formattedDate = date.toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                            });
+                        }
+                    } catch (e) {
+                        // If date parsing fails, keep 'Unknown Date'
+                        console.warn('Failed to parse date:', result.triviaDate);
+                    }
+                }
                 
                 let html = `
                     <div class="archive-result-header">
