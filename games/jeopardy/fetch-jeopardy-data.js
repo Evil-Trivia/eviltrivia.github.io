@@ -308,6 +308,19 @@ async function main() {
         
         log('Dataset update completed successfully!');
         
+        // Automatically split the dataset into chunks for git storage
+        log('Splitting dataset into chunks for git storage...');
+        try {
+            const { splitDataset } = require('./split-dataset.js');
+            if (splitDataset()) {
+                log('Dataset successfully split into chunks');
+            } else {
+                log('Warning: Failed to split dataset into chunks', 'WARNING');
+            }
+        } catch (e) {
+            log(`Warning: Could not split dataset: ${e.message}`, 'WARNING');
+        }
+        
     } catch (error) {
         log(`Error during update process: ${error.message}`, 'ERROR');
         process.exit(1);
