@@ -110,18 +110,20 @@
             }
         }
         
-        async function loadJeopardyData() {
+                async function loadJeopardyData() {
             try {
                 console.log('Loading Jeopardy data...');
                 showLoading();
                 
-                // Try to load from local dataset first
-                const response = await fetch('/games/jeopardy/data/jeopardy_clues_latest.json');
+                // First try to load the full dataset
+                let response = await fetch('/games/jeopardy/data/jeopardy_clues_latest.json');
                 if (response.ok) {
                     jeopardyData = await response.json();
-                    console.log(`Loaded ${jeopardyData.clues.length} clues from local dataset`);
-        } else {
-                    throw new Error('Local dataset not found');
+                    console.log(`Loaded ${jeopardyData.clues.length} clues from full dataset`);
+                } else {
+                    console.log('Full dataset not found, loading from chunks...');
+                    // Load from chunks
+                    await loadFromChunks();
                 }
                 
                 hideLoading();
@@ -130,6 +132,48 @@
                 console.error('Error loading Jeopardy data:', error);
                 showError('Failed to load Jeopardy data. Please ensure the dataset is available.');
                 hideLoading();
+            }
+        }
+        
+        async function loadFromChunks() {
+            try {
+                // Load metadata to know how many chunks we have
+                const metadataResponse = await fetch('/games/jeopardy/data/dataset-metadata.json');
+                if (!metadataResponse.ok) {
+                    throw new Error('Dataset metadata not found');
+                }
+                
+                const metadata = await metadataResponse.json();
+                console.log('Dataset metadata:', metadata);
+                
+                // Load all chunks
+                const allClues = [];
+                for (let i = 0; i < metadata.totalChunks; i++) {
+                    const chunkResponse = await fetch(`/games/jeopardy/data/chunks/chunk_${i.toString().padStart(3, '0')}.json`);
+                    if (!chunkResponse.ok) {
+                        throw new Error(`Failed to load chunk ${i}`);
+                    }
+                    const chunk = await chunkResponse.json();
+                    allClues.push(...chunk.clues);
+                    console.log(`Loaded chunk ${i + 1}/${metadata.totalChunks} (${chunk.clues.length} clues)`);
+                }
+                
+                // Reconstruct the dataset
+                jeopardyData = {
+                    clues: allClues,
+                    metadata: {
+                        totalClues: allClues.length,
+                        lastUpdated: metadata.lastUpdated,
+                        source: metadata.source,
+                        loadedFromChunks: true
+                    }
+                };
+                
+                console.log(`Successfully loaded ${allClues.length} clues from ${metadata.totalChunks} chunks`);
+                
+            } catch (error) {
+                console.error('Error loading from chunks:', error);
+                throw new Error('Failed to load dataset from chunks: ' + error.message);
             }
         }
         
