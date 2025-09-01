@@ -1281,28 +1281,79 @@
             }
         }
         
-        async function loadGameDetails(timestamp) {
+        async function loadGameDetails(timestamp, gameId, isCompleted) {
             try {
-                const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
-                const snapshot = await get(gameRef);
+                console.log('Loading game details:', timestamp, gameId, isCompleted);
                 
-                if (!snapshot.exists()) return;
-                
-                const game = snapshot.val();
                 const resultsDiv = document.getElementById(`clue-results-${timestamp}`);
-                
-                // Get the actual clues for this game
-                const gameData = availableGames.find(g => g.gameId === game.date);
-                if (!gameData) {
-                    resultsDiv.innerHTML = '<p>Game data not found</p>';
+                if (!resultsDiv) {
+                    console.error('Results div not found for timestamp:', timestamp);
                     return;
                 }
                 
+                resultsDiv.innerHTML = '<p>Loading game details...</p>';
+                
+                // Ensure available games are loaded
+                if (!availableGames || availableGames.length === 0) {
+                    console.log('Available games not loaded, loading now...');
+                    await loadAvailableGames();
+                }
+                
+                let game;
+                
+                if (isCompleted) {
+                    // Load from completed games
+                    const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
+                    const snapshot = await get(gameRef);
+                    
+                    if (!snapshot.exists()) {
+                        resultsDiv.innerHTML = '<p>Completed game data not found</p>';
+                        return;
+                    }
+                    game = snapshot.val();
+                } else {
+                    // Load from game progress
+                    const progressRef = ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${gameId}`);
+                    const snapshot = await get(progressRef);
+                    
+                    if (!snapshot.exists()) {
+                        resultsDiv.innerHTML = '<p>Game progress not found</p>';
+                        return;
+                    }
+                    game = snapshot.val();
+                }
+                
+                console.log('Loaded game:', game);
+                
+                // Get the actual clues for this game
+                const searchGameId = game.gameId || game.date || gameId;
+                console.log('Searching for game with ID:', searchGameId);
+                
+                const gameData = availableGames.find(g => g.gameId === searchGameId);
+                if (!gameData) {
+                    resultsDiv.innerHTML = `<p>Game clues not found for ${searchGameId}. Available games: ${availableGames.length}</p>`;
+                    console.error('Available game IDs:', availableGames.slice(0, 5).map(g => g.gameId));
+                    return;
+                }
+                
+                console.log('Found game clues:', gameData.clues.length);
+                
                 // Create editable clue results
-                const html = gameData.clues.slice(0, game.totalClues || 30).map((clue, index) => {
+                const totalClues = Math.min(gameData.clues.length, 30); // Show first 30 clues
+                
+                if (totalClues === 0) {
+                    resultsDiv.innerHTML = '<p>No clues found for this game</p>';
+                    return;
+                }
+                
+                const html = gameData.clues.slice(0, totalClues).map((clue, index) => {
                     // Determine result from game data (simplified for now)
-                    const resultType = index < game.correct ? 'correct' : 
-                                     index < (game.correct + game.incorrect) ? 'incorrect' : 'passed';
+                    let resultType = 'passed';
+                    if (index < game.correct) {
+                        resultType = 'correct';
+                    } else if (index < (game.correct + game.incorrect)) {
+                        resultType = 'incorrect';
+                    }
                     
                     return `
                         <div class="clue-result-item">
@@ -1311,18 +1362,23 @@
                                 ${resultType === 'correct' ? 'C' : resultType === 'incorrect' ? 'I' : 'P'}
                             </div>
                             <div class="clue-content">
-                                <span class="clue-category-small">${clue.category}</span>
-                                <span class="clue-value-small">$${clue.clue_value}</span>
-                                <div class="clue-text-small">${clue.answer} → ${clue.question}</div>
+                                <span class="clue-category-small">${clue.category || 'Unknown'}</span>
+                                <span class="clue-value-small">$${clue.clue_value || '200'}</span>
+                                <div class="clue-text-small">${clue.answer || 'No answer'} → ${clue.question || 'No question'}</div>
                             </div>
                         </div>
                     `;
                 }).join('');
                 
                 resultsDiv.innerHTML = html;
+                console.log('Game details loaded successfully');
                 
             } catch (error) {
                 console.error('Error loading game details:', error);
+                const resultsDiv = document.getElementById(`clue-results-${timestamp}`);
+                if (resultsDiv) {
+                    resultsDiv.innerHTML = `<p>Error loading game details: ${error.message}</p>`;
+                }
             }
         }
         
