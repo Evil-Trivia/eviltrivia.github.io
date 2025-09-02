@@ -1340,20 +1340,32 @@
                     return;
                 }
                 
+                // Use stored clue results if available, otherwise derive from counts
+                const storedResults = game.clueResults || [];
+                
                 const html = gameData.clues.slice(0, totalClues).map((clue, index) => {
-                    // Determine result from game data (simplified for now)
+                    // Get result from stored results or derive from counts
                     let resultType = 'passed';
-                    if (index < game.correct) {
-                        resultType = 'correct';
-                    } else if (index < (game.correct + game.incorrect)) {
-                        resultType = 'incorrect';
+                    if (storedResults.length > index) {
+                        resultType = storedResults[index];
+                    } else {
+                        // Fallback to simple counting method
+                        if (index < game.correct) {
+                            resultType = 'correct';
+                        } else if (index < (game.correct + game.incorrect)) {
+                            resultType = 'incorrect';
+                        }
                     }
                     
                     return `
                         <div class="clue-result-item">
-                            <div class="result-indicator result-${resultType}" 
-                                 onclick="toggleResult('${timestamp}', ${index})">
-                                ${resultType === 'correct' ? 'C' : resultType === 'incorrect' ? 'I' : 'P'}
+                            <div class="result-options">
+                                <div class="result-option correct ${resultType === 'correct' ? 'active' : 'inactive'}" 
+                                     onclick="setResult('${timestamp}', '${gameId}', ${index}, 'correct', ${isCompleted})">C</div>
+                                <div class="result-option incorrect ${resultType === 'incorrect' ? 'active' : 'inactive'}" 
+                                     onclick="setResult('${timestamp}', '${gameId}', ${index}, 'incorrect', ${isCompleted})">I</div>
+                                <div class="result-option passed ${resultType === 'passed' ? 'active' : 'inactive'}" 
+                                     onclick="setResult('${timestamp}', '${gameId}', ${index}, 'passed', ${isCompleted})">P</div>
                             </div>
                             <div class="clue-content">
                                 <span class="clue-category-small">${clue.category || 'Unknown'}</span>
@@ -1376,39 +1388,154 @@
             }
         }
         
-        async function toggleResult(timestamp, clueIndex) {
+        async function setResult(timestamp, gameId, clueIndex, newResult, isCompleted) {
             try {
-                // Cycle through C → I → P → C
-                const resultDiv = event.target;
-                const currentResult = resultDiv.textContent;
+                console.log('Setting result:', { timestamp, gameId, clueIndex, newResult, isCompleted });
                 
-                let newResult;
-                switch (currentResult) {
-                    case 'C':
-                        newResult = 'incorrect';
-                        resultDiv.className = 'result-indicator result-incorrect';
-                        resultDiv.textContent = 'I';
-                        break;
-                    case 'I':
-                        newResult = 'passed';
-                        resultDiv.className = 'result-indicator result-passed';
-                        resultDiv.textContent = 'P';
-                        break;
-                    case 'P':
-                        newResult = 'correct';
-                        resultDiv.className = 'result-indicator result-correct';
-                        resultDiv.textContent = 'C';
-                        break;
+                // Update the visual display immediately
+                const resultOptions = document.querySelectorAll(`[onclick*="setResult('${timestamp}', '${gameId}', ${clueIndex}"]`);
+                resultOptions.forEach(option => {
+                    option.classList.remove('active');
+                    option.classList.add('inactive');
+                });
+                
+                const selectedOption = document.querySelector(`[onclick*="setResult('${timestamp}', '${gameId}', ${clueIndex}, '${newResult}'"]`);
+                if (selectedOption) {
+                    selectedOption.classList.remove('inactive');
+                    selectedOption.classList.add('active');
                 }
                 
-                console.log(`Changing clue ${clueIndex} in game ${timestamp} to ${newResult}`);
-                
-                // Load the game data and recalculate
-                await recalculateGameStats(timestamp, clueIndex, newResult);
+                // Save the change
+                await updateGameResult(timestamp, gameId, clueIndex, newResult, isCompleted);
                 
             } catch (error) {
-                console.error('Error toggling result:', error);
+                console.error('Error setting result:', error);
                 showError('Failed to update result: ' + error.message);
+            }
+        }
+        
+        async function updateGameResult(timestamp, gameId, clueIndex, newResult, isCompleted) {
+            try {
+                console.log('Updating game result:', { timestamp, gameId, clueIndex, newResult, isCompleted });
+                
+                // Determine the correct Firebase path
+                let gameRef;
+                let game;
+                
+                if (isCompleted) {
+                    gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
+                } else {
+                    gameRef = ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${gameId}`);
+                }
+                
+                console.log('Loading from path:', gameRef.toString());
+                
+                const snapshot = await get(gameRef);
+                if (!snapshot.exists()) {
+                    console.error('Game data not found at path:', gameRef.toString());
+                    showError('Game data not found for editing');
+                    return;
+                }
+                
+                game = snapshot.val();
+                console.log('Loaded game data:', game);
+                
+                // Get the clue data to calculate value
+                const searchGameId = game.gameId || game.date || gameId;
+                console.log('Searching for clues with gameId:', searchGameId);
+                
+                // Ensure available games are loaded
+                if (!availableGames || availableGames.length === 0) {
+                    await loadAvailableGames();
+                }
+                
+                const gameData = availableGames.find(g => g.gameId === searchGameId);
+                if (!gameData) {
+                    console.error('Clue data not found for gameId:', searchGameId);
+                    showError('Clue data not found');
+                    return;
+                }
+                
+                const clue = gameData.clues[clueIndex];
+                if (!clue) {
+                    console.error('Clue not found at index:', clueIndex);
+                    return;
+                }
+                
+                const clueValue = parseInt(clue.clue_value) || 200;
+                console.log('Clue value:', clueValue);
+                
+                // Initialize or update clue results array
+                if (!game.clueResults) {
+                    game.clueResults = new Array(Math.min(gameData.clues.length, 30)).fill('passed');
+                    
+                    // Initialize based on current counts
+                    for (let i = 0; i < game.correct; i++) {
+                        game.clueResults[i] = 'correct';
+                    }
+                    for (let i = game.correct; i < (game.correct + game.incorrect); i++) {
+                        game.clueResults[i] = 'incorrect';
+                    }
+                }
+                
+                // Get old result to calculate difference
+                const oldResult = game.clueResults[clueIndex] || 'passed';
+                console.log('Changing from', oldResult, 'to', newResult);
+                
+                // Update the specific clue result
+                game.clueResults[clueIndex] = newResult;
+                
+                // Recalculate all stats from clue results
+                let newCorrect = 0;
+                let newIncorrect = 0;
+                let newPassed = 0;
+                let newCoryat = 0;
+                
+                game.clueResults.forEach((result, index) => {
+                    const clueData = gameData.clues[index];
+                    if (!clueData) return;
+                    
+                    const value = parseInt(clueData.clue_value) || 200;
+                    
+                    switch (result) {
+                        case 'correct':
+                            newCorrect++;
+                            newCoryat += value;
+                            break;
+                        case 'incorrect':
+                            newIncorrect++;
+                            newCoryat -= value;
+                            break;
+                        case 'passed':
+                            newPassed++;
+                            break;
+                    }
+                });
+                
+                // Update the game object
+                game.correct = newCorrect;
+                game.incorrect = newIncorrect;
+                game.passed = newPassed;
+                game.coryat = newCoryat;
+                
+                console.log('Recalculated stats:', { newCorrect, newIncorrect, newPassed, newCoryat });
+                
+                // Save the updated game
+                await set(gameRef, game);
+                
+                // Update the Coryat display in the UI
+                const gameHistoryItem = document.querySelector(`#clue-results-${timestamp}`).closest('.game-history-item');
+                const coryatDisplay = gameHistoryItem.querySelector('.game-history-coryat');
+                coryatDisplay.textContent = `$${newCoryat}`;
+                
+                // Refresh overall stats
+                await refreshOverallStats();
+                
+                console.log('Game result updated successfully');
+                
+            } catch (error) {
+                console.error('Error updating game result:', error);
+                showError('Failed to update game result: ' + error.message);
             }
         }
         
@@ -1875,7 +2002,7 @@
         window.saveSettings = saveSettings;
         window.resetSettings = resetSettings;
         window.loadGameDetails = loadGameDetails;
-        window.toggleResult = toggleResult;
+        window.setResult = setResult;
         window.nextClue = nextClue;
         window.showAnswer = showAnswer;
         window.markCorrect = markCorrect;
@@ -2303,7 +2430,13 @@
             border-bottom: none;
         }
         
-        .result-indicator {
+        .result-options {
+            display: flex;
+            gap: 8px;
+            margin-right: 10px;
+        }
+        
+        .result-option {
             width: 25px;
             height: 25px;
             border-radius: 50%;
@@ -2311,28 +2444,41 @@
             align-items: center;
             justify-content: center;
             font-weight: 700;
-            margin-right: 10px;
             cursor: pointer;
             transition: all 0.2s ease;
+            border: 2px solid transparent;
+            font-size: 0.8rem;
         }
         
-        .result-correct {
+        .result-option.correct {
             background: #4CAF50;
             color: white;
         }
         
-        .result-incorrect {
+        .result-option.incorrect {
             background: #f44336;
             color: white;
         }
         
-        .result-passed {
+        .result-option.passed {
             background: #FFA500;
             color: white;
         }
         
-        .result-indicator:hover {
-            transform: scale(1.1);
+        .result-option.inactive {
+            background: #666;
+            color: #999;
+            opacity: 0.5;
+        }
+        
+        .result-option.active {
+            border-color: var(--jeopardy-gold);
+            box-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+        }
+        
+        .result-option:hover:not(.active) {
+            opacity: 0.8;
+            transform: scale(1.05);
         }
         
         .clue-content {
