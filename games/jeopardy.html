@@ -1463,15 +1463,24 @@
                     const clueCategData = clueCategories[index];
                     const aiCategories = clueCategData?.aiCategories || '';
                     const userOverride = clueCategData?.userOverride || '';
-                    const categorizationDisplay = aiCategories ? 
-                        `<div style="margin-top: 5px;">
-                            <span style="color: var(--jeopardy-gold); font-size: 0.8rem;">AI: </span>
-                            <span style="color: #90EE90; font-size: 0.8rem;">${aiCategories}</span>
-                            ${userOverride ? `<br><span style="color: var(--jeopardy-gold); font-size: 0.8rem;">Override: </span><span style="color: #FFB6C1; font-size: 0.8rem;">${userOverride}</span>` : ''}
-                            <br><input type="text" placeholder="Override categories..." value="${userOverride}" 
-                                       onchange="updateClueCategories('${timestamp}', '${gameId}', ${index}, this.value, ${isCompleted})"
-                                       style="width: 200px; padding: 2px; border-radius: 3px; border: 1px solid #ccc; background: #333; color: white; font-size: 0.8rem; margin-top: 2px;">
-                         </div>` : '';
+                    
+                    console.log(`Clue ${index} categories:`, { aiCategories, userOverride });
+                    
+                    // Always show categorization section (even if empty) for editing
+                    const categorizationDisplay = `
+                        <div style="margin-top: 5px;">
+                            ${aiCategories ? `
+                                <div><span style="color: var(--jeopardy-gold); font-size: 0.8rem;">AI: </span>
+                                <span style="color: #90EE90; font-size: 0.8rem;">${aiCategories}</span></div>
+                            ` : ''}
+                            ${userOverride ? `
+                                <div><span style="color: var(--jeopardy-gold); font-size: 0.8rem;">Override: </span>
+                                <span style="color: #FFB6C1; font-size: 0.8rem;">${userOverride}</span></div>
+                            ` : ''}
+                            <input type="text" placeholder="Add/edit categories..." value="${userOverride || ''}" 
+                                   onchange="updateClueCategories('${timestamp}', '${gameId}', ${index}, this.value, ${isCompleted})"
+                                   style="width: 200px; padding: 4px; border-radius: 3px; border: 1px solid var(--jeopardy-gold); background: var(--jeopardy-dark-blue); color: white; font-size: 0.8rem; margin-top: 3px;">
+                        </div>`;
                     
                     return `
                         <div class="clue-result-item">
@@ -2003,19 +2012,31 @@
             }
             
             try {
+                console.log('Clearing game data:', { gameId, isCompleted });
+                
                 if (isCompleted) {
-                    // Clear from completed games
-                    await set(ref(db, `users/${currentUser.uid}/jeopardy/games/${gameId}`), null);
+                    // For completed games, gameId is actually the timestamp
+                    const gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${gameId}`);
+                    await set(gameRef, null);
+                    console.log('Cleared completed game:', gameId);
                 } else {
-                    // Clear from game progress
-                    await set(ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${gameId}`), null);
+                    // For in-progress games, clear from gameProgress
+                    const progressRef = ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${gameId}`);
+                    await set(progressRef, null);
                     delete gameProgress[gameId];
+                    console.log('Cleared in-progress game:', gameId);
                 }
                 
-                console.log('Game data cleared for:', gameId);
+                // Also clear any AI categorization data
+                const categoriesRef = ref(db, `users/${currentUser.uid}/jeopardy/clueCategories/${gameId}`);
+                await set(categoriesRef, null);
+                console.log('Cleared AI categories for game:', gameId);
                 
                 // Refresh the display
                 await displayGameHistory();
+                
+                // Refresh overall stats
+                await refreshOverallStats();
                 
                 alert('Game data cleared successfully!');
                 
@@ -2194,7 +2215,15 @@
             currentGame.clueStartTime = null;
             currentGame.answerShown = false;
             
-            console.log('ALL TIMERS AND LISTENERS CLEARED - game state reset');
+            // Clear game ID to stop all background processes
+            const wasActive = currentGame.gameId;
+            currentGame.gameId = null;
+            
+            if (wasActive) {
+                console.log('🛑 GAME PAUSED - All timers, listeners, and background processes stopped');
+            } else {
+                console.log('ALL TIMERS AND LISTENERS CLEARED - game state reset');
+            }
         }
         
         // ChatGPT API Integration
@@ -2303,16 +2332,24 @@ Return only the category name(s), separated by commas if multiple. If none fit w
         
         async function categorizeClueInBackground(clue, clueIndex) {
             // Run AI categorization in background (non-blocking)
-            setTimeout(async () => {
+            const categorizationTimer = setTimeout(async () => {
                 try {
+                    // Check if game is still active before processing
+                    if (!currentGame.gameId) {
+                        console.log('🛑 Game no longer active, skipping AI categorization');
+                        return;
+                    }
+                    
                     const aiCategories = await categorizeClueWithAI(clue, clueIndex);
-                    if (aiCategories) {
+                    if (aiCategories && currentGame.gameId) { // Double-check game is still active
                         await saveClueCategories(currentGame.gameId, clueIndex, aiCategories);
                     }
                 } catch (error) {
                     console.error('Background categorization error:', error);
                 }
             }, 100); // Small delay to not block game flow
+            
+            addTimer(categorizationTimer); // Track this timer so it can be cancelled
         }
         
         function backToSelector() {
