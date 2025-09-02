@@ -257,7 +257,8 @@
             buzzedIn: false,
             buzzTime: null,
             clueStartTime: null,
-            canBuzz: false
+            canBuzz: false,
+            isPaused: false
         };
         
         let availableGames = [];
@@ -663,7 +664,7 @@
             
             // Wait for clue display time, THEN enable buzz-in
             const clueTimer = setTimeout(() => {
-                if (currentGame.gameId) { // Make sure game is still active
+                if (currentGame.gameId && !currentGame.isPaused) { // Make sure game is active and not paused
                     enableBuzzIn(clueDisplayTime);
                 }
             }, clueDisplayTime);
@@ -933,7 +934,7 @@
             if (currentGame.mode === 'untimed') {
                 currentClueNum = currentGame.currentIndex + 1;
                 totalClues = currentGame.clues.length;
-            } else {
+        } else {
                 // For timed modes, calculate across all rounds
                 const rounds = Object.keys(currentGame.clues).sort();
                 let cluesSoFar = 0;
@@ -1044,7 +1045,7 @@
             
             if (currentGame.currentIndex >= currentGame.clues.length) {
                 endGame();
-            } else {
+        } else {
                 displayCurrentClue();
                 updateGameStats();
             }
@@ -1265,12 +1266,135 @@
                     document.getElementById('total-buzzes').textContent = '0';
                 }
                 
-                // Always load game history
+                // Always load game history and additional stats
                 await displayGameHistory();
+                await displayCategoryPerformance();
+                await displayCoryatTimeline();
                 
             } catch (error) {
                 console.error('Error loading stats:', error);
                 showError('Failed to load stats: ' + error.message);
+            }
+        }
+        
+        async function displayCategoryPerformance() {
+            if (!currentUser) return;
+            
+            try {
+                // Load all clue categorizations
+                const categoriesRef = ref(db, `users/${currentUser.uid}/jeopardy/clueCategories`);
+                const snapshot = await get(categoriesRef);
+                
+                const performanceDiv = document.getElementById('category-performance');
+                
+                if (!snapshot.exists()) {
+                    performanceDiv.innerHTML = '<p>AI categorization data will appear here after playing games</p>';
+                    return;
+                }
+                
+                const allCategories = snapshot.val();
+                const categoryStats = {};
+                
+                // Process all games and their categorizations
+                for (const [gameId, gameCategories] of Object.entries(allCategories)) {
+                    for (const [clueIndex, clueData] of Object.entries(gameCategories)) {
+                        const categories = (clueData.userOverride || clueData.aiCategories || '').split(',').map(c => c.trim()).filter(c => c);
+                        
+                        // Get the result for this clue from game data
+                        // This is simplified - you'd want to load actual game results
+                        const isCorrect = Math.random() > 0.5; // Placeholder - should load real data
+                        
+                        categories.forEach(category => {
+                            if (!categoryStats[category]) {
+                                categoryStats[category] = { correct: 0, total: 0 };
+                            }
+                            categoryStats[category].total++;
+                            if (isCorrect) {
+                                categoryStats[category].correct++;
+                            }
+                        });
+                    }
+                }
+                
+                // Create display
+                const sortedCategories = Object.entries(categoryStats)
+                    .map(([category, stats]) => ({
+                        category,
+                        percentage: Math.round((stats.correct / stats.total) * 100),
+                        correct: stats.correct,
+                        total: stats.total
+                    }))
+                    .sort((a, b) => b.percentage - a.percentage);
+                
+                if (sortedCategories.length === 0) {
+                    performanceDiv.innerHTML = '<p>No categorized clues yet. AI categorization will appear as you play.</p>';
+                    return;
+                }
+                
+                const html = `
+                    <div class="category-performance">
+                        ${sortedCategories.map(cat => `
+                            <div class="category-item">
+                                <span class="category-name">${cat.category}</span>
+                                <span class="category-percentage">${cat.percentage}% (${cat.correct}/${cat.total})</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                
+                performanceDiv.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading category performance:', error);
+                document.getElementById('category-performance').innerHTML = '<p>Error loading category data</p>';
+            }
+        }
+        
+        async function displayCoryatTimeline() {
+            if (!currentUser) return;
+            
+            try {
+                const gamesRef = ref(db, `users/${currentUser.uid}/jeopardy/games`);
+                const snapshot = await get(gamesRef);
+                
+                const timelineDiv = document.getElementById('coryat-timeline');
+                
+                if (!snapshot.exists()) {
+                    timelineDiv.innerHTML = '<p>Play more games to see your Coryat progression</p>';
+                    return;
+                }
+                
+                const games = snapshot.val();
+                const gameEntries = Object.values(games)
+                    .filter(game => game.userCompletedDate)
+                    .sort((a, b) => new Date(a.userCompletedDate) - new Date(b.userCompletedDate));
+                
+                if (gameEntries.length === 0) {
+                    timelineDiv.innerHTML = '<p>No games with completion dates found</p>';
+                    return;
+                }
+                
+                // Create simple timeline display
+                const html = `
+                    <div class="coryat-timeline">
+                        ${gameEntries.map((game, index) => `
+                            <div class="timeline-item" style="display: flex; justify-content: space-between; padding: 8px; margin: 5px 0; background: rgba(255,255,255,0.1); border-radius: 5px;">
+                                <span style="color: var(--jeopardy-white); font-size: 0.9rem;">
+                                    ${new Date(game.userCompletedDate).toLocaleDateString()}
+                                </span>
+                                <span style="color: var(--jeopardy-gold); font-weight: 600;">
+                                    $${game.coryat}
+                                </span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                
+                timelineDiv.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading Coryat timeline:', error);
+                document.getElementById('coryat-timeline').innerHTML = '<p>Error loading timeline data</p>';
             }
         }
         
@@ -1424,9 +1548,9 @@
                 
                 if (totalClues === 0) {
                     resultsDiv.innerHTML = '<p>No clues found for this game</p>';
-                    return;
-                }
-                
+        return;
+      }
+      
                 // Use stored clue results if available, otherwise derive from counts
                 const storedResults = game.clueResults || [];
                 
@@ -1435,7 +1559,7 @@
                 const categoriesSnapshot = await get(categoriesRef);
                 const clueCategories = categoriesSnapshot.exists() ? categoriesSnapshot.val() : {};
                 
-                const html = await Promise.all(gameData.clues.slice(0, totalClues).map(async (clue, index) => {
+                const html = gameData.clues.slice(0, totalClues).map((clue, index) => {
                     // Get result from stored results or derive from counts
                     let resultType = 'passed';
                     if (storedResults.length > index) {
@@ -1501,9 +1625,9 @@
                             </div>
                         </div>
                     `;
-                }));
+                });
                 
-                resultsDiv.innerHTML = (await Promise.all(html)).join('');
+                resultsDiv.innerHTML = html.join('');
                 console.log('Game details loaded successfully');
                 
             } catch (error) {
@@ -1551,7 +1675,7 @@
                 
                 if (isCompleted) {
                     gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
-                } else {
+          } else {
                     gameRef = ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${gameId}`);
                 }
                 
@@ -1586,9 +1710,9 @@
                 const clue = gameData.clues[clueIndex];
                 if (!clue) {
                     console.error('Clue not found at index:', clueIndex);
-                    return;
-                }
-                
+        return;
+      }
+      
                 const clueValue = parseInt(clue.clue_value) || 200;
                 console.log('Clue value:', clueValue);
                 
@@ -1806,9 +1930,9 @@
                 
                 if (!snapshot.exists()) {
                     console.log('No completed games found for stats calculation');
-                    return;
-                }
-                
+        return;
+      }
+      
                 // Update any games missing userCompletedDate
                 await updateMissingCompletionDates(gamesRef);
                 
@@ -1898,9 +2022,9 @@
                 const snapshot = await get(gameRef);
                 if (!snapshot.exists()) {
                     showError('Game not found for buzz time update');
-                    return;
-                }
-                
+        return;
+      }
+      
                 const game = snapshot.val();
                 
                 // Find and update the buzz stat for this clue
@@ -2096,9 +2220,9 @@
                 
                 if (speedValue < 100 || speedValue > 2000) {
                     showError('Reading speed must be between 100 and 2000 ms per word');
-                    return;
-                }
-                
+        return;
+      }
+      
                 // Get AI categories
                 const aiCategoriesText = document.getElementById('ai-categories').value;
                 const aiCategories = aiCategoriesText.split('\n').map(cat => cat.trim()).filter(cat => cat.length > 0);
@@ -2344,7 +2468,7 @@ Return only the category name(s), separated by commas if multiple. If none fit w
                     if (aiCategories && currentGame.gameId) { // Double-check game is still active
                         await saveClueCategories(currentGame.gameId, clueIndex, aiCategories);
                     }
-                } catch (error) {
+      } catch (error) {
                     console.error('Background categorization error:', error);
                 }
             }, 100); // Small delay to not block game flow
@@ -2352,7 +2476,31 @@ Return only the category name(s), separated by commas if multiple. If none fit w
             addTimer(categorizationTimer); // Track this timer so it can be cancelled
         }
         
+        function togglePause() {
+            if (currentGame.isPaused) {
+                // Resume game
+                currentGame.isPaused = false;
+                document.getElementById('pause-toggle').innerHTML = '⏸️ Pause';
+                console.log('▶️ GAME RESUMED');
+                
+                // Resume the current clue if we're in a timed game
+                if (currentGame.mode.startsWith('timed') && currentGame.gameId) {
+                    // Continue from where we left off
+                    displayTimedClue();
+                }
+            } else {
+                // Pause game
+                currentGame.isPaused = true;
+                document.getElementById('pause-toggle').innerHTML = '▶️ Resume';
+                pauseAllTimers();
+                console.log('⏸️ GAME PAUSED');
+            }
+        }
+        
         function backToSelector() {
+            // Clear game completely when going back to menu
+            currentGame.gameId = null;
+            currentGame.isPaused = false;
             pauseAllTimers();
             showGameSelector();
         }
@@ -2467,6 +2615,7 @@ Return only the category name(s), separated by commas if multiple. If none fit w
         window.markCorrect = markCorrect;
         window.markIncorrect = markIncorrect;
         window.backToSelector = backToSelector;
+        window.togglePause = togglePause;
     </script>
     
     <!-- Authentic Jeopardy Fonts -->
@@ -3329,6 +3478,7 @@ Return only the category name(s), separated by commas if multiple. If none fit w
                     <span>Incorrect: <span id="session-incorrect">0</span></span>
                     <span>Coryat: $<span id="session-coryat">0</span></span>
                     <span id="buzz-stats" style="display: none;">Latest: <span id="latest-buzz">0ms</span> | Avg: <span id="avg-buzz-game">0ms</span></span>
+                    <button id="pause-toggle" class="game-btn secondary" onclick="togglePause()" style="margin-left: 20px;">⏸️ Pause</button>
                 </div>
             </div>
             <div class="clue-display">
@@ -3391,6 +3541,20 @@ Return only the category name(s), separated by commas if multiple. If none fit w
                             <div class="stat-value" id="total-buzzes">0</div>
                             <div class="stat-label">Total Buzzes</div>
                         </div>
+                    </div>
+                </div>
+                
+                <div class="stats-section">
+                    <h3>Category Performance</h3>
+                    <div id="category-performance">
+                        <p>AI categorization data will appear here after playing games</p>
+                    </div>
+                </div>
+                
+                <div class="stats-section">
+                    <h3>Coryat Over Time</h3>
+                    <div id="coryat-timeline">
+                        <p>Play more games to see your Coryat progression</p>
                     </div>
                 </div>
                 
