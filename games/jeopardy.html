@@ -280,7 +280,7 @@
         // Rate limiting for ChatGPT API
         let apiCallQueue = [];
         let lastApiCall = 0;
-        const API_RATE_LIMIT = 50; // calls per minute
+        const API_RATE_LIMIT = 10; // calls per minute (reduced to prevent 429 errors)
         const API_RATE_WINDOW = 60000; // 1 minute in ms
         
         async function showGameList(mode = 'untimed') {
@@ -666,6 +666,9 @@
             
             console.log(`Displaying clue for ${clueDisplayTime}ms (${clueWords} words) before buzz-in`);
             
+            // Set clue start time for buzz timing
+            currentGame.clueStartTime = Date.now();
+            
             // Wait for clue display time, THEN enable buzz-in
             const clueTimer = setTimeout(() => {
                 if (currentGame.gameId && !currentGame.isPaused) { // Make sure game is active and not paused
@@ -716,14 +719,14 @@
         }
         
         function handleBuzzIn(event) {
-            if (event.code === 'Space' && currentGame.canBuzz && !currentGame.buzzedIn) {
+            if (event.code === 'Space' && currentGame.canBuzz && !currentGame.buzzedIn && !currentGame.isPaused) {
                 event.preventDefault();
                 
                 currentGame.buzzedIn = true;
-                // Calculate buzz time from when clue first appeared (not just buzz window)
-                currentGame.buzzTime = Date.now() - currentGame.clueStartTime;
-                // Also track buzz window time (from red border to buzz)
-                currentGame.buzzWindowTime = Date.now() - currentGame.buzzStartTime;
+                // Calculate buzz time from when buzz window opened (red border appeared)
+                currentGame.buzzTime = Date.now() - currentGame.buzzStartTime;
+                // Also track total time from clue start
+                currentGame.totalClueTime = Date.now() - currentGame.clueStartTime;
                 currentGame.canBuzz = false;
                 
                 console.log(`Buzzed in after ${currentGame.buzzTime}ms`);
@@ -817,7 +820,7 @@
             // Track buzz stats
             currentGame.buzzStats.push({
                 buzzTime: currentGame.buzzTime,
-                buzzWindowTime: currentGame.buzzWindowTime,
+                totalClueTime: currentGame.totalClueTime,
                 correct: true,
                 clueValue: clueValue,
                 clueIndex: currentGame.currentIndex
@@ -850,7 +853,7 @@
             // Track buzz stats
             currentGame.buzzStats.push({
                 buzzTime: currentGame.buzzTime,
-                buzzWindowTime: currentGame.buzzWindowTime,
+                totalClueTime: currentGame.totalClueTime,
                 correct: false,
                 clueValue: clueValue,
                 clueIndex: currentGame.currentIndex
@@ -979,7 +982,7 @@
                 document.getElementById('latest-buzz').textContent = `${latestBuzz.buzzTime}ms`;
                 document.getElementById('avg-buzz-game').textContent = `${avgBuzz}ms`;
                 buzzStatsEl.style.display = 'inline';
-            } else {
+        } else {
                 document.getElementById('buzz-stats').style.display = 'none';
             }
         }
@@ -1067,7 +1070,7 @@
                         }
                     } else if (Array.isArray(value)) {
                         cleaned[key] = value.filter(item => item !== undefined && item !== null);
-                    } else {
+        } else {
                         cleaned[key] = value;
                     }
                 }
@@ -1347,8 +1350,8 @@
                 `;
                 
                 performanceDiv.innerHTML = html;
-                
-            } catch (error) {
+        
+      } catch (error) {
                 console.error('Error loading category performance:', error);
                 document.getElementById('category-performance').innerHTML = '<p>Error loading category data</p>';
             }
@@ -1365,9 +1368,9 @@
                 
                 if (!snapshot.exists()) {
                     timelineDiv.innerHTML = '<p>Play more games to see your Coryat progression</p>';
-                    return;
-                }
-                
+          return;
+        }
+        
                 const games = snapshot.val();
                 const gameEntries = Object.values(games)
                     .filter(game => game.userCompletedDate)
