@@ -280,7 +280,7 @@
         // Rate limiting for ChatGPT API
         let apiCallQueue = [];
         let lastApiCall = 0;
-        const API_RATE_LIMIT = 10; // calls per minute (reduced to prevent 429 errors)
+        const API_RATE_LIMIT = 50; // calls per minute (more reasonable limit)
         const API_RATE_WINDOW = 60000; // 1 minute in ms
         
         async function showGameList(mode = 'untimed') {
@@ -2444,13 +2444,11 @@ Return only the category name(s), separated by commas if multiple. If none fit w
                     console.error('❌ API request failed:', response.status, response.statusText);
                     console.error('❌ Error details:', errorText);
                     
-                    // If it's a rate limit error, wait and don't retry immediately
+                    // If it's a rate limit error, add a small delay but don't be too aggressive
                     if (response.status === 429) {
-                        console.log('⏱️ Rate limited, will skip categorization for a while');
-                        // Add a longer delay to the rate limit queue
-                        for (let i = 0; i < 5; i++) {
-                            apiCallQueue.push(Date.now());
-                        }
+                        console.log('⏱️ Rate limited by OpenAI, will wait briefly');
+                        // Add just one extra timestamp to slow down slightly
+                        apiCallQueue.push(Date.now());
                     }
                     
                     return null;
@@ -2489,6 +2487,9 @@ Return only the category name(s), separated by commas if multiple. If none fit w
         
         async function categorizeClueInBackground(clue, clueIndex) {
             // Run AI categorization in background (non-blocking)
+            // Add a longer delay to spread out API calls and avoid rate limiting
+            const delay = Math.random() * 3000 + 2000; // Random delay between 2-5 seconds
+            
             const categorizationTimer = setTimeout(async () => {
                 try {
                     // Check if game is still active before processing
@@ -2501,10 +2502,10 @@ Return only the category name(s), separated by commas if multiple. If none fit w
                     if (aiCategories && currentGame.gameId) { // Double-check game is still active
                         await saveClueCategories(currentGame.gameId, clueIndex, aiCategories);
                     }
-      } catch (error) {
+                } catch (error) {
                     console.error('Background categorization error:', error);
                 }
-            }, 100); // Small delay to not block game flow
+            }, delay); // Random delay to spread out API calls
             
             addTimer(categorizationTimer); // Track this timer so it can be cancelled
         }
