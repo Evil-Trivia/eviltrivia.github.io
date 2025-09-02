@@ -263,7 +263,8 @@
         let availableGames = [];
         let gameProgress = {};
         let userSettings = {
-            speedPerWord: 400, // default 400ms per word
+            speedPerWord: 400, // default 400ms per word for clues
+            categorySpeedPerWord: 400, // default 400ms per word for categories
             minClueDisplayTime: 2000, // minimum time to show clue
             buzzResponseTime: 2000, // time to respond after buzzing in
             buzzThinkTime: 1000, // time to think before showing answer
@@ -572,9 +573,9 @@
             
             console.log(`Showing categories for round ${currentGame.currentRound}:`, categories);
             
-            // Calculate display time
+            // Calculate display time using category speed setting
             const totalWords = categories.join(' ').split(' ').length;
-            const displayTime = totalWords * userSettings.speedPerWord;
+            const displayTime = totalWords * userSettings.categorySpeedPerWord;
             
             // Show category preview
             const categoryPreview = document.createElement('div');
@@ -661,8 +662,8 @@
         function enableBuzzIn(buzzWindow) {
             console.log('Enabling buzz-in window');
             
-            // Start buzz-in timing
-            currentGame.clueStartTime = Date.now();
+            // Start buzz-in timing (but clue actually started earlier)
+            currentGame.buzzStartTime = Date.now(); // When buzz window opened
             currentGame.canBuzz = true;
             currentGame.buzzedIn = false;
             
@@ -687,7 +688,7 @@
         
         async function showCategoryBriefly(category) {
             const categoryWords = category.split(' ').length;
-            const displayTime = categoryWords * userSettings.speedPerWord;
+            const displayTime = categoryWords * userSettings.categorySpeedPerWord;
             
             // Show just the category
             document.getElementById('clue-category').textContent = category;
@@ -703,7 +704,10 @@
                 event.preventDefault();
                 
                 currentGame.buzzedIn = true;
+                // Calculate buzz time from when clue first appeared (not just buzz window)
                 currentGame.buzzTime = Date.now() - currentGame.clueStartTime;
+                // Also track buzz window time (from red border to buzz)
+                currentGame.buzzWindowTime = Date.now() - currentGame.buzzStartTime;
                 currentGame.canBuzz = false;
                 
                 console.log(`Buzzed in after ${currentGame.buzzTime}ms`);
@@ -793,8 +797,10 @@
             // Track buzz stats
             currentGame.buzzStats.push({
                 buzzTime: currentGame.buzzTime,
+                buzzWindowTime: currentGame.buzzWindowTime,
                 correct: true,
-                clueValue: clueValue
+                clueValue: clueValue,
+                clueIndex: currentGame.currentIndex
             });
             
             // Track category performance
@@ -820,8 +826,10 @@
             // Track buzz stats
             currentGame.buzzStats.push({
                 buzzTime: currentGame.buzzTime,
+                buzzWindowTime: currentGame.buzzWindowTime,
                 correct: false,
-                clueValue: clueValue
+                clueValue: clueValue,
+                clueIndex: currentGame.currentIndex
             });
             
             // Track category performance
@@ -1095,7 +1103,8 @@
                     categoryStats: currentGame.categoryStats,
                     buzzStats: currentGame.buzzStats,
                     duration: Date.now() - currentGame.startTime,
-                    completedAt: new Date().toISOString()
+                    completedAt: new Date().toISOString(),
+                    userCompletedDate: new Date().toISOString() // When user completed this game
                 };
                 
                 console.log('Game result to save:', gameResult);
@@ -1392,6 +1401,13 @@
                         }
                     }
                     
+                    // Check if this clue has buzz data
+                    const buzzData = game.buzzStats?.find(b => b.clueIndex === index);
+                    const buzzTimeDisplay = buzzData ? 
+                        `<input type="number" value="${buzzData.buzzTime}" min="0" max="10000" 
+                                onchange="updateBuzzTime('${timestamp}', '${gameId}', ${index}, this.value, ${isCompleted})"
+                                style="width: 60px; margin-left: 10px; padding: 2px; border-radius: 3px; border: 1px solid #ccc;">ms` : '';
+                    
                     return `
                         <div class="clue-result-item">
                             <div class="result-options">
@@ -1406,6 +1422,7 @@
                                 <span class="clue-category-small">${clue.category || 'Unknown'}</span>
                                 <span class="clue-value-small">$${clue.clue_value || '200'}</span>
                                 <div class="clue-text-small">${clue.answer || 'No answer'} → ${clue.question || 'No question'}</div>
+                                ${buzzTimeDisplay}
                             </div>
                         </div>
                     `;
@@ -1717,6 +1734,9 @@
                     return;
                 }
                 
+                // Update any games missing userCompletedDate
+                await updateMissingCompletionDates(gamesRef);
+                
                 const games = snapshot.val();
                 const gameEntries = Object.values(games);
                 console.log('Found games for stats calculation:', gameEntries.length);
@@ -1785,6 +1805,74 @@
             } catch (error) {
                 console.error('Error refreshing overall stats:', error);
                 showError('Failed to refresh stats: ' + error.message);
+            }
+        }
+        
+        async function updateBuzzTime(timestamp, gameId, clueIndex, newBuzzTime, isCompleted) {
+            try {
+                console.log('Updating buzz time:', { timestamp, gameId, clueIndex, newBuzzTime, isCompleted });
+                
+                // Determine the correct Firebase path
+                let gameRef;
+                if (isCompleted) {
+                    gameRef = ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`);
+                } else {
+                    gameRef = ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${gameId}`);
+                }
+                
+                const snapshot = await get(gameRef);
+                if (!snapshot.exists()) {
+                    showError('Game not found for buzz time update');
+                    return;
+                }
+                
+                const game = snapshot.val();
+                
+                // Find and update the buzz stat for this clue
+                if (game.buzzStats) {
+                    const buzzStatIndex = game.buzzStats.findIndex(b => b.clueIndex === clueIndex);
+                    if (buzzStatIndex !== -1) {
+                        game.buzzStats[buzzStatIndex].buzzTime = parseInt(newBuzzTime);
+                        console.log('Updated buzz time for clue', clueIndex, 'to', newBuzzTime);
+                        
+                        // Save the updated game
+                        await set(gameRef, game);
+                        
+                        // Refresh overall stats
+                        await refreshOverallStats();
+                        
+                        console.log('Buzz time updated successfully');
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error updating buzz time:', error);
+                showError('Failed to update buzz time: ' + error.message);
+            }
+        }
+        
+        async function updateMissingCompletionDates(gamesRef) {
+            try {
+                const snapshot = await get(gamesRef);
+                if (!snapshot.exists()) return;
+                
+                const games = snapshot.val();
+                let hasUpdates = false;
+                
+                for (const [timestamp, game] of Object.entries(games)) {
+                    if (!game.userCompletedDate) {
+                        game.userCompletedDate = '2025-09-01T00:00:00.000Z'; // Default to 9/1/2025
+                        await set(ref(db, `users/${currentUser.uid}/jeopardy/games/${timestamp}`), game);
+                        hasUpdates = true;
+                        console.log('Updated completion date for game:', timestamp);
+                    }
+                }
+                
+                if (hasUpdates) {
+                    console.log('Updated missing completion dates');
+                }
+            } catch (error) {
+                console.error('Error updating completion dates:', error);
             }
         }
         
@@ -1860,6 +1948,7 @@
                 
                 // Update UI
                 document.getElementById('speed-setting').value = userSettings.speedPerWord;
+                document.getElementById('category-speed-setting').value = userSettings.categorySpeedPerWord;
                 document.getElementById('min-clue-time').value = userSettings.minClueDisplayTime;
                 document.getElementById('buzz-think-time').value = userSettings.buzzThinkTime;
                 document.getElementById('buzz-response-time').value = userSettings.buzzResponseTime;
@@ -1887,6 +1976,7 @@
                 
                 // Validate all settings
                 const speedValue = parseInt(document.getElementById('speed-setting').value);
+                const categorySpeedValue = parseInt(document.getElementById('category-speed-setting').value);
                 const minClueTime = parseInt(document.getElementById('min-clue-time').value);
                 const buzzThinkTime = parseInt(document.getElementById('buzz-think-time').value);
                 const buzzResponseTime = parseInt(document.getElementById('buzz-response-time').value);
@@ -1900,6 +1990,7 @@
                 // Update all settings
                 userSettings = {
                     speedPerWord: speedValue,
+                    categorySpeedPerWord: categorySpeedValue,
                     minClueDisplayTime: minClueTime,
                     buzzThinkTime: buzzThinkTime,
                     buzzResponseTime: buzzResponseTime,
@@ -1921,6 +2012,7 @@
         function resetSettings() {
             userSettings = {
                 speedPerWord: 400,
+                categorySpeedPerWord: 400,
                 minClueDisplayTime: 2000,
                 buzzResponseTime: 2000,
                 buzzThinkTime: 1000,
@@ -1928,6 +2020,7 @@
             };
             
             document.getElementById('speed-setting').value = 400;
+            document.getElementById('category-speed-setting').value = 400;
             document.getElementById('min-clue-time').value = 2000;
             document.getElementById('buzz-think-time').value = 1000;
             document.getElementById('buzz-response-time').value = 2000;
@@ -2099,6 +2192,7 @@
         window.resetSettings = resetSettings;
         window.loadGameDetails = loadGameDetails;
         window.setResult = setResult;
+        window.updateBuzzTime = updateBuzzTime;
         window.nextClue = nextClue;
         window.showAnswer = showAnswer;
         window.markCorrect = markCorrect;
@@ -3050,10 +3144,17 @@
                 <div class="stats-section">
                     <h3>Timing Settings</h3>
                     <div class="settings-group">
-                        <label for="speed-setting" class="setting-label">Reading Speed (ms per word)</label>
+                        <label for="speed-setting" class="setting-label">Clue Reading Speed (ms per word)</label>
                         <div class="setting-input-group">
                             <input type="number" id="speed-setting" min="100" max="2000" step="50" value="400" class="setting-input">
-                            <span class="setting-description">Default: 400ms per word</span>
+                            <span class="setting-description">Speed for reading clues</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label for="category-speed-setting" class="setting-label">Category Display Speed (ms per word)</label>
+                        <div class="setting-input-group">
+                            <input type="number" id="category-speed-setting" min="100" max="2000" step="50" value="400" class="setting-input">
+                            <span class="setting-description">Speed for category previews</span>
                         </div>
                     </div>
                     <div class="settings-group">
