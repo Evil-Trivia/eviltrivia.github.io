@@ -1671,19 +1671,27 @@
         
         async function refreshOverallStats() {
             try {
+                console.log('Refreshing overall stats...');
+                
                 // Recalculate overall stats from all games
                 const gamesRef = ref(db, `users/${currentUser.uid}/jeopardy/games`);
                 const snapshot = await get(gamesRef);
                 
-                if (!snapshot.exists()) return;
+                if (!snapshot.exists()) {
+                    console.log('No completed games found for stats calculation');
+                    return;
+                }
                 
                 const games = snapshot.val();
                 const gameEntries = Object.values(games);
+                console.log('Found games for stats calculation:', gameEntries.length);
                 
                 const totalGames = gameEntries.length;
                 const totalCoryat = gameEntries.reduce((sum, game) => sum + (game.coryat || 0), 0);
                 const bestCoryat = Math.max(...gameEntries.map(game => game.coryat || 0));
-                const latestGame = gameEntries.sort((a, b) => (b.date || 0) - (a.date || 0))[0];
+                const latestGame = gameEntries.sort((a, b) => new Date(b.completedAt || b.date || 0) - new Date(a.completedAt || a.date || 0))[0];
+                
+                console.log('Calculated stats:', { totalGames, totalCoryat, bestCoryat, latestCoryat: latestGame?.coryat });
                 
                 // Collect all buzz stats
                 const allBuzzStats = [];
@@ -1693,23 +1701,55 @@
                     }
                 });
                 
+                console.log('Total buzz stats:', allBuzzStats.length);
+                
                 const updatedStats = {
                     totalGames,
                     totalCoryat,
                     bestCoryat,
                     latestCoryat: latestGame ? latestGame.coryat : 0,
-                    buzzStats: allBuzzStats
+                    buzzStats: allBuzzStats,
+                    lastUpdated: new Date().toISOString()
                 };
+                
+                console.log('Saving updated stats:', updatedStats);
                 
                 // Save updated stats
                 const statsRef = ref(db, `users/${currentUser.uid}/jeopardy/stats`);
                 await set(statsRef, updatedStats);
                 
-                // Refresh the display
-                await loadAndDisplayStats();
+                console.log('Stats saved, refreshing display...');
+                
+                // Immediately update the display without reloading
+                document.getElementById('total-games').textContent = totalGames;
+                document.getElementById('avg-coryat').textContent = totalGames > 0 ? 
+                    `$${Math.round(totalCoryat / totalGames)}` : '$0';
+                document.getElementById('latest-coryat').textContent = `$${updatedStats.latestCoryat}`;
+                document.getElementById('best-coryat').textContent = `$${bestCoryat}`;
+                
+                // Update buzz stats
+                if (allBuzzStats.length > 0) {
+                    const avgBuzzTime = Math.round(allBuzzStats.reduce((sum, b) => sum + b.buzzTime, 0) / allBuzzStats.length);
+                    const fastestBuzz = Math.min(...allBuzzStats.map(b => b.buzzTime));
+                    const correctBuzzes = allBuzzStats.filter(b => b.correct).length;
+                    const buzzAccuracy = Math.round((correctBuzzes / allBuzzStats.length) * 100);
+                    
+                    document.getElementById('avg-buzz-time').textContent = `${avgBuzzTime}ms`;
+                    document.getElementById('fastest-buzz').textContent = `${fastestBuzz}ms`;
+                    document.getElementById('buzz-accuracy').textContent = `${buzzAccuracy}%`;
+                    document.getElementById('total-buzzes').textContent = allBuzzStats.length;
+                } else {
+                    document.getElementById('avg-buzz-time').textContent = '0ms';
+                    document.getElementById('fastest-buzz').textContent = '0ms';
+                    document.getElementById('buzz-accuracy').textContent = '0%';
+                    document.getElementById('total-buzzes').textContent = '0';
+                }
+                
+                console.log('Overall stats refreshed successfully');
                 
             } catch (error) {
                 console.error('Error refreshing overall stats:', error);
+                showError('Failed to refresh stats: ' + error.message);
             }
         }
         
