@@ -650,11 +650,12 @@
             console.log(`Displaying clue for ${clueDisplayTime}ms (${clueWords} words) before buzz-in`);
             
             // Wait for clue display time, THEN enable buzz-in
-            setTimeout(() => {
+            const clueTimer = setTimeout(() => {
                 if (currentGame.gameId) { // Make sure game is still active
                     enableBuzzIn(clueDisplayTime);
                 }
             }, clueDisplayTime);
+            addTimer(clueTimer);
         }
         
         function enableBuzzIn(buzzWindow) {
@@ -670,7 +671,7 @@
             clueDisplay.classList.add('buzz-border');
             
             // Set up spacebar listener
-            document.addEventListener('keydown', handleBuzzIn);
+            addEventListener(document, 'keydown', handleBuzzIn);
             
             // Wait for buzz-in or timeout (use same time as clue display)
             const buzzTimeout = setTimeout(() => {
@@ -681,6 +682,7 @@
             
             // Store timeout for potential clearing
             currentGame.buzzTimeout = buzzTimeout;
+            addTimer(buzzTimeout);
         }
         
         async function showCategoryBriefly(category) {
@@ -745,15 +747,16 @@
                 }
             };
             
-            document.addEventListener('keydown', responseHandler);
+            addEventListener(document, 'keydown', responseHandler);
             
             // Wait for response after showing answer
-            setTimeout(() => {
+            const responseTimer = setTimeout(() => {
                 if (!responded) {
                     document.removeEventListener('keydown', responseHandler);
                     handleCorrectAnswer();
                 }
             }, userSettings.buzzResponseTime);
+            addTimer(responseTimer);
         }
         
         function handleTimeout() {
@@ -772,9 +775,10 @@
             // Show answer briefly then move to next
             document.getElementById('clue-answer').style.display = 'block';
             
-            setTimeout(() => {
+            const answerTimer = setTimeout(() => {
                 nextTimedClue();
             }, userSettings.answerDisplayTime);
+            addTimer(answerTimer);
         }
         
         function handleCorrectAnswer() {
@@ -798,9 +802,10 @@
             
             updateGameStats();
             
-            setTimeout(() => {
+            const correctTimer = setTimeout(() => {
                 nextTimedClue();
             }, 1000);
+            addTimer(correctTimer);
         }
         
         function handleWrongAnswer() {
@@ -824,9 +829,10 @@
             
             updateGameStats();
             
-            setTimeout(() => {
+            const wrongTimer = setTimeout(() => {
                 nextTimedClue();
             }, 1000);
+            addTimer(wrongTimer);
         }
         
         function getCurrentClue() {
@@ -1101,13 +1107,42 @@
                 console.log('Game saved to:', `users/${currentUser.uid}/jeopardy/games/${gameTimestamp}`);
                 
                 // Update overall stats using the refresh function
+                console.log('Calling refreshOverallStats after saving game...');
                 await refreshOverallStats();
+                
+                // Also update the legacy stats structure for compatibility
+                await updateLegacyStats();
                 
                 console.log('Game results saved and stats updated successfully');
                 
             } catch (error) {
                 console.error('Error saving game results:', error);
                 showError('Failed to save game results: ' + error.message);
+            }
+        }
+        
+        async function updateLegacyStats() {
+            try {
+                // This updates the old stats structure that might be expected
+                const statsRef = ref(db, `users/${currentUser.uid}/scores/jeopardy/stats`);
+                const currentStatsRef = ref(db, `users/${currentUser.uid}/jeopardy/stats`);
+                const snapshot = await get(currentStatsRef);
+                
+                if (snapshot.exists()) {
+                    const stats = snapshot.val();
+                    const legacyStats = {
+                        totalClues: stats.totalGames * 30, // Approximate
+                        correctAnswers: Math.round(stats.totalCoryat / 400), // Approximate
+                        incorrectAnswers: Math.round(stats.totalGames * 10), // Approximate
+                        totalScore: stats.totalCoryat,
+                        lastPlayed: new Date().toISOString()
+                    };
+                    
+                    await set(statsRef, legacyStats);
+                    console.log('Legacy stats updated');
+                }
+            } catch (error) {
+                console.error('Error updating legacy stats:', error);
             }
         }
         
@@ -1901,29 +1936,50 @@
             saveSettings();
         }
         
+        // Global timer references to track all active timers
+        let activeTimers = [];
+        let activeEventListeners = [];
+        
+        function addTimer(timerId) {
+            activeTimers.push(timerId);
+        }
+        
+        function addEventListener(element, event, handler) {
+            element.addEventListener(event, handler);
+            activeEventListeners.push({ element, event, handler });
+        }
+        
         function pauseAllTimers() {
-            console.log('Pausing all timers and resetting game state');
+            console.log('PAUSING ALL TIMERS - clearing', activeTimers.length, 'timers and', activeEventListeners.length, 'listeners');
             
-            // Clear any active timeouts
+            // Clear ALL active timeouts
+            activeTimers.forEach(timerId => {
+                clearTimeout(timerId);
+                console.log('Cleared timer:', timerId);
+            });
+            activeTimers = [];
+            
+            // Clear specific game timeouts
             if (currentGame.buzzTimeout) {
                 clearTimeout(currentGame.buzzTimeout);
                 currentGame.buzzTimeout = null;
+                console.log('Cleared buzz timeout');
             }
             
-            // Remove ALL event listeners that might be active
-            document.removeEventListener('keydown', handleBuzzIn);
-            
-            // Remove any response handlers that might be lingering
-            const clonedDocument = document.cloneNode(true);
-            const newKeydownHandlers = clonedDocument.querySelectorAll('*');
-            newKeydownHandlers.forEach(el => {
-                el.removeEventListener?.('keydown', () => {});
+            // Remove ALL event listeners
+            activeEventListeners.forEach(({ element, event, handler }) => {
+                element.removeEventListener(event, handler);
             });
+            activeEventListeners = [];
+            
+            // Remove specific event listeners
+            document.removeEventListener('keydown', handleBuzzIn);
             
             // Remove buzz border
             const clueDisplay = document.querySelector('.clue-display');
             if (clueDisplay) {
                 clueDisplay.classList.remove('buzz-border');
+                console.log('Removed buzz border');
             }
             
             // Reset game state completely
@@ -1933,7 +1989,7 @@
             currentGame.clueStartTime = null;
             currentGame.answerShown = false;
             
-            console.log('All timers paused and game state reset');
+            console.log('ALL TIMERS AND LISTENERS CLEARED - game state reset');
         }
         
         function backToSelector() {
