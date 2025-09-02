@@ -1050,6 +1050,26 @@
             }
         }
         
+        function cleanDataForFirebase(obj) {
+            // Recursively remove undefined values and null values
+            const cleaned = {};
+            for (const [key, value] of Object.entries(obj)) {
+                if (value !== undefined && value !== null) {
+                    if (typeof value === 'object' && !Array.isArray(value)) {
+                        const cleanedValue = cleanDataForFirebase(value);
+                        if (Object.keys(cleanedValue).length > 0) {
+                            cleaned[key] = cleanedValue;
+                        }
+                    } else if (Array.isArray(value)) {
+                        cleaned[key] = value.filter(item => item !== undefined && item !== null);
+                    } else {
+                        cleaned[key] = value;
+                    }
+                }
+            }
+            return cleaned;
+        }
+        
         async function saveGameProgress() {
             if (!currentUser || !currentGame.gameId) return;
             
@@ -1074,15 +1094,15 @@
                     passed: currentGame.passed,
                     coryat: currentGame.coryat,
                     startTime: currentGame.startTime,
-                    categoryStats: currentGame.categoryStats,
-                    buzzStats: currentGame.buzzStats,
-                    roundProgress: currentGame.roundProgress,
+                    categoryStats: cleanDataForFirebase(currentGame.categoryStats || {}),
+                    buzzStats: currentGame.buzzStats || [],
+                    roundProgress: cleanDataForFirebase(currentGame.roundProgress || {}),
                     completed: currentClueCount >= totalClues,
                     lastPlayed: Date.now()
                 };
                 
                 const progressRef = ref(db, `users/${currentUser.uid}/jeopardy/gameProgress/${currentGame.gameId}`);
-                await set(progressRef, progress);
+                await set(progressRef, cleanDataForFirebase(progress));
                 
                 // Update local cache
                 gameProgress[currentGame.gameId] = progress;
@@ -1410,7 +1430,12 @@
                 // Use stored clue results if available, otherwise derive from counts
                 const storedResults = game.clueResults || [];
                 
-                const html = gameData.clues.slice(0, totalClues).map((clue, index) => {
+                // Load AI categorization data for this game
+                const categoriesRef = ref(db, `users/${currentUser.uid}/jeopardy/clueCategories/${gameId || game.gameId}`);
+                const categoriesSnapshot = await get(categoriesRef);
+                const clueCategories = categoriesSnapshot.exists() ? categoriesSnapshot.val() : {};
+                
+                const html = await Promise.all(gameData.clues.slice(0, totalClues).map(async (clue, index) => {
                     // Get result from stored results or derive from counts
                     let resultType = 'passed';
                     if (storedResults.length > index) {
@@ -1427,9 +1452,26 @@
                     // Check if this clue has buzz data
                     const buzzData = game.buzzStats?.find(b => b.clueIndex === index);
                     const buzzTimeDisplay = buzzData ? 
-                        `<input type="number" value="${buzzData.buzzTime}" min="0" max="10000" 
-                                onchange="updateBuzzTime('${timestamp}', '${gameId}', ${index}, this.value, ${isCompleted})"
-                                style="width: 60px; margin-left: 10px; padding: 2px; border-radius: 3px; border: 1px solid #ccc;">ms` : '';
+                        `<div style="margin-top: 5px;">
+                            <span style="color: var(--jeopardy-gold); font-size: 0.8rem;">Buzz: </span>
+                            <input type="number" value="${buzzData.buzzTime}" min="0" max="10000" 
+                                   onchange="updateBuzzTime('${timestamp}', '${gameId}', ${index}, this.value, ${isCompleted})"
+                                   style="width: 60px; padding: 2px; border-radius: 3px; border: 1px solid #ccc; background: #333; color: white;">ms
+                         </div>` : '';
+                    
+                    // Check if this clue has AI categorization
+                    const clueCategData = clueCategories[index];
+                    const aiCategories = clueCategData?.aiCategories || '';
+                    const userOverride = clueCategData?.userOverride || '';
+                    const categorizationDisplay = aiCategories ? 
+                        `<div style="margin-top: 5px;">
+                            <span style="color: var(--jeopardy-gold); font-size: 0.8rem;">AI: </span>
+                            <span style="color: #90EE90; font-size: 0.8rem;">${aiCategories}</span>
+                            ${userOverride ? `<br><span style="color: var(--jeopardy-gold); font-size: 0.8rem;">Override: </span><span style="color: #FFB6C1; font-size: 0.8rem;">${userOverride}</span>` : ''}
+                            <br><input type="text" placeholder="Override categories..." value="${userOverride}" 
+                                       onchange="updateClueCategories('${timestamp}', '${gameId}', ${index}, this.value, ${isCompleted})"
+                                       style="width: 200px; padding: 2px; border-radius: 3px; border: 1px solid #ccc; background: #333; color: white; font-size: 0.8rem; margin-top: 2px;">
+                         </div>` : '';
                     
                     return `
                         <div class="clue-result-item">
@@ -1446,12 +1488,13 @@
                                 <span class="clue-value-small">$${clue.clue_value || '200'}</span>
                                 <div class="clue-text-small">${clue.answer || 'No answer'} → ${clue.question || 'No question'}</div>
                                 ${buzzTimeDisplay}
+                                ${categorizationDisplay}
                             </div>
                         </div>
                     `;
-                }).join('');
+                }));
                 
-                resultsDiv.innerHTML = html;
+                resultsDiv.innerHTML = (await Promise.all(html)).join('');
                 console.log('Game details loaded successfully');
                 
             } catch (error) {
@@ -1871,6 +1914,30 @@
             } catch (error) {
                 console.error('Error updating buzz time:', error);
                 showError('Failed to update buzz time: ' + error.message);
+            }
+        }
+        
+        async function updateClueCategories(timestamp, gameId, clueIndex, userOverride, isCompleted) {
+            try {
+                console.log('Updating clue categories:', { timestamp, gameId, clueIndex, userOverride });
+                
+                const categoriesRef = ref(db, `users/${currentUser.uid}/jeopardy/clueCategories/${gameId}/${clueIndex}`);
+                const snapshot = await get(categoriesRef);
+                
+                let categoryData = { aiCategories: '', userOverride: null, timestamp: new Date().toISOString() };
+                if (snapshot.exists()) {
+                    categoryData = snapshot.val();
+                }
+                
+                categoryData.userOverride = userOverride.trim() || null;
+                categoryData.timestamp = new Date().toISOString();
+                
+                await set(categoriesRef, categoryData);
+                console.log('Updated clue categories for clue', clueIndex);
+                
+            } catch (error) {
+                console.error('Error updating clue categories:', error);
+                showError('Failed to update categories: ' + error.message);
             }
         }
         
@@ -2357,6 +2424,7 @@ Return only the category name(s), separated by commas if multiple. If none fit w
         window.loadGameDetails = loadGameDetails;
         window.setResult = setResult;
         window.updateBuzzTime = updateBuzzTime;
+        window.updateClueCategories = updateClueCategories;
         window.nextClue = nextClue;
         window.showAnswer = showAnswer;
         window.markCorrect = markCorrect;
