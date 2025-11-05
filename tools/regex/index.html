@@ -849,6 +849,22 @@
                         <label for="sourceScrabble">Scrabble (179K entries)</label>
                     </div>
                 </div>
+
+                <div class="option-group">
+                    <h3>🚫 Exclusion Filters</h3>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="excludeSpaces">
+                        <label for="excludeSpaces">Exclude spaces (filter out results where ? = space)</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="excludeNumbers">
+                        <label for="excludeNumbers">Exclude numbers (filter out results where ? = 0-9)</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="excludeSpecialChars">
+                        <label for="excludeSpecialChars">Exclude special chars (filter out results where ? = !@#$%^&*())</label>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -955,7 +971,59 @@
             }
         }
 
+        // Apply exclusion filters to search results
+        function applyExclusionFilters(results, searchTerm, options) {
+            if (!options.excludeSpaces && !options.excludeNumbers && !options.excludeSpecialChars) {
+                return results; // No filters to apply
+            }
 
+            // Helper function to check if a character matches any of the exclusion criteria
+            function shouldExcludeCharacter(char, options) {
+                if (options.excludeSpaces && char === ' ') {
+                    return true;
+                }
+                if (options.excludeNumbers && /[0-9]/.test(char)) {
+                    return true;
+                }
+                if (options.excludeSpecialChars && /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(char)) {
+                    return true;
+                }
+                return false;
+            }
+
+            // Helper function to check if a result should be excluded based on the search pattern
+            function shouldExcludeResult(resultTerm, searchTerm, options) {
+                // Only apply filters if the search term contains '?' wildcards
+                if (!searchTerm.includes('?')) {
+                    return false;
+                }
+
+                // Create a regex pattern from the search term (replace ? with (.))
+                const regexPattern = searchTerm.replace(/\?/g, '(.)');
+                const regex = new RegExp(`^${regexPattern}$`, 'i');
+                
+                const match = resultTerm.match(regex);
+                if (!match) {
+                    return false; // This result doesn't match the pattern, so don't exclude it
+                }
+
+                // Check each captured group (the characters that replaced '?')
+                for (let i = 1; i < match.length; i++) {
+                    const capturedChar = match[i];
+                    if (shouldExcludeCharacter(capturedChar, options)) {
+                        return true; // Exclude this result
+                    }
+                }
+
+                return false; // Don't exclude this result
+            }
+
+            // Filter the results
+            return results.filter(result => {
+                const term = result[0] || result.term || '';
+                return !shouldExcludeResult(term, searchTerm, options);
+            });
+        }
 
         async function performSearch() {
             const searchTerm = document.getElementById('searchInput').value.trim();
@@ -1000,14 +1068,18 @@
                     sources: getSelectedSources(),
                     maxResults: 10000,
                     dedupe: true,
-                    ignoreTerms: filterTerms
+                    ignoreTerms: filterTerms,
+                    excludeSpaces: document.getElementById('excludeSpaces')?.checked || false,
+                    excludeNumbers: document.getElementById('excludeNumbers')?.checked || false,
+                    excludeSpecialChars: document.getElementById('excludeSpecialChars')?.checked || false
                 };
 
                 // Perform search
                 const result = await searchEngine.search(searchTerm, currentOptions);
                 
                 if (result && result.results && Array.isArray(result.results)) {
-                    currentResults = result.results;
+                    // Apply exclusion filters
+                    currentResults = applyExclusionFilters(result.results, searchTerm, currentOptions);
                     
                     // Display first page
                     displayResults(currentResults.slice(0, RESULTS_PER_PAGE), result.stats, true);
