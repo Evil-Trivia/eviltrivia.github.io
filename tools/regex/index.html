@@ -864,6 +864,10 @@
                         <input type="checkbox" id="excludeSpecialChars">
                         <label for="excludeSpecialChars">Exclude special chars (filter out results where ? = !@#$%^&*())</label>
                     </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="lettersOnly">
+                        <label for="lettersOnly">Letters only (? must be A-Z letters only)</label>
+                    </div>
                 </div>
             </div>
         </div>
@@ -973,12 +977,15 @@
 
         // Apply exclusion filters to search results
         function applyExclusionFilters(results, searchTerm, options) {
-            if (!options.excludeSpaces && !options.excludeNumbers && !options.excludeSpecialChars) {
+            if (!options.excludeSpaces && !options.excludeNumbers && !options.excludeSpecialChars && !options.lettersOnly) {
                 return results; // No filters to apply
             }
 
             // Helper function to check if a character matches any of the exclusion criteria
             function shouldExcludeCharacter(char, options) {
+                if (options.lettersOnly && !/[a-zA-Z]/.test(char)) {
+                    return true; // Exclude anything that's not a letter
+                }
                 if (options.excludeSpaces && char === ' ') {
                     return true;
                 }
@@ -998,28 +1005,37 @@
                     return false;
                 }
 
-                // Escape special regex characters except ? and *, then handle ? and * specially
-                let regexPattern = searchTerm
-                    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape special chars except ? and *
-                    .replace(/\*/g, '.*')  // Replace * with .* (match any characters)
-                    .replace(/\?/g, '(.)'); // Replace ? with (.) to capture single characters
-                
-                const regex = new RegExp(`^${regexPattern}$`, 'i');
-                
-                const match = resultTerm.match(regex);
-                if (!match) {
-                    return false; // This result doesn't match the pattern, so don't exclude it
-                }
-
-                // Check each captured group (the characters that replaced '?')
-                for (let i = 1; i < match.length; i++) {
-                    const capturedChar = match[i];
-                    if (shouldExcludeCharacter(capturedChar, options)) {
-                        return true; // Exclude this result
+                try {
+                    // More careful regex pattern construction
+                    // First, escape all special regex characters
+                    let escapedPattern = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    
+                    // Then replace our escaped wildcards back to their intended meanings
+                    escapedPattern = escapedPattern
+                        .replace(/\\\*/g, '.*')      // \* becomes .* (any characters)
+                        .replace(/\\\?/g, '(.)');    // \? becomes (.) (single character capture)
+                    
+                    const regex = new RegExp(`^${escapedPattern}$`, 'i');
+                    
+                    const match = resultTerm.match(regex);
+                    if (!match) {
+                        return false; // This result doesn't match the pattern, so don't exclude it
                     }
-                }
 
-                return false; // Don't exclude this result
+                    // Check each captured group (the characters that replaced '?')
+                    for (let i = 1; i < match.length; i++) {
+                        const capturedChar = match[i];
+                        if (shouldExcludeCharacter(capturedChar, options)) {
+                            return true; // Exclude this result
+                        }
+                    }
+
+                    return false; // Don't exclude this result
+                    
+                } catch (error) {
+                    console.warn('Regex error in exclusion filter:', error, 'for pattern:', searchTerm);
+                    return false; // Don't exclude if there's an error
+                }
             }
 
             // Filter the results
@@ -1075,7 +1091,8 @@
                     ignoreTerms: filterTerms,
                     excludeSpaces: document.getElementById('excludeSpaces')?.checked || false,
                     excludeNumbers: document.getElementById('excludeNumbers')?.checked || false,
-                    excludeSpecialChars: document.getElementById('excludeSpecialChars')?.checked || false
+                    excludeSpecialChars: document.getElementById('excludeSpecialChars')?.checked || false,
+                    lettersOnly: document.getElementById('lettersOnly')?.checked || false
                 };
 
                 // Perform search
