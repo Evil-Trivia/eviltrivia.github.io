@@ -143,40 +143,73 @@ class StaticSearchEngine {
     }
 
     /**
-     * Variable pattern matching (e.g., "X Y X" matches "MOM")
+     * Variable pattern matching with wildcard support (e.g., "X Y X" matches "MOM", "*X*" matches "AXE")
      */
     variableMatch(pattern, text) {
-        const variables = new Map();
-        let patternIndex = 0;
-        let textIndex = 0;
+        return this.variableMatchRecursive(pattern, text, 0, 0, new Map());
+    }
+    
+    /**
+     * Recursive helper for variable matching with wildcards
+     */
+    variableMatchRecursive(pattern, text, patternIndex, textIndex, variables) {
+        // Base cases
+        if (patternIndex >= pattern.length) {
+            return textIndex >= text.length;
+        }
         
-        while (patternIndex < pattern.length && textIndex < text.length) {
-            const patternChar = pattern[patternIndex].toUpperCase();
-            const textChar = text[textIndex].toUpperCase();
-            
-            if (/[A-Z]/.test(patternChar)) {
-                // It's a variable
-                if (variables.has(patternChar)) {
-                    // Check if it matches the stored value
-                    if (variables.get(patternChar) !== textChar) {
-                        return false;
-                    }
-                } else {
-                    // Store the variable value
-                    variables.set(patternChar, textChar);
-                }
-            } else {
-                // It's a literal character
-                if (patternChar !== textChar) {
+        if (textIndex >= text.length) {
+            // Check if remaining pattern is only * wildcards
+            for (let i = patternIndex; i < pattern.length; i++) {
+                if (pattern[i] !== '*') {
                     return false;
                 }
             }
-            
-            patternIndex++;
-            textIndex++;
+            return true;
         }
         
-        return patternIndex === pattern.length && textIndex === text.length;
+        const patternChar = pattern[patternIndex];
+        const textChar = text[textIndex];
+        
+        if (patternChar === '*') {
+            // * wildcard - try matching 0 or more characters
+            // Try matching 0 characters (skip the *)
+            if (this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex, new Map(variables))) {
+                return true;
+            }
+            // Try matching 1 or more characters
+            return this.variableMatchRecursive(pattern, text, patternIndex, textIndex + 1, new Map(variables));
+        }
+        
+        if (patternChar === '?') {
+            // ? wildcard - matches any single character
+            return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, new Map(variables));
+        }
+        
+        if (/[A-Z]/i.test(patternChar)) {
+            // It's a variable (letter)
+            const upperPatternChar = patternChar.toUpperCase();
+            const upperTextChar = textChar.toUpperCase();
+            
+            if (variables.has(upperPatternChar)) {
+                // Check if it matches the stored value
+                if (variables.get(upperPatternChar) !== upperTextChar) {
+                    return false;
+                }
+            } else {
+                // Store the variable value
+                variables.set(upperPatternChar, upperTextChar);
+            }
+            
+            return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, variables);
+        } else {
+            // It's a literal character
+            if (patternChar.toUpperCase() !== textChar.toUpperCase()) {
+                return false;
+            }
+            
+            return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, variables);
+        }
     }
 
     /**
