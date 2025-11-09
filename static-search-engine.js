@@ -143,7 +143,12 @@ class StaticSearchEngine {
     }
 
     /**
-     * Variable pattern matching with wildcard support (e.g., "X Y X" matches "MOM", "*X*" matches "AXE")
+     * Variable pattern matching with wildcard support
+     * - Uppercase letters (A-Z) = variables that must be consistent
+     * - Lowercase letters (a-z) = literal characters that must match exactly  
+     * - ? = wildcard matching any single character
+     * - * = wildcard matching any sequence of characters
+     * Examples: "X Y X" matches "MOM", "?ab ?ab" matches "cat bat"
      */
     variableMatch(pattern, text) {
         return this.variableMatchRecursive(pattern, text, 0, 0, new Map());
@@ -186,25 +191,29 @@ class StaticSearchEngine {
             return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, new Map(variables));
         }
         
-        if (/[A-Z]/i.test(patternChar)) {
-            // It's a variable (letter)
-            const upperPatternChar = patternChar.toUpperCase();
+        // In variable mode, we need to distinguish between:
+        // 1. Uppercase letters = variables (must be consistent)
+        // 2. Lowercase letters = literals (must match exactly)
+        // 3. Other characters = literals
+        
+        if (/[A-Z]/.test(patternChar)) {
+            // It's a variable (uppercase letter)
             const upperTextChar = textChar.toUpperCase();
             
-            if (variables.has(upperPatternChar)) {
+            if (variables.has(patternChar)) {
                 // Check if it matches the stored value
-                if (variables.get(upperPatternChar) !== upperTextChar) {
+                if (variables.get(patternChar) !== upperTextChar) {
                     return false;
                 }
             } else {
                 // Store the variable value
-                variables.set(upperPatternChar, upperTextChar);
+                variables.set(patternChar, upperTextChar);
             }
             
             return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, variables);
         } else {
-            // It's a literal character
-            if (patternChar.toUpperCase() !== textChar.toUpperCase()) {
+            // It's a literal character (lowercase letter, number, punctuation, etc.)
+            if (patternChar.toLowerCase() !== textChar.toLowerCase()) {
                 return false;
             }
             
