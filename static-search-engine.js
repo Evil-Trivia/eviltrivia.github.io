@@ -143,7 +143,8 @@ class StaticSearchEngine {
     }
 
     /**
-     * Variable pattern matching (e.g., "X Y X" matches "MOM", "$ab $ab" matches "helter skelter")
+     * Variable pattern matching (e.g., "X Y X" matches "MOM", "$ab $ab" matches "timber camber")
+     * $ wildcards match non-space characters only
      */
     variableMatch(pattern, text) {
         // Check if pattern contains $ wildcards - if so, use recursive matching
@@ -203,14 +204,22 @@ class StaticSearchEngine {
         
         if (patternChar === '$') {
             // $ wildcard - try matching 0 to remaining characters (each $ is independent)
+            // $ cannot match spaces - only continuous non-space characters
             
             // Try matching 0 characters (move to next pattern char)
             if (this.variableMatchWithWildcards(pattern, text, patternIndex + 1, textIndex, new Map(variables))) {
                 return true;
             }
             
-            // Try matching 1 or more characters
+            // Try matching 1 or more characters (but stop at spaces)
             for (let len = 1; len <= text.length - textIndex; len++) {
+                const matchedText = text.substring(textIndex, textIndex + len);
+                
+                // If the matched text contains a space, stop trying longer matches
+                if (matchedText.includes(' ')) {
+                    break;
+                }
+                
                 // Create new variables map for this attempt
                 const newVariables = new Map(variables);
                 
