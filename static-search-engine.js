@@ -151,7 +151,12 @@ class StaticSearchEngine {
      * Examples: "X Y X" matches "MOM", "?ab ?ab" matches "cat bat"
      */
     variableMatch(pattern, text) {
-        return this.variableMatchRecursive(pattern, text, 0, 0, new Map());
+        // Debug log for testing
+        const result = this.variableMatchRecursive(pattern, text, 0, 0, new Map());
+        if (pattern === '?ab ?ab' && (text.toLowerCase().includes('cat') || text.toLowerCase().includes('bat'))) {
+            console.log(`Variable match test: "${pattern}" vs "${text}" = ${result}`);
+        }
+        return result;
     }
     
     /**
@@ -179,16 +184,16 @@ class StaticSearchEngine {
         if (patternChar === '*') {
             // * wildcard - try matching 0 or more characters
             // Try matching 0 characters (skip the *)
-            if (this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex, new Map(variables))) {
+            if (this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex, variables)) {
                 return true;
             }
             // Try matching 1 or more characters
-            return this.variableMatchRecursive(pattern, text, patternIndex, textIndex + 1, new Map(variables));
+            return this.variableMatchRecursive(pattern, text, patternIndex, textIndex + 1, variables);
         }
         
         if (patternChar === '?') {
             // ? wildcard - matches any single character
-            return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, new Map(variables));
+            return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, variables);
         }
         
         // In variable mode, we need to distinguish between:
