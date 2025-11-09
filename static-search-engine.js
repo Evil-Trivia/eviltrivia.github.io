@@ -143,12 +143,12 @@ class StaticSearchEngine {
     }
 
     /**
-     * Variable pattern matching (e.g., "X Y X" matches "MOM", "$ab $ab" matches "timber camber")
-     * $ wildcards match non-space characters only
+     * Variable pattern matching (e.g., "X Y X" matches "MOM", "[1-5]abc [1-5]abc" matches "timber camber")
+     * [n-m] wildcards match between n and m non-space characters
      */
     variableMatch(pattern, text) {
-        // Check if pattern contains $ wildcards - if so, use recursive matching
-        if (pattern.includes('$')) {
+        // Check if pattern contains range wildcards [n-m] or $ wildcards - if so, use recursive matching
+        if (pattern.includes('$') || pattern.includes('[')) {
             return this.variableMatchWithWildcards(pattern, text, 0, 0, new Map());
         }
         
@@ -187,7 +187,7 @@ class StaticSearchEngine {
     }
 
     /**
-     * Recursive helper for variable matching with $ wildcard support
+     * Recursive helper for variable matching with $ and [n-m] wildcard support
      */
     variableMatchWithWildcards(pattern, text, patternIndex, textIndex, variables) {
         // Base case: reached end of pattern
@@ -202,7 +202,48 @@ class StaticSearchEngine {
         
         const patternChar = pattern[patternIndex];
         
-        if (patternChar === '$') {
+        // Check for range wildcard [n-m]
+        if (patternChar === '[') {
+            // Find the closing bracket
+            const closeBracketIndex = pattern.indexOf(']', patternIndex);
+            if (closeBracketIndex === -1) {
+                return false; // Invalid pattern - no closing bracket
+            }
+            
+            // Extract the range (e.g., "1-5" from "[1-5]")
+            const rangeStr = pattern.substring(patternIndex + 1, closeBracketIndex);
+            const rangeParts = rangeStr.split('-');
+            if (rangeParts.length !== 2) {
+                return false; // Invalid range format
+            }
+            
+            const minLen = parseInt(rangeParts[0]);
+            const maxLen = parseInt(rangeParts[1]);
+            if (isNaN(minLen) || isNaN(maxLen) || minLen < 0 || maxLen < minLen) {
+                return false; // Invalid range values
+            }
+            
+            // Try matching different lengths within the range
+            for (let len = minLen; len <= maxLen && len <= text.length - textIndex; len++) {
+                const matchedText = text.substring(textIndex, textIndex + len);
+                
+                // Range wildcards cannot contain spaces
+                if (matchedText.includes(' ')) {
+                    break; // Stop trying longer matches if we hit a space
+                }
+                
+                // Create new variables map for this attempt
+                const newVariables = new Map(variables);
+                
+                // Try to match the rest of the pattern after consuming 'len' characters
+                // Skip past the entire [n-m] construct
+                if (this.variableMatchWithWildcards(pattern, text, closeBracketIndex + 1, textIndex + len, newVariables)) {
+                    return true;
+                }
+            }
+            
+            return false;
+        } else if (patternChar === '$') {
             // $ wildcard - try matching 0 to remaining characters (each $ is independent)
             // $ cannot match spaces - only continuous non-space characters
             
