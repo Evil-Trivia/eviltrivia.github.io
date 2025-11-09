@@ -143,87 +143,40 @@ class StaticSearchEngine {
     }
 
     /**
-     * Variable pattern matching with wildcard support
-     * - Uppercase letters (A-Z) = variables that must be consistent
-     * - Lowercase letters (a-z) = literal characters that must match exactly  
-     * - ? = wildcard matching any single character
-     * - * = wildcard matching any sequence of characters
-     * Examples: "X Y X" matches "MOM", "?ab ?ab" matches "cat bat"
+     * Variable pattern matching (e.g., "X Y X" matches "MOM")
      */
     variableMatch(pattern, text) {
-        // Debug log for testing
-        const result = this.variableMatchRecursive(pattern, text, 0, 0, new Map());
-        if (pattern === '?ab ?ab' && (text.toLowerCase().includes('cat') || text.toLowerCase().includes('bat'))) {
-            console.log(`Variable match test: "${pattern}" vs "${text}" = ${result}`);
-        }
-        return result;
-    }
-    
-    /**
-     * Recursive helper for variable matching with wildcards
-     */
-    variableMatchRecursive(pattern, text, patternIndex, textIndex, variables) {
-        // Base cases
-        if (patternIndex >= pattern.length) {
-            return textIndex >= text.length;
-        }
+        const variables = new Map();
+        let patternIndex = 0;
+        let textIndex = 0;
         
-        if (textIndex >= text.length) {
-            // Check if remaining pattern is only * wildcards
-            for (let i = patternIndex; i < pattern.length; i++) {
-                if (pattern[i] !== '*') {
-                    return false;
-                }
-            }
-            return true;
-        }
-        
-        const patternChar = pattern[patternIndex];
-        const textChar = text[textIndex];
-        
-        if (patternChar === '*') {
-            // * wildcard - try matching 0 or more characters
-            // Try matching 0 characters (skip the *)
-            if (this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex, variables)) {
-                return true;
-            }
-            // Try matching 1 or more characters
-            return this.variableMatchRecursive(pattern, text, patternIndex, textIndex + 1, variables);
-        }
-        
-        if (patternChar === '?') {
-            // ? wildcard - matches any single character
-            return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, variables);
-        }
-        
-        // In variable mode, we need to distinguish between:
-        // 1. Uppercase letters = variables (must be consistent)
-        // 2. Lowercase letters = literals (must match exactly)
-        // 3. Other characters = literals
-        
-        if (/[A-Z]/.test(patternChar)) {
-            // It's a variable (uppercase letter)
-            const upperTextChar = textChar.toUpperCase();
+        while (patternIndex < pattern.length && textIndex < text.length) {
+            const patternChar = pattern[patternIndex].toUpperCase();
+            const textChar = text[textIndex].toUpperCase();
             
-            if (variables.has(patternChar)) {
-                // Check if it matches the stored value
-                if (variables.get(patternChar) !== upperTextChar) {
-                    return false;
+            if (/[A-Z]/.test(patternChar)) {
+                // It's a variable
+                if (variables.has(patternChar)) {
+                    // Check if it matches the stored value
+                    if (variables.get(patternChar) !== textChar) {
+                        return false;
+                    }
+                } else {
+                    // Store the variable value
+                    variables.set(patternChar, textChar);
                 }
             } else {
-                // Store the variable value
-                variables.set(patternChar, upperTextChar);
+                // It's a literal character
+                if (patternChar !== textChar) {
+                    return false;
+                }
             }
             
-            return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, variables);
-        } else {
-            // It's a literal character (lowercase letter, number, punctuation, etc.)
-            if (patternChar.toLowerCase() !== textChar.toLowerCase()) {
-                return false;
-            }
-            
-            return this.variableMatchRecursive(pattern, text, patternIndex + 1, textIndex + 1, variables);
+            patternIndex++;
+            textIndex++;
         }
+        
+        return patternIndex === pattern.length && textIndex === text.length;
     }
 
     /**
