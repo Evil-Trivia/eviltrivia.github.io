@@ -457,9 +457,9 @@
         
         .trivia-columns {
             display: grid;
-            grid-template-columns: 1fr 500px;
+            grid-template-columns: 1fr 625px;
             gap: 20px;
-            min-height: 500px;
+            min-height: 650px;
         }
         
         .rounds-panel {
@@ -534,7 +534,8 @@
         
         .pdf-viewer {
             flex: 1;
-            min-height: 400px;
+            min-height: 550px;
+            width: 100%;
             border: 1px solid #ddd;
             border-radius: 4px;
             margin-bottom: 10px;
@@ -917,66 +918,100 @@
             return null;
         }
         
-        // Create round content (questions organized by format within the round)
+        // Create round content (ALL questions from ALL formats in a grid)
         function createRoundContent(roundData) {
             // All possible format names based on actual data structure
             const formats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle'];
-            const formatDisplayNames = {
-                'Written': 'Written',
-                'Visual': 'Visual', 
-                'Music': 'Music',
-                'Fill-In': 'Fill-In',
-                'FDQ': 'Free Drink Questions',
-                'Puzzle': 'Puzzle'
-            };
             
-            let questionsHTML = '';
+            // Collect ALL questions from ALL formats in this round
+            let allQuestions = [];
             
             for (const format of formats) {
                 if (roundData[format]) {
-                    // Handle both array and object formats
-                    let questions = [];
-                    
                     if (Array.isArray(roundData[format])) {
-                        // Array format - iterate through with indices as question numbers
+                        // Array format - iterate through with indices
                         roundData[format].forEach((qData, index) => {
                             if (qData && typeof qData === 'object') {
-                                questions.push([index, qData]);
+                                allQuestions.push({
+                                    format: format,
+                                    question: qData.Question || '',
+                                    answer: qData.Answer || '',
+                                    questionNumber: qData['Question Number'] || index,
+                                    roundOrdering: parseInt(qData['Round Ordering']) || 1,
+                                    roundNumber: parseInt(qData['Round Number']) || 1,
+                                    roundInstruction: qData['Round Instruction'] || '',
+                                    pointValue: qData['Point Value'] || 0
+                                });
                             }
                         });
                     } else {
                         // Object format - use Object.entries
-                        questions = Object.entries(roundData[format])
-                            .filter(([key, value]) => !isNaN(parseInt(key)) && typeof value === 'object');
-                    }
-                    
-                    // Sort by Question Number if available, otherwise by key/index
-                    questions.sort((a, b) => {
-                        const aNum = parseInt(a[1]['Question Number']) || parseInt(a[0]);
-                        const bNum = parseInt(b[1]['Question Number']) || parseInt(b[0]);
-                        return aNum - bNum;
-                    });
-                    
-                    if (questions.length > 0) {
-                        questionsHTML += `<h5>${formatDisplayNames[format] || format}</h5>`;
-                        questionsHTML += questions.map(([qNum, qData]) => {
-                            const question = qData.Question || qData.question || '';
-                            const answer = qData.Answer || qData.answer || '';
-                            const questionNumber = qData['Question Number'] || qNum;
-                            
-                            return `
-                                <div class="question-item">
-                                    <div class="question-header">Question ${questionNumber}</div>
-                                    <div class="question-text">${escapeHTML(question)}</div>
-                                    <div class="answer-text">Answer: ${escapeHTML(answer)}</div>
-                                </div>
-                            `;
-                        }).join('');
+                        Object.entries(roundData[format]).forEach(([key, qData]) => {
+                            if (!isNaN(parseInt(key)) && qData && typeof qData === 'object') {
+                                allQuestions.push({
+                                    format: format,
+                                    question: qData.Question || '',
+                                    answer: qData.Answer || '',
+                                    questionNumber: qData['Question Number'] || parseInt(key),
+                                    roundOrdering: parseInt(qData['Round Ordering']) || 1,
+                                    roundNumber: parseInt(qData['Round Number']) || 1,
+                                    roundInstruction: qData['Round Instruction'] || '',
+                                    pointValue: qData['Point Value'] || 0
+                                });
+                            }
+                        });
                     }
                 }
             }
             
-            return questionsHTML || '<div class="missing-data">No questions found</div>';
+            if (allQuestions.length === 0) {
+                return '<div class="missing-data">No questions found</div>';
+            }
+            
+            // Sort by Round Number > Round Ordering > Question Number
+            allQuestions.sort((a, b) => {
+                if (a.roundNumber !== b.roundNumber) return a.roundNumber - b.roundNumber;
+                if (a.roundOrdering !== b.roundOrdering) return a.roundOrdering - b.roundOrdering;
+                return a.questionNumber - b.questionNumber;
+            });
+            
+            // Show round instruction if available
+            const firstQuestion = allQuestions[0];
+            const roundInstruction = firstQuestion?.roundInstruction;
+            
+            let questionsHTML = '';
+            
+            if (roundInstruction) {
+                questionsHTML += `
+                    <div style="background-color: #e3f2fd; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-style: italic;">
+                        <strong>Instructions:</strong> ${escapeHTML(roundInstruction)}
+                    </div>
+                `;
+            }
+            
+            // Create table grid
+            questionsHTML += `
+                <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                    <thead>
+                        <tr style="background-color: #f5f5f5;">
+                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; width: 80px;">Q#</th>
+                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Question</th>
+                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; width: 200px;">Answer</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${allQuestions.map(q => `
+                            <tr>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${q.questionNumber}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd;">${escapeHTML(q.question)}</td>
+                                <td style="padding: 8px; border: 1px solid #ddd; font-style: italic;">${escapeHTML(q.answer)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            return questionsHTML;
         }
         
         // Create PDF panel content
@@ -1051,8 +1086,7 @@
                                 `<option value="${index}" ${index === 0 ? 'selected' : ''}>${escapeHTML(item.name)}</option>`
                             ).join('')}
                         </select>
-                    ` : `<span>${escapeHTML(firstItem.name)}</span>`}
-                    ${!firstItem.isFolder ? `<button onclick="openPDFFullScreen('${firstItem.originalUrl}')" class="drive-link" style="margin-left: 10px; padding: 4px 8px; font-size: 12px;">⛶ Full Screen</button>` : ''}
+                    ` : `<span style="font-weight: 500;">${escapeHTML(firstItem.name)}</span>`}
                 </div>
                 <div id="preview-content-${trivia.triviaNumber}">
                     ${previewContent}
@@ -1219,17 +1253,6 @@
             }
             
             previewContainer.innerHTML = previewContent;
-            
-            // Update full-screen button
-            const fullScreenBtn = selectElement.parentElement.querySelector('button');
-            if (fullScreenBtn) {
-                if (selectedItem.isFolder) {
-                    fullScreenBtn.style.display = 'none';
-                } else {
-                    fullScreenBtn.style.display = 'inline-block';
-                    fullScreenBtn.onclick = () => openPDFFullScreen(selectedItem.originalUrl);
-                }
-            }
         }
         
         // Open PDF in full screen
