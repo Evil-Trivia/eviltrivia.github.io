@@ -580,6 +580,24 @@
             font-size: 12px;
             display: inline-block;
         }
+        
+        /* Search highlighting */
+        .search-highlight {
+            background-color: #ffeb3b;
+            padding: 2px 4px;
+            border-radius: 2px;
+            font-weight: bold;
+        }
+        
+        .trivia-item.has-matches {
+            border: 2px solid #4caf50;
+            background-color: #f1f8e9;
+        }
+        
+        .round-item.has-matches {
+            background-color: #e8f5e8;
+            border-color: #4caf50;
+        }
 
         /* Responsive design */
         @media (max-width: 768px) {
@@ -616,7 +634,7 @@
         
         <!-- View Mode Toolbar -->
         <div id="view-toolbar" class="hidden" style="background-color: white; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-            <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 15px;">
                 <button id="btn-full-archive" class="toolbar-btn active">Full Archive</button>
                 <button id="btn-puzzles" class="toolbar-btn" disabled>Puzzles</button>
                 <button id="btn-visuals" class="toolbar-btn" disabled>Visuals</button>
@@ -624,6 +642,12 @@
                 <button id="btn-music" class="toolbar-btn" disabled>Music</button>
                 <button id="btn-challenges" class="toolbar-btn" disabled>Challenges</button>
                 <button id="btn-written-only" class="toolbar-btn" disabled>Written Only</button>
+            </div>
+            <!-- Search Bar -->
+            <div style="display: flex; gap: 10px; align-items: center; justify-content: center;">
+                <input type="text" id="archive-search" placeholder="Search all trivia content..." style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; width: 300px; font-size: 14px;">
+                <button id="search-btn" onclick="performArchiveSearch()" style="padding: 8px 16px; background-color: #000; color: white; border: none; border-radius: 4px; cursor: pointer;">Search</button>
+                <button id="clear-search-btn" onclick="clearArchiveSearch()" style="padding: 8px 16px; background-color: #666; color: white; border: none; border-radius: 4px; cursor: pointer;">Clear</button>
             </div>
         </div>
         
@@ -1084,15 +1108,28 @@
             let previewContent = '';
             
             if (firstItem.isFolder) {
-                // For music folder, show a more informative preview with direct link
-                previewContent = `<div class="pdf-viewer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f5f5f5; padding: 20px;">
-                    <div style="text-align: center;">
-                        <h3 style="margin-bottom: 15px; color: #333;">🎵 Music Folder</h3>
-                        <p style="margin-bottom: 20px; color: #666;">Click below to open the music folder in a new tab where you can play the audio files directly.</p>
-                        <a href="${firstItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 16px; padding: 12px 24px;">🎵 Open Music Folder</a>
-                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Note: Google Drive embedded views cannot play audio files directly</p>
-                </div>
-                </div>`;
+                // For music folder, try embedded folder view with better styling
+                const folderId = extractGoogleDriveFolderId(firstItem.originalUrl);
+                if (folderId) {
+                    previewContent = `
+                        <div style="display: flex; flex-direction: column; height: 100%;">
+                            <div style="background-color: #f5f5f5; padding: 10px; text-align: center; border-bottom: 1px solid #ddd;">
+                                <h4 style="margin: 0; color: #333;">🎵 Music Folder</h4>
+                                <p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">Click files in the folder below to play them in a new tab</p>
+                            </div>
+                            <iframe class="pdf-viewer" src="https://drive.google.com/embeddedfolderview?id=${folderId}" frameborder="0" style="flex: 1; min-height: 600px;"></iframe>
+                        </div>
+                    `;
+                } else {
+                    previewContent = `<div class="pdf-viewer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f5f5f5; padding: 20px;">
+                        <div style="text-align: center;">
+                            <h3 style="margin-bottom: 15px; color: #333;">🎵 Music Folder</h3>
+                            <p style="margin-bottom: 20px; color: #666;">Click below to open the music folder in a new tab where you can play the audio files directly.</p>
+                            <a href="${firstItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 16px; padding: 12px 24px;">🎵 Open Music Folder</a>
+                            <p style="margin-top: 15px; font-size: 12px; color: #999;">Note: You'll need to click individual files to play them</p>
+                        </div>
+                    </div>`;
+                }
             } else {
                 const previewUrl = `https://drive.google.com/file/d/${firstItem.fileId}/preview`;
                 previewContent = `<iframe class="pdf-viewer" src="${previewUrl}" frameborder="0"></iframe>`;
@@ -1274,15 +1311,28 @@
             
             let previewContent = '';
             if (selectedItem.isFolder) {
-                // For music folder, show a more informative preview
-                previewContent = `<div class="pdf-viewer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f5f5f5; padding: 20px;">
-                    <div style="text-align: center;">
-                        <h3 style="margin-bottom: 15px; color: #333;">🎵 Music Folder</h3>
-                        <p style="margin-bottom: 20px; color: #666;">Click below to open the music folder in a new tab where you can play the audio files directly.</p>
-                        <a href="${selectedItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 16px; padding: 12px 24px;">🎵 Open Music Folder</a>
-                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Note: Google Drive embedded views cannot play audio files directly</p>
-                    </div>
-                </div>`;
+                // For music folder, try embedded folder view
+                const folderId = extractGoogleDriveFolderId(selectedItem.originalUrl);
+                if (folderId) {
+                    previewContent = `
+                        <div style="display: flex; flex-direction: column; height: 100%;">
+                            <div style="background-color: #f5f5f5; padding: 10px; text-align: center; border-bottom: 1px solid #ddd;">
+                                <h4 style="margin: 0; color: #333;">🎵 Music Folder</h4>
+                                <p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">Click files in the folder below to play them in a new tab</p>
+                            </div>
+                            <iframe class="pdf-viewer" src="https://drive.google.com/embeddedfolderview?id=${folderId}" frameborder="0" style="flex: 1; min-height: 600px;"></iframe>
+                        </div>
+                    `;
+                } else {
+                    previewContent = `<div class="pdf-viewer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f5f5f5; padding: 20px;">
+                        <div style="text-align: center;">
+                            <h3 style="margin-bottom: 15px; color: #333;">🎵 Music Folder</h3>
+                            <p style="margin-bottom: 20px; color: #666;">Click below to open the music folder in a new tab where you can play the audio files directly.</p>
+                            <a href="${selectedItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 16px; padding: 12px 24px;">🎵 Open Music Folder</a>
+                            <p style="margin-top: 15px; font-size: 12px; color: #999;">Note: You'll need to click individual files to play them</p>
+                        </div>
+                    </div>`;
+                }
             } else {
                 const previewUrl = `https://drive.google.com/file/d/${selectedItem.fileId}/preview`;
                 previewContent = `<iframe class="pdf-viewer" src="${previewUrl}" frameborder="0"></iframe>`;
@@ -1355,6 +1405,13 @@
         function initializeToolbar() {
             document.getElementById('btn-full-archive').addEventListener('click', () => switchViewMode('full-archive'));
             
+            // Add search functionality
+            document.getElementById('archive-search').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    performArchiveSearch();
+                }
+            });
+            
             // TODO: Add handlers for other view modes when implemented
             // document.getElementById('btn-puzzles').addEventListener('click', () => switchViewMode('puzzles'));
             // document.getElementById('btn-visuals').addEventListener('click', () => switchViewMode('visuals'));
@@ -1362,6 +1419,115 @@
             // document.getElementById('btn-music').addEventListener('click', () => switchViewMode('music'));
             // document.getElementById('btn-challenges').addEventListener('click', () => switchViewMode('challenges'));
             // document.getElementById('btn-written-only').addEventListener('click', () => switchViewMode('written-only'));
+        }
+        
+        // Search functionality
+        function performArchiveSearch() {
+            const searchTerm = document.getElementById('archive-search').value.trim().toLowerCase();
+            if (!searchTerm) {
+                clearArchiveSearch();
+                return;
+            }
+            
+            let hasMatches = false;
+            
+            // Search through all trivia items
+            document.querySelectorAll('.trivia-item').forEach(triviaItem => {
+                const triviaNumber = parseInt(triviaItem.dataset.triviaNumber);
+                let triviaHasMatches = false;
+                
+                // Search through all rounds in this trivia
+                triviaItem.querySelectorAll('.round-item').forEach(roundItem => {
+                    let roundHasMatches = false;
+                    
+                    // Search all text content in this round
+                    const roundText = roundItem.textContent.toLowerCase();
+                    if (roundText.includes(searchTerm)) {
+                        roundHasMatches = true;
+                        triviaHasMatches = true;
+                        hasMatches = true;
+                        
+                        // Highlight the search term in this round's HTML
+                        highlightSearchTerm(roundItem, searchTerm);
+                        
+                        // Auto-expand this round
+                        roundItem.setAttribute('open', '');
+                    }
+                    
+                    // Add/remove match styling
+                    if (roundHasMatches) {
+                        roundItem.classList.add('has-matches');
+                    } else {
+                        roundItem.classList.remove('has-matches');
+                    }
+                });
+                
+                // Add/remove trivia match styling and auto-expand if has matches
+                if (triviaHasMatches) {
+                    triviaItem.classList.add('has-matches');
+                    triviaItem.setAttribute('open', '');
+                    // Load PDF content if not already loaded
+                    loadPDFContent(triviaNumber);
+                } else {
+                    triviaItem.classList.remove('has-matches');
+                }
+            });
+            
+            if (!hasMatches) {
+                alert('No matches found for "' + document.getElementById('archive-search').value + '"');
+            }
+        }
+        
+        // Clear search highlighting
+        function clearArchiveSearch() {
+            document.getElementById('archive-search').value = '';
+            
+            // Remove all highlighting
+            document.querySelectorAll('.search-highlight').forEach(el => {
+                el.outerHTML = el.innerHTML;
+            });
+            
+            // Remove match styling
+            document.querySelectorAll('.has-matches').forEach(el => {
+                el.classList.remove('has-matches');
+            });
+            
+            // Collapse all items
+            document.querySelectorAll('.trivia-item, .round-item').forEach(item => {
+                item.removeAttribute('open');
+            });
+        }
+        
+        // Highlight search term in element
+        function highlightSearchTerm(element, searchTerm) {
+            const walker = document.createTreeWalker(
+                element,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
+            
+            const textNodes = [];
+            let node;
+            while (node = walker.nextNode()) {
+                textNodes.push(node);
+            }
+            
+            textNodes.forEach(textNode => {
+                const text = textNode.textContent;
+                const regex = new RegExp(`(${escapeRegex(searchTerm)})`, 'gi');
+                if (regex.test(text)) {
+                    const highlightedText = text.replace(regex, '<span class="search-highlight">$1</span>');
+                    const wrapper = document.createElement('span');
+                    wrapper.innerHTML = highlightedText;
+                    textNode.parentNode.replaceChild(wrapper, textNode);
+                }
+            });
+        }
+        
+        // Escape regex special characters
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
         
         // Legacy functions for old archive view (kept for compatibility)
