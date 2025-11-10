@@ -823,7 +823,7 @@
             
             const formattedDate = formatDate(dateHosted);
             
-            return `
+                        return `
                 <div class="trivia-item" data-trivia-number="${trivia.triviaNumber}">
                     <div class="trivia-summary" onclick="toggleTriviaItem(${trivia.triviaNumber})">
                         <span>Trivia #${trivia.triviaNumber} — ${escapeHTML(triviaName)} — ${formattedDate}</span>
@@ -832,9 +832,9 @@
                     <div class="trivia-content">
                         ${createTriviaContent(trivia)}
                     </div>
-                </div>
-            `;
-        }
+                            </div>
+                        `;
+                    }
         
         // Create trivia content (left/right panels)
         function createTriviaContent(trivia) {
@@ -861,9 +861,9 @@
             const rounds = Object.entries(trivia.archive.trivia)
                 .filter(([key, value]) => !isNaN(parseInt(key)) && typeof value === 'object')
                 .sort((a, b) => {
-                    // Sort by roundOrdering if available, otherwise by numeric key
-                    const aOrder = a[1].metadata?.roundOrdering || parseInt(a[0]);
-                    const bOrder = b[1].metadata?.roundOrdering || parseInt(b[0]);
+                    // Sort by Round Ordering from any question in the round, or by numeric key
+                    const aOrder = getRoundOrdering(a[1]) || parseInt(a[0]);
+                    const bOrder = getRoundOrdering(b[1]) || parseInt(b[0]);
                     return aOrder - bOrder;
                 });
             
@@ -872,7 +872,8 @@
             }
             
             return rounds.map(([roundNumber, roundData]) => {
-                const roundName = roundData.metadata?.['Round Name'] || `Round ${roundNumber}`;
+                // Get round name from any question in the round
+                const roundName = getRoundName(roundData) || `Round ${roundNumber}`;
                 return `
                     <div class="round-item" data-round="${roundNumber}">
                         <div class="round-header" onclick="toggleRound(${trivia.triviaNumber}, ${roundNumber})">
@@ -887,15 +888,44 @@
             }).join('');
         }
         
+        // Helper to get round ordering from any question in the round
+        function getRoundOrdering(roundData) {
+            for (const format of Object.keys(roundData)) {
+                if (typeof roundData[format] === 'object') {
+                    for (const question of Object.values(roundData[format])) {
+                        if (question && question['Round Ordering']) {
+                            return parseInt(question['Round Ordering']);
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+        
+        // Helper to get round name from any question in the round
+        function getRoundName(roundData) {
+            for (const format of Object.keys(roundData)) {
+                if (typeof roundData[format] === 'object') {
+                    for (const question of Object.values(roundData[format])) {
+                        if (question && question['Round Name']) {
+                            return question['Round Name'];
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+        
         // Create round content (questions)
         function createRoundContent(roundData) {
-            // Updated format names based on actual data structure
-            const formats = ['Written', 'Visual', 'Music', 'FDQ', 'Puzzle'];
+            // All possible format names based on actual data structure
+            const formats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle'];
             const formatDisplayNames = {
                 'Written': 'Written',
                 'Visual': 'Visual', 
                 'Music': 'Music',
-                'FDQ': 'Fill-In-the-Blank',
+                'Fill-In': 'Fill-In',
+                'FDQ': 'Free Drink Questions',
                 'Puzzle': 'Puzzle'
             };
             
@@ -918,14 +948,14 @@
                             const question = qData.Question || qData.question || '';
                             const answer = qData.Answer || qData.answer || '';
                             const questionNumber = qData['Question Number'] || qNum;
-                            
-                            return `
+                    
+                    return `
                                 <div class="question-item">
                                     <div class="question-header">Question ${questionNumber}</div>
                                     <div class="question-text">${escapeHTML(question)}</div>
                                     <div class="answer-text">Answer: ${escapeHTML(answer)}</div>
-                                </div>
-                            `;
+                        </div>
+                    `;
                         }).join('');
                     }
                 }
@@ -974,7 +1004,7 @@
             }
             
             if (pdfFiles.length === 0) {
-                return `
+            return `
                     <div class="missing-data">No preview available</div>
                     ${folderUrl ? `<a href="${folderUrl}" target="_blank" class="drive-link">Open Google Drive Folder</a>` : ''}
                 `;
@@ -984,18 +1014,15 @@
             let previewContent = '';
             
             if (firstItem.isFolder) {
-                // For music folder, try to embed the folder view
-                const folderId = extractGoogleDriveFolderId(firstItem.originalUrl);
-                if (folderId) {
-                    previewContent = `<iframe class="pdf-viewer" src="https://drive.google.com/embeddedfolderview?id=${folderId}" frameborder="0"></iframe>`;
-                } else {
-                    previewContent = `<div class="pdf-viewer" style="display: flex; align-items: center; justify-content: center; background-color: #f5f5f5;">
-                        <div style="text-align: center;">
-                            <p>Music Folder Preview</p>
-                            <a href="${firstItem.originalUrl}" target="_blank" class="drive-link">Open Music Folder</a>
-                        </div>
-                    </div>`;
-                }
+                // For music folder, show a more informative preview with direct link
+                previewContent = `<div class="pdf-viewer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f5f5f5; padding: 20px;">
+                    <div style="text-align: center;">
+                        <h3 style="margin-bottom: 15px; color: #333;">🎵 Music Folder</h3>
+                        <p style="margin-bottom: 20px; color: #666;">Click below to open the music folder in a new tab where you can play the audio files directly.</p>
+                        <a href="${firstItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 16px; padding: 12px 24px;">🎵 Open Music Folder</a>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Note: Google Drive embedded views cannot play audio files directly</p>
+                    </div>
+                </div>`;
             } else {
                 const previewUrl = `https://drive.google.com/file/d/${firstItem.fileId}/preview`;
                 previewContent = `<iframe class="pdf-viewer" src="${previewUrl}" frameborder="0"></iframe>`;
@@ -1146,17 +1173,15 @@
             
             let previewContent = '';
             if (selectedItem.isFolder) {
-                const folderId = extractGoogleDriveFolderId(selectedItem.originalUrl);
-                if (folderId) {
-                    previewContent = `<iframe class="pdf-viewer" src="https://drive.google.com/embeddedfolderview?id=${folderId}" frameborder="0"></iframe>`;
-                } else {
-                    previewContent = `<div class="pdf-viewer" style="display: flex; align-items: center; justify-content: center; background-color: #f5f5f5;">
-                        <div style="text-align: center;">
-                            <p>Music Folder Preview</p>
-                            <a href="${selectedItem.originalUrl}" target="_blank" class="drive-link">Open Music Folder</a>
-                        </div>
-                    </div>`;
-                }
+                // For music folder, show a more informative preview
+                previewContent = `<div class="pdf-viewer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f5f5f5; padding: 20px;">
+                    <div style="text-align: center;">
+                        <h3 style="margin-bottom: 15px; color: #333;">🎵 Music Folder</h3>
+                        <p style="margin-bottom: 20px; color: #666;">Click below to open the music folder in a new tab where you can play the audio files directly.</p>
+                        <a href="${selectedItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 16px; padding: 12px 24px;">🎵 Open Music Folder</a>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Note: Google Drive embedded views cannot play audio files directly</p>
+                    </div>
+                </div>`;
             } else {
                 const previewUrl = `https://drive.google.com/file/d/${selectedItem.fileId}/preview`;
                 previewContent = `<iframe class="pdf-viewer" src="${previewUrl}" frameborder="0"></iframe>`;
