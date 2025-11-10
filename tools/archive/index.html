@@ -846,7 +846,9 @@
                     </div>
                     <div class="pdf-panel">
                         <h4>Preview</h4>
-                        ${createPDFPanel(trivia)}
+                        <div id="pdf-placeholder-${trivia.triviaNumber}" class="pdf-viewer" style="display: flex; align-items: center; justify-content: center; background-color: #f5f5f5;">
+                            <p style="color: #666;">PDF preview will load when trivia is expanded</p>
+                        </div>
                     </div>
                 </div>
             `;
@@ -932,14 +934,28 @@
             
             for (const format of formats) {
                 if (roundData[format]) {
-                    const questions = Object.entries(roundData[format])
-                        .filter(([key, value]) => !isNaN(parseInt(key)) && typeof value === 'object')
-                        .sort((a, b) => {
-                            // Sort by Question Number if available, otherwise by key
-                            const aNum = parseInt(a[1]['Question Number']) || parseInt(a[0]);
-                            const bNum = parseInt(b[1]['Question Number']) || parseInt(b[0]);
-                            return aNum - bNum;
+                    // Handle both array and object formats
+                    let questions = [];
+                    
+                    if (Array.isArray(roundData[format])) {
+                        // Array format - iterate through with indices as question numbers
+                        roundData[format].forEach((qData, index) => {
+                            if (qData && typeof qData === 'object') {
+                                questions.push([index, qData]);
+                            }
                         });
+                    } else {
+                        // Object format - use Object.entries
+                        questions = Object.entries(roundData[format])
+                            .filter(([key, value]) => !isNaN(parseInt(key)) && typeof value === 'object');
+                    }
+                    
+                    // Sort by Question Number if available, otherwise by key/index
+                    questions.sort((a, b) => {
+                        const aNum = parseInt(a[1]['Question Number']) || parseInt(a[0]);
+                        const bNum = parseInt(b[1]['Question Number']) || parseInt(b[0]);
+                        return aNum - bNum;
+                    });
                     
                     if (questions.length > 0) {
                         questionsHTML += `<h5>${formatDisplayNames[format] || format}</h5>`;
@@ -1102,8 +1118,24 @@
                     item.removeAttribute('open');
                 } else {
                     item.setAttribute('open', '');
+                    
+                    // Lazy load PDF content when trivia is opened
+                    loadPDFContent(triviaNumber);
                 }
             }
+        }
+        
+        // Lazy load PDF content for a specific trivia
+        function loadPDFContent(triviaNumber) {
+            const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
+            if (!trivia) return;
+            
+            const placeholder = document.getElementById(`pdf-placeholder-${triviaNumber}`);
+            if (!placeholder) return;
+            
+            // Replace placeholder with actual PDF content
+            const pdfContent = createPDFPanel(trivia);
+            placeholder.outerHTML = pdfContent;
         }
         
         // Toggle round open/closed
