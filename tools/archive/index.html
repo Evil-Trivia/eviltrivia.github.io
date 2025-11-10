@@ -457,9 +457,9 @@
         
         .trivia-columns {
             display: grid;
-            grid-template-columns: 1fr 400px;
+            grid-template-columns: 1fr 500px;
             gap: 20px;
-            min-height: 400px;
+            min-height: 500px;
         }
         
         .rounds-panel {
@@ -534,7 +534,7 @@
         
         .pdf-viewer {
             flex: 1;
-            min-height: 300px;
+            min-height: 400px;
             border: 1px solid #ddd;
             border-radius: 4px;
             margin-bottom: 10px;
@@ -845,7 +845,7 @@
                         ${createRoundsPanel(trivia)}
                     </div>
                     <div class="pdf-panel">
-                        <h4>PDF Preview</h4>
+                        <h4>Preview</h4>
                         ${createPDFPanel(trivia)}
                     </div>
                 </div>
@@ -889,24 +889,39 @@
         
         // Create round content (questions)
         function createRoundContent(roundData) {
-            const formats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
+            // Updated format names based on actual data structure
+            const formats = ['Written', 'Visual', 'Music', 'FDQ', 'Puzzle'];
+            const formatDisplayNames = {
+                'Written': 'Written',
+                'Visual': 'Visual', 
+                'Music': 'Music',
+                'FDQ': 'Fill-In-the-Blank',
+                'Puzzle': 'Puzzle'
+            };
+            
             let questionsHTML = '';
             
             for (const format of formats) {
                 if (roundData[format]) {
                     const questions = Object.entries(roundData[format])
                         .filter(([key, value]) => !isNaN(parseInt(key)) && typeof value === 'object')
-                        .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+                        .sort((a, b) => {
+                            // Sort by Question Number if available, otherwise by key
+                            const aNum = parseInt(a[1]['Question Number']) || parseInt(a[0]);
+                            const bNum = parseInt(b[1]['Question Number']) || parseInt(b[0]);
+                            return aNum - bNum;
+                        });
                     
                     if (questions.length > 0) {
-                        questionsHTML += `<h5>${format}</h5>`;
+                        questionsHTML += `<h5>${formatDisplayNames[format] || format}</h5>`;
                         questionsHTML += questions.map(([qNum, qData]) => {
                             const question = qData.Question || qData.question || '';
                             const answer = qData.Answer || qData.answer || '';
+                            const questionNumber = qData['Question Number'] || qNum;
                             
                             return `
                                 <div class="question-item">
-                                    <div class="question-header">Question ${qNum}</div>
+                                    <div class="question-header">Question ${questionNumber}</div>
                                     <div class="question-text">${escapeHTML(question)}</div>
                                     <div class="answer-text">Answer: ${escapeHTML(answer)}</div>
                                 </div>
@@ -927,6 +942,7 @@
             
             const pdfFiles = [];
             const folderUrl = trivia.drive.Link || trivia.drive.folderUrl || trivia.drive.folder;
+            const musicFolder = trivia.drive['Music Folder'];
             
             // Extract PDF file IDs from drive data, looking for PDF-related fields
             const pdfFields = ['Questions PDF', 'Answers PDF', 'Teams Sheet PDF'];
@@ -947,27 +963,58 @@
                 }
             }
             
+            // Add music folder as an option if available
+            if (musicFolder && musicFolder.trim()) {
+                pdfFiles.push({
+                    name: 'Music Folder',
+                    fileId: null,
+                    originalUrl: musicFolder,
+                    isFolder: true
+                });
+            }
+            
             if (pdfFiles.length === 0) {
                 return `
-                    <div class="missing-data">No PDF files available</div>
+                    <div class="missing-data">No preview available</div>
                     ${folderUrl ? `<a href="${folderUrl}" target="_blank" class="drive-link">Open Google Drive Folder</a>` : ''}
                 `;
             }
             
-            const firstPDF = pdfFiles[0];
-            const previewUrl = `https://drive.google.com/file/d/${firstPDF.fileId}/preview`;
+            const firstItem = pdfFiles[0];
+            let previewContent = '';
+            
+            if (firstItem.isFolder) {
+                // For music folder, try to embed the folder view
+                const folderId = extractGoogleDriveFolderId(firstItem.originalUrl);
+                if (folderId) {
+                    previewContent = `<iframe class="pdf-viewer" src="https://drive.google.com/embeddedfolderview?id=${folderId}" frameborder="0"></iframe>`;
+                } else {
+                    previewContent = `<div class="pdf-viewer" style="display: flex; align-items: center; justify-content: center; background-color: #f5f5f5;">
+                        <div style="text-align: center;">
+                            <p>Music Folder Preview</p>
+                            <a href="${firstItem.originalUrl}" target="_blank" class="drive-link">Open Music Folder</a>
+                        </div>
+                    </div>`;
+                }
+            } else {
+                const previewUrl = `https://drive.google.com/file/d/${firstItem.fileId}/preview`;
+                previewContent = `<iframe class="pdf-viewer" src="${previewUrl}" frameborder="0"></iframe>`;
+            }
             
             return `
                 <div class="pdf-controls">
                     ${pdfFiles.length > 1 ? `
-                        <select class="pdf-selector" onchange="changePDF(this, ${trivia.triviaNumber})">
-                            ${pdfFiles.map((pdf, index) => 
-                                `<option value="${pdf.fileId}" ${index === 0 ? 'selected' : ''}>${escapeHTML(pdf.name)}</option>`
+                        <select class="pdf-selector" onchange="changePDFOrFolder(this, ${trivia.triviaNumber})">
+                            ${pdfFiles.map((item, index) => 
+                                `<option value="${index}" ${index === 0 ? 'selected' : ''}>${escapeHTML(item.name)}</option>`
                             ).join('')}
                         </select>
-                    ` : `<span>${escapeHTML(firstPDF.name)}</span>`}
+                    ` : `<span>${escapeHTML(firstItem.name)}</span>`}
+                    ${!firstItem.isFolder ? `<button onclick="openPDFFullScreen('${firstItem.originalUrl}')" class="drive-link" style="margin-left: 10px; padding: 4px 8px; font-size: 12px;">⛶ Full Screen</button>` : ''}
                 </div>
-                <iframe class="pdf-viewer" src="${previewUrl}" frameborder="0"></iframe>
+                <div id="preview-content-${trivia.triviaNumber}">
+                    ${previewContent}
+                </div>
                 ${folderUrl ? `<a href="${folderUrl}" target="_blank" class="drive-link">Open Google Drive Folder</a>` : ''}
             `;
         }
@@ -986,6 +1033,28 @@
                 /\/file\/d\/([a-zA-Z0-9_-]+)/,
                 /id=([a-zA-Z0-9_-]+)/,
                 /\/([a-zA-Z0-9_-]{25,})\//
+            ];
+            
+            for (const pattern of patterns) {
+                const match = url.match(pattern);
+                if (match && match[1]) {
+                    return match[1];
+                }
+            }
+            
+            return null;
+        }
+        
+        // Extract Google Drive folder ID from various URL formats
+        function extractGoogleDriveFolderId(url) {
+            if (!url) return null;
+            
+            // Extract from various Google Drive folder URL formats
+            const patterns = [
+                /\/folders\/([a-zA-Z0-9_-]+)/,
+                /\/drive\/folders\/([a-zA-Z0-9_-]+)/,
+                /\/drive\/u\/\d+\/folders\/([a-zA-Z0-9_-]+)/,
+                /id=([a-zA-Z0-9_-]+)/
             ];
             
             for (const pattern of patterns) {
@@ -1024,7 +1093,7 @@
             }
         }
         
-        // Change PDF in viewer
+        // Change PDF in viewer (legacy function, keeping for compatibility)
         function changePDF(selectElement, triviaNumber) {
             const fileId = selectElement.value;
             const previewUrl = `https://drive.google.com/file/d/${fileId}/preview`;
@@ -1032,6 +1101,84 @@
             if (iframe) {
                 iframe.src = previewUrl;
             }
+        }
+        
+        // Change PDF or folder in viewer (new function)
+        function changePDFOrFolder(selectElement, triviaNumber) {
+            const selectedIndex = parseInt(selectElement.value);
+            const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
+            if (!trivia || !trivia.drive) return;
+            
+            // Rebuild the files array (same logic as in createPDFPanel)
+            const pdfFiles = [];
+            const pdfFields = ['Questions PDF', 'Answers PDF', 'Teams Sheet PDF'];
+            const musicFolder = trivia.drive['Music Folder'];
+            
+            for (const [key, value] of Object.entries(trivia.drive)) {
+                if (typeof value === 'string' && value.trim()) {
+                    if (pdfFields.includes(key) || key.toLowerCase().includes('pdf')) {
+                        const fileId = extractGoogleDriveFileId(value);
+                        if (fileId) {
+                            pdfFiles.push({
+                                name: key,
+                                fileId: fileId,
+                                originalUrl: value
+                            });
+                        }
+                    }
+                }
+            }
+            
+            if (musicFolder && musicFolder.trim()) {
+                pdfFiles.push({
+                    name: 'Music Folder',
+                    fileId: null,
+                    originalUrl: musicFolder,
+                    isFolder: true
+                });
+            }
+            
+            const selectedItem = pdfFiles[selectedIndex];
+            if (!selectedItem) return;
+            
+            const previewContainer = document.getElementById(`preview-content-${triviaNumber}`);
+            if (!previewContainer) return;
+            
+            let previewContent = '';
+            if (selectedItem.isFolder) {
+                const folderId = extractGoogleDriveFolderId(selectedItem.originalUrl);
+                if (folderId) {
+                    previewContent = `<iframe class="pdf-viewer" src="https://drive.google.com/embeddedfolderview?id=${folderId}" frameborder="0"></iframe>`;
+                } else {
+                    previewContent = `<div class="pdf-viewer" style="display: flex; align-items: center; justify-content: center; background-color: #f5f5f5;">
+                        <div style="text-align: center;">
+                            <p>Music Folder Preview</p>
+                            <a href="${selectedItem.originalUrl}" target="_blank" class="drive-link">Open Music Folder</a>
+                        </div>
+                    </div>`;
+                }
+            } else {
+                const previewUrl = `https://drive.google.com/file/d/${selectedItem.fileId}/preview`;
+                previewContent = `<iframe class="pdf-viewer" src="${previewUrl}" frameborder="0"></iframe>`;
+            }
+            
+            previewContainer.innerHTML = previewContent;
+            
+            // Update full-screen button
+            const fullScreenBtn = selectElement.parentElement.querySelector('button');
+            if (fullScreenBtn) {
+                if (selectedItem.isFolder) {
+                    fullScreenBtn.style.display = 'none';
+                } else {
+                    fullScreenBtn.style.display = 'inline-block';
+                    fullScreenBtn.onclick = () => openPDFFullScreen(selectedItem.originalUrl);
+                }
+            }
+        }
+        
+        // Open PDF in full screen
+        function openPDFFullScreen(pdfUrl) {
+            window.open(pdfUrl, '_blank');
         }
         
         // Setup collapsible handlers
