@@ -457,9 +457,9 @@
         
         .trivia-columns {
             display: grid;
-            grid-template-columns: 1fr 625px;
+            grid-template-columns: 1fr 750px;
             gap: 20px;
-            min-height: 650px;
+            min-height: 700px;
         }
         
         .rounds-panel {
@@ -536,7 +536,7 @@
         
         .pdf-viewer {
             flex: 1;
-            min-height: 550px;
+            min-height: 650px;
             width: 100%;
             border: 1px solid #ddd;
             border-radius: 4px;
@@ -837,11 +837,11 @@
                     </div>
                             </div>
                         `;
-                    }
-        
+                }
+                
         // Create trivia content (left/right panels)
         function createTriviaContent(trivia) {
-            return `
+                    return `
                 <div class="trivia-columns">
                     <div class="rounds-panel">
                         <h4>Rounds & Questions</h4>
@@ -853,10 +853,10 @@
                             <p style="color: #666;">PDF preview will load when trivia is expanded</p>
                         </div>
                     </div>
-                </div>
-            `;
-        }
-        
+                        </div>
+                    `;
+                }
+                
         // Create rounds panel content
         function createRoundsPanel(trivia) {
             if (!trivia.archive?.trivia) {
@@ -866,10 +866,8 @@
             const rounds = Object.entries(trivia.archive.trivia)
                 .filter(([key, value]) => !isNaN(parseInt(key)) && typeof value === 'object')
                 .sort((a, b) => {
-                    // Sort by Round Ordering from any question in the round, or by numeric key
-                    const aOrder = getRoundOrdering(a[1]) || parseInt(a[0]);
-                    const bOrder = getRoundOrdering(b[1]) || parseInt(b[0]);
-                    return aOrder - bOrder;
+                    // Sort by Round Number (which is the key), not Round Ordering
+                    return parseInt(a[0]) - parseInt(b[0]);
                 });
             
             if (rounds.length === 0) {
@@ -878,7 +876,7 @@
             
             return rounds.map(([roundNumber, roundData]) => {
                 // Always show "Round X" as the header, not the specific round name
-                return `
+                    return `
                     <div class="round-item" data-round="${roundNumber}">
                         <div class="round-header" onclick="toggleRound(${trivia.triviaNumber}, ${roundNumber})">
                             <span>Round ${roundNumber}</span>
@@ -887,8 +885,8 @@
                         <div class="round-content">
                             ${createRoundContent(roundData)}
                         </div>
-                    </div>
-                `;
+                        </div>
+                    `;
             }).join('');
         }
         
@@ -920,100 +918,106 @@
             return null;
         }
         
-        // Create round content (ALL questions from ALL formats in a grid)
+        // Create round content (organized by format with instructions)
         function createRoundContent(roundData) {
             // All possible format names based on actual data structure
             const formats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle'];
+            const formatDisplayNames = {
+                'Written': 'Written',
+                'Visual': 'Visual', 
+                'Music': 'Music',
+                'Fill-In': 'Fill-In',
+                'FDQ': 'Free Drink Questions',
+                'Puzzle': 'Puzzle'
+            };
             
-            // Collect ALL questions from ALL formats in this round
-            let allQuestions = [];
+            let questionsHTML = '';
             
+            // Process each format separately to show instructions per format
             for (const format of formats) {
                 if (roundData[format]) {
+                    let questions = [];
+                    let formatInstruction = '';
+                    
                     if (Array.isArray(roundData[format])) {
                         // Array format - iterate through with indices
                         roundData[format].forEach((qData, index) => {
                             if (qData && typeof qData === 'object') {
-                                allQuestions.push({
-                                    format: format,
+                                questions.push({
                                     question: qData.Question || '',
                                     answer: qData.Answer || '',
                                     questionNumber: qData['Question Number'] || index,
-                                    roundOrdering: parseInt(qData['Round Ordering']) || 1,
-                                    roundNumber: parseInt(qData['Round Number']) || 1,
-                                    roundInstruction: qData['Round Instruction'] || '',
-                                    pointValue: qData['Point Value'] || 0
+                                    roundOrdering: parseInt(qData['Round Ordering']) || 1
                                 });
+                                // Get format instruction from first question
+                                if (!formatInstruction) {
+                                    formatInstruction = qData['Round Instruction'] || '';
+                                }
                             }
                         });
                     } else {
                         // Object format - use Object.entries
                         Object.entries(roundData[format]).forEach(([key, qData]) => {
                             if (!isNaN(parseInt(key)) && qData && typeof qData === 'object') {
-                                allQuestions.push({
-                                    format: format,
+                                questions.push({
                                     question: qData.Question || '',
                                     answer: qData.Answer || '',
                                     questionNumber: qData['Question Number'] || parseInt(key),
-                                    roundOrdering: parseInt(qData['Round Ordering']) || 1,
-                                    roundNumber: parseInt(qData['Round Number']) || 1,
-                                    roundInstruction: qData['Round Instruction'] || '',
-                                    pointValue: qData['Point Value'] || 0
+                                    roundOrdering: parseInt(qData['Round Ordering']) || 1
                                 });
+                                // Get format instruction from first question
+                                if (!formatInstruction) {
+                                    formatInstruction = qData['Round Instruction'] || '';
+                                }
                             }
                         });
+                    }
+                    
+                    if (questions.length > 0) {
+                        // Sort by Round Ordering > Question Number
+                        questions.sort((a, b) => {
+                            if (a.roundOrdering !== b.roundOrdering) return a.roundOrdering - b.roundOrdering;
+                            return a.questionNumber - b.questionNumber;
+                        });
+                        
+                        // Add format header
+                        questionsHTML += `<h5 style="margin-top: 20px; margin-bottom: 10px; color: #333; border-bottom: 2px solid #ddd; padding-bottom: 5px;">${formatDisplayNames[format] || format}</h5>`;
+                        
+                        // Add format instruction if available
+                        if (formatInstruction) {
+                            questionsHTML += `
+                                <div style="background-color: #e3f2fd; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-style: italic; border-left: 4px solid #2196f3;">
+                                    <strong>Instructions:</strong> ${escapeHTML(formatInstruction)}
+                                </div>
+                            `;
+                        }
+                        
+                        // Create table grid for this format
+                        questionsHTML += `
+                            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                                <thead>
+                                    <tr style="background-color: #f5f5f5;">
+                                        <th style="padding: 6px; border: 1px solid #ddd; text-align: left; width: 60px; font-size: 12px;">Q#</th>
+                                        <th style="padding: 6px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Question</th>
+                                        <th style="padding: 6px; border: 1px solid #ddd; text-align: left; width: 180px; font-size: 12px;">Answer</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${questions.map(q => `
+                                        <tr>
+                                            <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 12px;">${q.questionNumber}</td>
+                                            <td style="padding: 6px; border: 1px solid #ddd; font-size: 12px;">${escapeHTML(q.question)}</td>
+                                            <td style="padding: 6px; border: 1px solid #ddd; font-style: italic; font-size: 12px;">${escapeHTML(q.answer)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        `;
                     }
                 }
             }
             
-            if (allQuestions.length === 0) {
-                return '<div class="missing-data">No questions found</div>';
-            }
-            
-            // Sort by Round Number > Round Ordering > Question Number
-            allQuestions.sort((a, b) => {
-                if (a.roundNumber !== b.roundNumber) return a.roundNumber - b.roundNumber;
-                if (a.roundOrdering !== b.roundOrdering) return a.roundOrdering - b.roundOrdering;
-                return a.questionNumber - b.questionNumber;
-            });
-            
-            // Show round instruction if available
-            const firstQuestion = allQuestions[0];
-            const roundInstruction = firstQuestion?.roundInstruction;
-            
-            let questionsHTML = '';
-            
-            if (roundInstruction) {
-                questionsHTML += `
-                    <div style="background-color: #e3f2fd; padding: 10px; margin-bottom: 15px; border-radius: 4px; font-style: italic;">
-                        <strong>Instructions:</strong> ${escapeHTML(roundInstruction)}
-                    </div>
-                `;
-            }
-            
-            // Create table grid
-            questionsHTML += `
-                <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-                    <thead>
-                        <tr style="background-color: #f5f5f5;">
-                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; width: 80px;">Q#</th>
-                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Question</th>
-                            <th style="padding: 8px; border: 1px solid #ddd; text-align: left; width: 200px;">Answer</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${allQuestions.map(q => `
-                            <tr>
-                                <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${q.questionNumber}</td>
-                                <td style="padding: 8px; border: 1px solid #ddd;">${escapeHTML(q.question)}</td>
-                                <td style="padding: 8px; border: 1px solid #ddd; font-style: italic;">${escapeHTML(q.answer)}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
-            
-            return questionsHTML;
+            return questionsHTML || '<div class="missing-data">No questions found</div>';
         }
         
         // Create PDF panel content
@@ -1087,7 +1091,7 @@
                         <p style="margin-bottom: 20px; color: #666;">Click below to open the music folder in a new tab where you can play the audio files directly.</p>
                         <a href="${firstItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 16px; padding: 12px 24px;">🎵 Open Music Folder</a>
                         <p style="margin-top: 15px; font-size: 12px; color: #999;">Note: Google Drive embedded views cannot play audio files directly</p>
-                    </div>
+                </div>
                 </div>`;
             } else {
                 const previewUrl = `https://drive.google.com/file/d/${firstItem.fileId}/preview`;
