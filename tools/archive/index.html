@@ -501,6 +501,8 @@
             display: none;
             padding: 15px;
             border-top: 1px solid #ddd;
+            max-height: none;
+            overflow: visible;
         }
         
         .round-item[open] .round-content {
@@ -1024,13 +1026,27 @@
             const folderUrl = trivia.drive.Link || trivia.drive.folderUrl || trivia.drive.folder;
             const musicFolder = trivia.drive['Music Folder'];
             
-            // Extract PDF file IDs from drive data, looking for PDF-related fields
-            const pdfFields = ['Questions PDF', 'Answers PDF', 'Teams Sheet PDF'];
+            // Extract PDF file IDs from drive data, prioritizing Teams Sheet PDF
+            const pdfFields = ['Teams Sheet PDF', 'Questions PDF', 'Answers PDF']; // Teams Sheet first
             
-            for (const [key, value] of Object.entries(trivia.drive)) {
+            for (const field of pdfFields) {
+                const value = trivia.drive[field];
                 if (typeof value === 'string' && value.trim()) {
-                    // Check if this is a PDF field or contains "PDF"
-                    if (pdfFields.includes(key) || key.toLowerCase().includes('pdf')) {
+                    const fileId = extractGoogleDriveFileId(value);
+                    if (fileId) {
+                        pdfFiles.push({
+                            name: field,
+                            fileId: fileId,
+                            originalUrl: value
+                        });
+                    }
+                }
+            }
+            
+            // Add any other PDF fields that might exist
+            for (const [key, value] of Object.entries(trivia.drive)) {
+                if (typeof value === 'string' && value.trim() && !pdfFields.includes(key)) {
+                    if (key.toLowerCase().includes('pdf')) {
                         const fileId = extractGoogleDriveFileId(value);
                         if (fileId) {
                             pdfFiles.push({
@@ -1203,12 +1219,28 @@
             
             // Rebuild the files array (same logic as in createPDFPanel)
             const pdfFiles = [];
-            const pdfFields = ['Questions PDF', 'Answers PDF', 'Teams Sheet PDF'];
+            const pdfFields = ['Teams Sheet PDF', 'Questions PDF', 'Answers PDF']; // Teams Sheet first
             const musicFolder = trivia.drive['Music Folder'];
             
-            for (const [key, value] of Object.entries(trivia.drive)) {
+            // Add PDFs in priority order
+            for (const field of pdfFields) {
+                const value = trivia.drive[field];
                 if (typeof value === 'string' && value.trim()) {
-                    if (pdfFields.includes(key) || key.toLowerCase().includes('pdf')) {
+                    const fileId = extractGoogleDriveFileId(value);
+                    if (fileId) {
+                        pdfFiles.push({
+                            name: field,
+                            fileId: fileId,
+                            originalUrl: value
+                        });
+                    }
+                }
+            }
+            
+            // Add any other PDF fields
+            for (const [key, value] of Object.entries(trivia.drive)) {
+                if (typeof value === 'string' && value.trim() && !pdfFields.includes(key)) {
+                    if (key.toLowerCase().includes('pdf')) {
                         const fileId = extractGoogleDriveFileId(value);
                         if (fileId) {
                             pdfFiles.push({
