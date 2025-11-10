@@ -748,16 +748,15 @@
                     db.ref('trivia-archive/driveLookup').once('value')
                 ]);
                 
-                const overview = overviewSnap.val() || {};
+                const overview = overviewSnap.val() || [];
                 const archive = archiveSnap.val() || {};
                 const driveLookup = driveLookupSnap.val() || {};
                 
                 // Merge data by triviaNumber
                 allTriviaData.clear();
                 
-                // Get all unique trivia numbers from all sources
+                // Get all unique trivia numbers, primarily from archive
                 const allTriviaNumbers = new Set([
-                    ...Object.keys(overview),
                     ...Object.keys(archive),
                     ...Object.keys(driveLookup)
                 ]);
@@ -766,9 +765,15 @@
                     const numericTriviaNumber = parseInt(triviaNumber);
                     if (isNaN(numericTriviaNumber)) continue;
                     
+                    // Get overview data by matching trivia number
+                    const overviewData = Array.isArray(overview) ? 
+                        overview.find(item => item && item['Trivia number'] === numericTriviaNumber) || 
+                        overview.find(item => item && item.Number === numericTriviaNumber) :
+                        null;
+                    
                     allTriviaData.set(numericTriviaNumber, {
                         triviaNumber: numericTriviaNumber,
-                        overview: overview[triviaNumber] || null,
+                        overview: overviewData,
                         archive: archive[triviaNumber] || null,
                         drive: driveLookup[triviaNumber] || null
                     });
@@ -804,8 +809,18 @@
         
         // Create a single trivia item
         function createTriviaItem(trivia) {
-            const triviaName = trivia.overview?.triviaName || trivia.overview?.title || 'Unnamed Trivia';
-            const dateHosted = trivia.overview?.dateHosted || trivia.overview?.date || '';
+            // Get trivia name from archive data first, then overview
+            const triviaName = trivia.archive?.triviaName || 
+                              trivia.overview?.['Trivia Name'] || 
+                              trivia.overview?.triviaName || 
+                              'Unnamed Trivia';
+            
+            // Get date from archive data first, then overview
+            const dateHosted = trivia.archive?.date || 
+                              trivia.overview?.Date || 
+                              trivia.overview?.date || 
+                              '';
+            
             const formattedDate = formatDate(dateHosted);
             
             return `
@@ -911,19 +926,23 @@
             }
             
             const pdfFiles = [];
-            const folderUrl = trivia.drive.folderUrl || trivia.drive.folder;
+            const folderUrl = trivia.drive.Link || trivia.drive.folderUrl || trivia.drive.folder;
             
-            // Extract PDF file IDs from drive data
+            // Extract PDF file IDs from drive data, looking for PDF-related fields
+            const pdfFields = ['Questions PDF', 'Answers PDF', 'Teams Sheet PDF'];
+            
             for (const [key, value] of Object.entries(trivia.drive)) {
-                if (key !== 'folderUrl' && key !== 'folder' && typeof value === 'string') {
-                    // Check if it looks like a Google Drive file URL or ID
-                    const fileId = extractGoogleDriveFileId(value);
-                    if (fileId) {
-                        pdfFiles.push({
-                            name: key,
-                            fileId: fileId,
-                            originalUrl: value
-                        });
+                if (typeof value === 'string' && value.trim()) {
+                    // Check if this is a PDF field or contains "PDF"
+                    if (pdfFields.includes(key) || key.toLowerCase().includes('pdf')) {
+                        const fileId = extractGoogleDriveFileId(value);
+                        if (fileId) {
+                            pdfFiles.push({
+                                name: key,
+                                fileId: fileId,
+                                originalUrl: value
+                            });
+                        }
                     }
                 }
             }
