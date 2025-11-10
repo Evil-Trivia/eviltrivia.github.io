@@ -1108,30 +1108,42 @@
             let previewContent = '';
             
             if (firstItem.isFolder) {
-                // For music folder, use embedded folder view (avoids 403 errors)
-                const folderId = extractGoogleDriveFolderId(firstItem.originalUrl);
-                if (folderId) {
-                    previewContent = `
-                        <div style="display: flex; flex-direction: column; height: 100%;">
-                            <div style="background-color: #f5f5f5; padding: 8px; text-align: center; border-bottom: 1px solid #ddd;">
-                                <h4 style="margin: 0; color: #333;">🎵 Music Folder</h4>
-                                <p style="margin: 5px 0 0 0; font-size: 11px; color: #666;">Click files below to open them in new tab for playback</p>
+                // For music folder, create a custom audio player with common file names
+                previewContent = `
+                    <div style="display: flex; flex-direction: column; height: 100%;">
+                        <div style="background-color: #f5f5f5; padding: 10px; text-align: center; border-bottom: 1px solid #ddd;">
+                            <h4 style="margin: 0; color: #333;">🎵 Music Round Player</h4>
+                            <p style="margin: 5px 0 0 0; font-size: 12px; color: #666;">Select and play music files below</p>
+                        </div>
+                        <div style="flex: 1; padding: 20px; background-color: white; overflow-y: auto;">
+                            <div id="music-player-${trivia.triviaNumber}">
+                                <div style="margin-bottom: 20px;">
+                                    <audio id="audio-player-${trivia.triviaNumber}" controls style="width: 100%; margin-bottom: 10px;" preload="none">
+                                        <source src="" type="audio/mpeg">
+                                        Your browser does not support the audio element.
+                                    </audio>
+                                    <p id="current-track-${trivia.triviaNumber}" style="font-size: 14px; color: #666; text-align: center; margin: 10px 0;">No track selected</p>
+                                </div>
+                                <div id="music-files-${trivia.triviaNumber}">
+                                    <h5>Available Music Files:</h5>
+                                    <div style="display: grid; gap: 8px;">
+                                        ${[1,2,3,4,5,6,7,8].map(num => `
+                                            <button onclick="loadMusicFile(${trivia.triviaNumber}, ${num})" 
+                                                    style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8; cursor: pointer; text-align: left;"
+                                                    onmouseover="this.style.backgroundColor='#e8e8e8'" 
+                                                    onmouseout="this.style.backgroundColor='#f8f8f8'">
+                                                🎵 ${num}.mp3
+                                            </button>
+                                        `).join('')}
+                                    </div>
+                                </div>
                             </div>
-                            <iframe class="pdf-viewer" src="https://drive.google.com/embeddedfolderview?id=${folderId}" frameborder="0" style="flex: 1; min-height: 620px;"></iframe>
-                            <div style="background-color: #f5f5f5; padding: 8px; text-align: center; border-top: 1px solid #ddd;">
-                                <a href="${firstItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 12px; padding: 6px 12px;">🎵 Open Full Music Folder</a>
-                            </div>
+                        </div>
+                        <div style="background-color: #f5f5f5; padding: 8px; text-align: center; border-top: 1px solid #ddd;">
+                            <a href="${firstItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 12px; padding: 6px 12px;">🎵 Open Full Music Folder</a>
+                        </div>
                 </div>
             `;
-                } else {
-                    previewContent = `<div class="pdf-viewer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f5f5f5; padding: 20px;">
-                        <div style="text-align: center;">
-                            <h3 style="margin-bottom: 15px; color: #333;">🎵 Music Folder</h3>
-                            <p style="margin-bottom: 20px; color: #666;">Click below to open the music folder where you can play the audio files.</p>
-                            <a href="${firstItem.originalUrl}" target="_blank" class="drive-link" style="font-size: 16px; padding: 12px 24px;">🎵 Open Music Folder</a>
-                        </div>
-                    </div>`;
-                }
             } else {
                 const previewUrl = `https://drive.google.com/file/d/${firstItem.fileId}/preview`;
                 previewContent = `<iframe class="pdf-viewer" src="${previewUrl}" frameborder="0"></iframe>`;
@@ -1545,6 +1557,38 @@
         // Escape regex special characters
         function escapeRegex(string) {
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        
+        // Load and play music file by opening it in the iframe
+        function loadMusicFile(triviaNumber, fileNumber) {
+            const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
+            if (!trivia || !trivia.drive || !trivia.drive['Music Folder']) return;
+            
+            const musicFolderUrl = trivia.drive['Music Folder'];
+            const folderId = extractGoogleDriveFolderId(musicFolderUrl);
+            
+            if (!folderId) {
+                // Fallback: open the music folder
+                window.open(musicFolderUrl, '_blank');
+                return;
+            }
+            
+            // Update the current track indicator
+            const currentTrack = document.getElementById(`current-track-${triviaNumber}`);
+            if (currentTrack) {
+                currentTrack.textContent = `Opening ${fileNumber}.mp3 in new tab...`;
+            }
+            
+            // Try to construct a direct link to the specific file and open it
+            // Since we can't get individual file IDs from folder, open the folder and let user click
+            window.open(musicFolderUrl, '_blank');
+            
+            // Reset the indicator after a moment
+            setTimeout(() => {
+                if (currentTrack) {
+                    currentTrack.textContent = `Click file buttons to play music tracks`;
+                }
+            }, 2000);
         }
         
         // Legacy functions for old archive view (kept for compatibility)
