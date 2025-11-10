@@ -914,13 +914,30 @@
                 const sessionId = `${dateFormatted}_${safeLocation}_${triviaNumber}`;
                 console.log("Generated session ID:", sessionId);
 
-                // Get trivia name
+                // Get trivia name and rounds
                 const triviaSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}`));
                 if (!triviaSnap.exists()) {
                     throw new Error(`Trivia #${triviaNumber} not found`);
                 }
-                const triviaName = triviaSnap.val().triviaName || '';
+                const triviaData = triviaSnap.val();
+                const triviaName = triviaData.triviaName || '';
                 console.log("Found trivia name:", triviaName);
+
+                // Get all available rounds from trivia data
+                const triviaRoundsSnap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia`));
+                const availableRounds = triviaRoundsSnap.exists() ? 
+                    Object.keys(triviaRoundsSnap.val()).filter(key => !isNaN(parseInt(key))) : 
+                    ['1', '2', '3']; // fallback to 1,2,3
+
+                // Create availability object with all rounds set to true
+                const availability = {};
+                availableRounds.forEach(round => {
+                    availability[round] = true;
+                });
+                // Set default final challenge to manual
+                availability.finalChallenge = 'manual';
+
+                console.log("Setting all rounds available:", availability);
 
                 // Create session data object
                 const sessionData = {
@@ -929,9 +946,7 @@
                     triviaNumber: parseInt(triviaNumber),
                     triviaName: triviaName,
                     createdAt: new Date().toISOString(),
-                    availability: {
-                        "1": true  // Set round 1 as available by default
-                    }
+                    availability: availability
                 };
                 console.log("Session data:", sessionData);
 

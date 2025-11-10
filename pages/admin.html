@@ -162,6 +162,21 @@
                 </div>
             </div>
             
+            <!-- Session Scope Toggle -->
+            <div id="sessionScopeSection" style="display: none; margin-top: 20px; padding: 15px; background-color: #f0f8ff; border-radius: 6px; border: 1px solid #b3d9ff;">
+                <h4 style="margin-top: 0; color: #0066cc;">Save Scope</h4>
+                <div>
+                    <input type="radio" id="scopeAllSessions" name="sessionScope" value="allSessions" checked>
+                    <label for="scopeAllSessions" style="font-weight: bold;">All Sessions of this Trivia Number</label>
+                    <p style="margin: 5px 0 15px 25px; font-size: 12px; color: #666;">Changes will apply to all grading sessions using this trivia</p>
+                </div>
+                <div>
+                    <input type="radio" id="scopeThisSession" name="sessionScope" value="thisSession">
+                    <label for="scopeThisSession">This Session Only</label>
+                    <p style="margin: 5px 0 0 25px; font-size: 12px; color: #666;">Changes will only apply to the selected session</p>
+                </div>
+            </div>
+            
             <button id="saveAvailability" style="display: none; margin-top: 20px;">Save Availability Settings</button>
         </div>
 
@@ -615,6 +630,7 @@
                 if (!sessionId) {
                     document.getElementById('roundsContainer').innerHTML = '';
                     document.getElementById('finalChallengeSection').style.display = 'none';
+                    document.getElementById('sessionScopeSection').style.display = 'none';
                     document.getElementById('saveAvailability').style.display = 'none';
                     return;
                 }
@@ -656,10 +672,39 @@
                     
                     console.log("Saving availability settings:", availability);
 
-                    // Save to Firebase
-                    await set(ref(db, `grading/${sessionId}/availability`), availability);
+                    // Check session scope setting
+                    const sessionScope = document.querySelector('input[name="sessionScope"]:checked').value;
                     
-                    alert('Availability settings saved successfully!');
+                    if (sessionScope === 'allSessions') {
+                        // Apply to all sessions with the same trivia number
+                        const currentSessionSnap = await get(ref(db, `grading/${sessionId}`));
+                        const currentSession = currentSessionSnap.val();
+                        const triviaNumber = currentSession.triviaNumber;
+                        
+                        // Get all sessions with this trivia number
+                        const allSessionsSnap = await get(ref(db, 'grading'));
+                        if (allSessionsSnap.exists()) {
+                            const allSessions = allSessionsSnap.val();
+                            const updates = {};
+                            let sessionCount = 0;
+                            
+                            Object.keys(allSessions).forEach(sid => {
+                                if (allSessions[sid].triviaNumber === triviaNumber) {
+                                    updates[`grading/${sid}/availability`] = availability;
+                                    sessionCount++;
+                                }
+                            });
+                            
+                            console.log(`Updating ${sessionCount} sessions for trivia #${triviaNumber}`);
+                            await update(ref(db), updates);
+                            
+                            alert(`Availability settings saved for all ${sessionCount} sessions of Trivia #${triviaNumber}!`);
+                        }
+                    } else {
+                        // Save only for this session
+                        await set(ref(db, `grading/${sessionId}/availability`), availability);
+                        alert('Availability settings saved for this session only!');
+                    }
                     
                     // Optionally reload the availability display to confirm changes
                     const availabilitySnap = await get(ref(db, `grading/${sessionId}/availability`));
@@ -871,6 +916,7 @@
 
                 // Show the save button and final challenge section
                 document.getElementById('finalChallengeSection').style.display = 'block';
+                document.getElementById('sessionScopeSection').style.display = 'block';
                 document.getElementById('saveAvailability').style.display = 'block';
 
             } catch (error) {
