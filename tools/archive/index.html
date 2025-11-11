@@ -1126,17 +1126,12 @@
                                     <p id="current-track-${trivia.triviaNumber}" style="font-size: 14px; color: #666; text-align: center; margin: 10px 0;">No track selected</p>
                                 </div>
                                 <div id="music-files-${trivia.triviaNumber}">
-                                    <h5>Available Music Files:</h5>
-                                    <div style="display: grid; gap: 8px;">
-                                        ${[1,2,3,4,5,6,7,8].map(num => `
-                                            <button onclick="loadMusicFile(${trivia.triviaNumber}, ${num})" 
-                                                    style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8; cursor: pointer; text-align: left;"
-                                                    onmouseover="this.style.backgroundColor='#e8e8e8'" 
-                                                    onmouseout="this.style.backgroundColor='#f8f8f8'">
-                                                🎵 ${num}.mp3
-                                            </button>
-                                        `).join('')}
-                                    </div>
+                                    <h5>Music Files:</h5>
+                                    <p style="color: #666; font-style: italic;">Loading music files from Google Drive...</p>
+                                    <button onclick="loadMusicFilesFromAPI(${trivia.triviaNumber}, '${extractGoogleDriveFolderId(firstItem.originalUrl)}')" 
+                                            style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                        🔄 Load Music Files
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1341,6 +1336,9 @@
                             </div>
                         </div>
                     `;
+                    
+                    // Auto-load music files when music folder is selected
+                    setTimeout(() => loadMusicFilesFromAPI(triviaNumber, folderId), 500);
                 } else {
                     previewContent = `<div class="pdf-viewer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #f5f5f5; padding: 20px;">
                         <div style="text-align: center;">
@@ -1560,8 +1558,8 @@
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
         
-        // Load and play music file by opening it in the iframe
-        function loadMusicFile(triviaNumber, fileNumber) {
+        // Load music files from Google Drive API and create audio players
+        async function loadMusicFile(triviaNumber, fileNumber) {
             const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
             if (!trivia || !trivia.drive || !trivia.drive['Music Folder']) return;
             
@@ -1569,27 +1567,113 @@
             const folderId = extractGoogleDriveFolderId(musicFolderUrl);
             
             if (!folderId) {
-                // Fallback: open the music folder
                 window.open(musicFolderUrl, '_blank');
                 return;
             }
             
-            // Update the current track indicator
-            const currentTrack = document.getElementById(`current-track-${triviaNumber}`);
-            if (currentTrack) {
-                currentTrack.textContent = `Opening ${fileNumber}.mp3 in new tab...`;
+            // Check if we already have the music files loaded for this trivia
+            const musicPlayer = document.getElementById(`music-player-${triviaNumber}`);
+            if (!musicPlayer) return;
+            
+            // If files aren't loaded yet, load them
+            if (!musicPlayer.dataset.filesLoaded) {
+                await loadMusicFilesFromAPI(triviaNumber, folderId);
             }
             
-            // Try to construct a direct link to the specific file and open it
-            // Since we can't get individual file IDs from folder, open the folder and let user click
-            window.open(musicFolderUrl, '_blank');
-            
-            // Reset the indicator after a moment
-            setTimeout(() => {
-                if (currentTrack) {
-                    currentTrack.textContent = `Click file buttons to play music tracks`;
+            // Play the specific file
+            playMusicFile(triviaNumber, fileNumber);
+        }
+        
+        // Load music files using Google Drive API
+        async function loadMusicFilesFromAPI(triviaNumber, folderId) {
+            try {
+                // Get API key from Firebase
+                const apiKeySnap = await db.ref('adminSettings/googleDriveApiKey').once('value');
+                if (!apiKeySnap.exists()) {
+                    throw new Error('Google Drive API key not configured');
                 }
-            }, 2000);
+                const apiKey = apiKeySnap.val();
+                
+                // Fetch files from Google Drive API
+                const response = await fetch(`https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${apiKey}&fields=files(id,name,mimeType)`);
+                
+                if (!response.ok) {
+                    throw new Error(`API request failed: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const audioFiles = data.files.filter(file => 
+                    file.mimeType.startsWith('audio/') || file.name.toLowerCase().endsWith('.mp3')
+                );
+                
+                // Update the music player interface
+                const musicFilesContainer = document.getElementById(`music-files-${triviaNumber}`);
+                if (musicFilesContainer && audioFiles.length > 0) {
+                    musicFilesContainer.innerHTML = `
+                        <h5>Available Music Files (${audioFiles.length} found):</h5>
+                        <div style="display: grid; gap: 8px;">
+                            ${audioFiles.map((file, index) => `
+                                <button onclick="playMusicFileById('${triviaNumber}', '${file.id}', '${escapeHTML(file.name)}')" 
+                                        style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8; cursor: pointer; text-align: left;"
+                                        onmouseover="this.style.backgroundColor='#e8e8e8'" 
+                                        onmouseout="this.style.backgroundColor='#f8f8f8'">
+                                    🎵 ${escapeHTML(file.name)}
+                                </button>
+                            `).join('')}
+                </div>
+            `;
+                    
+                    // Mark as loaded
+                    document.getElementById(`music-player-${triviaNumber}`).dataset.filesLoaded = 'true';
+                }
+                
+            } catch (error) {
+                console.error('Error loading music files:', error);
+                const musicFilesContainer = document.getElementById(`music-files-${triviaNumber}`);
+                if (musicFilesContainer) {
+                    musicFilesContainer.innerHTML = `
+                        <p style="color: #d32f2f;">Error loading music files: ${error.message}</p>
+                        <a href="${trivia.drive['Music Folder']}" target="_blank" class="drive-link">Open Music Folder Manually</a>
+                    `;
+                }
+            }
+        }
+        
+        // Play specific music file by ID
+        function playMusicFileById(triviaNumber, fileId, fileName) {
+            const audioPlayer = document.getElementById(`audio-player-${triviaNumber}`);
+            const currentTrack = document.getElementById(`current-track-${triviaNumber}`);
+            
+            if (audioPlayer && currentTrack) {
+                // Use Google Drive direct download URL
+                const audioUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+                
+                audioPlayer.src = audioUrl;
+                currentTrack.textContent = `Loading ${fileName}...`;
+                
+                audioPlayer.load();
+                
+                audioPlayer.onloadeddata = () => {
+                    currentTrack.textContent = `Ready to play: ${fileName}`;
+                };
+                
+                audioPlayer.onplay = () => {
+                    currentTrack.textContent = `Playing: ${fileName}`;
+                };
+                
+                audioPlayer.onerror = () => {
+                    currentTrack.textContent = `Error loading ${fileName}`;
+                };
+            }
+        }
+        
+        // Legacy function for backward compatibility
+        function playMusicFile(triviaNumber, fileNumber) {
+            // This is called by the old numbered buttons - just open folder for now
+            const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
+            if (trivia && trivia.drive && trivia.drive['Music Folder']) {
+                window.open(trivia.drive['Music Folder'], '_blank');
+            }
         }
         
         // Legacy functions for old archive view (kept for compatibility)
