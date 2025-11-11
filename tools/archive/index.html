@@ -1584,45 +1584,108 @@
             playMusicFile(triviaNumber, fileNumber);
         }
         
-        // Load music files - fallback to embedded folder view due to API limitations
+        // Load music files using Google Drive API with proper error handling
         async function loadMusicFilesFromAPI(triviaNumber, folderId) {
             const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
             const musicFilesContainer = document.getElementById(`music-files-${triviaNumber}`);
             
             if (!musicFilesContainer || !trivia) return;
             
+            // Update status
+            musicFilesContainer.innerHTML = '<p style="color: #666;">Loading music files from Google Drive API...</p>';
+            
             try {
-                // For now, use embedded folder view since API has permission issues
-                // Replace the music files container with an embedded folder view
+                // Get API key from Firebase
+                const apiKeySnap = await db.ref('adminSettings/googleDriveApiKey').once('value');
+                if (!apiKeySnap.exists()) {
+                    throw new Error('Google Drive API key not configured in Firebase');
+                }
+                const apiKey = apiKeySnap.val();
+                
+                // Try multiple API approaches for better compatibility
+                const apiUrls = [
+                    // Standard API call
+                    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${apiKey}&fields=files(id,name,mimeType)`,
+                    // With supportsAllDrives for shared drives
+                    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&supportsAllDrives=true&includeItemsFromAllDrives=true&key=${apiKey}&fields=files(id,name,mimeType)`
+                ];
+                
+                let response;
+                let lastError;
+                
+                for (const url of apiUrls) {
+                    try {
+                        response = await fetch(url);
+                        if (response.ok) break;
+                        lastError = `${response.status}: ${response.statusText}`;
+            } catch (e) {
+                        lastError = e.message;
+                        continue;
+                    }
+                }
+                
+                if (!response || !response.ok) {
+                    throw new Error(`All API attempts failed. Last error: ${lastError}. The API key may need to be enabled for Google Drive API in Google Cloud Console.`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data.files || data.files.length === 0) {
+                    throw new Error('No files found in folder. The folder may not be publicly accessible or may be empty.');
+                }
+                
+                const audioFiles = data.files.filter(file => 
+                    file.mimeType.startsWith('audio/') || file.name.toLowerCase().endsWith('.mp3')
+                );
+                
+                if (audioFiles.length === 0) {
+                    throw new Error('No audio files found in this folder.');
+                }
+                
+                // Success! Update the music player interface
                 musicFilesContainer.innerHTML = `
-                    <h5>Music Folder Browser:</h5>
-                    <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Click any music file below to open and play it</p>
-                    <iframe src="https://drive.google.com/embeddedfolderview?id=${folderId}" 
-                            style="width: 100%; height: 300px; border: 1px solid #ddd; border-radius: 4px;"
-                            frameborder="0">
-                    </iframe>
+                    <h5>🎵 Music Files (${audioFiles.length} found):</h5>
+                    <div style="display: grid; gap: 6px; margin-bottom: 15px;">
+                        ${audioFiles.map((file, index) => `
+                            <button onclick="playMusicFileById('${triviaNumber}', '${file.id}', '${escapeHTML(file.name)}')" 
+                                    style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8; cursor: pointer; text-align: left; font-size: 13px;"
+                                    onmouseover="this.style.backgroundColor='#e8e8e8'" 
+                                    onmouseout="this.style.backgroundColor='#f8f8f8'">
+                                🎵 ${escapeHTML(file.name)}
+                            </button>
+                        `).join('')}
+                </div>
+                    <p style="color: #4caf50; font-size: 12px;">✅ API loaded successfully! Click files above to play them directly.</p>
                 `;
                 
                 // Mark as loaded
                 document.getElementById(`music-player-${triviaNumber}`).dataset.filesLoaded = 'true';
                 
-                // Update the current track indicator
-                const currentTrack = document.getElementById(`current-track-${triviaNumber}`);
-                if (currentTrack) {
-                    currentTrack.textContent = 'Click files in the browser above to play them';
-                }
-                
             } catch (error) {
-                console.error('Error loading music files:', error);
-                if (musicFilesContainer) {
-                    musicFilesContainer.innerHTML = `
-                        <p style="color: #d32f2f;">Error loading music interface</p>
-                        ${trivia && trivia.drive && trivia.drive['Music Folder'] ? 
-                            `<a href="${trivia.drive['Music Folder']}" target="_blank" class="drive-link">Open Music Folder Manually</a>` : 
-                            '<p style="color: #999;">No music folder link available</p>'
-                        }
-                    `;
-                }
+                console.error('Error loading music files via API:', error);
+                
+                // Fallback to embedded folder view
+                musicFilesContainer.innerHTML = `
+                    <div style="margin-bottom: 15px;">
+                        <h5>⚠️ API Access Issue</h5>
+                        <p style="color: #d32f2f; font-size: 12px; margin-bottom: 10px;">${error.message}</p>
+                        <details style="margin-bottom: 10px;">
+                            <summary style="cursor: pointer; color: #666; font-size: 12px;">How to fix this (for admin)</summary>
+                            <div style="padding: 10px; background: #f5f5f5; border-radius: 4px; margin-top: 5px; font-size: 11px;">
+                                <p>1. Go to <a href="https://console.cloud.google.com/apis/dashboard" target="_blank">Google Cloud Console</a></p>
+                                <p>2. Enable "Google Drive API" for your project</p>
+                                <p>3. Ensure music folders are set to "Anyone with the link can view"</p>
+                                <p>4. API Key: ${apiKey ? 'Configured ✓' : 'Missing ✗'}</p>
+                            </div>
+                        </details>
+                    </div>
+                    <h5>📁 Folder Browser (Fallback):</h5>
+                    <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Click music files below to open them in new tab</p>
+                    <iframe src="https://drive.google.com/embeddedfolderview?id=${folderId}" 
+                            style="width: 100%; height: 250px; border: 1px solid #ddd; border-radius: 4px;"
+                            frameborder="0">
+                    </iframe>
+                `;
             }
         }
         
