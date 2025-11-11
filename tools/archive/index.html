@@ -1584,56 +1584,43 @@
             playMusicFile(triviaNumber, fileNumber);
         }
         
-        // Load music files using Google Drive API
+        // Load music files - fallback to embedded folder view due to API limitations
         async function loadMusicFilesFromAPI(triviaNumber, folderId) {
+            const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
+            const musicFilesContainer = document.getElementById(`music-files-${triviaNumber}`);
+            
+            if (!musicFilesContainer || !trivia) return;
+            
             try {
-                // Get API key from Firebase
-                const apiKeySnap = await db.ref('adminSettings/googleDriveApiKey').once('value');
-                if (!apiKeySnap.exists()) {
-                    throw new Error('Google Drive API key not configured');
-                }
-                const apiKey = apiKeySnap.val();
+                // For now, use embedded folder view since API has permission issues
+                // Replace the music files container with an embedded folder view
+                musicFilesContainer.innerHTML = `
+                    <h5>Music Folder Browser:</h5>
+                    <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Click any music file below to open and play it</p>
+                    <iframe src="https://drive.google.com/embeddedfolderview?id=${folderId}" 
+                            style="width: 100%; height: 300px; border: 1px solid #ddd; border-radius: 4px;"
+                            frameborder="0">
+                    </iframe>
+                `;
                 
-                // Fetch files from Google Drive API
-                const response = await fetch(`https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${apiKey}&fields=files(id,name,mimeType)`);
+                // Mark as loaded
+                document.getElementById(`music-player-${triviaNumber}`).dataset.filesLoaded = 'true';
                 
-                if (!response.ok) {
-                    throw new Error(`API request failed: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                const audioFiles = data.files.filter(file => 
-                    file.mimeType.startsWith('audio/') || file.name.toLowerCase().endsWith('.mp3')
-                );
-                
-                // Update the music player interface
-                const musicFilesContainer = document.getElementById(`music-files-${triviaNumber}`);
-                if (musicFilesContainer && audioFiles.length > 0) {
-                    musicFilesContainer.innerHTML = `
-                        <h5>Available Music Files (${audioFiles.length} found):</h5>
-                        <div style="display: grid; gap: 8px;">
-                            ${audioFiles.map((file, index) => `
-                                <button onclick="playMusicFileById('${triviaNumber}', '${file.id}', '${escapeHTML(file.name)}')" 
-                                        style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #f8f8f8; cursor: pointer; text-align: left;"
-                                        onmouseover="this.style.backgroundColor='#e8e8e8'" 
-                                        onmouseout="this.style.backgroundColor='#f8f8f8'">
-                                    🎵 ${escapeHTML(file.name)}
-                                </button>
-                            `).join('')}
-                </div>
-            `;
-                    
-                    // Mark as loaded
-                    document.getElementById(`music-player-${triviaNumber}`).dataset.filesLoaded = 'true';
+                // Update the current track indicator
+                const currentTrack = document.getElementById(`current-track-${triviaNumber}`);
+                if (currentTrack) {
+                    currentTrack.textContent = 'Click files in the browser above to play them';
                 }
                 
             } catch (error) {
                 console.error('Error loading music files:', error);
-                const musicFilesContainer = document.getElementById(`music-files-${triviaNumber}`);
                 if (musicFilesContainer) {
                     musicFilesContainer.innerHTML = `
-                        <p style="color: #d32f2f;">Error loading music files: ${error.message}</p>
-                        <a href="${trivia.drive['Music Folder']}" target="_blank" class="drive-link">Open Music Folder Manually</a>
+                        <p style="color: #d32f2f;">Error loading music interface</p>
+                        ${trivia && trivia.drive && trivia.drive['Music Folder'] ? 
+                            `<a href="${trivia.drive['Music Folder']}" target="_blank" class="drive-link">Open Music Folder Manually</a>` : 
+                            '<p style="color: #999;">No music folder link available</p>'
+                        }
                     `;
                 }
             }
