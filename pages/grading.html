@@ -1484,10 +1484,6 @@
 
                 roundDialog = document.createElement('div');
                 roundDialog.className = 'round-dialog';
-                // Add Final Challenge option if it's set to 'graded'
-                const finalChallengeOption = availability.finalChallenge === 'graded' ? 
-                    `<option value="finalChallenge">Final Challenge</option>` : '';
-                
                 roundDialog.innerHTML = `
                     <h3>Select Round</h3>
                     <div>
@@ -1498,7 +1494,6 @@
                                     `<option value="${round}">Round ${round}</option>` : 
                                     ''
                             ).join('')}
-                            ${finalChallengeOption}
                         </select>
                     </div>
                     <div style="margin-top:10px;">
@@ -1509,18 +1504,11 @@
                 document.body.appendChild(roundDialog);
 
                 document.getElementById('btnRoundConfirm').onclick = async () => {
-                    const chosenRound = document.getElementById('roundSelectInput').value;
+                    const chosenRound = parseInt(document.getElementById('roundSelectInput').value);
                     document.body.removeChild(roundDialog);
                     roundDialog = null;
-                    
-                    if (chosenRound === 'finalChallenge') {
-                        document.getElementById('currentRoundNum').textContent = 'Final Challenge';
-                        await setupFinalChallengeGrading();
-                    } else {
-                        const roundNum = parseInt(chosenRound);
-                        document.getElementById('currentRoundNum').textContent = roundNum;
-                        await setupGradingScreen(roundNum);
-                    }
+                    document.getElementById('currentRoundNum').textContent = chosenRound;
+                    await setupGradingScreen(chosenRound);
                 };
                 document.getElementById('btnRoundCancel').onclick = () => {
                     document.body.removeChild(roundDialog);
@@ -1582,7 +1570,11 @@
                     }
 
                     // Get questions from trivia archive
-                    const roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle'];
+                    // Include Challenge format if final challenge is set to 'graded'
+                    let roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle'];
+                    if (session.availability?.finalChallenge === 'graded') {
+                        roundFormats.push('Challenge');
+                    }
                     const allQuestions = [];
 
                     for (const format of roundFormats) {
@@ -1625,7 +1617,8 @@
                             'Music': 3, 
                             'Fill-In': 4, 
                             'FDQ': 4.5,
-                            'Puzzle': 5 
+                            'Puzzle': 5,
+                            'Challenge': 6
                         };
                         if (a.format !== b.format) {
                             return formatOrder[a.format] - formatOrder[b.format];
@@ -1684,7 +1677,8 @@
                                     const formatSeparator = isNewFormat ? `
                                         <tr style="background-color: #e3f2fd; border-top: 3px solid #2196f3;">
                                             <td colspan="5" style="text-align: center; font-weight: bold; padding: 8px; color: #1976d2;">
-                                                ${q.format === 'FDQ' ? 'Free Drink Questions' : q.format}
+                                                ${q.format === 'FDQ' ? 'Free Drink Questions' : 
+                                                  q.format === 'Challenge' ? 'Final Challenge' : q.format}
                                             </td>
                                         </tr>
                                     ` : '';
@@ -1743,120 +1737,6 @@
             }
         }
 
-        // Setup Final Challenge grading screen
-        async function setupFinalChallengeGrading() {
-            const sessionId = localStorage.getItem('currentGradingSession');
-            if (!sessionId) return;
-
-            try {
-                // Get session data
-                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
-                if (!sessionSnap.exists()) return;
-                const session = sessionSnap.val();
-
-                // Clear and setup team dropdown
-                const teamSelect = document.getElementById('teamSelect');
-                teamSelect.innerHTML = '<option value="">Select a team...</option>';
-                
-                // Get teams and populate dropdown
-                const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
-                if (teamsSnap.exists()) {
-                    const teams = teamsSnap.val();
-                    Object.entries(teams).forEach(([teamId, team]) => {
-                        const option = document.createElement('option');
-                        option.value = teamId;
-                        option.textContent = team.name;
-                        teamSelect.appendChild(option);
-                    });
-                }
-
-                // Setup initial empty grading form
-                const gradingForm = document.getElementById('gradingForm');
-                gradingForm.innerHTML = `
-                    <div style="margin: 20px 0; padding: 10px; background: #f5f5f5; border-radius: 5px;">
-                        <h3>Final Challenge Score: <span id="liveScore">0.0</span></h3>
-                    </div>
-                    <div id="questionTableContainer"></div>
-                `;
-
-                // Add team selection handler for final challenge
-                teamSelect.addEventListener('change', async (e) => {
-                    const teamId = e.target.value;
-                    if (!teamId) {
-                        document.getElementById('questionTableContainer').innerHTML = '';
-                        document.getElementById('liveScore').textContent = '0.00';
-                        document.getElementById('liveScoreBottom').textContent = '0.00';
-                        return;
-                    }
-
-                    // Get existing final challenge score
-                    const teamSnap = await get(child(ref(db), `grading/${sessionId}/teams/${teamId}`));
-                    const teamData = teamSnap.exists() ? teamSnap.val() : {};
-                    const currentScore = teamData.finalChallenge || 0;
-
-                    // Create final challenge grading interface
-                    const tableHTML = `
-                        <table class="grading-table">
-                            <thead>
-                                <tr>
-                                    <th>Challenge</th>
-                                    <th>Instructions</th>
-                                    <th>Score Input</th>
-                                    <th>Current Score</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td style="font-weight: bold;">Final Challenge</td>
-                                    <td>Enter the points earned for the final challenge</td>
-                                    <td>
-                                        <input type="number" 
-                                               id="finalChallengeInput" 
-                                               value="${currentScore}" 
-                                               step="0.5" 
-                                               style="width: 80px; padding: 5px; text-align: center;"
-                                               onchange="updateFinalChallengeScore()">
-                                    </td>
-                                    <td class="score-cell" id="finalScoreDisplay">${currentScore}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    `;
-
-                    document.getElementById('questionTableContainer').innerHTML = tableHTML;
-                    document.getElementById('liveScore').textContent = currentScore.toFixed(1);
-                    document.getElementById('liveScoreBottom').textContent = currentScore.toFixed(1);
-                });
-
-                showScreen('screenGrading');
-            } catch (error) {
-                console.error("Error setting up final challenge grading:", error);
-                alert("Error setting up final challenge grading. Please try again.");
-            }
-        }
-
-        // Update final challenge score
-        async function updateFinalChallengeScore() {
-            const sessionId = localStorage.getItem('currentGradingSession');
-            const teamId = document.getElementById('teamSelect').value;
-            const score = parseFloat(document.getElementById('finalChallengeInput').value) || 0;
-            
-            if (!sessionId || !teamId) return;
-            
-            try {
-                await set(ref(db, `grading/${sessionId}/teams/${teamId}/finalChallenge`), score);
-                
-                // Update displays
-                document.getElementById('finalScoreDisplay').textContent = score;
-                document.getElementById('liveScore').textContent = score.toFixed(1);
-                document.getElementById('liveScoreBottom').textContent = score.toFixed(1);
-                
-                console.log(`Updated final challenge score for ${teamId}: ${score}`);
-            } catch (error) {
-                console.error("Error updating final challenge score:", error);
-                alert("Error updating score. Please try again.");
-            }
-        }
 
         // Now fix the save function to properly structure the data
         document.getElementById('btnSaveGrades').addEventListener('click', async () => {
@@ -2051,7 +1931,7 @@
 
                 // Create maps to help with question identification
                 const questionMetadata = {};         // Stores all question metadata
-                const possibleFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
+                const possibleFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle', 'Challenge'];
                 
                 // First pass: create metadata for all questions
                 for (const round of Object.keys(triviaData)) {
@@ -2172,13 +2052,15 @@
                 // Sort the data by round, then format, then question number
                 breakdownData.sort((a, b) => {
                     if (a.round !== b.round) return parseInt(a.round) - parseInt(b.round);
-                    // Format order: Written, Visual, Music, Fill-In, Puzzle
+                    // Format order: Written, Visual, Music, Fill-In, FDQ, Puzzle, Challenge
                     const formatOrder = { 
                         'Written': 1, 
                         'Visual': 2, 
                         'Music': 3, 
                         'Fill-In': 4, 
-                        'Puzzle': 5 
+                        'FDQ': 4.5,
+                        'Puzzle': 5,
+                        'Challenge': 6
                     };
                     if (a.format !== b.format) return formatOrder[a.format] - formatOrder[b.format];
                     return a.number - b.number;
