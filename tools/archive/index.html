@@ -716,6 +716,10 @@
                     <input type="text" id="archive-search" placeholder="Search all trivia content..." style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; width: 300px; font-size: 14px;">
                     <button id="search-btn" onclick="performArchiveSearch()" style="padding: 8px 16px; background-color: #000; color: white; border: none; border-radius: 4px; cursor: pointer;">Search</button>
                     <button id="clear-search-btn" onclick="clearArchiveSearch()" style="padding: 8px 16px; background-color: #666; color: white; border: none; border-radius: 4px; cursor: pointer;">Clear</button>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 14px; user-select: none;">
+                        <input type="checkbox" id="simple-search-toggle" checked style="cursor: pointer;">
+                        <span>Simple Mode</span>
+                    </label>
                 </div>
                 <div id="search-results-info" class="search-results-info"></div>
             </div>
@@ -1684,6 +1688,9 @@
                 return;
             }
             
+            // Check if Simple mode is enabled
+            const simpleMode = document.getElementById('simple-search-toggle').checked;
+            
             // First, collapse all trivias and clear previous search results
             document.querySelectorAll('.trivia-item, .round-item').forEach(item => {
                 item.removeAttribute('open');
@@ -1710,12 +1717,26 @@
                     
                     // Search all text content in this round
                     const roundText = roundItem.textContent.toLowerCase();
-                    if (roundText.includes(searchTerm)) {
+                    
+                    // Check for match based on mode
+                    let hasMatch = false;
+                    if (simpleMode) {
+                        // Simple mode: search term must be surrounded by non-letter characters or string boundaries
+                        // Build a regex that matches the search term with word boundaries
+                        // Word boundary means: start of string, end of string, space, number, or special character
+                        const pattern = new RegExp(`(^|[^a-z])${escapeRegex(searchTerm)}($|[^a-z])`, 'i');
+                        hasMatch = pattern.test(roundText);
+                    } else {
+                        // Standard mode: just check if search term is contained anywhere
+                        hasMatch = roundText.includes(searchTerm);
+                    }
+                    
+                    if (hasMatch) {
                         roundHasMatches = true;
                         triviaHasMatches = true;
                         
                         // Highlight the search term in this round's HTML
-                        highlightSearchTerm(roundItem, searchTerm);
+                        highlightSearchTerm(roundItem, searchTerm, simpleMode);
                         
                         // Auto-expand this round
                         roundItem.setAttribute('open', '');
@@ -1802,7 +1823,7 @@
         }
         
         // Highlight search term in element
-        function highlightSearchTerm(element, searchTerm) {
+        function highlightSearchTerm(element, searchTerm, simpleMode = false) {
             const walker = document.createTreeWalker(
                 element,
                 NodeFilter.SHOW_TEXT,
@@ -1818,9 +1839,32 @@
             
             textNodes.forEach(textNode => {
                 const text = textNode.textContent;
-                const regex = new RegExp(`(${escapeRegex(searchTerm)})`, 'gi');
+                
+                // Build regex based on mode
+                let regex;
+                if (simpleMode) {
+                    // Simple mode: match only when surrounded by non-letter characters or string boundaries
+                    regex = new RegExp(`(^|[^a-zA-Z])(${escapeRegex(searchTerm)})($|[^a-zA-Z])`, 'gi');
+                } else {
+                    // Standard mode: match anywhere
+                    regex = new RegExp(`(${escapeRegex(searchTerm)})`, 'gi');
+                }
+                
                 if (regex.test(text)) {
-                    const highlightedText = text.replace(regex, '<span class="search-highlight">$1</span>');
+                    let highlightedText;
+                    if (simpleMode) {
+                        // In simple mode, we need to preserve the boundary characters (group 1 and 3)
+                        // and only highlight the search term (group 2)
+                        highlightedText = text.replace(
+                            new RegExp(`(^|[^a-zA-Z])(${escapeRegex(searchTerm)})($|[^a-zA-Z])`, 'gi'),
+                            '$1<span class="search-highlight">$2</span>$3'
+                        );
+                    } else {
+                        highlightedText = text.replace(
+                            new RegExp(`(${escapeRegex(searchTerm)})`, 'gi'),
+                            '<span class="search-highlight">$1</span>'
+                        );
+                    }
                     const wrapper = document.createElement('span');
                     wrapper.innerHTML = highlightedText;
                     textNode.parentNode.replaceChild(wrapper, textNode);
