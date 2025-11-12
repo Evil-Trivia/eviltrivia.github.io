@@ -906,8 +906,8 @@
                             <span>Round ${roundNumber}</span>
                             <span class="expand-indicator">▼</span>
                         </div>
-                        <div class="round-content" id="round-content-${trivia.triviaNumber}-${roundNumber}">
-                            <!-- Content will be loaded when round is expanded -->
+                        <div class="round-content">
+                            ${createRoundContentSync(roundData, trivia.triviaNumber, roundNumber)}
                         </div>
                         </div>
                     `;
@@ -942,8 +942,8 @@
             return null;
         }
         
-        // Create round content (organized by format with instructions, ordered by Round Ordering)
-        async function createRoundContent(roundData, triviaNumber, roundNumber) {
+        // Create round content synchronously (fast loading for search)
+        function createRoundContentSync(roundData, triviaNumber, roundNumber) {
             // All possible format names based on actual data structure
             const allFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle', 'Challenge'];
             const formatDisplayNames = {
@@ -1048,7 +1048,7 @@
                             `;
                         }
                         
-                        // Create table grid for this format
+                        // Create table grid for this format (with loading icons for percentages)
                         questionsHTML += `
                             <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
                                 <thead>
@@ -1060,27 +1060,55 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${(await Promise.all(questions.map(async q => {
-                                        const correctness = await calculateQuestionCorrectness(q, triviaNumber, roundNumber, format);
-                                        const correctnessDisplay = correctness !== null ? `${correctness.toFixed(1)}%` : '';
-                                        
-                                        return `
-                                            <tr>
-                                                <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 12px;">${q.questionNumber}</td>
-                                                <td style="padding: 6px; border: 1px solid #ddd; font-size: 12px;">${escapeHTML(q.question)}</td>
-                                                <td style="padding: 6px; border: 1px solid #ddd; font-style: italic; font-size: 12px;">${escapeHTML(q.answer)}</td>
-                                                <td style="padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px; color: ${correctness !== null ? (correctness >= 50 ? '#4caf50' : '#f44336') : '#999'};">${correctnessDisplay}</td>
-                                            </tr>
-                                        `;
-                                    }))).join('')}
+                                    ${questions.map(q => `
+                                        <tr>
+                                            <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 12px;">${q.questionNumber}</td>
+                                            <td style="padding: 6px; border: 1px solid #ddd; font-size: 12px;">${escapeHTML(q.question)}</td>
+                                            <td style="padding: 6px; border: 1px solid #ddd; font-style: italic; font-size: 12px;">${escapeHTML(q.answer)}</td>
+                                            <td style="padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;" id="correctness-${triviaNumber}-${roundNumber}-${format}-${q.questionNumber}">
+                                                <span style="color: #999;">⏳</span>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
                                 </tbody>
                             </table>
                         `;
+                        
+                        // Start loading correctness percentages in background
+                        setTimeout(() => {
+                            questions.forEach(q => {
+                                loadQuestionCorrectness(triviaNumber, roundNumber, format, q.questionNumber);
+                            });
+                        }, 100);
                     }
                 }
             }
             
             return questionsHTML || '<div class="missing-data">No questions found</div>';
+        }
+        
+        // Load question correctness in background
+        async function loadQuestionCorrectness(triviaNumber, roundNumber, format, questionNumber) {
+            try {
+                const correctness = await calculateQuestionCorrectness({questionNumber}, triviaNumber, roundNumber, format);
+                const cell = document.getElementById(`correctness-${triviaNumber}-${roundNumber}-${format}-${questionNumber}`);
+                
+                if (cell) {
+                    if (correctness !== null) {
+                        const percentage = correctness.toFixed(1);
+                        const color = correctness >= 50 ? '#4caf50' : '#f44336';
+                        cell.innerHTML = `<span style="color: ${color};">${percentage}%</span>`;
+                    } else {
+                        cell.innerHTML = '<span style="color: #ccc;">—</span>';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading question correctness:', error);
+                const cell = document.getElementById(`correctness-${triviaNumber}-${roundNumber}-${format}-${questionNumber}`);
+                if (cell) {
+                    cell.innerHTML = '<span style="color: #ccc;">—</span>';
+                }
+            }
         }
         
         // Create PDF panel content
@@ -1271,7 +1299,7 @@
         }
         
         // Toggle round open/closed
-        async function toggleRound(triviaNumber, roundNumber) {
+        function toggleRound(triviaNumber, roundNumber) {
             const round = document.querySelector(`[data-trivia-number="${triviaNumber}"] [data-round="${roundNumber}"]`);
             if (round) {
                 const isOpen = round.hasAttribute('open');
@@ -1279,23 +1307,6 @@
                     round.removeAttribute('open');
                 } else {
                     round.setAttribute('open', '');
-                    
-                    // Lazy load round content when expanded
-                    const contentDiv = document.getElementById(`round-content-${triviaNumber}-${roundNumber}`);
-                    if (contentDiv && contentDiv.innerHTML.trim() === '<!-- Content will be loaded when round is expanded -->') {
-                        contentDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">Loading round content...</div>';
-                        
-                        const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
-                        if (trivia && trivia.archive && trivia.archive.trivia && trivia.archive.trivia[roundNumber]) {
-                            try {
-                                const roundContent = await createRoundContent(trivia.archive.trivia[roundNumber], triviaNumber, roundNumber);
-                                contentDiv.innerHTML = roundContent;
-                            } catch (error) {
-                                console.error('Error loading round content:', error);
-                                contentDiv.innerHTML = '<div class="missing-data">Error loading round content</div>';
-                            }
-                        }
-                    }
                 }
             }
         }
