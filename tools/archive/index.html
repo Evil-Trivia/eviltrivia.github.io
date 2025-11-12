@@ -833,10 +833,20 @@
             });
         }
         
+        // Global cache for question correctness
+        const correctnessCache = new Map();
+        
         // Fetch all trivia data for Full Archive mode
         async function fetchAllTriviaData() {
             try {
                 fullArchiveLoading.style.display = 'flex';
+                
+                // Update loading text
+                const loadingText = document.querySelector('.loading-text');
+                const loadingSubtext = document.querySelector('.loading-subtext');
+                
+                if (loadingText) loadingText.textContent = 'Loading Archive Data...';
+                if (loadingSubtext) loadingSubtext.textContent = 'Fetching trivia questions and answers';
                 
                 // Fetch all three data sources in parallel
                 const [overviewSnap, archiveSnap, driveLookupSnap] = await Promise.all([
@@ -878,6 +888,14 @@
                 
                 console.log(`Loaded ${allTriviaData.size} trivia entries`);
                 
+                // Now load all grading data for correctness calculations
+                if (loadingText) loadingText.textContent = 'Loading Correctness Data...';
+                if (loadingSubtext) loadingSubtext.textContent = 'Calculating question statistics from all sessions';
+                
+                await preloadAllCorrectness();
+                
+                console.log('Correctness data preloaded');
+                
             } catch (error) {
                 console.error('Error fetching trivia data:', error);
                 throw error;
@@ -892,6 +910,96 @@
                         overlay.style.display = 'none';
                     }, 300);
                 }
+            }
+        }
+        
+        // Preload all correctness data at startup
+        async function preloadAllCorrectness() {
+            try {
+                // Fetch all grading sessions once
+                const allSessionsSnap = await db.ref('grading').once('value');
+                if (!allSessionsSnap.exists()) return;
+                
+                const allSessions = allSessionsSnap.val();
+                
+                // Process each trivia in allTriviaData
+                for (const [triviaNumber, trivia] of allTriviaData.entries()) {
+                    if (!trivia.archive?.trivia) continue;
+                    
+                    // Get all sessions for this trivia number
+                    const relevantSessions = Object.keys(allSessions).filter(sessionId => 
+                        allSessions[sessionId].triviaNumber === triviaNumber
+                    );
+                    
+                    if (relevantSessions.length === 0) continue;
+                    
+                    // Process each round
+                    for (const [roundNumber, roundData] of Object.entries(trivia.archive.trivia)) {
+                        if (isNaN(parseInt(roundNumber)) || typeof roundData !== 'object') continue;
+                        
+                        const allFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle', 'Challenge'];
+                        
+                        // Process each format
+                        for (const format of allFormats) {
+                            if (!roundData[format]) continue;
+                            
+                            let questions = [];
+                            
+                            if (Array.isArray(roundData[format])) {
+                                roundData[format].forEach((qData, index) => {
+                                    if (qData && typeof qData === 'object') {
+                                        questions.push({
+                                            questionNumber: qData['Question Number'] || index
+                                        });
+                                    }
+                                });
+                            } else {
+                                Object.entries(roundData[format]).forEach(([key, qData]) => {
+                                    if (!isNaN(parseInt(key)) && qData && typeof qData === 'object') {
+                                        questions.push({
+                                            questionNumber: qData['Question Number'] || parseInt(key)
+                                        });
+                                    }
+                                });
+                            }
+                            
+                            // Calculate correctness for each question
+                            for (const question of questions) {
+                                const cacheKey = `${triviaNumber}-${roundNumber}-${format}-${question.questionNumber}`;
+                                
+                                let totalResponses = 0;
+                                let correctResponses = 0;
+                                
+                                // Check each session for this question
+                                for (const sessionId of relevantSessions) {
+                                    const session = allSessions[sessionId];
+                                    if (!session.teams) continue;
+                                    
+                                    // Check each team's response to this question
+                                    for (const [teamId, team] of Object.entries(session.teams)) {
+                                        const roundKey = `round${roundNumber}`;
+                                        if (!team[roundKey] || !team[roundKey][format]) continue;
+                                        
+                                        const questionData = team[roundKey][format][question.questionNumber];
+                                        if (questionData && questionData.percentage !== undefined) {
+                                            totalResponses++;
+                                            correctResponses += (questionData.percentage / 100);
+                                        }
+                                    }
+                                }
+                                
+                                // Store in cache
+                                if (totalResponses > 0) {
+                                    correctnessCache.set(cacheKey, (correctResponses / totalResponses) * 100);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error preloading correctness data:', error);
+                // Don't throw - we can still show the archive without correctness data
             }
         }
         
@@ -1127,7 +1235,7 @@
                             `;
                         }
                         
-                        // Create table grid for this format (fast loading, % correct loads when round opened)
+                        // Create table grid for this format with preloaded % correct data
                         questionsHTML += `
                             <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
                                 <thead>
@@ -1139,16 +1247,30 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${questions.map(q => `
-                                        <tr>
-                                            <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 12px;">${q.questionNumber}</td>
-                                            <td style="padding: 6px; border: 1px solid #ddd; font-size: 12px;">${escapeHTML(q.question)}</td>
-                                            <td style="padding: 6px; border: 1px solid #ddd; font-style: italic; font-size: 12px;">${escapeHTML(q.answer)}</td>
-                                            <td style="padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;" id="correctness-${triviaNumber}-${roundNumber}-${format}-${q.questionNumber}">
-                                                <span style="color: #ccc;">—</span>
-                                            </td>
-                                        </tr>
-                                    `).join('')}
+                                    ${questions.map(q => {
+                                        const cacheKey = `${triviaNumber}-${roundNumber}-${format}-${q.questionNumber}`;
+                                        const correctness = correctnessCache.get(cacheKey);
+                                        let correctnessHTML;
+                                        
+                                        if (correctness !== undefined) {
+                                            const percentage = correctness.toFixed(1);
+                                            const color = correctness >= 50 ? '#4caf50' : '#f44336';
+                                            correctnessHTML = `<span style="color: ${color};">${percentage}%</span>`;
+                                        } else {
+                                            correctnessHTML = '<span style="color: #ccc;">—</span>';
+                                        }
+                                        
+                                        return `
+                                            <tr>
+                                                <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 12px;">${q.questionNumber}</td>
+                                                <td style="padding: 6px; border: 1px solid #ddd; font-size: 12px;">${escapeHTML(q.question)}</td>
+                                                <td style="padding: 6px; border: 1px solid #ddd; font-style: italic; font-size: 12px;">${escapeHTML(q.answer)}</td>
+                                                <td style="padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px;">
+                                                    ${correctnessHTML}
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
                                 </tbody>
                             </table>
                         `;
@@ -1159,34 +1281,8 @@
             return questionsHTML || '<div class="missing-data">No questions found</div>';
         }
         
-        // Load question correctness in background
-        async function loadQuestionCorrectness(triviaNumber, roundNumber, format, questionNumber) {
-            const cell = document.getElementById(`correctness-${triviaNumber}-${roundNumber}-${format}-${questionNumber}`);
-            
-            try {
-                // Show loading indicator
-                if (cell) {
-                    cell.innerHTML = '<span style="color: #999;">⏳</span>';
-                }
-                
-                const correctness = await calculateQuestionCorrectness({questionNumber}, triviaNumber, roundNumber, format);
-                
-                if (cell) {
-                    if (correctness !== null) {
-                        const percentage = correctness.toFixed(1);
-                        const color = correctness >= 50 ? '#4caf50' : '#f44336';
-                        cell.innerHTML = `<span style="color: ${color};">${percentage}%</span>`;
-                    } else {
-                        cell.innerHTML = '<span style="color: #ccc;">—</span>';
-                    }
-                }
-            } catch (error) {
-                console.error('Error loading question correctness:', error);
-                if (cell) {
-                    cell.innerHTML = '<span style="color: #ccc;">—</span>';
-                }
-            }
-        }
+        // Note: loadQuestionCorrectness is no longer needed as correctness is preloaded
+        // Keeping calculateQuestionCorrectness for potential future use
         
         // Create PDF panel content
         function createPDFPanel(trivia) {
@@ -1384,27 +1480,8 @@
                     round.removeAttribute('open');
                 } else {
                     round.setAttribute('open', '');
-                    
-                    // Load correctness percentages when round is opened
-                    setTimeout(() => {
-                        loadCorrectnessForRound(triviaNumber, roundNumber);
-                    }, 50);
                 }
             }
-        }
-        
-        // Load correctness for all questions in a round
-        function loadCorrectnessForRound(triviaNumber, roundNumber) {
-            // Find all correctness cells for this round and trigger loading
-            const cells = document.querySelectorAll(`[id^="correctness-${triviaNumber}-${roundNumber}-"]`);
-            cells.forEach(cell => {
-                if (cell.innerHTML.includes('⏳')) {
-                    const parts = cell.id.split('-');
-                    const format = parts[3];
-                    const questionNumber = parts[4];
-                    loadQuestionCorrectness(triviaNumber, roundNumber, format, questionNumber);
-                }
-            });
         }
         
         // Change PDF in viewer (legacy function, keeping for compatibility)
@@ -2431,5 +2508,6 @@
         });
     </script>
 </body>
+</html> 
 </html> 
 </html> 
