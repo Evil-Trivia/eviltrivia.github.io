@@ -906,8 +906,8 @@
                             <span>Round ${roundNumber}</span>
                             <span class="expand-indicator">▼</span>
                         </div>
-                        <div class="round-content">
-                            ${createRoundContent(roundData)}
+                        <div class="round-content" id="round-content-${trivia.triviaNumber}-${roundNumber}">
+                            <!-- Content will be loaded when round is expanded -->
                         </div>
                         </div>
                     `;
@@ -942,10 +942,10 @@
             return null;
         }
         
-        // Create round content (organized by format with instructions)
-        function createRoundContent(roundData) {
+        // Create round content (organized by format with instructions, ordered by Round Ordering)
+        async function createRoundContent(roundData, triviaNumber, roundNumber) {
             // All possible format names based on actual data structure
-            const formats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle', 'Challenge'];
+            const allFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'FDQ', 'Puzzle', 'Challenge'];
             const formatDisplayNames = {
                 'Written': 'Written',
                 'Visual': 'Visual', 
@@ -956,10 +956,41 @@
                 'Challenge': 'Final Challenge'
             };
             
+            // Collect all formats that exist in this round with their Round Ordering
+            const formatsWithOrdering = [];
+            
+            for (const format of allFormats) {
+                if (roundData[format]) {
+                    let roundOrdering = 999; // default
+                    
+                    // Get Round Ordering from first question in format
+                    if (Array.isArray(roundData[format])) {
+                        const firstQuestion = roundData[format].find(q => q && typeof q === 'object');
+                        if (firstQuestion && firstQuestion['Round Ordering']) {
+                            roundOrdering = parseInt(firstQuestion['Round Ordering']);
+                        }
+                    } else {
+                        const firstQuestion = Object.values(roundData[format]).find(q => q && typeof q === 'object');
+                        if (firstQuestion && firstQuestion['Round Ordering']) {
+                            roundOrdering = parseInt(firstQuestion['Round Ordering']);
+                        }
+                    }
+                    
+                    formatsWithOrdering.push({
+                        format: format,
+                        roundOrdering: roundOrdering
+                    });
+                }
+            }
+            
+            // Sort formats by Round Ordering
+            formatsWithOrdering.sort((a, b) => a.roundOrdering - b.roundOrdering);
+            
             let questionsHTML = '';
             
-            // Process each format separately to show instructions per format
-            for (const format of formats) {
+            // Process each format in Round Ordering order
+            for (const formatInfo of formatsWithOrdering) {
+                const format = formatInfo.format;
                 if (roundData[format]) {
                     let questions = [];
                     let formatInstruction = '';
@@ -1025,16 +1056,23 @@
                                         <th style="padding: 6px; border: 1px solid #ddd; text-align: left; width: 60px; font-size: 12px;">Q#</th>
                                         <th style="padding: 6px; border: 1px solid #ddd; text-align: left; font-size: 12px;">Question</th>
                                         <th style="padding: 6px; border: 1px solid #ddd; text-align: left; width: 180px; font-size: 12px;">Answer</th>
+                                        <th style="padding: 6px; border: 1px solid #ddd; text-align: center; width: 80px; font-size: 12px;">% Correct</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${questions.map(q => `
-                                        <tr>
-                                            <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 12px;">${q.questionNumber}</td>
-                                            <td style="padding: 6px; border: 1px solid #ddd; font-size: 12px;">${escapeHTML(q.question)}</td>
-                                            <td style="padding: 6px; border: 1px solid #ddd; font-style: italic; font-size: 12px;">${escapeHTML(q.answer)}</td>
-                                        </tr>
-                                    `).join('')}
+                                    ${(await Promise.all(questions.map(async q => {
+                                        const correctness = await calculateQuestionCorrectness(q, triviaNumber, roundNumber, format);
+                                        const correctnessDisplay = correctness !== null ? `${correctness.toFixed(1)}%` : '';
+                                        
+                                        return `
+                                            <tr>
+                                                <td style="padding: 6px; border: 1px solid #ddd; font-weight: bold; font-size: 12px;">${q.questionNumber}</td>
+                                                <td style="padding: 6px; border: 1px solid #ddd; font-size: 12px;">${escapeHTML(q.question)}</td>
+                                                <td style="padding: 6px; border: 1px solid #ddd; font-style: italic; font-size: 12px;">${escapeHTML(q.answer)}</td>
+                                                <td style="padding: 6px; border: 1px solid #ddd; text-align: center; font-size: 12px; color: ${correctness !== null ? (correctness >= 50 ? '#4caf50' : '#f44336') : '#999'};">${correctnessDisplay}</td>
+                                            </tr>
+                                        `;
+                                    }))).join('')}
                                 </tbody>
                             </table>
                         `;
@@ -1233,7 +1271,7 @@
         }
         
         // Toggle round open/closed
-        function toggleRound(triviaNumber, roundNumber) {
+        async function toggleRound(triviaNumber, roundNumber) {
             const round = document.querySelector(`[data-trivia-number="${triviaNumber}"] [data-round="${roundNumber}"]`);
             if (round) {
                 const isOpen = round.hasAttribute('open');
@@ -1241,6 +1279,23 @@
                     round.removeAttribute('open');
                 } else {
                     round.setAttribute('open', '');
+                    
+                    // Lazy load round content when expanded
+                    const contentDiv = document.getElementById(`round-content-${triviaNumber}-${roundNumber}`);
+                    if (contentDiv && contentDiv.innerHTML.trim() === '<!-- Content will be loaded when round is expanded -->') {
+                        contentDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;">Loading round content...</div>';
+                        
+                        const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
+                        if (trivia && trivia.archive && trivia.archive.trivia && trivia.archive.trivia[roundNumber]) {
+                            try {
+                                const roundContent = await createRoundContent(trivia.archive.trivia[roundNumber], triviaNumber, roundNumber);
+                                contentDiv.innerHTML = roundContent;
+                            } catch (error) {
+                                console.error('Error loading round content:', error);
+                                contentDiv.innerHTML = '<div class="missing-data">Error loading round content</div>';
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1557,6 +1612,51 @@
         // Escape regex special characters
         function escapeRegex(string) {
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        
+        // Calculate question correctness percentage across all grading sessions
+        async function calculateQuestionCorrectness(question, triviaNumber, roundNumber, format) {
+            try {
+                // Get all grading sessions for this trivia number
+                const allSessionsSnap = await db.ref('grading').once('value');
+                if (!allSessionsSnap.exists()) return null;
+                
+                const allSessions = allSessionsSnap.val();
+                const relevantSessions = Object.keys(allSessions).filter(sessionId => 
+                    allSessions[sessionId].triviaNumber === triviaNumber
+                );
+                
+                if (relevantSessions.length === 0) return null;
+                
+                let totalResponses = 0;
+                let correctResponses = 0;
+                
+                // Check each session for this question
+                for (const sessionId of relevantSessions) {
+                    const teamsSnap = await db.ref(`grading/${sessionId}/teams`).once('value');
+                    if (!teamsSnap.exists()) continue;
+                    
+                    const teams = teamsSnap.val();
+                    
+                    // Check each team's response to this question
+                    for (const [teamId, team] of Object.entries(teams)) {
+                        const roundKey = `round${roundNumber}`;
+                        if (!team[roundKey] || !team[roundKey][format]) continue;
+                        
+                        const questionData = team[roundKey][format][question.questionNumber];
+                        if (questionData && questionData.percentage !== undefined) {
+                            totalResponses++;
+                            correctResponses += (questionData.percentage / 100);
+                        }
+                    }
+                }
+                
+                return totalResponses > 0 ? (correctResponses / totalResponses) * 100 : null;
+                
+            } catch (error) {
+                console.error('Error calculating question correctness:', error);
+                return null;
+            }
         }
         
         // Load music files from Google Drive API and create audio players
