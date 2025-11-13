@@ -900,6 +900,17 @@
                 padding: 5px !important;
             }
             
+            /* Teams header with tooltip and total */
+            .teams-section-content > div:first-child {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 8px;
+            }
+            
+            .teams-section-content > div:first-child > div {
+                margin-left: 0 !important;
+            }
+            
             .team-entry {
                 flex-direction: column;
                 align-items: flex-start !important;
@@ -2794,18 +2805,23 @@
                 `;
             }
             
-            // Add tooltip explaining team name bonus
-            let tooltipHTML = `
-                <div style="padding: 8px 10px; background: #e3f2fd; border-left: 3px solid #2196f3; font-size: 0.85em; color: #555; margin-bottom: 8px;">
-                    💡 <span style="color: #0066cc; font-weight: bold;">Blue team names</span> = earned Team Name Bonus Point
+            // Calculate totals first
+            let totalPeople = 0;
+            teams.forEach(team => {
+                totalPeople += parseInt(team.size) || 0;
+            });
+            
+            // Add total summary at the top with tooltip
+            let headerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: #e3f2fd; border-left: 3px solid #2196f3; font-size: 0.85em; color: #555; margin-bottom: 8px;">
+                    <div>💡 <span style="color: #0066cc; font-weight: bold;">Blue team names</span> = earned Team Name Bonus Point</div>
+                    <div style="font-weight: bold; color: #333; margin-left: 15px; white-space: nowrap;">Total: ${teams.length} team${teams.length === 1 ? '' : 's'}, ${totalPeople} ${totalPeople === 1 ? 'person' : 'people'}</div>
                 </div>
             `;
             
             let teamsListHTML = '';
-            let totalPeople = 0;
             teams.forEach((team, index) => {
                 const teamNameClass = team.hasTeamNameBonus ? 'team-name-bonus' : '';
-                totalPeople += parseInt(team.size) || 0;
                 teamsListHTML += `
                     <div class="team-entry" data-location="${escapeHTML(team.sessionLocation || '')}">
                         <div>
@@ -2819,14 +2835,7 @@
                 `;
             });
             
-            let teamsHTML = tooltipHTML + '<div id="teams-list-' + triviaNumber + '">' + teamsListHTML + '</div>';
-            
-            // Add total summary at the bottom
-            teamsHTML += `
-                <div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-top: 2px solid #ddd; font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
-                    <div>Total: ${teams.length} team${teams.length === 1 ? '' : 's'}, ${totalPeople} ${totalPeople === 1 ? 'person' : 'people'}</div>
-                </div>
-            `;
+            let teamsHTML = headerHTML + '<div id="teams-list-' + triviaNumber + '">' + teamsListHTML + '</div>';
             
             teamsContent.innerHTML = filterHTML + teamsHTML;
             
@@ -2852,15 +2861,31 @@
                 ? allTeams 
                 : allTeams.filter(team => team.sessionLocation === selectedLocation);
             
+            // Calculate totals for filtered teams
+            let totalPeople = 0;
+            filteredTeams.forEach(team => {
+                totalPeople += parseInt(team.size) || 0;
+            });
+            
+            // Update the header with new totals
+            const teamsSection = document.getElementById(`teams-section-${triviaNumber}`);
+            if (teamsSection) {
+                const headerDiv = teamsSection.querySelector('.teams-section-content > div:first-child');
+                if (headerDiv) {
+                    headerDiv.innerHTML = `
+                        <div>💡 <span style="color: #0066cc; font-weight: bold;">Blue team names</span> = earned Team Name Bonus Point</div>
+                        <div style="font-weight: bold; color: #333; margin-left: 15px; white-space: nowrap;">Total: ${filteredTeams.length} team${filteredTeams.length === 1 ? '' : 's'}, ${totalPeople} ${totalPeople === 1 ? 'person' : 'people'}</div>
+                    `;
+                }
+            }
+            
             // Re-render the teams list
             const teamsList = document.getElementById(`teams-list-${triviaNumber}`);
             if (!teamsList) return;
             
             let teamsHTML = '';
-            let totalPeople = 0;
             filteredTeams.forEach((team, index) => {
                 const teamNameClass = team.hasTeamNameBonus ? 'team-name-bonus' : '';
-                totalPeople += parseInt(team.size) || 0;
                 teamsHTML += `
                     <div class="team-entry" data-location="${escapeHTML(team.sessionLocation || '')}">
                         <div>
@@ -2875,12 +2900,6 @@
             });
             
             teamsList.innerHTML = teamsHTML || '<div style="padding: 10px; color: #999;">No teams found for this location</div>';
-            
-            // Update total summary
-            const totalSummary = teamsList.nextElementSibling;
-            if (totalSummary && filteredTeams.length > 0) {
-                totalSummary.innerHTML = `<div>Total: ${filteredTeams.length} team${filteredTeams.length === 1 ? '' : 's'}, ${totalPeople} ${totalPeople === 1 ? 'person' : 'people'}</div>`;
-            }
         }
         
         // Legacy functions for old archive view (kept for compatibility)
