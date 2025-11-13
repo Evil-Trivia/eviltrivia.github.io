@@ -1193,6 +1193,68 @@
                         </div>
                     `;
                 }
+        
+        // Create Trivia Information section HTML
+        function createTriviaInfoHTML(triviaNumber, driveData) {
+            if (!driveData) return '';
+            
+            let contentHTML = '';
+            
+            // Add Team Name Prompt
+            if (driveData['Team Name Prompt']) {
+                contentHTML += `
+                    <div class="team-name-prompt">
+                        <strong>Team Name Prompt:</strong> ${escapeHTML(driveData['Team Name Prompt'])}
+                    </div>
+                `;
+            }
+            
+            // Add Instagram Poster
+            if (driveData['Instagram Poster Link']) {
+                const posterURL = convertDriveIDToExportURL(driveData['Instagram Poster Link']);
+                const posterRef = driveData['IG Poster Ref'] || '';
+                
+                if (posterURL) {
+                    contentHTML += `
+                        <div class="poster-section">
+                            <div>
+                                <img src="${posterURL}" alt="Instagram Poster" class="poster-image" />
+                                ${posterRef ? `<div class="poster-ref">(${escapeHTML(posterRef)})</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Add Teams Section with scores
+            contentHTML += `
+                <div id="teams-section-${triviaNumber}" class="teams-section">
+                    <div class="teams-section-header" onclick="toggleTeamsSection(${triviaNumber})">
+                        <div>Teams That Played</div>
+                        <span class="expand-indicator">▼</span>
+                    </div>
+                    <div class="teams-section-content">
+                        <div class="teams-loading">Loading team data...</div>
+                    </div>
+                </div>
+            `;
+            
+            // If no content was added, return empty string
+            if (!contentHTML.trim()) return '';
+            
+            // Wrap in Trivia Information container
+            return `
+                <div class="round-item trivia-info-item" data-trivia-info="true">
+                    <div class="round-header" onclick="toggleTriviaInfo(${triviaNumber})">
+                        <span>Trivia Information</span>
+                        <span class="expand-indicator">▼</span>
+                    </div>
+                    <div class="round-content">
+                        ${contentHTML}
+                    </div>
+                </div>
+            `;
+        }
                 
         // Create rounds panel content
         function createRoundsPanel(trivia) {
@@ -1211,7 +1273,13 @@
                 return '<div class="missing-data">No rounds found</div>';
             }
             
-            return rounds.map(([roundNumber, roundData]) => {
+            // Create Trivia Information section HTML if drive data exists
+            let triviaInfoHTML = '';
+            if (trivia.drive) {
+                triviaInfoHTML = createTriviaInfoHTML(trivia.triviaNumber, trivia.drive);
+            }
+            
+            const roundsHTML = rounds.map(([roundNumber, roundData]) => {
                 // Always show "Round X" as the header, not the specific round name
                     return `
                     <div class="round-item" data-round="${roundNumber}">
@@ -1225,6 +1293,8 @@
                         </div>
                     `;
             }).join('');
+            
+            return triviaInfoHTML + roundsHTML;
         }
         
         // Helper to get round ordering from any question in the round
@@ -1606,6 +1676,34 @@
                     round.removeAttribute('open');
                 } else {
                     round.setAttribute('open', '');
+                }
+            }
+        }
+        
+        // Toggle trivia info section open/closed
+        function toggleTriviaInfo(triviaNumber) {
+            const infoSection = document.querySelector(`[data-trivia-number="${triviaNumber}"] .trivia-info-item`);
+            if (infoSection) {
+                const isOpen = infoSection.hasAttribute('open');
+                if (isOpen) {
+                    infoSection.removeAttribute('open');
+                } else {
+                    infoSection.setAttribute('open', '');
+                    // Load team data when opened for the first time
+                    loadTeamData(triviaNumber);
+                }
+            }
+        }
+        
+        // Toggle teams section open/closed
+        function toggleTeamsSection(triviaNumber) {
+            const teamsSection = document.getElementById(`teams-section-${triviaNumber}`);
+            if (teamsSection) {
+                const isOpen = teamsSection.hasAttribute('open');
+                if (isOpen) {
+                    teamsSection.removeAttribute('open');
+                } else {
+                    teamsSection.setAttribute('open', '');
                 }
             }
         }
@@ -2508,7 +2606,7 @@
             const driveData = triviaFullData ? triviaFullData.drive : null;
             
             // Add Trivia Information section before rounds
-            if (driveData && (driveData['Team Name Prompt'] || driveData['Instagram Poster Link'])) {
+            if (driveData) {
                 const infoSection = createTriviaInfoSection(triviaNumber, driveData);
                 roundsContainer.appendChild(infoSection);
             }
