@@ -2388,21 +2388,41 @@
             return fileId;
         }
         
-        // Function to create Google Drive image embed with hidden controls
+        // Function to create Google Drive image embed - tries multiple methods for best performance
         function createDriveImageEmbed(fileId, altText = 'Image') {
             if (!fileId) return '';
             
-            // Use iframe preview method with controls hidden via CSS overlay
+            // Try multiple Google Drive image URL formats for best compatibility and speed
+            // Method 1: lh3.googleusercontent.com (fastest, direct image)
+            // Method 2: drive.google.com/uc (fallback)
+            // Method 3: iframe preview (slowest but most reliable)
+            
             return `
-                <div style="position: relative; width: 300px; height: 300px; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                <div style="width: 300px; min-height: 300px; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: #f5f5f5; display: flex; align-items: center; justify-content: center;">
+                    <img src="https://lh3.googleusercontent.com/d/${fileId}" 
+                         alt="${altText}"
+                         style="max-width: 300px; max-height: 300px; width: auto; height: auto; display: block;"
+                         loading="lazy"
+                         onerror="this.onerror=null; this.src='https://drive.google.com/uc?export=view&id=${fileId}'; this.onerror=function(){handlePosterImageError(this, '${fileId}', '${altText}');};" />
+                </div>
+            `;
+        }
+        
+        // Fallback handler for poster images that fail to load via img tag
+        function handlePosterImageError(img, fileId, altText) {
+            // Replace failed img with lazy-loaded iframe as last resort
+            const container = img.parentElement;
+            if (!container) return;
+            
+            container.innerHTML = `
+                <div style="position: relative; width: 300px; height: 300px;">
                     <iframe src="https://drive.google.com/file/d/${fileId}/preview" 
                             style="width: 300px; height: 300px; border: none;" 
                             frameborder="0"
-                            allow="autoplay"
+                            loading="lazy"
                             title="${altText}">
                     </iframe>
-                    <div style="position: absolute; top: 0; right: 0; width: 40px; height: 40px; background: transparent; z-index: 10;" 
-                         title="Google Drive controls hidden"></div>
+                    <div style="position: absolute; top: 0; right: 0; width: 40px; height: 40px; background: transparent; z-index: 10;"></div>
                 </div>
             `;
         }
