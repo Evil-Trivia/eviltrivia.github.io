@@ -1213,6 +1213,7 @@
             if (driveData['Instagram Poster Link']) {
                 const fileId = extractDriveFileID(driveData['Instagram Poster Link']);
                 const posterRef = driveData['IG Poster Ref'] || '';
+                const igChallenge = driveData['IG Challenge'] || '';
                 
                 if (fileId) {
                     const posterEmbed = createDriveImageEmbed(fileId, 'Instagram Poster');
@@ -1221,6 +1222,7 @@
                             <div>
                                 ${posterEmbed}
                                 ${posterRef ? `<div class="poster-ref">(${escapeHTML(posterRef)})</div>` : ''}
+                                ${igChallenge ? `<div style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-left: 3px solid #0066cc; border-radius: 4px; font-size: 0.95em; line-height: 1.5; color: #333;">${escapeHTML(igChallenge)}</div>` : ''}
                             </div>
                         </div>
                     `;
@@ -1920,7 +1922,7 @@
                 item.removeAttribute('open');
             });
             
-            // Collapse all trivia cards
+            // Collapse all trivia cards (legacy view)
             document.querySelectorAll('.trivia-card').forEach(card => {
                 card.classList.remove('expanded');
                 card.querySelectorAll('.round, .trivia-info').forEach(element => {
@@ -1938,13 +1940,18 @@
             
             let matchingTrivias = [];
             
-            // Search through all trivia cards
-            document.querySelectorAll('.trivia-card').forEach(triviaCard => {
-                const triviaNumber = parseInt(triviaCard.id.replace('trivia-', ''));
+            // Search through Full Archive view (.trivia-item)
+            document.querySelectorAll('.trivia-item').forEach(triviaItem => {
+                const triviaNumber = parseInt(triviaItem.dataset.triviaNumber);
                 let triviaHasMatches = false;
                 
-                // Search through all rounds in this trivia
-                triviaCard.querySelectorAll('.round').forEach(roundElement => {
+                // Search through all round-items in this trivia
+                triviaItem.querySelectorAll('.round-item').forEach(roundElement => {
+                    // Skip trivia info items if "search rounds only" is checked
+                    if (searchRoundsOnly && roundElement.dataset.triviaInfo === 'true') {
+                        return;
+                    }
+                    
                     let roundHasMatches = false;
                     
                     // Search all text content in this round
@@ -1953,9 +1960,7 @@
                     // Check for match based on mode
                     let hasMatch = false;
                     if (simpleMode) {
-                        // Simple mode: search term must be surrounded by non-letter characters or string boundaries
-                        // Build a regex that matches the search term with word boundaries
-                        // Word boundary means: start of string, end of string, space, number, or special character
+                        // Simple mode: search term must be surrounded by spaces, special characters, or string boundaries
                         const pattern = new RegExp(`(^|[^a-z])${escapeRegex(searchTerm)}($|[^a-z])`, 'i');
                         hasMatch = pattern.test(roundText);
                     } else {
@@ -1971,57 +1976,15 @@
                         highlightSearchTerm(roundElement, searchTerm, simpleMode);
                         
                         // Auto-expand this round
-                        roundElement.classList.add('expanded');
-                    }
-                    
-                    // Add/remove match styling
-                    if (roundHasMatches) {
+                        roundElement.setAttribute('open', '');
                         roundElement.classList.add('has-matches');
-                    } else {
-                        roundElement.classList.remove('has-matches');
                     }
                 });
                 
-                // If "search rounds only" is NOT checked, also search trivia info sections
-                if (!searchRoundsOnly) {
-                    triviaCard.querySelectorAll('.trivia-info').forEach(infoElement => {
-                        let infoHasMatches = false;
-                        
-                        // Search all text content in this trivia info section
-                        const infoText = infoElement.textContent.toLowerCase();
-                        
-                        // Check for match based on mode
-                        let hasMatch = false;
-                        if (simpleMode) {
-                            const pattern = new RegExp(`(^|[^a-z])${escapeRegex(searchTerm)}($|[^a-z])`, 'i');
-                            hasMatch = pattern.test(infoText);
-                        } else {
-                            hasMatch = infoText.includes(searchTerm);
-                        }
-                        
-                        if (hasMatch) {
-                            infoHasMatches = true;
-                            triviaHasMatches = true;
-                            
-                            // Highlight the search term in this trivia info section
-                            highlightSearchTerm(infoElement, searchTerm, simpleMode);
-                            
-                            // Auto-expand this trivia info section
-                            infoElement.classList.add('expanded');
-                        }
-                        
-                        // Add/remove match styling
-                        if (infoHasMatches) {
-                            infoElement.classList.add('has-matches');
-                        } else {
-                            infoElement.classList.remove('has-matches');
-                        }
-                    });
-                }
-                
                 // Add/remove trivia match styling and auto-expand if has matches
                 if (triviaHasMatches) {
-                    triviaCard.classList.add('has-matches', 'expanded');
+                    triviaItem.setAttribute('open', '');
+                    triviaItem.classList.add('has-matches');
                     
                     // Get trivia data for date
                     const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
@@ -2036,8 +1999,6 @@
                             date: dateHosted
                         });
                     }
-                } else {
-                    triviaCard.classList.remove('has-matches');
                 }
             });
             
@@ -2458,6 +2419,7 @@
             if (driveData && driveData['Instagram Poster Link']) {
                 const fileId = extractDriveFileID(driveData['Instagram Poster Link']);
                 const posterRef = driveData['IG Poster Ref'] || '';
+                const igChallenge = driveData['IG Challenge'] || '';
                 
                 if (fileId) {
                     const posterEmbed = createDriveImageEmbed(fileId, 'Instagram Poster');
@@ -2466,6 +2428,7 @@
                             <div>
                                 ${posterEmbed}
                                 ${posterRef ? `<div class="poster-ref">(${escapeHTML(posterRef)})</div>` : ''}
+                                ${igChallenge ? `<div style="margin-top: 10px; padding: 10px; background: #f9f9f9; border-left: 3px solid #0066cc; border-radius: 4px; font-size: 0.95em; line-height: 1.5; color: #333;">${escapeHTML(igChallenge)}</div>` : ''}
                             </div>
                         </div>
                     `;
