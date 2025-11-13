@@ -1218,7 +1218,13 @@
                     contentHTML += `
                         <div class="poster-section">
                             <div>
-                                <img src="${posterURL}" alt="Instagram Poster" class="poster-image" />
+                                <img src="${posterURL}" 
+                                     alt="Instagram Poster" 
+                                     class="poster-image" 
+                                     onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                                <div style="display:none; padding: 20px; background: #f5f5f5; border-radius: 4px; color: #666;">
+                                    Unable to load image. <a href="${posterURL}" target="_blank" style="color: #0066cc;">View in Google Drive</a>
+                                </div>
                                 ${posterRef ? `<div class="poster-ref">(${escapeHTML(posterRef)})</div>` : ''}
                             </div>
                         </div>
@@ -2423,7 +2429,13 @@
                     contentHTML += `
                         <div class="poster-section">
                             <div>
-                                <img src="${posterURL}" alt="Instagram Poster" class="poster-image" />
+                                <img src="${posterURL}" 
+                                     alt="Instagram Poster" 
+                                     class="poster-image" 
+                                     onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                                <div style="display:none; padding: 20px; background: #f5f5f5; border-radius: 4px; color: #666;">
+                                    Unable to load image. <a href="${posterURL}" target="_blank" style="color: #0066cc;">View in Google Drive</a>
+                                </div>
                                 ${posterRef ? `<div class="poster-ref">(${escapeHTML(posterRef)})</div>` : ''}
                             </div>
                         </div>
@@ -2549,11 +2561,80 @@
                 return;
             }
             
-            let teamsHTML = '';
+            // Store all teams for filtering
+            window[`teamsData_${triviaNumber}`] = teams;
+            
+            // Get unique locations
+            const locations = [...new Set(teams.map(t => t.sessionLocation).filter(Boolean))].sort();
+            
+            // Create location filter dropdown
+            let filterHTML = '';
+            if (locations.length > 1) {
+                filterHTML = `
+                    <div style="padding: 10px; border-bottom: 1px solid #eee; background: #f9f9f9;">
+                        <label style="font-size: 0.9em; color: #666; margin-right: 8px;">Filter by location:</label>
+                        <select id="location-filter-${triviaNumber}" 
+                                onchange="filterTeamsByLocation(${triviaNumber})" 
+                                style="padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9em;">
+                            <option value="all">All Locations (${teams.length} teams)</option>
+                            ${locations.map(loc => {
+                                const count = teams.filter(t => t.sessionLocation === loc).length;
+                                return `<option value="${escapeHTML(loc)}">${escapeHTML(loc)} (${count} teams)</option>`;
+                            }).join('')}
+                        </select>
+                    </div>
+                `;
+            }
+            
+            let teamsHTML = '<div id="teams-list-' + triviaNumber + '">';
             teams.forEach((team, index) => {
                 const teamNameClass = team.hasTeamNameBonus ? 'team-name-bonus' : '';
                 teamsHTML += `
-                    <div class="team-entry">
+                    <div class="team-entry" data-location="${escapeHTML(team.sessionLocation || '')}">
+                        <div>
+                            <span style="color: #999; margin-right: 8px;">#${index + 1}</span>
+                            <span class="${teamNameClass}">${escapeHTML(team.name)}</span>
+                            ${team.sessionLocation ? `<span style="font-size: 0.9em; color: #666; margin-left: 8px;">@ ${escapeHTML(team.sessionLocation)}</span>` : ''}
+                        </div>
+                        <div class="team-score">${team.score}</div>
+                    </div>
+                `;
+            });
+            teamsHTML += '</div>';
+            
+            teamsContent.innerHTML = filterHTML + teamsHTML;
+            
+            // Make the teams section header clickable
+            const teamsHeader = teamsSection.querySelector('.teams-section-header');
+            if (teamsHeader) {
+                teamsHeader.addEventListener('click', () => {
+                    teamsSection.classList.toggle('expanded');
+                });
+            }
+        }
+        
+        // Function to filter teams by location
+        function filterTeamsByLocation(triviaNumber) {
+            const filterSelect = document.getElementById(`location-filter-${triviaNumber}`);
+            if (!filterSelect) return;
+            
+            const selectedLocation = filterSelect.value;
+            const allTeams = window[`teamsData_${triviaNumber}`] || [];
+            
+            // Filter teams based on selection
+            const filteredTeams = selectedLocation === 'all' 
+                ? allTeams 
+                : allTeams.filter(team => team.sessionLocation === selectedLocation);
+            
+            // Re-render the teams list
+            const teamsList = document.getElementById(`teams-list-${triviaNumber}`);
+            if (!teamsList) return;
+            
+            let teamsHTML = '';
+            filteredTeams.forEach((team, index) => {
+                const teamNameClass = team.hasTeamNameBonus ? 'team-name-bonus' : '';
+                teamsHTML += `
+                    <div class="team-entry" data-location="${escapeHTML(team.sessionLocation || '')}">
                         <div>
                             <span style="color: #999; margin-right: 8px;">#${index + 1}</span>
                             <span class="${teamNameClass}">${escapeHTML(team.name)}</span>
@@ -2564,15 +2645,7 @@
                 `;
             });
             
-            teamsContent.innerHTML = teamsHTML;
-            
-            // Make the teams section header clickable
-            const teamsHeader = teamsSection.querySelector('.teams-section-header');
-            if (teamsHeader) {
-                teamsHeader.addEventListener('click', () => {
-                    teamsSection.classList.toggle('expanded');
-                });
-            }
+            teamsList.innerHTML = teamsHTML || '<div style="padding: 10px; color: #999;">No teams found for this location</div>';
         }
         
         // Legacy functions for old archive view (kept for compatibility)
