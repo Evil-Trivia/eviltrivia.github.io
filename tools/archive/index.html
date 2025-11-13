@@ -168,6 +168,124 @@
             padding: 0 15px 15px;
         }
         
+        /* Trivia Information Section */
+        .trivia-info {
+            margin-top: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        
+        .trivia-info-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background-color: #e8f4f8;
+            cursor: pointer;
+            font-weight: bold;
+            color: #0066cc;
+        }
+        
+        .trivia-info-header:hover {
+            background-color: #d0e8f0;
+        }
+        
+        .trivia-info-content {
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s, padding 0.3s;
+        }
+        
+        .trivia-info.expanded .trivia-info-content {
+            padding: 15px;
+            max-height: 3000px;
+        }
+        
+        .team-name-prompt {
+            font-size: 1.1em;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #fff;
+            border-left: 4px solid #0066cc;
+            border-radius: 4px;
+        }
+        
+        .poster-section {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+        }
+        
+        .poster-image {
+            max-width: 300px;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        
+        .poster-ref {
+            font-style: italic;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .teams-section {
+            margin-top: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #fff;
+        }
+        
+        .teams-section-header {
+            padding: 10px;
+            background-color: #f5f5f5;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .teams-section-header:hover {
+            background-color: #eaeaea;
+        }
+        
+        .teams-section-content {
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s, padding 0.3s;
+        }
+        
+        .teams-section.expanded .teams-section-content {
+            padding: 10px;
+            max-height: 2000px;
+        }
+        
+        .team-entry {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .team-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .team-name-bonus {
+            font-weight: bold;
+            color: #0066cc;
+        }
+        
+        .team-score {
+            font-weight: 600;
+            color: #333;
+        }
+
         /* Round styling */
         .round {
             margin-top: 10px;
@@ -719,6 +837,10 @@
                     <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 14px; user-select: none;">
                         <input type="checkbox" id="simple-search-toggle" checked style="cursor: pointer;">
                         <span>Simple Mode</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 14px; user-select: none;">
+                        <input type="checkbox" id="search-rounds-only" checked style="cursor: pointer;">
+                        <span>Search trivia rounds only</span>
                     </label>
                 </div>
                 <div id="search-results-info" class="search-results-info"></div>
@@ -1691,9 +1813,20 @@
             // Check if Simple mode is enabled
             const simpleMode = document.getElementById('simple-search-toggle').checked;
             
+            // Check if "search trivia rounds only" is enabled
+            const searchRoundsOnly = document.getElementById('search-rounds-only').checked;
+            
             // First, collapse all trivias and clear previous search results
             document.querySelectorAll('.trivia-item, .round-item').forEach(item => {
                 item.removeAttribute('open');
+            });
+            
+            // Collapse all trivia cards
+            document.querySelectorAll('.trivia-card').forEach(card => {
+                card.classList.remove('expanded');
+                card.querySelectorAll('.round, .trivia-info').forEach(element => {
+                    element.classList.remove('expanded');
+                });
             });
             
             // Remove previous highlighting and match styling
@@ -1706,17 +1839,17 @@
             
             let matchingTrivias = [];
             
-            // Search through all trivia items
-            document.querySelectorAll('.trivia-item').forEach(triviaItem => {
-                const triviaNumber = parseInt(triviaItem.dataset.triviaNumber);
+            // Search through all trivia cards
+            document.querySelectorAll('.trivia-card').forEach(triviaCard => {
+                const triviaNumber = parseInt(triviaCard.id.replace('trivia-', ''));
                 let triviaHasMatches = false;
                 
                 // Search through all rounds in this trivia
-                triviaItem.querySelectorAll('.round-item').forEach(roundItem => {
+                triviaCard.querySelectorAll('.round').forEach(roundElement => {
                     let roundHasMatches = false;
                     
                     // Search all text content in this round
-                    const roundText = roundItem.textContent.toLowerCase();
+                    const roundText = roundElement.textContent.toLowerCase();
                     
                     // Check for match based on mode
                     let hasMatch = false;
@@ -1736,31 +1869,66 @@
                         triviaHasMatches = true;
                         
                         // Highlight the search term in this round's HTML
-                        highlightSearchTerm(roundItem, searchTerm, simpleMode);
+                        highlightSearchTerm(roundElement, searchTerm, simpleMode);
                         
                         // Auto-expand this round
-                        roundItem.setAttribute('open', '');
+                        roundElement.classList.add('expanded');
                     }
                     
                     // Add/remove match styling
                     if (roundHasMatches) {
-                        roundItem.classList.add('has-matches');
+                        roundElement.classList.add('has-matches');
                     } else {
-                        roundItem.classList.remove('has-matches');
+                        roundElement.classList.remove('has-matches');
                     }
                 });
                 
+                // If "search rounds only" is NOT checked, also search trivia info sections
+                if (!searchRoundsOnly) {
+                    triviaCard.querySelectorAll('.trivia-info').forEach(infoElement => {
+                        let infoHasMatches = false;
+                        
+                        // Search all text content in this trivia info section
+                        const infoText = infoElement.textContent.toLowerCase();
+                        
+                        // Check for match based on mode
+                        let hasMatch = false;
+                        if (simpleMode) {
+                            const pattern = new RegExp(`(^|[^a-z])${escapeRegex(searchTerm)}($|[^a-z])`, 'i');
+                            hasMatch = pattern.test(infoText);
+                        } else {
+                            hasMatch = infoText.includes(searchTerm);
+                        }
+                        
+                        if (hasMatch) {
+                            infoHasMatches = true;
+                            triviaHasMatches = true;
+                            
+                            // Highlight the search term in this trivia info section
+                            highlightSearchTerm(infoElement, searchTerm, simpleMode);
+                            
+                            // Auto-expand this trivia info section
+                            infoElement.classList.add('expanded');
+                        }
+                        
+                        // Add/remove match styling
+                        if (infoHasMatches) {
+                            infoElement.classList.add('has-matches');
+                        } else {
+                            infoElement.classList.remove('has-matches');
+                        }
+                    });
+                }
+                
                 // Add/remove trivia match styling and auto-expand if has matches
                 if (triviaHasMatches) {
-                    triviaItem.classList.add('has-matches');
-                    triviaItem.setAttribute('open', '');
-                    // Load PDF content if not already loaded
-                    loadPDFContent(triviaNumber);
+                    triviaCard.classList.add('has-matches', 'expanded');
                     
                     // Get trivia data for date
                     const trivia = Array.from(allTriviaData.values()).find(t => t.triviaNumber === triviaNumber);
                     if (trivia) {
                         const dateHosted = trivia.archive?.date || 
+                                          trivia.archive?.metadata?.date ||
                                           trivia.overview?.Date || 
                                           trivia.overview?.date || 
                                           '';
@@ -1770,7 +1938,7 @@
                         });
                     }
                 } else {
-                    triviaItem.classList.remove('has-matches');
+                    triviaCard.classList.remove('has-matches');
                 }
             });
             
@@ -1807,9 +1975,17 @@
                 el.classList.remove('has-matches');
             });
             
-            // Collapse all items
+            // Collapse all items (legacy view)
             document.querySelectorAll('.trivia-item, .round-item').forEach(item => {
                 item.removeAttribute('open');
+            });
+            
+            // Collapse all trivia cards and their rounds/info sections
+            document.querySelectorAll('.trivia-card').forEach(card => {
+                card.classList.remove('expanded');
+                card.querySelectorAll('.round, .trivia-info').forEach(element => {
+                    element.classList.remove('expanded');
+                });
             });
             
             // Hide search results info
@@ -2092,6 +2268,215 @@
             }
         }
         
+        // Function to convert Google Drive link ID to export URL
+        function convertDriveIDToExportURL(driveLink) {
+            if (!driveLink) return null;
+            
+            // Extract ID from various Google Drive URL formats
+            let fileId = null;
+            
+            if (driveLink.includes('id=')) {
+                const match = driveLink.match(/[?&]id=([^&]+)/);
+                fileId = match ? match[1] : null;
+            } else if (driveLink.includes('/d/')) {
+                const match = driveLink.match(/\/d\/([^/]+)/);
+                fileId = match ? match[1] : null;
+            } else {
+                // Assume it's just the ID
+                fileId = driveLink;
+            }
+            
+            return fileId ? `https://drive.google.com/uc?export=view&id=${fileId}` : null;
+        }
+        
+        // Function to create Trivia Information section
+        async function createTriviaInfoSection(triviaNumber, driveData) {
+            const infoSection = document.createElement('div');
+            infoSection.className = 'trivia-info';
+            infoSection.setAttribute('data-trivia-info', 'true'); // Mark for search filtering
+            
+            const infoHeader = document.createElement('div');
+            infoHeader.className = 'trivia-info-header';
+            infoHeader.innerHTML = `
+                <div>Trivia Information</div>
+                <div class="caret"></div>
+            `;
+            
+            const infoContent = document.createElement('div');
+            infoContent.className = 'trivia-info-content';
+            
+            let contentHTML = '';
+            
+            // Add Team Name Prompt
+            if (driveData && driveData['Team Name Prompt']) {
+                contentHTML += `
+                    <div class="team-name-prompt">
+                        <strong>Team Name Prompt:</strong> ${escapeHTML(driveData['Team Name Prompt'])}
+                    </div>
+                `;
+            }
+            
+            // Add Instagram Poster
+            if (driveData && driveData['Instagram Poster Link']) {
+                const posterURL = convertDriveIDToExportURL(driveData['Instagram Poster Link']);
+                const posterRef = driveData['IG Poster Ref'] || '';
+                
+                if (posterURL) {
+                    contentHTML += `
+                        <div class="poster-section">
+                            <div>
+                                <img src="${posterURL}" alt="Instagram Poster" class="poster-image" />
+                                ${posterRef ? `<div class="poster-ref">(${escapeHTML(posterRef)})</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Add Teams Section with scores
+            contentHTML += '<div id="teams-section-' + triviaNumber + '" class="teams-section">';
+            contentHTML += '<div class="teams-section-header">';
+            contentHTML += '<div>Teams That Played</div>';
+            contentHTML += '<div class="caret"></div>';
+            contentHTML += '</div>';
+            contentHTML += '<div class="teams-section-content">';
+            contentHTML += '<div class="teams-loading">Loading team data...</div>';
+            contentHTML += '</div>';
+            contentHTML += '</div>';
+            
+            infoContent.innerHTML = contentHTML;
+            
+            // Make the header clickable
+            infoHeader.addEventListener('click', () => {
+                infoSection.classList.toggle('expanded');
+            });
+            
+            infoSection.appendChild(infoHeader);
+            infoSection.appendChild(infoContent);
+            
+            // Load team data asynchronously
+            loadTeamData(triviaNumber);
+            
+            return infoSection;
+        }
+        
+        // Function to load and display team data for a trivia
+        async function loadTeamData(triviaNumber) {
+            try {
+                // Get all grading sessions for this trivia number
+                const allSessionsSnap = await db.ref('grading').once('value');
+                if (!allSessionsSnap.exists()) {
+                    updateTeamsSection(triviaNumber, []);
+                    return;
+                }
+                
+                const allSessions = allSessionsSnap.val();
+                const relevantSessions = Object.entries(allSessions).filter(([sessionId, session]) => 
+                    session.triviaNumber === triviaNumber
+                );
+                
+                if (relevantSessions.length === 0) {
+                    updateTeamsSection(triviaNumber, []);
+                    return;
+                }
+                
+                // Collect all teams from all sessions
+                const allTeams = [];
+                
+                for (const [sessionId, session] of relevantSessions) {
+                    if (!session.teams) continue;
+                    
+                    const sessionDate = session.date || '';
+                    const sessionLocation = session.location || '';
+                    
+                    for (const [teamId, team] of Object.entries(session.teams)) {
+                        // Calculate total score
+                        let totalScore = 0;
+                        
+                        // Add round scores
+                        for (let i = 1; i <= 10; i++) {
+                            const roundKey = `round${i}`;
+                            if (team[roundKey] && team[roundKey].total) {
+                                totalScore += parseFloat(team[roundKey].total) || 0;
+                            }
+                        }
+                        
+                        // Add bonuses
+                        totalScore += parseInt(team.igChallenge || 0);
+                        totalScore += parseInt(team.teamNameBonus || 0);
+                        totalScore += parseInt(team.finalChallenge || 0);
+                        
+                        // Add size penalty
+                        const teamSize = team.size || 0;
+                        if (teamSize > 6) {
+                            totalScore += -2 * (teamSize - 5);
+                        }
+                        
+                        allTeams.push({
+                            name: team.name || 'Unknown Team',
+                            score: totalScore.toFixed(2),
+                            hasTeamNameBonus: team.teamNameBonus > 0,
+                            sessionDate: sessionDate,
+                            sessionLocation: sessionLocation
+                        });
+                    }
+                }
+                
+                // Sort teams by score (descending)
+                allTeams.sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
+                
+                updateTeamsSection(triviaNumber, allTeams);
+                
+            } catch (error) {
+                console.error('Error loading team data:', error);
+                updateTeamsSection(triviaNumber, [], true);
+            }
+        }
+        
+        // Function to update teams section with data
+        function updateTeamsSection(triviaNumber, teams, hasError = false) {
+            const teamsSection = document.getElementById(`teams-section-${triviaNumber}`);
+            if (!teamsSection) return;
+            
+            const teamsContent = teamsSection.querySelector('.teams-section-content');
+            if (!teamsContent) return;
+            
+            if (hasError) {
+                teamsContent.innerHTML = '<div style="padding: 10px; color: #999;">Error loading team data</div>';
+                return;
+            }
+            
+            if (teams.length === 0) {
+                teamsContent.innerHTML = '<div style="padding: 10px; color: #999;">No teams have played this trivia yet</div>';
+                return;
+            }
+            
+            let teamsHTML = '';
+            teams.forEach((team, index) => {
+                const teamNameClass = team.hasTeamNameBonus ? 'team-name-bonus' : '';
+                teamsHTML += `
+                    <div class="team-entry">
+                        <div>
+                            <span style="color: #999; margin-right: 8px;">#${index + 1}</span>
+                            <span class="${teamNameClass}">${escapeHTML(team.name)}</span>
+                            ${team.sessionLocation ? `<span style="font-size: 0.9em; color: #666; margin-left: 8px;">@ ${escapeHTML(team.sessionLocation)}</span>` : ''}
+                        </div>
+                        <div class="team-score">${team.score}</div>
+                    </div>
+                `;
+            });
+            
+            teamsContent.innerHTML = teamsHTML;
+            
+            // Make the teams section header clickable
+            const teamsHeader = teamsSection.querySelector('.teams-section-header');
+            if (teamsHeader) {
+                teamsHeader.addEventListener('click', () => {
+                    teamsSection.classList.toggle('expanded');
+                });
+            }
+        }
+        
         // Legacy functions for old archive view (kept for compatibility)
         function createTriviaCard(triviaNumber, triviaData) {
             // Get date from metadata, ensuring it's a string or default to empty string
@@ -2118,9 +2503,20 @@
             const roundsContainer = document.createElement('div');
             roundsContainer.className = 'rounds-container';
             
+            // Get drive data from allTriviaData if available
+            const triviaFullData = allTriviaData.get(triviaNumber);
+            const driveData = triviaFullData ? triviaFullData.drive : null;
+            
+            // Add Trivia Information section before rounds
+            if (driveData && (driveData['Team Name Prompt'] || driveData['Instagram Poster Link'])) {
+                createTriviaInfoSection(triviaNumber, driveData).then(infoSection => {
+                    roundsContainer.insertBefore(infoSection, roundsContainer.firstChild);
+                });
+            }
+            
             // Check if trivia data exists
             if (!triviaData.trivia) {
-                roundsContainer.innerHTML = '<p>No rounds data available for this trivia.</p>';
+                roundsContainer.innerHTML += '<p>No rounds data available for this trivia.</p>';
             } else {
                 // Sort rounds by round number
                 const rounds = Object.entries(triviaData.trivia)
@@ -2141,16 +2537,25 @@
             // Make header clickable to expand/collapse the whole trivia
             header.addEventListener('click', () => {
                 const allRounds = card.querySelectorAll('.round');
+                const allInfo = card.querySelectorAll('.trivia-info');
                 const isExpanded = card.classList.contains('expanded');
                 
                 card.classList.toggle('expanded');
                 
-                // Expand or collapse all rounds within this trivia
+                // Expand or collapse all rounds and info sections within this trivia
                 allRounds.forEach(round => {
                     if (isExpanded) {
                         round.classList.remove('expanded');
                     } else {
                         round.classList.add('expanded');
+                    }
+                });
+                
+                allInfo.forEach(info => {
+                    if (isExpanded) {
+                        info.classList.remove('expanded');
+                    } else {
+                        info.classList.add('expanded');
                     }
                 });
             });
