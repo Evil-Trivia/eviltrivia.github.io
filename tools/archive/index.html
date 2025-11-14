@@ -834,6 +834,68 @@
             background-color: #e8f5e8;
             border-color: #4caf50;
         }
+        
+        /* Special View Containers (Puzzles, Visuals, etc.) */
+        .special-view-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        /* Table Styles for Special Views */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .data-table thead {
+            background-color: #333;
+            color: white;
+        }
+        
+        .data-table th {
+            padding: 12px 10px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.9em;
+            white-space: nowrap;
+        }
+        
+        .data-table td {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            vertical-align: top;
+        }
+        
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .data-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .data-table img {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 4px;
+            display: block;
+        }
+        
+        .data-table .trivia-link {
+            color: #0066cc;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .data-table .trivia-link:hover {
+            text-decoration: underline;
+        }
 
         /* Responsive design */
         @media (max-width: 768px) {
@@ -1131,8 +1193,8 @@
         <!-- View Mode Toolbar -->
         <div id="view-toolbar" class="hidden" style="background-color: white; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
             <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 15px;">
-                <button id="btn-full-archive" class="toolbar-btn active">Full Archive</button>
-                <button id="btn-puzzles" class="toolbar-btn" disabled>Puzzles</button>
+                <button id="btn-full-archive" class="toolbar-btn active" onclick="showView('full-archive')">Full Archive</button>
+                <button id="btn-puzzles" class="toolbar-btn" onclick="showView('puzzles')">Puzzles</button>
                 <button id="btn-visuals" class="toolbar-btn" disabled>Visuals</button>
                 <button id="btn-fill-ins" class="toolbar-btn" disabled>Fill-Ins</button>
                 <button id="btn-music" class="toolbar-btn" disabled>Music</button>
@@ -1201,6 +1263,14 @@
                 <div id="full-archive-loading" class="loading">Loading full archive data...</div>
                 <div id="full-archive-list">
                     <!-- Full archive items will be loaded here -->
+                </div>
+            </div>
+            
+            <!-- Puzzles View -->
+            <div id="puzzles-view" class="special-view-container" style="display: none;">
+                <div id="puzzles-loading" class="loading">Loading puzzles data...</div>
+                <div id="puzzles-content" style="overflow-x: auto;">
+                    <!-- Puzzles table will be loaded here -->
                 </div>
             </div>
         </div>
@@ -3541,6 +3611,145 @@
                 viewToolbar.classList.add('hidden');
             }
         });
+        
+        // View switching function
+        function showView(viewName) {
+            // Hide all views
+            document.getElementById('legacy-archive').style.display = 'none';
+            document.getElementById('full-archive').style.display = 'none';
+            document.getElementById('puzzles-view').style.display = 'none';
+            
+            // Remove active class from all buttons
+            document.querySelectorAll('.toolbar-btn').forEach(btn => btn.classList.remove('active'));
+            
+            // Show selected view
+            if (viewName === 'full-archive') {
+                document.getElementById('full-archive').style.display = 'block';
+                document.getElementById('btn-full-archive').classList.add('active');
+            } else if (viewName === 'puzzles') {
+                document.getElementById('puzzles-view').style.display = 'block';
+                document.getElementById('btn-puzzles').classList.add('active');
+                buildPuzzlesView();
+            }
+        }
+        
+        // Build puzzles table view
+        function buildPuzzlesView() {
+            const loadingDiv = document.getElementById('puzzles-loading');
+            const contentDiv = document.getElementById('puzzles-content');
+            
+            // Check if already built
+            if (contentDiv.innerHTML.trim() && contentDiv.innerHTML !== '<!-- Puzzles table will be loaded here -->') {
+                loadingDiv.style.display = 'none';
+                return;
+            }
+            
+            loadingDiv.style.display = 'block';
+            
+            // Collect all puzzles from all trivias
+            const puzzles = [];
+            
+            for (const [triviaNumber, trivia] of allTriviaData.entries()) {
+                if (!trivia.archive?.trivia) continue;
+                
+                const triviaName = trivia.archive.triviaName || 'Unnamed Trivia';
+                const triviaDate = trivia.archive.date || '';
+                
+                // Go through each round
+                for (const [roundNum, roundData] of Object.entries(trivia.archive.trivia)) {
+                    if (isNaN(parseInt(roundNum)) || !roundData.Puzzle) continue;
+                    
+                    const puzzleData = roundData.Puzzle;
+                    
+                    // Extract puzzle info from first question (they all have same round info)
+                    let roundName = '';
+                    let roundInstruction = '';
+                    let roundImageLink = '';
+                    let answer = '';
+                    let answerImageLink = '';
+                    let correctPercent = '';
+                    
+                    // Find first question in puzzle
+                    const firstQuestion = Object.values(puzzleData).find(q => q && typeof q === 'object' && !isNaN(parseInt(Object.keys(puzzleData).find(k => puzzleData[k] === q))));
+                    
+                    if (firstQuestion) {
+                        roundName = firstQuestion['Round Name'] || '';
+                        roundInstruction = firstQuestion['Round Instruction'] || '';
+                        roundImageLink = firstQuestion['Image Link'] || '';
+                        answer = firstQuestion['Answer'] || '';
+                        answerImageLink = firstQuestion['Answer Image Link'] || '';
+                        
+                        // Get correct % from correctnessCache
+                        const cacheKey = `${triviaNumber}-${roundNum}-Puzzle-${Object.keys(puzzleData).find(k => puzzleData[k] === firstQuestion)}`;
+                        correctPercent = correctnessCache.get(cacheKey) || '';
+                    }
+                    
+                    puzzles.push({
+                        triviaNumber,
+                        triviaDate,
+                        triviaName,
+                        roundNumber: roundNum,
+                        roundName,
+                        roundInstruction,
+                        roundImageLink,
+                        answer,
+                        answerImageLink,
+                        correctPercent
+                    });
+                }
+            }
+            
+            // Sort by trivia number descending
+            puzzles.sort((a, b) => b.triviaNumber - a.triviaNumber);
+            
+            // Build table HTML
+            let tableHTML = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Trivia #</th>
+                            <th>Date</th>
+                            <th>Trivia Name</th>
+                            <th>Round Name</th>
+                            <th>Round Instruction</th>
+                            <th>Round Image</th>
+                            <th>Answer</th>
+                            <th>Answer Image</th>
+                            <th>Correct %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            puzzles.forEach(puzzle => {
+                const roundImageEmbed = puzzle.roundImageLink ? 
+                    createDriveImageEmbed(extractDriveFileID(puzzle.roundImageLink), 'Round Image') : '';
+                const answerImageEmbed = puzzle.answerImageLink ? 
+                    createDriveImageEmbed(extractDriveFileID(puzzle.answerImageLink), 'Answer Image') : '';
+                
+                tableHTML += `
+                    <tr>
+                        <td><a href="#trivia-${puzzle.triviaNumber}" class="trivia-link" onclick="showView('full-archive'); setTimeout(() => toggleTriviaItem(${puzzle.triviaNumber}), 100);">${puzzle.triviaNumber}</a></td>
+                        <td>${formatDate(puzzle.triviaDate)}</td>
+                        <td>${escapeHTML(puzzle.triviaName)}</td>
+                        <td>${escapeHTML(puzzle.roundName)}</td>
+                        <td>${escapeHTML(puzzle.roundInstruction)}</td>
+                        <td>${roundImageEmbed || '—'}</td>
+                        <td>${escapeHTML(puzzle.answer)}</td>
+                        <td>${answerImageEmbed || '—'}</td>
+                        <td>${puzzle.correctPercent ? puzzle.correctPercent + '%' : '—'}</td>
+                    </tr>
+                `;
+            });
+            
+            tableHTML += `
+                    </tbody>
+                </table>
+            `;
+            
+            contentDiv.innerHTML = tableHTML;
+            loadingDiv.style.display = 'none';
+        }
     </script>
 </body>
 </html> 
