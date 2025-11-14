@@ -1252,8 +1252,8 @@
             <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 15px;">
                 <button id="btn-full-archive" class="toolbar-btn active" onclick="showView('full-archive')">Full Archive</button>
                 <button id="btn-puzzles" class="toolbar-btn" onclick="showView('puzzles')">Puzzles</button>
-                <button id="btn-visuals" class="toolbar-btn" disabled>Visuals</button>
-                <button id="btn-fill-ins" class="toolbar-btn" disabled>Fill-Ins</button>
+                <button id="btn-visuals" class="toolbar-btn" onclick="showView('visuals')">Visuals</button>
+                <button id="btn-fill-ins" class="toolbar-btn" onclick="showView('fill-ins')">Fill-Ins</button>
                 <button id="btn-music" class="toolbar-btn" disabled>Music</button>
                 <button id="btn-challenges" class="toolbar-btn" disabled>Challenges</button>
                 <button id="btn-written-only" class="toolbar-btn" disabled>Written Only</button>
@@ -1328,6 +1328,22 @@
                 <div id="puzzles-loading" class="loading">Loading puzzles data...</div>
                 <div id="puzzles-content" style="overflow-x: auto;">
                     <!-- Puzzles table will be loaded here -->
+                </div>
+            </div>
+            
+            <!-- Visuals View -->
+            <div id="visuals-view" class="special-view-container" style="display: none;">
+                <div id="visuals-loading" class="loading">Loading visuals data...</div>
+                <div id="visuals-content" style="overflow-x: auto;">
+                    <!-- Visuals table will be loaded here -->
+                </div>
+            </div>
+            
+            <!-- Fill-Ins View -->
+            <div id="fill-ins-view" class="special-view-container" style="display: none;">
+                <div id="fill-ins-loading" class="loading">Loading fill-ins data...</div>
+                <div id="fill-ins-content" style="overflow-x: auto;">
+                    <!-- Fill-ins table will be loaded here -->
                 </div>
             </div>
         </div>
@@ -2499,54 +2515,77 @@
                 }
             });
             
-            // Search through Puzzles view if visible
+            // Search through special views (Puzzles, Visuals, Fill-Ins) if visible
             const puzzlesView = document.getElementById('puzzles-view');
+            const visualsView = document.getElementById('visuals-view');
+            const fillInsView = document.getElementById('fill-ins-view');
             let puzzleMatches = 0;
+            let visualMatches = 0;
+            let fillInMatches = 0;
             
-            if (puzzlesView && puzzlesView.style.display !== 'none') {
-                const table = puzzlesView.querySelector('.data-table');
-                if (table) {
-                    const rows = table.querySelectorAll('tbody tr');
-                    rows.forEach(row => {
-                        const rowText = row.textContent.toLowerCase();
-                        
-                        // Check for match based on mode
-                        let hasMatch = false;
-                        if (simpleMode) {
-                            const pattern = new RegExp(`(^|[^a-z])${escapeRegex(searchTerm)}($|[^a-z])`, 'i');
-                            hasMatch = pattern.test(rowText);
-                        } else {
-                            hasMatch = rowText.includes(searchTerm);
-                        }
-                        
-                        if (hasMatch) {
-                            puzzleMatches++;
-                            row.classList.add('has-matches');
+            // Helper function to search a table view
+            function searchTableView(view, imageColumnIndices) {
+                let matches = 0;
+                if (view && view.style.display !== 'none') {
+                    const table = view.querySelector('.data-table');
+                    if (table) {
+                        const rows = table.querySelectorAll('tbody tr');
+                        rows.forEach(row => {
+                            const rowText = row.textContent.toLowerCase();
                             
-                            // Highlight search term in each cell (but skip image cells)
-                            row.querySelectorAll('td').forEach((cell, index) => {
-                                // Skip image columns (indices 5 and 7)
-                                if (index !== 5 && index !== 7) {
-                                    highlightSearchTerm(cell, searchTerm, simpleMode);
-                                }
-                            });
-                        }
-                    });
+                            // Check for match based on mode
+                            let hasMatch = false;
+                            if (simpleMode) {
+                                const pattern = new RegExp(`(^|[^a-z])${escapeRegex(searchTerm)}($|[^a-z])`, 'i');
+                                hasMatch = pattern.test(rowText);
+                            } else {
+                                hasMatch = rowText.includes(searchTerm);
+                            }
+                            
+                            if (hasMatch) {
+                                matches++;
+                                row.classList.add('has-matches');
+                                
+                                // Highlight search term in each cell (but skip image cells)
+                                row.querySelectorAll('td').forEach((cell, index) => {
+                                    // Skip image columns
+                                    if (!imageColumnIndices.includes(index)) {
+                                        highlightSearchTerm(cell, searchTerm, simpleMode);
+                                    }
+                                });
+                            }
+                        });
+                    }
                 }
+                return matches;
             }
+            
+            // Search each view with appropriate image column indices
+            puzzleMatches = searchTableView(puzzlesView, [5, 7]); // Puzzle Image (col 5), Answer Image (col 7)
+            visualMatches = searchTableView(visualsView, [5]); // Visual Image (col 5)
+            fillInMatches = searchTableView(fillInsView, [5]); // Fill-In Image (col 5)
             
             // Display search results info
             const resultsInfo = document.getElementById('search-results-info');
             
-            // Combine results from both views
-            const totalMatches = matchingTrivias.length + puzzleMatches;
+            // Combine results from all views
+            const totalSpecialMatches = puzzleMatches + visualMatches + fillInMatches;
+            const totalMatches = matchingTrivias.length + totalSpecialMatches;
             
             if (totalMatches > 0) {
                 let message = '';
-                if (puzzleMatches > 0 && matchingTrivias.length > 0) {
-                    message = `Found ${matchingTrivias.length} trivia${matchingTrivias.length === 1 ? '' : 's'} and ${puzzleMatches} puzzle${puzzleMatches === 1 ? '' : 's'}`;
-                } else if (puzzleMatches > 0) {
-                    message = `Found ${puzzleMatches} puzzle${puzzleMatches === 1 ? '' : 's'}`;
+                if (totalSpecialMatches > 0 && matchingTrivias.length > 0) {
+                    let specialParts = [];
+                    if (puzzleMatches > 0) specialParts.push(`${puzzleMatches} puzzle${puzzleMatches === 1 ? '' : 's'}`);
+                    if (visualMatches > 0) specialParts.push(`${visualMatches} visual${visualMatches === 1 ? '' : 's'}`);
+                    if (fillInMatches > 0) specialParts.push(`${fillInMatches} fill-in${fillInMatches === 1 ? '' : 's'}`);
+                    message = `Found ${matchingTrivias.length} trivia${matchingTrivias.length === 1 ? '' : 's'} and ${specialParts.join(', ')}`;
+                } else if (totalSpecialMatches > 0) {
+                    let specialParts = [];
+                    if (puzzleMatches > 0) specialParts.push(`${puzzleMatches} puzzle${puzzleMatches === 1 ? '' : 's'}`);
+                    if (visualMatches > 0) specialParts.push(`${visualMatches} visual${visualMatches === 1 ? '' : 's'}`);
+                    if (fillInMatches > 0) specialParts.push(`${fillInMatches} fill-in${fillInMatches === 1 ? '' : 's'}`);
+                    message = `Found ${specialParts.join(', ')}`;
                 } else {
                     // Sort by trivia number descending to get most recent
                     matchingTrivias.sort((a, b) => b.number - a.number);
@@ -3729,6 +3768,8 @@
                 document.getElementById('legacy-archive').style.display = 'none';
                 document.getElementById('full-archive').style.display = 'none';
                 document.getElementById('puzzles-view').style.display = 'none';
+                document.getElementById('visuals-view').style.display = 'none';
+                document.getElementById('fill-ins-view').style.display = 'none';
                 
                 // Remove active class from all buttons
                 document.querySelectorAll('.toolbar-btn').forEach(btn => btn.classList.remove('active'));
@@ -3742,6 +3783,16 @@
                     document.getElementById('puzzles-view').style.display = 'block';
                     document.getElementById('btn-puzzles').classList.add('active');
                     buildPuzzlesView();
+                } else if (viewName === 'visuals') {
+                    console.log('Showing visuals view...');
+                    document.getElementById('visuals-view').style.display = 'block';
+                    document.getElementById('btn-visuals').classList.add('active');
+                    buildVisualsView();
+                } else if (viewName === 'fill-ins') {
+                    console.log('Showing fill-ins view...');
+                    document.getElementById('fill-ins-view').style.display = 'block';
+                    document.getElementById('btn-fill-ins').classList.add('active');
+                    buildFillInsView();
                 }
             } catch (error) {
                 console.error('Error in showView:', error);
@@ -3924,6 +3975,324 @@
                     contentDiv.innerHTML = `<div style="padding: 40px; text-align: center; color: #d32f2f;"><h3>Error Loading Puzzles</h3><p>${error.message}</p></div>`;
                 }
                 const loadingDiv = document.getElementById('puzzles-loading');
+                if (loadingDiv) {
+                    loadingDiv.style.display = 'none';
+                }
+            }
+        }
+        
+        // Build visuals table view
+        function buildVisualsView() {
+            console.log('buildVisualsView function called');
+            
+            try {
+                const loadingDiv = document.getElementById('visuals-loading');
+                const contentDiv = document.getElementById('visuals-content');
+                
+                // Check if already built
+                const hasRealContent = contentDiv.innerHTML.trim() && 
+                                      !contentDiv.innerHTML.includes('<!-- Visuals table will be loaded here -->') &&
+                                      contentDiv.innerHTML.trim() !== '';
+                
+                if (hasRealContent && contentDiv.querySelector('table')) {
+                    console.log('Already built, skipping');
+                    loadingDiv.style.display = 'none';
+                    return;
+                }
+                
+                loadingDiv.style.display = 'block';
+                
+                // Collect all visuals from all trivias
+                const visuals = [];
+                
+                console.log('Building visuals view, total trivias:', allTriviaData.size);
+            
+            for (const [triviaNumber, trivia] of allTriviaData.entries()) {
+                if (!trivia.archive?.trivia) continue;
+                
+                const triviaName = trivia.archive.triviaName || 'Unnamed Trivia';
+                const triviaDate = trivia.archive.date || '';
+                
+                // Go through each round
+                for (const [roundNum, roundData] of Object.entries(trivia.archive.trivia)) {
+                    if (isNaN(parseInt(roundNum))) continue;
+                    if (!roundData.Visual) continue;
+                    
+                    const visualData = roundData.Visual;
+                    
+                    // Extract visual info - look for the actual question data
+                    let roundName = '';
+                    let roundInstruction = '';
+                    let roundImageLink = '';
+                    let answer = '';
+                    let correctPercent = '';
+                    let questionKey = null;
+                    
+                    // Find first question object
+                    for (const [key, value] of Object.entries(visualData)) {
+                        if (value && typeof value === 'object' && !isNaN(parseInt(key))) {
+                            questionKey = key;
+                            roundName = value['Round Name'] || '';
+                            roundInstruction = value['Round Instruction'] || '';
+                            roundImageLink = value['Image Link'] || '';
+                            answer = value['Answer'] || '';
+                            
+                            // Get correct % from correctnessCache
+                            const cacheKey = `${triviaNumber}-${roundNum}-Visual-${key}`;
+                            const correctness = correctnessCache.get(cacheKey);
+                            if (correctness !== undefined) {
+                                correctPercent = correctness.toFixed(1);
+                            }
+                            break;
+                        }
+                    }
+                    
+                    visuals.push({
+                        triviaNumber,
+                        triviaDate,
+                        triviaName,
+                        roundNumber: roundNum,
+                        roundName,
+                        roundInstruction,
+                        roundImageLink,
+                        answer,
+                        correctPercent
+                    });
+                }
+            }
+            
+            console.log('Found visuals:', visuals.length);
+            
+            // Check if no visuals found
+            if (visuals.length === 0) {
+                contentDiv.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><h3>No visuals found</h3><p>No visual rounds were found in the loaded trivia data.</p></div>';
+                loadingDiv.style.display = 'none';
+                return;
+            }
+            
+            // Sort by trivia number descending
+            visuals.sort((a, b) => b.triviaNumber - a.triviaNumber);
+            
+            // Build table HTML
+            let tableHTML = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Trivia #</th>
+                            <th>Date</th>
+                            <th>Trivia Name</th>
+                            <th>Round Name</th>
+                            <th>Round Instruction</th>
+                            <th>Visual Image</th>
+                            <th>Answer</th>
+                            <th>Correct %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            visuals.forEach(visual => {
+                let roundImageHTML = '—';
+                if (visual.roundImageLink) {
+                    const fileId = extractDriveFileID(visual.roundImageLink);
+                    const imageEmbed = createDriveImageEmbed(fileId, 'Visual Image');
+                    const driveUrl = `https://drive.google.com/file/d/${fileId}/view`;
+                    roundImageHTML = `
+                        <div class="image-container">
+                            ${imageEmbed}
+                            <button class="open-image-btn" onclick="window.open('${driveUrl}', '_blank')" title="Open in new tab">🔍 Open</button>
+                        </div>
+                    `;
+                }
+                
+                tableHTML += `
+                    <tr>
+                        <td><a href="#trivia-${visual.triviaNumber}" class="trivia-link" onclick="showView('full-archive'); setTimeout(() => toggleTriviaItem(${visual.triviaNumber}), 100);">${visual.triviaNumber}</a></td>
+                        <td>${formatDate(visual.triviaDate)}</td>
+                        <td>${escapeHTML(visual.triviaName)}</td>
+                        <td>${escapeHTML(visual.roundName)}</td>
+                        <td>${escapeHTML(visual.roundInstruction)}</td>
+                        <td class="puzzle-image-cell">${roundImageHTML}</td>
+                        <td>${escapeHTML(visual.answer)}</td>
+                        <td>${visual.correctPercent ? visual.correctPercent + '%' : '—'}</td>
+                    </tr>
+                `;
+            });
+            
+            tableHTML += `
+                    </tbody>
+                </table>
+            `;
+            
+            contentDiv.innerHTML = tableHTML;
+            loadingDiv.style.display = 'none';
+            
+            } catch (error) {
+                console.error('Error in buildVisualsView:', error);
+                const contentDiv = document.getElementById('visuals-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = `<div style="padding: 40px; text-align: center; color: #d32f2f;"><h3>Error Loading Visuals</h3><p>${error.message}</p></div>`;
+                }
+                const loadingDiv = document.getElementById('visuals-loading');
+                if (loadingDiv) {
+                    loadingDiv.style.display = 'none';
+                }
+            }
+        }
+        
+        // Build fill-ins table view
+        function buildFillInsView() {
+            console.log('buildFillInsView function called');
+            
+            try {
+                const loadingDiv = document.getElementById('fill-ins-loading');
+                const contentDiv = document.getElementById('fill-ins-content');
+                
+                // Check if already built
+                const hasRealContent = contentDiv.innerHTML.trim() && 
+                                      !contentDiv.innerHTML.includes('<!-- Fill-ins table will be loaded here -->') &&
+                                      contentDiv.innerHTML.trim() !== '';
+                
+                if (hasRealContent && contentDiv.querySelector('table')) {
+                    console.log('Already built, skipping');
+                    loadingDiv.style.display = 'none';
+                    return;
+                }
+                
+                loadingDiv.style.display = 'block';
+                
+                // Collect all fill-ins from all trivias
+                const fillIns = [];
+                
+                console.log('Building fill-ins view, total trivias:', allTriviaData.size);
+            
+            for (const [triviaNumber, trivia] of allTriviaData.entries()) {
+                if (!trivia.archive?.trivia) continue;
+                
+                const triviaName = trivia.archive.triviaName || 'Unnamed Trivia';
+                const triviaDate = trivia.archive.date || '';
+                
+                // Go through each round
+                for (const [roundNum, roundData] of Object.entries(trivia.archive.trivia)) {
+                    if (isNaN(parseInt(roundNum))) continue;
+                    if (!roundData['Fill-In']) continue;
+                    
+                    const fillInData = roundData['Fill-In'];
+                    
+                    // Extract fill-in info - look for the actual question data
+                    let roundName = '';
+                    let roundInstruction = '';
+                    let roundImageLink = '';
+                    let answer = '';
+                    let correctPercent = '';
+                    let questionKey = null;
+                    
+                    // Find first question object
+                    for (const [key, value] of Object.entries(fillInData)) {
+                        if (value && typeof value === 'object' && !isNaN(parseInt(key))) {
+                            questionKey = key;
+                            roundName = value['Round Name'] || '';
+                            roundInstruction = value['Round Instruction'] || '';
+                            roundImageLink = value['Image Link'] || '';
+                            answer = value['Answer'] || '';
+                            
+                            // Get correct % from correctnessCache
+                            const cacheKey = `${triviaNumber}-${roundNum}-Fill-In-${key}`;
+                            const correctness = correctnessCache.get(cacheKey);
+                            if (correctness !== undefined) {
+                                correctPercent = correctness.toFixed(1);
+                            }
+                            break;
+                        }
+                    }
+                    
+                    fillIns.push({
+                        triviaNumber,
+                        triviaDate,
+                        triviaName,
+                        roundNumber: roundNum,
+                        roundName,
+                        roundInstruction,
+                        roundImageLink,
+                        answer,
+                        correctPercent
+                    });
+                }
+            }
+            
+            console.log('Found fill-ins:', fillIns.length);
+            
+            // Check if no fill-ins found
+            if (fillIns.length === 0) {
+                contentDiv.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><h3>No fill-ins found</h3><p>No fill-in rounds were found in the loaded trivia data.</p></div>';
+                loadingDiv.style.display = 'none';
+                return;
+            }
+            
+            // Sort by trivia number descending
+            fillIns.sort((a, b) => b.triviaNumber - a.triviaNumber);
+            
+            // Build table HTML
+            let tableHTML = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Trivia #</th>
+                            <th>Date</th>
+                            <th>Trivia Name</th>
+                            <th>Round Name</th>
+                            <th>Round Instruction</th>
+                            <th>Fill-In Image</th>
+                            <th>Answer</th>
+                            <th>Correct %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            fillIns.forEach(fillIn => {
+                let roundImageHTML = '—';
+                if (fillIn.roundImageLink) {
+                    const fileId = extractDriveFileID(fillIn.roundImageLink);
+                    const imageEmbed = createDriveImageEmbed(fileId, 'Fill-In Image');
+                    const driveUrl = `https://drive.google.com/file/d/${fileId}/view`;
+                    roundImageHTML = `
+                        <div class="image-container">
+                            ${imageEmbed}
+                            <button class="open-image-btn" onclick="window.open('${driveUrl}', '_blank')" title="Open in new tab">🔍 Open</button>
+                        </div>
+                    `;
+                }
+                
+                tableHTML += `
+                    <tr>
+                        <td><a href="#trivia-${fillIn.triviaNumber}" class="trivia-link" onclick="showView('full-archive'); setTimeout(() => toggleTriviaItem(${fillIn.triviaNumber}), 100);">${fillIn.triviaNumber}</a></td>
+                        <td>${formatDate(fillIn.triviaDate)}</td>
+                        <td>${escapeHTML(fillIn.triviaName)}</td>
+                        <td>${escapeHTML(fillIn.roundName)}</td>
+                        <td>${escapeHTML(fillIn.roundInstruction)}</td>
+                        <td class="puzzle-image-cell">${roundImageHTML}</td>
+                        <td>${escapeHTML(fillIn.answer)}</td>
+                        <td>${fillIn.correctPercent ? fillIn.correctPercent + '%' : '—'}</td>
+                    </tr>
+                `;
+            });
+            
+            tableHTML += `
+                    </tbody>
+                </table>
+            `;
+            
+            contentDiv.innerHTML = tableHTML;
+            loadingDiv.style.display = 'none';
+            
+            } catch (error) {
+                console.error('Error in buildFillInsView:', error);
+                const contentDiv = document.getElementById('fill-ins-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = `<div style="padding: 40px; text-align: center; color: #d32f2f;"><h3>Error Loading Fill-Ins</h3><p>${error.message}</p></div>`;
+                }
+                const loadingDiv = document.getElementById('fill-ins-loading');
                 if (loadingDiv) {
                     loadingDiv.style.display = 'none';
                 }
