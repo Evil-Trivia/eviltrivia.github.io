@@ -860,16 +860,17 @@
         
         .data-table th {
             padding: 12px 8px;
-            text-align: left;
+            text-align: center;
             font-weight: 600;
             font-size: 0.85em;
             white-space: nowrap;
         }
         
         .data-table td {
-            padding: 8px;
+            padding: 12px 8px;
             border-bottom: 1px solid #eee;
-            vertical-align: top;
+            vertical-align: middle;
+            text-align: center;
             font-size: 0.9em;
         }
         
@@ -919,22 +920,22 @@
         
         .data-table .puzzle-image-cell img {
             max-width: 430px;
-            max-height: 300px;
+            max-height: 600px;
         }
         
         .data-table .visual-image-cell img {
             max-width: 580px;
-            max-height: 350px;
+            max-height: 600px;
         }
         
         .data-table .fillin-image-cell img {
             max-width: 580px;
-            max-height: 350px;
+            max-height: 600px;
         }
         
         .data-table .answer-image-cell img {
             max-width: 180px;
-            max-height: 180px;
+            max-height: 300px;
         }
         
         /* Answers list styling */
@@ -942,6 +943,8 @@
             list-style: none;
             padding: 0;
             margin: 0;
+            text-align: left;
+            display: inline-block;
         }
         
         .data-table .answers-list li {
@@ -957,6 +960,11 @@
             font-weight: bold;
             color: #666;
             margin-right: 8px;
+        }
+        
+        /* Keep answers column left-aligned */
+        .data-table td.answers-cell {
+            text-align: left;
         }
         
         .data-table .open-image-btn {
@@ -3885,32 +3893,40 @@
                     
                     const puzzleData = roundData.Puzzle;
                     
-                    // Extract puzzle info - look for the actual question data
+                    // Extract puzzle info - collect ALL questions/answers from the round
                     let roundName = '';
                     let roundInstruction = '';
                     let roundImageLink = '';
-                    let answer = '';
                     let answerImageLink = '';
                     let correctPercent = '';
-                    let questionKey = null;
+                    const answers = []; // Array to store all answers with question numbers
                     
-                    // Find first question object (skip metadata, Round Type, etc.)
+                    // Collect all question objects
                     for (const [key, value] of Object.entries(puzzleData)) {
                         if (value && typeof value === 'object' && !isNaN(parseInt(key))) {
-                            questionKey = key;
-                            roundName = value['Round Name'] || '';
-                            roundInstruction = value['Round Instruction'] || '';
-                            roundImageLink = value['Image Link'] || '';
-                            answer = value['Answer'] || '';
-                            answerImageLink = value['Answer Image Link'] || '';
-                            
-                            // Get correct % from correctnessCache
-                            const cacheKey = `${triviaNumber}-${roundNum}-Puzzle-${key}`;
-                            const correctness = correctnessCache.get(cacheKey);
-                            if (correctness !== undefined) {
-                                correctPercent = correctness.toFixed(1);
+                            // Get metadata from first question
+                            if (answers.length === 0) {
+                                roundName = value['Round Name'] || '';
+                                roundInstruction = value['Round Instruction'] || '';
+                                roundImageLink = value['Image Link'] || '';
+                                answerImageLink = value['Answer Image Link'] || '';
+                                
+                                // Get correct % from correctnessCache (only from first question)
+                                const cacheKey = `${triviaNumber}-${roundNum}-Puzzle-${key}`;
+                                const correctness = correctnessCache.get(cacheKey);
+                                if (correctness !== undefined) {
+                                    correctPercent = correctness.toFixed(1);
+                                }
                             }
-                            break;
+                            
+                            // Collect answer with question number
+                            const answer = value['Answer'] || '';
+                            if (answer) {
+                                answers.push({
+                                    questionNumber: key,
+                                    answer: answer
+                                });
+                            }
                         }
                     }
                     
@@ -3922,7 +3938,7 @@
                         roundName,
                         roundInstruction,
                         roundImageLink,
-                        answer,
+                        answers,
                         answerImageLink,
                         correctPercent
                     });
@@ -3952,7 +3968,7 @@
                             <th>Round Name</th>
                             <th>Round Instruction</th>
                             <th>Puzzle Image</th>
-                            <th>Answer</th>
+                            <th>Answers</th>
                             <th>Answer Image</th>
                             <th>Correct %</th>
                         </tr>
@@ -3987,6 +4003,16 @@
                     `;
                 }
                 
+                // Build answers list with question numbers
+                let answersHTML = '—';
+                if (puzzle.answers && puzzle.answers.length > 0) {
+                    answersHTML = '<ul class="answers-list">';
+                    puzzle.answers.forEach(answerObj => {
+                        answersHTML += `<li><span class="question-number">${answerObj.questionNumber}.</span>${escapeHTML(answerObj.answer)}</li>`;
+                    });
+                    answersHTML += '</ul>';
+                }
+                
                 tableHTML += `
                     <tr>
                         <td><a href="#trivia-${puzzle.triviaNumber}" class="trivia-link" onclick="showView('full-archive'); setTimeout(() => toggleTriviaItem(${puzzle.triviaNumber}), 100);">${puzzle.triviaNumber}</a></td>
@@ -3995,7 +4021,7 @@
                         <td>${escapeHTML(puzzle.roundName)}</td>
                         <td>${escapeHTML(puzzle.roundInstruction)}</td>
                         <td class="puzzle-image-cell">${roundImageHTML}</td>
-                        <td>${escapeHTML(puzzle.answer)}</td>
+                        <td class="answers-cell">${answersHTML}</td>
                         <td class="answer-image-cell">${answerImageHTML}</td>
                         <td>${puzzle.correctPercent ? puzzle.correctPercent + '%' : '—'}</td>
                     </tr>
@@ -4163,7 +4189,7 @@
                         <td>${escapeHTML(visual.roundName)}</td>
                         <td>${escapeHTML(visual.roundInstruction)}</td>
                         <td class="visual-image-cell">${roundImageHTML}</td>
-                        <td>${answersHTML}</td>
+                        <td class="answers-cell">${answersHTML}</td>
                     </tr>
                 `;
             });
@@ -4329,7 +4355,7 @@
                         <td>${escapeHTML(fillIn.roundName)}</td>
                         <td>${escapeHTML(fillIn.roundInstruction)}</td>
                         <td class="fillin-image-cell">${roundImageHTML}</td>
-                        <td>${answersHTML}</td>
+                        <td class="answers-cell">${answersHTML}</td>
                     </tr>
                 `;
             });
