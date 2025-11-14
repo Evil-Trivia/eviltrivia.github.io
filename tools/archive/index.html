@@ -859,17 +859,18 @@
         }
         
         .data-table th {
-            padding: 12px 10px;
+            padding: 12px 8px;
             text-align: left;
             font-weight: 600;
-            font-size: 0.9em;
+            font-size: 0.85em;
             white-space: nowrap;
         }
         
         .data-table td {
-            padding: 10px;
+            padding: 8px;
             border-bottom: 1px solid #eee;
             vertical-align: top;
+            font-size: 0.9em;
         }
         
         .data-table tr:last-child td {
@@ -880,11 +881,58 @@
             background-color: #f5f5f5;
         }
         
-        .data-table img {
+        .data-table tr.has-matches {
+            background-color: #e8f5e8;
+            border-left: 3px solid #4caf50;
+        }
+        
+        /* Image columns */
+        .data-table .round-image-cell {
+            min-width: 350px;
+            max-width: 350px;
+        }
+        
+        .data-table .answer-image-cell {
+            min-width: 200px;
             max-width: 200px;
-            max-height: 200px;
+        }
+        
+        .data-table .image-container {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .data-table img {
             border-radius: 4px;
             display: block;
+        }
+        
+        .data-table .round-image-cell img {
+            max-width: 330px;
+            max-height: 250px;
+        }
+        
+        .data-table .answer-image-cell img {
+            max-width: 180px;
+            max-height: 180px;
+        }
+        
+        .data-table .open-image-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: background 0.2s;
+        }
+        
+        .data-table .open-image-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
         }
         
         .data-table .trivia-link {
@@ -896,6 +944,15 @@
         .data-table .trivia-link:hover {
             text-decoration: underline;
         }
+        
+        /* Make text columns narrower to fit screen */
+        .data-table td:nth-child(1) { width: 60px; } /* Trivia # */
+        .data-table td:nth-child(2) { width: 90px; } /* Date */
+        .data-table td:nth-child(3) { max-width: 150px; } /* Trivia Name */
+        .data-table td:nth-child(4) { max-width: 120px; } /* Round Name */
+        .data-table td:nth-child(5) { max-width: 200px; } /* Round Instruction */
+        .data-table td:nth-child(8) { max-width: 150px; } /* Answer */
+        .data-table td:nth-child(9) { width: 70px; text-align: right; } /* Correct % */
 
         /* Responsive design */
         @media (max-width: 768px) {
@@ -2442,15 +2499,66 @@
                 }
             });
             
+            // Search through Puzzles view if visible
+            const puzzlesView = document.getElementById('puzzles-view');
+            let puzzleMatches = 0;
+            
+            if (puzzlesView && puzzlesView.style.display !== 'none') {
+                const table = puzzlesView.querySelector('.data-table');
+                if (table) {
+                    const rows = table.querySelectorAll('tbody tr');
+                    rows.forEach(row => {
+                        const rowText = row.textContent.toLowerCase();
+                        
+                        // Check for match based on mode
+                        let hasMatch = false;
+                        if (simpleMode) {
+                            const pattern = new RegExp(`(^|[^a-z])${escapeRegex(searchTerm)}($|[^a-z])`, 'i');
+                            hasMatch = pattern.test(rowText);
+                        } else {
+                            hasMatch = rowText.includes(searchTerm);
+                        }
+                        
+                        if (hasMatch) {
+                            puzzleMatches++;
+                            row.classList.add('has-matches');
+                            
+                            // Highlight search term in each cell (but skip image cells)
+                            row.querySelectorAll('td').forEach((cell, index) => {
+                                // Skip image columns (indices 5 and 7)
+                                if (index !== 5 && index !== 7) {
+                                    highlightSearchTerm(cell, searchTerm, simpleMode);
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+            
             // Display search results info
             const resultsInfo = document.getElementById('search-results-info');
-            if (matchingTrivias.length > 0) {
-                // Sort by trivia number descending to get most recent
-                matchingTrivias.sort((a, b) => b.number - a.number);
-                const mostRecent = matchingTrivias[0];
-                const mostRecentDate = formatDate(mostRecent.date);
+            
+            // Combine results from both views
+            const totalMatches = matchingTrivias.length + puzzleMatches;
+            
+            if (totalMatches > 0) {
+                let message = '';
+                if (puzzleMatches > 0 && matchingTrivias.length > 0) {
+                    message = `Found ${matchingTrivias.length} trivia${matchingTrivias.length === 1 ? '' : 's'} and ${puzzleMatches} puzzle${puzzleMatches === 1 ? '' : 's'}`;
+                } else if (puzzleMatches > 0) {
+                    message = `Found ${puzzleMatches} puzzle${puzzleMatches === 1 ? '' : 's'}`;
+                } else {
+                    // Sort by trivia number descending to get most recent
+                    matchingTrivias.sort((a, b) => b.number - a.number);
+                    const mostRecent = matchingTrivias[0];
+                    const mostRecentDate = formatDate(mostRecent.date);
+                    message = `Found ${matchingTrivias.length} result${matchingTrivias.length === 1 ? '' : 's'}, most recent: Trivia #${mostRecent.number} (${mostRecentDate})`;
+                }
                 
-                resultsInfo.innerHTML = `Found ${matchingTrivias.length} result${matchingTrivias.length === 1 ? '' : 's'}, most recent: Trivia #${mostRecent.number} (${mostRecentDate})`;
+                resultsInfo.innerHTML = message;
+                resultsInfo.style.backgroundColor = '#e8f5e9';
+                resultsInfo.style.borderColor = '#4caf50';
+                resultsInfo.style.color = '#2e7d32';
                 resultsInfo.classList.add('visible');
             } else {
                 resultsInfo.innerHTML = `No matches found for "${document.getElementById('archive-search').value}"`;
@@ -3760,10 +3868,31 @@
             `;
             
             puzzles.forEach(puzzle => {
-                const roundImageEmbed = puzzle.roundImageLink ? 
-                    createDriveImageEmbed(extractDriveFileID(puzzle.roundImageLink), 'Round Image') : '';
-                const answerImageEmbed = puzzle.answerImageLink ? 
-                    createDriveImageEmbed(extractDriveFileID(puzzle.answerImageLink), 'Answer Image') : '';
+                let roundImageHTML = '—';
+                if (puzzle.roundImageLink) {
+                    const fileId = extractDriveFileID(puzzle.roundImageLink);
+                    const imageEmbed = createDriveImageEmbed(fileId, 'Round Image');
+                    const driveUrl = `https://drive.google.com/file/d/${fileId}/view`;
+                    roundImageHTML = `
+                        <div class="image-container">
+                            ${imageEmbed}
+                            <button class="open-image-btn" onclick="window.open('${driveUrl}', '_blank')" title="Open in new tab">🔍 Open</button>
+                        </div>
+                    `;
+                }
+                
+                let answerImageHTML = '—';
+                if (puzzle.answerImageLink) {
+                    const fileId = extractDriveFileID(puzzle.answerImageLink);
+                    const imageEmbed = createDriveImageEmbed(fileId, 'Answer Image');
+                    const driveUrl = `https://drive.google.com/file/d/${fileId}/view`;
+                    answerImageHTML = `
+                        <div class="image-container">
+                            ${imageEmbed}
+                            <button class="open-image-btn" onclick="window.open('${driveUrl}', '_blank')" title="Open in new tab">🔍 Open</button>
+                        </div>
+                    `;
+                }
                 
                 tableHTML += `
                     <tr>
@@ -3772,9 +3901,9 @@
                         <td>${escapeHTML(puzzle.triviaName)}</td>
                         <td>${escapeHTML(puzzle.roundName)}</td>
                         <td>${escapeHTML(puzzle.roundInstruction)}</td>
-                        <td>${roundImageEmbed || '—'}</td>
+                        <td class="round-image-cell">${roundImageHTML}</td>
                         <td>${escapeHTML(puzzle.answer)}</td>
-                        <td>${answerImageEmbed || '—'}</td>
+                        <td class="answer-image-cell">${answerImageHTML}</td>
                         <td>${puzzle.correctPercent ? puzzle.correctPercent + '%' : '—'}</td>
                     </tr>
                 `;
