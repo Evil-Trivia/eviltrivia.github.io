@@ -3649,6 +3649,8 @@
             // Collect all puzzles from all trivias
             const puzzles = [];
             
+            console.log('Building puzzles view, total trivias:', allTriviaData.size);
+            
             for (const [triviaNumber, trivia] of allTriviaData.entries()) {
                 if (!trivia.archive?.trivia) continue;
                 
@@ -3657,31 +3659,38 @@
                 
                 // Go through each round
                 for (const [roundNum, roundData] of Object.entries(trivia.archive.trivia)) {
-                    if (isNaN(parseInt(roundNum)) || !roundData.Puzzle) continue;
+                    if (isNaN(parseInt(roundNum))) continue;
+                    if (!roundData.Puzzle) continue;
                     
                     const puzzleData = roundData.Puzzle;
                     
-                    // Extract puzzle info from first question (they all have same round info)
+                    // Extract puzzle info - look for the actual question data
                     let roundName = '';
                     let roundInstruction = '';
                     let roundImageLink = '';
                     let answer = '';
                     let answerImageLink = '';
                     let correctPercent = '';
+                    let questionKey = null;
                     
-                    // Find first question in puzzle
-                    const firstQuestion = Object.values(puzzleData).find(q => q && typeof q === 'object' && !isNaN(parseInt(Object.keys(puzzleData).find(k => puzzleData[k] === q))));
-                    
-                    if (firstQuestion) {
-                        roundName = firstQuestion['Round Name'] || '';
-                        roundInstruction = firstQuestion['Round Instruction'] || '';
-                        roundImageLink = firstQuestion['Image Link'] || '';
-                        answer = firstQuestion['Answer'] || '';
-                        answerImageLink = firstQuestion['Answer Image Link'] || '';
-                        
-                        // Get correct % from correctnessCache
-                        const cacheKey = `${triviaNumber}-${roundNum}-Puzzle-${Object.keys(puzzleData).find(k => puzzleData[k] === firstQuestion)}`;
-                        correctPercent = correctnessCache.get(cacheKey) || '';
+                    // Find first question object (skip metadata, Round Type, etc.)
+                    for (const [key, value] of Object.entries(puzzleData)) {
+                        if (value && typeof value === 'object' && !isNaN(parseInt(key))) {
+                            questionKey = key;
+                            roundName = value['Round Name'] || '';
+                            roundInstruction = value['Round Instruction'] || '';
+                            roundImageLink = value['Image Link'] || '';
+                            answer = value['Answer'] || '';
+                            answerImageLink = value['Answer Image Link'] || '';
+                            
+                            // Get correct % from correctnessCache
+                            const cacheKey = `${triviaNumber}-${roundNum}-Puzzle-${key}`;
+                            const cachedData = correctnessCache.get(cacheKey);
+                            if (cachedData && cachedData.correctPercent !== undefined) {
+                                correctPercent = cachedData.correctPercent;
+                            }
+                            break;
+                        }
                     }
                     
                     puzzles.push({
@@ -3697,6 +3706,15 @@
                         correctPercent
                     });
                 }
+            }
+            
+            console.log('Found puzzles:', puzzles.length);
+            
+            // Check if no puzzles found
+            if (puzzles.length === 0) {
+                contentDiv.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><h3>No puzzles found</h3><p>No puzzle rounds were found in the loaded trivia data.</p></div>';
+                loadingDiv.style.display = 'none';
+                return;
             }
             
             // Sort by trivia number descending
