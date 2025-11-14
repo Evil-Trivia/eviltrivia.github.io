@@ -892,6 +892,16 @@
             max-width: 450px;
         }
         
+        .data-table .visual-image-cell {
+            min-width: 600px;
+            max-width: 600px;
+        }
+        
+        .data-table .fillin-image-cell {
+            min-width: 600px;
+            max-width: 600px;
+        }
+        
         .data-table .answer-image-cell {
             min-width: 200px;
             max-width: 200px;
@@ -912,9 +922,41 @@
             max-height: 300px;
         }
         
+        .data-table .visual-image-cell img {
+            max-width: 580px;
+            max-height: 350px;
+        }
+        
+        .data-table .fillin-image-cell img {
+            max-width: 580px;
+            max-height: 350px;
+        }
+        
         .data-table .answer-image-cell img {
             max-width: 180px;
             max-height: 180px;
+        }
+        
+        /* Answers list styling */
+        .data-table .answers-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .data-table .answers-list li {
+            padding: 4px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .data-table .answers-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .data-table .question-number {
+            font-weight: bold;
+            color: #666;
+            margin-right: 8px;
         }
         
         .data-table .open-image-btn {
@@ -4020,30 +4062,30 @@
                     
                     const visualData = roundData.Visual;
                     
-                    // Extract visual info - look for the actual question data
+                    // Extract visual info - collect ALL questions/answers from the round
                     let roundName = '';
                     let roundInstruction = '';
                     let roundImageLink = '';
-                    let answer = '';
-                    let correctPercent = '';
-                    let questionKey = null;
+                    const answers = []; // Array to store all answers with question numbers
                     
-                    // Find first question object
+                    // Collect all question objects
                     for (const [key, value] of Object.entries(visualData)) {
                         if (value && typeof value === 'object' && !isNaN(parseInt(key))) {
-                            questionKey = key;
-                            roundName = value['Round Name'] || '';
-                            roundInstruction = value['Round Instruction'] || '';
-                            roundImageLink = value['Image Link'] || '';
-                            answer = value['Answer'] || '';
-                            
-                            // Get correct % from correctnessCache
-                            const cacheKey = `${triviaNumber}-${roundNum}-Visual-${key}`;
-                            const correctness = correctnessCache.get(cacheKey);
-                            if (correctness !== undefined) {
-                                correctPercent = correctness.toFixed(1);
+                            // Get metadata from first question
+                            if (answers.length === 0) {
+                                roundName = value['Round Name'] || '';
+                                roundInstruction = value['Round Instruction'] || '';
+                                roundImageLink = value['Image Link'] || '';
                             }
-                            break;
+                            
+                            // Collect answer with question number
+                            const answer = value['Answer'] || '';
+                            if (answer) {
+                                answers.push({
+                                    questionNumber: key,
+                                    answer: answer
+                                });
+                            }
                         }
                     }
                     
@@ -4055,8 +4097,7 @@
                         roundName,
                         roundInstruction,
                         roundImageLink,
-                        answer,
-                        correctPercent
+                        answers
                     });
                 }
             }
@@ -4084,8 +4125,7 @@
                             <th>Round Name</th>
                             <th>Round Instruction</th>
                             <th>Visual Image</th>
-                            <th>Answer</th>
-                            <th>Correct %</th>
+                            <th>Answers</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -4105,6 +4145,16 @@
                     `;
                 }
                 
+                // Build answers list with question numbers
+                let answersHTML = '—';
+                if (visual.answers && visual.answers.length > 0) {
+                    answersHTML = '<ul class="answers-list">';
+                    visual.answers.forEach(answerObj => {
+                        answersHTML += `<li><span class="question-number">${answerObj.questionNumber}.</span>${escapeHTML(answerObj.answer)}</li>`;
+                    });
+                    answersHTML += '</ul>';
+                }
+                
                 tableHTML += `
                     <tr>
                         <td><a href="#trivia-${visual.triviaNumber}" class="trivia-link" onclick="showView('full-archive'); setTimeout(() => toggleTriviaItem(${visual.triviaNumber}), 100);">${visual.triviaNumber}</a></td>
@@ -4112,9 +4162,8 @@
                         <td>${escapeHTML(visual.triviaName)}</td>
                         <td>${escapeHTML(visual.roundName)}</td>
                         <td>${escapeHTML(visual.roundInstruction)}</td>
-                        <td class="puzzle-image-cell">${roundImageHTML}</td>
-                        <td>${escapeHTML(visual.answer)}</td>
-                        <td>${visual.correctPercent ? visual.correctPercent + '%' : '—'}</td>
+                        <td class="visual-image-cell">${roundImageHTML}</td>
+                        <td>${answersHTML}</td>
                     </tr>
                 `;
             });
@@ -4179,30 +4228,30 @@
                     
                     const fillInData = roundData['Fill-In'];
                     
-                    // Extract fill-in info - look for the actual question data
+                    // Extract fill-in info - collect ALL questions/answers from the round
                     let roundName = '';
                     let roundInstruction = '';
                     let roundImageLink = '';
-                    let answer = '';
-                    let correctPercent = '';
-                    let questionKey = null;
+                    const answers = []; // Array to store all answers with question numbers
                     
-                    // Find first question object
+                    // Collect all question objects
                     for (const [key, value] of Object.entries(fillInData)) {
                         if (value && typeof value === 'object' && !isNaN(parseInt(key))) {
-                            questionKey = key;
-                            roundName = value['Round Name'] || '';
-                            roundInstruction = value['Round Instruction'] || '';
-                            roundImageLink = value['Image Link'] || '';
-                            answer = value['Answer'] || '';
-                            
-                            // Get correct % from correctnessCache
-                            const cacheKey = `${triviaNumber}-${roundNum}-Fill-In-${key}`;
-                            const correctness = correctnessCache.get(cacheKey);
-                            if (correctness !== undefined) {
-                                correctPercent = correctness.toFixed(1);
+                            // Get metadata from first question
+                            if (answers.length === 0) {
+                                roundName = value['Round Name'] || '';
+                                roundInstruction = value['Round Instruction'] || '';
+                                roundImageLink = value['Image Link'] || '';
                             }
-                            break;
+                            
+                            // Collect answer with question number
+                            const answer = value['Answer'] || '';
+                            if (answer) {
+                                answers.push({
+                                    questionNumber: key,
+                                    answer: answer
+                                });
+                            }
                         }
                     }
                     
@@ -4214,8 +4263,7 @@
                         roundName,
                         roundInstruction,
                         roundImageLink,
-                        answer,
-                        correctPercent
+                        answers
                     });
                 }
             }
@@ -4243,8 +4291,7 @@
                             <th>Round Name</th>
                             <th>Round Instruction</th>
                             <th>Fill-In Image</th>
-                            <th>Answer</th>
-                            <th>Correct %</th>
+                            <th>Answers</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -4264,6 +4311,16 @@
                     `;
                 }
                 
+                // Build answers list with question numbers
+                let answersHTML = '—';
+                if (fillIn.answers && fillIn.answers.length > 0) {
+                    answersHTML = '<ul class="answers-list">';
+                    fillIn.answers.forEach(answerObj => {
+                        answersHTML += `<li><span class="question-number">${answerObj.questionNumber}.</span>${escapeHTML(answerObj.answer)}</li>`;
+                    });
+                    answersHTML += '</ul>';
+                }
+                
                 tableHTML += `
                     <tr>
                         <td><a href="#trivia-${fillIn.triviaNumber}" class="trivia-link" onclick="showView('full-archive'); setTimeout(() => toggleTriviaItem(${fillIn.triviaNumber}), 100);">${fillIn.triviaNumber}</a></td>
@@ -4271,9 +4328,8 @@
                         <td>${escapeHTML(fillIn.triviaName)}</td>
                         <td>${escapeHTML(fillIn.roundName)}</td>
                         <td>${escapeHTML(fillIn.roundInstruction)}</td>
-                        <td class="puzzle-image-cell">${roundImageHTML}</td>
-                        <td>${escapeHTML(fillIn.answer)}</td>
-                        <td>${fillIn.correctPercent ? fillIn.correctPercent + '%' : '—'}</td>
+                        <td class="fillin-image-cell">${roundImageHTML}</td>
+                        <td>${answersHTML}</td>
                     </tr>
                 `;
             });
