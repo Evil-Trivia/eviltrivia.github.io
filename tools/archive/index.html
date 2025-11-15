@@ -1034,6 +1034,63 @@
             text-align: left;
         }
         
+        /* Music Player Modal */
+        .music-modal {
+            display: none;
+            position: fixed;
+            z-index: 10000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.7);
+        }
+        
+        .music-modal-content {
+            background-color: #fefefe;
+            margin: 2% auto;
+            padding: 0;
+            border: 1px solid #888;
+            width: 90%;
+            max-width: 1200px;
+            max-height: 90vh;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .music-modal-header {
+            padding: 20px;
+            background-color: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .music-modal-close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 20px;
+        }
+        
+        .music-modal-close:hover,
+        .music-modal-close:focus {
+            color: #000;
+        }
+        
+        .music-modal-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background-color: white;
+        }
+        
         .data-table .options-list {
             list-style: none;
             padding: 0;
@@ -1351,6 +1408,22 @@
         <div class="loading-spinner"></div>
         <div class="loading-text">Loading Archive...</div>
         <div class="loading-subtext">Please wait while we fetch all trivia data</div>
+    </div>
+
+    <!-- Music Player Modal -->
+    <div id="music-player-modal" class="music-modal">
+        <div class="music-modal-content">
+            <div class="music-modal-header">
+                <div>
+                    <h3 style="margin: 0; color: #333;">🎵 Music Round Player</h3>
+                    <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;" id="music-modal-title">Trivia #<span id="music-modal-trivia-num"></span></p>
+                </div>
+                <span class="music-modal-close" onclick="closeMusicModal()">&times;</span>
+            </div>
+            <div class="music-modal-body" id="music-modal-body">
+                <!-- Music player content will be loaded here -->
+            </div>
+        </div>
     </div>
 
     <div class="container">
@@ -4652,12 +4725,16 @@
                         imageLinkHTML = `<div class="image-container" onclick="window.open('${driveUrl}', '_blank')" style="cursor: pointer;" title="Click to open in new tab">${imageEmbed}</div>`;
                     }
                     
-                    // Handle music folder
+                    // Handle music folder - show both buttons
                     let musicFolderHTML = '—';
                     if (musicRound.musicFolderLink) {
                         const folderId = extractGoogleDriveFolderId(musicRound.musicFolderLink);
                         if (folderId) {
-                            musicFolderHTML = `<button onclick="window.open('${musicRound.musicFolderLink}', '_blank')" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;" title="Open music folder">🎵 Open Folder</button>`;
+                            musicFolderHTML = `
+                                <div style="display: flex; gap: 8px; justify-content: center;">
+                                    <button onclick="openMusicPlayer(${musicRound.triviaNumber}, '${folderId}')" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;" title="Open music player">🎵 Open Player</button>
+                                    <button onclick="window.open('${musicRound.musicFolderLink}', '_blank')" style="padding: 8px 16px; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;" title="Open folder in Drive">📁 Open Folder</button>
+                                </div>`;
                         }
                     }
                     
@@ -4706,11 +4783,49 @@
             }
         }
         
-        // Function to open music player (reuse existing music player logic)
+        // Function to open music player modal
         function openMusicPlayer(triviaNumber, folderId) {
-            // This will open a modal or new window with the music player
-            // For now, just open the folder
-            window.open(`https://drive.google.com/drive/folders/${folderId}`, '_blank');
+            const modal = document.getElementById('music-player-modal');
+            const modalBody = document.getElementById('music-modal-body');
+            const triviaNumSpan = document.getElementById('music-modal-trivia-num');
+            
+            // Set trivia number in modal header
+            triviaNumSpan.textContent = triviaNumber;
+            
+            // Create music player container
+            modalBody.innerHTML = `
+                <div id="music-player-${triviaNumber}">
+                    <div id="music-files-${triviaNumber}">
+                        <div style="text-align: center; padding: 20px;">
+                            <button onclick="loadMusicFilesFromAPI(${triviaNumber}, '${folderId}')" 
+                                    style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                                🎵 Load Music Files
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Show the modal
+            modal.style.display = 'block';
+        }
+        
+        // Function to close music player modal
+        function closeMusicModal() {
+            const modal = document.getElementById('music-player-modal');
+            modal.style.display = 'none';
+            
+            // Optional: Clear the modal content to stop any playing audio
+            const modalBody = document.getElementById('music-modal-body');
+            modalBody.innerHTML = '';
+        }
+        
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('music-player-modal');
+            if (event.target == modal) {
+                closeMusicModal();
+            }
         }
     </script>
 </body>
