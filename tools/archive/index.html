@@ -875,11 +875,15 @@
         }
         
         .data-table tr {
-            min-height: 120px;
+            min-height: 180px;
         }
         
         .data-table tbody tr {
-            min-height: 120px;
+            min-height: 180px;
+        }
+        
+        .data-table tbody td {
+            padding: 30px 12px;
         }
         
         .data-table tr:last-child td {
@@ -902,6 +906,7 @@
             max-width: 500px;
             padding: 20px;
             vertical-align: middle;
+            text-align: center;
         }
         
         .data-table .visual-image-cell {
@@ -910,6 +915,7 @@
             max-width: 500px;
             padding: 20px;
             vertical-align: middle;
+            text-align: center;
         }
         
         .data-table .fillin-image-cell {
@@ -918,6 +924,7 @@
             max-width: 500px;
             padding: 20px;
             vertical-align: middle;
+            text-align: center;
         }
         
         .data-table .answer-image-cell {
@@ -926,13 +933,15 @@
             max-width: 400px;
             padding: 20px;
             vertical-align: middle;
+            text-align: center;
         }
         
         .data-table .image-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
             width: 100%;
+            margin: 0 auto;
         }
         
         .data-table img {
@@ -941,6 +950,7 @@
             max-width: 100%;
             height: auto;
             object-fit: contain;
+            margin: 0 auto;
         }
         
         /* Open button in its own column */
@@ -4505,45 +4515,50 @@
                 const musicRounds = [];
                 
                 for (const [triviaNumber, trivia] of allTriviaData.entries()) {
-                    const rounds = trivia.rounds || [];
-                    
-                    for (const round of rounds) {
-                        // Check if this round has a music folder
-                        const items = round.items || [];
-                        const hasMusicFolder = items.some(item => 
-                            item.label && item.label.toLowerCase().includes('music')
-                        );
-                        
-                        if (hasMusicFolder) {
-                            // Find the music folder item
-                            const musicItem = items.find(item => 
-                                item.label && item.label.toLowerCase().includes('music')
-                            );
-                            
-                            // Collect answers from the round's questions
-                            const answers = [];
-                            const questions = round.questions || [];
-                            questions.forEach(q => {
-                                if (q.question && q.answer) {
-                                    answers.push({
-                                        questionNumber: q.number || '',
-                                        question: q.question,
-                                        answer: q.answer
-                                    });
-                                }
-                            });
-                            
-                            musicRounds.push({
-                                triviaNumber: triviaNumber,
-                                triviaDate: trivia.dateHosted,
-                                triviaName: trivia.triviaName || 'Unnamed Trivia',
-                                roundName: round.name || 'Unnamed Round',
-                                roundInstruction: round.instruction || '',
-                                musicFolderLink: musicItem ? musicItem.originalUrl : '',
-                                answers: answers
-                            });
-                        }
+                    // Check if this trivia has a Music Folder in drive data
+                    if (!trivia.drive || !trivia.drive['Music Folder']) {
+                        continue;
                     }
+                    
+                    const musicFolderLink = trivia.drive['Music Folder'];
+                    if (!musicFolderLink || !musicFolderLink.trim()) {
+                        continue;
+                    }
+                    
+                    // Find the music round - typically labeled as "Music" or contains music in the name
+                    const rounds = trivia.rounds || [];
+                    let musicRound = rounds.find(r => 
+                        r.name && (r.name.toLowerCase().includes('music') || r.name.toLowerCase().includes('audio'))
+                    );
+                    
+                    // If no specific music round found, try to find one with questions
+                    if (!musicRound && rounds.length > 0) {
+                        musicRound = rounds.find(r => r.questions && r.questions.length > 0);
+                    }
+                    
+                    // Collect answers from the music round's questions
+                    const answers = [];
+                    if (musicRound && musicRound.questions) {
+                        musicRound.questions.forEach(q => {
+                            if (q.question && q.answer) {
+                                answers.push({
+                                    questionNumber: q.number || '',
+                                    question: q.question,
+                                    answer: q.answer
+                                });
+                            }
+                        });
+                    }
+                    
+                    musicRounds.push({
+                        triviaNumber: triviaNumber,
+                        triviaDate: trivia.dateHosted,
+                        triviaName: trivia.triviaName || 'Unnamed Trivia',
+                        roundName: musicRound ? (musicRound.name || 'Music Round') : 'Music Round',
+                        roundInstruction: musicRound ? (musicRound.instruction || '') : '',
+                        musicFolderLink: musicFolderLink,
+                        answers: answers
+                    });
                 }
                 
                 console.log('Found music rounds:', musicRounds.length);
