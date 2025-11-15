@@ -2666,7 +2666,7 @@
             puzzleMatches = searchTableView(puzzlesView, [5, 7]); // Puzzle Image (col 5), Answer Image (col 7)
             visualMatches = searchTableView(visualsView, [5]); // Visual Image (col 5)
             fillInMatches = searchTableView(fillInsView, [5]); // Fill-In Image (col 5)
-            musicMatches = searchTableView(musicView, [5]); // Music Folder (col 5)
+            musicMatches = searchTableView(musicView, [5]); // Image Link (col 5)
             
             // Display search results info
             const resultsInfo = document.getElementById('search-results-info');
@@ -4491,58 +4491,82 @@
                 console.log('loadingDiv:', loadingDiv);
                 console.log('contentDiv:', contentDiv);
                 
-                // Show loading state
+                // Check if already built
+                const hasRealContent = contentDiv.innerHTML.trim() && 
+                                      !contentDiv.innerHTML.includes('<!-- Music table will be loaded here -->') &&
+                                      contentDiv.innerHTML.trim() !== '';
+                
+                if (hasRealContent && contentDiv.querySelector('table')) {
+                    console.log('Already built, skipping');
+                    loadingDiv.style.display = 'none';
+                    return;
+                }
+                
                 loadingDiv.style.display = 'block';
-                contentDiv.innerHTML = '';
                 
                 // Collect all music rounds from all trivia
                 const musicRounds = [];
                 
+                console.log('Building music view, total trivias:', allTriviaData.size);
+                
                 for (const [triviaNumber, trivia] of allTriviaData.entries()) {
-                    // Check if this trivia has a Music Folder in drive data
-                    if (!trivia.drive || !trivia.drive['Music Folder']) {
-                        continue;
-                    }
+                    if (!trivia.archive?.trivia) continue;
                     
-                    const musicFolderLink = trivia.drive['Music Folder'];
+                    const triviaName = trivia.archive.triviaName || 'Unnamed Trivia';
+                    const triviaDate = trivia.archive.date || '';
+                    const musicFolderLink = trivia.drive?.['Music Folder'] || '';
+                    
+                    // Skip if no music folder
                     if (!musicFolderLink || !musicFolderLink.trim()) {
                         continue;
                     }
                     
-                    // Find the music round - typically labeled as "Music" or contains music in the name
-                    const rounds = trivia.rounds || [];
-                    let musicRound = rounds.find(r => 
-                        r.name && (r.name.toLowerCase().includes('music') || r.name.toLowerCase().includes('audio'))
-                    );
-                    
-                    // If no specific music round found, try to find one with questions
-                    if (!musicRound && rounds.length > 0) {
-                        musicRound = rounds.find(r => r.questions && r.questions.length > 0);
-                    }
-                    
-                    // Collect answers from the music round's questions
-                    const answers = [];
-                    if (musicRound && musicRound.questions) {
-                        musicRound.questions.forEach(q => {
-                            if (q.question && q.answer) {
-                                answers.push({
-                                    questionNumber: q.number || '',
-                                    question: q.question,
-                                    answer: q.answer
-                                });
+                    // Go through each round looking for Music rounds
+                    for (const [roundNum, roundData] of Object.entries(trivia.archive.trivia)) {
+                        if (isNaN(parseInt(roundNum))) continue;
+                        if (!roundData.Music) continue;
+                        
+                        const musicData = roundData.Music;
+                        
+                        // Extract music round info - collect ALL questions/answers from the round
+                        let roundName = '';
+                        let roundInstruction = '';
+                        let imageLink = '';
+                        const answers = []; // Array to store all answers with question numbers
+                        
+                        // Collect all question objects
+                        for (const [key, value] of Object.entries(musicData)) {
+                            if (value && typeof value === 'object' && !isNaN(parseInt(key))) {
+                                // Get metadata from first question
+                                if (answers.length === 0) {
+                                    roundName = value['Round Name'] || '';
+                                    roundInstruction = value['Round Instruction'] || '';
+                                    imageLink = value['Image Link'] || '';
+                                }
+                                
+                                // Collect answer with question number
+                                const answer = value['Answer'] || '';
+                                if (answer) {
+                                    answers.push({
+                                        questionNumber: key,
+                                        answer: answer
+                                    });
+                                }
                             }
+                        }
+                        
+                        musicRounds.push({
+                            triviaNumber,
+                            triviaDate,
+                            triviaName,
+                            roundNumber: roundNum,
+                            roundName,
+                            roundInstruction,
+                            imageLink,
+                            musicFolderLink,
+                            answers
                         });
                     }
-                    
-                    musicRounds.push({
-                        triviaNumber: triviaNumber,
-                        triviaDate: trivia.dateHosted,
-                        triviaName: trivia.triviaName || 'Unnamed Trivia',
-                        roundName: musicRound ? (musicRound.name || 'Music Round') : 'Music Round',
-                        roundInstruction: musicRound ? (musicRound.instruction || '') : '',
-                        musicFolderLink: musicFolderLink,
-                        answers: answers
-                    });
                 }
                 
                 console.log('Found music rounds:', musicRounds.length);
@@ -4567,6 +4591,7 @@
                             <th>Trivia Name</th>
                             <th>Round Name</th>
                             <th>Round Instruction</th>
+                            <th>Image Link</th>
                             <th>Music Folder</th>
                             <th>Answers</th>
                         </tr>
@@ -4575,11 +4600,21 @@
                 `;
                 
                 musicRounds.forEach(musicRound => {
+                    // Handle image link
+                    let imageLinkHTML = '—';
+                    if (musicRound.imageLink) {
+                        const fileId = extractDriveFileID(musicRound.imageLink);
+                        const imageEmbed = createDriveImageEmbed(fileId, 'Music Image');
+                        const driveUrl = `https://drive.google.com/file/d/${fileId}/view`;
+                        imageLinkHTML = `<div class="image-container" onclick="window.open('${driveUrl}', '_blank')" style="cursor: pointer;" title="Click to open in new tab">${imageEmbed}</div>`;
+                    }
+                    
+                    // Handle music folder
                     let musicFolderHTML = '—';
                     if (musicRound.musicFolderLink) {
                         const folderId = extractGoogleDriveFolderId(musicRound.musicFolderLink);
                         if (folderId) {
-                            musicFolderHTML = `<button onclick="openMusicPlayer(${musicRound.triviaNumber}, '${folderId}')" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">🎵 Open Player</button>`;
+                            musicFolderHTML = `<button onclick="window.open('${musicRound.musicFolderLink}', '_blank')" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;" title="Open music folder">🎵 Open Folder</button>`;
                         }
                     }
                     
@@ -4600,6 +4635,7 @@
                             <td>${escapeHTML(musicRound.triviaName)}</td>
                             <td>${escapeHTML(musicRound.roundName)}</td>
                             <td class="instruction-cell">${escapeHTML(musicRound.roundInstruction)}</td>
+                            <td class="visual-image-cell">${imageLinkHTML}</td>
                             <td>${musicFolderHTML}</td>
                             <td class="answers-cell">${answersHTML}</td>
                         </tr>
