@@ -875,7 +875,11 @@
         }
         
         .data-table tr {
-            height: auto;
+            min-height: 120px;
+        }
+        
+        .data-table tbody tr {
+            min-height: 120px;
         }
         
         .data-table tr:last-child td {
@@ -987,20 +991,14 @@
             margin-right: 8px;
         }
         
-        /* Keep answers column left-aligned */
-        .data-table td.answers-cell {
-            text-align: left;
-        }
-        
         /* Narrow round instruction column */
         .data-table td.instruction-cell {
             max-width: 150px;
             word-wrap: break-word;
         }
         
-        /* Options and interactives for fill-ins */
+        /* Options column for fill-ins */
         .data-table td.options-cell {
-            text-align: left;
             max-width: 200px;
         }
         
@@ -1334,7 +1332,7 @@
                 <button id="btn-puzzles" class="toolbar-btn" onclick="showView('puzzles')">Puzzles</button>
                 <button id="btn-visuals" class="toolbar-btn" onclick="showView('visuals')">Visuals</button>
                 <button id="btn-fill-ins" class="toolbar-btn" onclick="showView('fill-ins')">Fill-Ins</button>
-                <button id="btn-music" class="toolbar-btn" disabled>Music</button>
+                <button id="btn-music" class="toolbar-btn" onclick="showView('music')">Music</button>
                 <button id="btn-challenges" class="toolbar-btn" disabled>Challenges</button>
                 <button id="btn-written-only" class="toolbar-btn" disabled>Written Only</button>
             </div>
@@ -1424,6 +1422,14 @@
                 <div id="fill-ins-loading" class="loading">Loading fill-ins data...</div>
                 <div id="fill-ins-content" style="overflow-x: auto;">
                     <!-- Fill-ins table will be loaded here -->
+                </div>
+            </div>
+            
+            <!-- Music View -->
+            <div id="music-view" class="special-view-container" style="display: none;">
+                <div id="music-loading" class="loading">Loading music data...</div>
+                <div id="music-content" style="overflow-x: auto;">
+                    <!-- Music table will be loaded here -->
                 </div>
             </div>
         </div>
@@ -2595,13 +2601,15 @@
                 }
             });
             
-            // Search through special views (Puzzles, Visuals, Fill-Ins) if visible
+            // Search through special views (Puzzles, Visuals, Fill-Ins, Music) if visible
             const puzzlesView = document.getElementById('puzzles-view');
             const visualsView = document.getElementById('visuals-view');
             const fillInsView = document.getElementById('fill-ins-view');
+            const musicView = document.getElementById('music-view');
             let puzzleMatches = 0;
             let visualMatches = 0;
             let fillInMatches = 0;
+            let musicMatches = 0;
             
             // Helper function to search a table view
             function searchTableView(view, imageColumnIndices) {
@@ -2648,12 +2656,13 @@
             puzzleMatches = searchTableView(puzzlesView, [5, 6, 8, 9]); // Puzzle Image (col 5), Open (col 6), Answer Image (col 8), Open (col 9)
             visualMatches = searchTableView(visualsView, [5, 6]); // Visual Image (col 5), Open (col 6)
             fillInMatches = searchTableView(fillInsView, [5, 6]); // Fill-In Image (col 5), Open (col 6)
+            musicMatches = searchTableView(musicView, [5, 6]); // Music Folder (col 5), Open (col 6)
             
             // Display search results info
             const resultsInfo = document.getElementById('search-results-info');
             
             // Combine results from all views
-            const totalSpecialMatches = puzzleMatches + visualMatches + fillInMatches;
+            const totalSpecialMatches = puzzleMatches + visualMatches + fillInMatches + musicMatches;
             const totalMatches = matchingTrivias.length + totalSpecialMatches;
             
             if (totalMatches > 0) {
@@ -2663,12 +2672,14 @@
                     if (puzzleMatches > 0) specialParts.push(`${puzzleMatches} puzzle${puzzleMatches === 1 ? '' : 's'}`);
                     if (visualMatches > 0) specialParts.push(`${visualMatches} visual${visualMatches === 1 ? '' : 's'}`);
                     if (fillInMatches > 0) specialParts.push(`${fillInMatches} fill-in${fillInMatches === 1 ? '' : 's'}`);
+                    if (musicMatches > 0) specialParts.push(`${musicMatches} music round${musicMatches === 1 ? '' : 's'}`);
                     message = `Found ${matchingTrivias.length} trivia${matchingTrivias.length === 1 ? '' : 's'} and ${specialParts.join(', ')}`;
                 } else if (totalSpecialMatches > 0) {
                     let specialParts = [];
                     if (puzzleMatches > 0) specialParts.push(`${puzzleMatches} puzzle${puzzleMatches === 1 ? '' : 's'}`);
                     if (visualMatches > 0) specialParts.push(`${visualMatches} visual${visualMatches === 1 ? '' : 's'}`);
                     if (fillInMatches > 0) specialParts.push(`${fillInMatches} fill-in${fillInMatches === 1 ? '' : 's'}`);
+                    if (musicMatches > 0) specialParts.push(`${musicMatches} music round${musicMatches === 1 ? '' : 's'}`);
                     message = `Found ${specialParts.join(', ')}`;
                 } else {
                     // Sort by trivia number descending to get most recent
@@ -3857,6 +3868,7 @@
                 document.getElementById('puzzles-view').style.display = 'none';
                 document.getElementById('visuals-view').style.display = 'none';
                 document.getElementById('fill-ins-view').style.display = 'none';
+                document.getElementById('music-view').style.display = 'none';
                 
                 // Remove active class from all buttons
                 document.querySelectorAll('.toolbar-btn').forEach(btn => btn.classList.remove('active'));
@@ -3896,6 +3908,15 @@
                     document.getElementById('fill-ins-view').style.display = 'block';
                     document.getElementById('btn-fill-ins').classList.add('active');
                     buildFillInsView();
+                    // Hide "search trivia rounds only" checkbox for special views
+                    if (searchRoundsOnlyCheckbox && searchRoundsOnlyCheckbox.parentElement) {
+                        searchRoundsOnlyCheckbox.parentElement.style.display = 'none';
+                    }
+                } else if (viewName === 'music') {
+                    console.log('Showing music view...');
+                    document.getElementById('music-view').style.display = 'block';
+                    document.getElementById('btn-music').classList.add('active');
+                    buildMusicView();
                     // Hide "search trivia rounds only" checkbox for special views
                     if (searchRoundsOnlyCheckbox && searchRoundsOnlyCheckbox.parentElement) {
                         searchRoundsOnlyCheckbox.parentElement.style.display = 'none';
@@ -4463,6 +4484,159 @@
                     loadingDiv.style.display = 'none';
                 }
             }
+        }
+        
+        // Build music table view
+        function buildMusicView() {
+            console.log('buildMusicView function called');
+            
+            try {
+                const loadingDiv = document.getElementById('music-loading');
+                const contentDiv = document.getElementById('music-content');
+                
+                console.log('loadingDiv:', loadingDiv);
+                console.log('contentDiv:', contentDiv);
+                
+                // Show loading state
+                loadingDiv.style.display = 'block';
+                contentDiv.innerHTML = '';
+                
+                // Collect all music rounds from all trivia
+                const musicRounds = [];
+                
+                for (const [triviaNumber, trivia] of allTriviaData.entries()) {
+                    const rounds = trivia.rounds || [];
+                    
+                    for (const round of rounds) {
+                        // Check if this round has a music folder
+                        const items = round.items || [];
+                        const hasMusicFolder = items.some(item => 
+                            item.label && item.label.toLowerCase().includes('music')
+                        );
+                        
+                        if (hasMusicFolder) {
+                            // Find the music folder item
+                            const musicItem = items.find(item => 
+                                item.label && item.label.toLowerCase().includes('music')
+                            );
+                            
+                            // Collect answers from the round's questions
+                            const answers = [];
+                            const questions = round.questions || [];
+                            questions.forEach(q => {
+                                if (q.question && q.answer) {
+                                    answers.push({
+                                        questionNumber: q.number || '',
+                                        question: q.question,
+                                        answer: q.answer
+                                    });
+                                }
+                            });
+                            
+                            musicRounds.push({
+                                triviaNumber: triviaNumber,
+                                triviaDate: trivia.dateHosted,
+                                triviaName: trivia.triviaName || 'Unnamed Trivia',
+                                roundName: round.name || 'Unnamed Round',
+                                roundInstruction: round.instruction || '',
+                                musicFolderLink: musicItem ? musicItem.originalUrl : '',
+                                answers: answers
+                            });
+                        }
+                    }
+                }
+                
+                console.log('Found music rounds:', musicRounds.length);
+                
+                // Check if no music rounds found
+                if (musicRounds.length === 0) {
+                    contentDiv.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><h3>No music rounds found</h3><p>No music rounds were found in the loaded trivia data.</p></div>';
+                    loadingDiv.style.display = 'none';
+                    return;
+                }
+                
+                // Sort by trivia number descending
+                musicRounds.sort((a, b) => b.triviaNumber - a.triviaNumber);
+                
+                // Build table HTML
+                let tableHTML = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Trivia #</th>
+                                <th>Date</th>
+                                <th>Trivia Name</th>
+                                <th>Round Name</th>
+                                <th>Round Instruction</th>
+                                <th>Music Folder</th>
+                                <th>Open</th>
+                                <th>Answers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                musicRounds.forEach(musicRound => {
+                    let musicFolderHTML = '—';
+                    let musicFolderOpenBtn = '';
+                    if (musicRound.musicFolderLink) {
+                        const folderId = extractGoogleDriveFolderId(musicRound.musicFolderLink);
+                        if (folderId) {
+                            musicFolderHTML = `<button onclick="openMusicPlayer(${musicRound.triviaNumber}, '${folderId}')" style="padding: 8px 16px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;">🎵 Open Player</button>`;
+                            musicFolderOpenBtn = `<button onclick="window.open('${musicRound.musicFolderLink}', '_blank')" title="Open in new tab">🔍</button>`;
+                        }
+                    }
+                    
+                    // Build answers list
+                    let answersHTML = '—';
+                    if (musicRound.answers && musicRound.answers.length > 0) {
+                        answersHTML = '<ul class="answers-list">';
+                        musicRound.answers.forEach(answerObj => {
+                            answersHTML += `<li><span class="question-number">${answerObj.questionNumber}.</span>${escapeHTML(answerObj.answer)}</li>`;
+                        });
+                        answersHTML += '</ul>';
+                    }
+                    
+                    tableHTML += `
+                        <tr>
+                            <td><a href="#trivia-${musicRound.triviaNumber}" class="trivia-link" onclick="showView('full-archive'); setTimeout(() => toggleTriviaItem(${musicRound.triviaNumber}), 100);">${musicRound.triviaNumber}</a></td>
+                            <td>${formatDate(musicRound.triviaDate)}</td>
+                            <td>${escapeHTML(musicRound.triviaName)}</td>
+                            <td>${escapeHTML(musicRound.roundName)}</td>
+                            <td class="instruction-cell">${escapeHTML(musicRound.roundInstruction)}</td>
+                            <td>${musicFolderHTML}</td>
+                            <td class="open-btn-cell">${musicFolderOpenBtn}</td>
+                            <td class="answers-cell">${answersHTML}</td>
+                        </tr>
+                    `;
+                });
+                
+                tableHTML += `
+                        </tbody>
+                    </table>
+                `;
+                
+                contentDiv.innerHTML = tableHTML;
+                loadingDiv.style.display = 'none';
+                
+            } catch (error) {
+                console.error('Error in buildMusicView:', error);
+                const contentDiv = document.getElementById('music-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = `<div style="padding: 40px; text-align: center; color: #d32f2f;"><h3>Error Loading Music</h3><p>${error.message}</p></div>`;
+                }
+                const loadingDiv = document.getElementById('music-loading');
+                if (loadingDiv) {
+                    loadingDiv.style.display = 'none';
+                }
+            }
+        }
+        
+        // Function to open music player (reuse existing music player logic)
+        function openMusicPlayer(triviaNumber, folderId) {
+            // This will open a modal or new window with the music player
+            // For now, just open the folder
+            window.open(`https://drive.google.com/drive/folders/${folderId}`, '_blank');
         }
     </script>
 </body>
