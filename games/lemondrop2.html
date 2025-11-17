@@ -18,20 +18,90 @@
       padding: 0;
       box-sizing: border-box;
     }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
     body {
       font-family: 'Press Start 2P', cursive;
       background: linear-gradient(180deg, #b7def8 0%, #7fc0f0 25%, #57a4d6 60%, #3f6f9b 100%);
       color: #0b2540;
-      min-height: 100vh;
       display: flex;
+      flex-direction: column;
       justify-content: center;
-      padding: 20px;
-      overflow: hidden;
+      align-items: center;
+      touch-action: manipulation;
+      user-select: none;
       position: relative;
     }
     .container {
       width: 100%;
       max-width: 1100px;
+      padding: 20px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .setup-screen {
+      background: #8B4513;
+      border: 4px solid #654321;
+      padding: 30px;
+      box-shadow: 8px 8px 0px rgba(0,0,0,0.5);
+      margin-top: 20px;
+    }
+    .setup-screen.hidden {
+      display: none;
+    }
+    .game-screen {
+      display: none;
+    }
+    .game-screen.active {
+      display: block;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 10px;
+      color: #FFD700;
+      text-shadow: 2px 2px 0px #000;
+    }
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 12px;
+      font-size: 12px;
+      font-family: 'Press Start 2P', cursive;
+      border: 3px solid #000;
+      background: #F5DEB3;
+      box-sizing: border-box;
+    }
+    .btn {
+      padding: 15px 25px;
+      background-color: #228B22;
+      color: white;
+      border: 3px solid #000;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: 'Press Start 2P', cursive;
+      box-shadow: 4px 4px 0px #000;
+      transition: all 0.1s;
+      width: 100%;
+      margin-top: 10px;
+    }
+    .btn:hover {
+      background-color: #32CD32;
+    }
+    .btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0px #000;
     }
     h1 {
       text-align: center;
@@ -81,8 +151,13 @@
       border: 4px solid #0b2540;
       background: linear-gradient(180deg, #fdfdf3 0%, #cfeaa5 65%, #adce7c 85%, #7a5b34 100%);
       image-rendering: pixelated;
-      max-height: 70vh;
       box-shadow: 0 0 25px rgba(8, 23, 45, 0.4);
+      flex-shrink: 0;
+    }
+    .game-screen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
     }
     .mobile-controls {
       display: none;
@@ -171,48 +246,68 @@
       .container {
         max-width: 100%;
         width: 100%;
+        padding: 5px;
       }
       h1 {
-        font-size: 12px;
-        margin-bottom: 3px;
+        font-size: 11px;
+        margin-bottom: 2px;
       }
       .subtitle {
-        font-size: 7px;
-        margin-bottom: 5px;
+        font-size: 6px;
+        margin-bottom: 3px;
+      }
+      .setup-screen {
+        padding: 15px;
+        margin-top: 5px;
+      }
+      .form-group {
+        margin-bottom: 10px;
+      }
+      .form-group label {
+        font-size: 8px;
+        margin-bottom: 4px;
+      }
+      .form-group input,
+      .form-group select {
+        padding: 8px;
+        font-size: 9px;
+      }
+      .btn {
+        padding: 10px;
+        font-size: 9px;
       }
       .hud {
-        padding: 5px 10px;
-        margin-bottom: 5px;
-        font-size: 7px;
-        gap: 8px;
+        padding: 4px 8px;
+        margin-bottom: 3px;
+        font-size: 6px;
+        gap: 5px;
       }
       .hud button {
-        padding: 6px 10px;
-        font-size: 7px;
+        padding: 4px 8px;
+        font-size: 6px;
       }
       canvas {
-        max-height: none;
-        height: calc(100vh - 80px);
+        height: calc(100vh - 60px) !important;
         border-width: 2px;
       }
       .mobile-controls {
         display: block;
-        height: 80px;
+        height: 60px;
       }
       .mobile-left, .mobile-right {
-        width: 50px;
-        height: 50px;
-        bottom: 15px;
-        font-size: 20px;
+        width: 45px;
+        height: 45px;
+        bottom: 8px;
+        font-size: 18px;
       }
       .mobile-right {
-        left: 65px;
+        left: 55px;
       }
       .mobile-jump {
-        width: 65px;
-        height: 65px;
-        bottom: 8px;
-        font-size: 24px;
+        width: 55px;
+        height: 55px;
+        bottom: 3px;
+        font-size: 20px;
       }
     }
   </style>
@@ -224,12 +319,42 @@
       Roll, bounce, and leap across an endless bar counter.<br>
       Arrow keys (or A/D) to roll · Space to jump.
     </div>
-    <div class="hud">
-      <div>Distance: <span id="distanceValue">0</span> m</div>
-      <div>Procedural level · camera follows the lemon</div>
-      <button id="regenBtn">NEW LAYOUT</button>
+
+    <!-- Setup Screen -->
+    <div id="setupScreen" class="setup-screen">
+      <div class="form-group">
+        <label for="barLocation2">BAR LOCATION:</label>
+        <select id="barLocation2" onchange="onLocationChange2()">
+          <option value="">Select location...</option>
+          <option value="St. Dymphna's">St. Dymphna's</option>
+          <option value="Radegast Hall">Radegast Hall</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="teamInputGroup2">
+        <label for="teamName2">TEAM NAME:</label>
+        <input type="text" id="teamName2" placeholder="Enter team name" autocomplete="off">
+      </div>
+      
+      <div class="form-group" id="teamSelectGroup2" style="display: none;">
+        <label for="teamSelect2">SELECT TEAM:</label>
+        <select id="teamSelect2">
+          <option value="">Select your team...</option>
+        </select>
+      </div>
+      
+      <button class="btn" onclick="startGame2()">START GAME</button>
     </div>
-    <canvas id="platformCanvas" width="960" height="540"></canvas>
+
+    <!-- Game Screen -->
+    <div id="gameScreen" class="game-screen">
+      <div class="hud">
+        <div>Distance: <span id="distanceValue">0</span> m</div>
+        <div>Procedural level · camera follows the lemon</div>
+        <button id="regenBtn">NEW LAYOUT</button>
+      </div>
+      <canvas id="platformCanvas" width="960" height="540"></canvas>
+    </div>
   </div>
 
   <div class="mobile-controls" id="mobileControls">
@@ -244,6 +369,31 @@
       Please rotate your device<br>to landscape mode<br>for the best experience
     </div>
   </div>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+        authDomain: "eviltrivia-47664.firebaseapp.com",
+        databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+        projectId: "eviltrivia-47664",
+        storageBucket: "eviltrivia-47664.firebaseapp.com",
+        messagingSenderId: "401826818140",
+        appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+        measurementId: "G-2W6RK96Y34"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    window.db = db;
+    window.dbRef = ref;
+    window.dbPush = push;
+    window.dbSet = set;
+    window.dbGet = get;
+  </script>
 
   <script>
     const {
@@ -758,6 +908,134 @@
       window.addEventListener('resize', resizeHandler);
     }
 
+    // Session and team management
+    async function onLocationChange2() {
+      const location = document.getElementById('barLocation2').value;
+      const teamInputGroup = document.getElementById('teamInputGroup2');
+      const teamSelectGroup = document.getElementById('teamSelectGroup2');
+      
+      if (!location) {
+        teamInputGroup.style.display = 'block';
+        teamSelectGroup.style.display = 'none';
+        return;
+      }
+      
+      await loadSessionTeamsForLocation2(location);
+    }
+
+    async function loadSessionTeamsForLocation2(location) {
+      const teamInputGroup = document.getElementById('teamInputGroup2');
+      const teamSelectGroup = document.getElementById('teamSelectGroup2');
+      
+      try {
+        const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
+        if (!activeSessionsSnap.exists()) {
+          teamInputGroup.style.display = 'block';
+          teamSelectGroup.style.display = 'none';
+          return false;
+        }
+        
+        const activeSessions = activeSessionsSnap.val();
+        const sessionId = activeSessions[location];
+        
+        if (!sessionId) {
+          teamInputGroup.style.display = 'block';
+          teamSelectGroup.style.display = 'none';
+          return false;
+        }
+        
+        const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
+        if (!teamsSnap.exists()) {
+          teamInputGroup.style.display = 'block';
+          teamSelectGroup.style.display = 'none';
+          return false;
+        }
+
+        const teams = teamsSnap.val();
+        const teamSelect = document.getElementById('teamSelect2');
+        teamSelect.innerHTML = '<option value="">Select your team...</option>';
+        
+        Object.entries(teams).forEach(([teamId, team]) => {
+          const option = document.createElement('option');
+          option.value = team.name;
+          option.textContent = team.name;
+          teamSelect.appendChild(option);
+        });
+
+        teamInputGroup.style.display = 'none';
+        teamSelectGroup.style.display = 'block';
+        
+        return true;
+      } catch (error) {
+        console.error('Error loading session teams:', error);
+        teamInputGroup.style.display = 'block';
+        teamSelectGroup.style.display = 'none';
+        return false;
+      }
+    }
+
+    function startGame2() {
+      const teamInputGroup = document.getElementById('teamInputGroup2');
+      const teamSelectGroup = document.getElementById('teamSelectGroup2');
+      
+      let teamName;
+      if (teamSelectGroup.style.display === 'none') {
+        teamName = document.getElementById('teamName2').value.trim();
+      } else {
+        teamName = document.getElementById('teamSelect2').value;
+      }
+      
+      const barLocation = document.getElementById('barLocation2').value;
+      
+      if (!teamName || !barLocation) {
+        alert('Please enter/select team name and bar location.');
+        return;
+      }
+      
+      // Store for score submission
+      window.currentTeamName = teamName;
+      window.currentBarLocation = barLocation;
+      
+      // Hide setup, show game
+      document.getElementById('setupScreen').classList.add('hidden');
+      document.getElementById('gameScreen').classList.add('active');
+      
+      initGame();
+    }
+
+    async function submitScore2(score) {
+      const teamName = window.currentTeamName;
+      const barLocation = window.currentBarLocation;
+      
+      if (!teamName || !barLocation) return;
+      
+      const scoreData = {
+        teamName: teamName,
+        barLocation: barLocation,
+        score: score,
+        timestamp: Date.now(),
+        date: new Date().toISOString().split('T')[0]
+      };
+      
+      try {
+        const answersRef = window.dbRef(window.db, 'games/lemondrop2/answers');
+        const newAnswerRef = window.dbPush(answersRef);
+        await window.dbSet(newAnswerRef, scoreData);
+        console.log('Score submitted successfully');
+      } catch (error) {
+        console.error('Error submitting to main path:', error);
+        
+        try {
+          const publicAnswersRef = window.dbRef(window.db, 'publicAnswers/lemondrop2');
+          const newAnswerRef = window.dbPush(publicAnswersRef);
+          await window.dbSet(newAnswerRef, scoreData);
+          console.log('Score submitted to fallback path');
+        } catch (fallbackError) {
+          console.error('Error submitting to fallback path:', fallbackError);
+        }
+      }
+    }
+
     regenBtn.addEventListener('click', () => {
       initGame();
       distanceTravelled = 0;
@@ -765,7 +1043,8 @@
 
     setupMobileControls();
     window.addEventListener('beforeunload', cleanup);
-    initGame();
+    window.startGame2 = startGame2;
+    window.onLocationChange2 = onLocationChange2;
   </script>
 </body>
 </html>
