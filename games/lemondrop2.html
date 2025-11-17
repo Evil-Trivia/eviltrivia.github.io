@@ -131,6 +131,7 @@
     const regenBtn = document.getElementById('regenBtn');
 
     const MOVE_FORCE = 0.00022;
+    const AIR_MOVE_FORCE = 0.00018;
     const MAX_MOVE_SPEED = 4.2;
     const AIR_DRAG = 0.005;
     const JUMP_FORCE = 0.055;
@@ -286,24 +287,23 @@
     }
 
     function createPenPlatform(x, y, width) {
-      const penColors = [
-        { name: 'black', hue: 0, sat: 0, light: 0 },
-        { name: 'blue', hue: 220, sat: 100, light: 40 },
-        { name: 'red', hue: 0, sat: 100, light: 45 },
-        { name: 'navy', hue: 220, sat: 100, light: 25 },
-        { name: 'green', hue: 120, sat: 60, light: 30 }
-      ];
-      const colorScheme = penColors[Math.floor(Math.random() * penColors.length)];
+      const penColors = ['#000000', '#0000FF', '#FF0000', '#000080', '#008000'];
+      const color = penColors[Math.floor(Math.random() * penColors.length)];
       
       const penHeight = 14;
-      const penActualWidth = width;
       
-      // Main collision body (invisible)
-      const collisionBody = Bodies.rectangle(x, y, width, penHeight, {
+      // Main collision body with pen sprite
+      const platform = Bodies.rectangle(x, y, width, penHeight, {
         isStatic: true,
         label: 'platform',
         friction: 0.95,
-        render: { visible: false }
+        render: {
+          sprite: {
+            texture: '../pen.png',
+            xScale: width / 486,
+            yScale: penHeight / 47
+          }
+        }
       });
       
       // Coyote time ledge - invisible extension on both sides
@@ -315,30 +315,14 @@
         render: { visible: false }
       });
       
-      // Visual pen sprite
-      const penVisual = Bodies.rectangle(x, y, width, penHeight, {
-        isStatic: true,
-        isSensor: true,
-        render: {
-          sprite: {
-            texture: '../pen.png',
-            xScale: width / 486,
-            yScale: penHeight / 47
-          }
-        }
-      });
-      
-      const platform = Body.create({
-        parts: [collisionBody, coyoteLedge, penVisual],
+      const compound = Body.create({
+        parts: [platform, coyoteLedge],
         isStatic: true,
         label: 'platform',
-        friction: 0.95,
-        render: {
-          fillStyle: `hsl(${colorScheme.hue}, ${colorScheme.sat}%, ${colorScheme.light}%)`
-        }
+        friction: 0.95
       });
       
-      return platform;
+      return compound;
     }
 
     function setupInput() {
@@ -371,13 +355,18 @@
         if (keys.ArrowLeft || keys.KeyA) direction -= 1;
         if (keys.ArrowRight || keys.KeyD) direction += 1;
 
+        const isGrounded = groundedContacts > 0;
+        const moveForce = isGrounded ? MOVE_FORCE : AIR_MOVE_FORCE;
+
         if (direction !== 0) {
           Body.applyForce(lemon, lemon.position, {
-            x: direction * MOVE_FORCE,
+            x: direction * moveForce,
             y: 0
           });
-          Body.setAngularVelocity(lemon, lemon.angularVelocity + direction * 0.02);
-        } else if (Math.abs(lemon.velocity.x) > 0.01) {
+          if (isGrounded) {
+            Body.setAngularVelocity(lemon, lemon.angularVelocity + direction * 0.02);
+          }
+        } else if (Math.abs(lemon.velocity.x) > 0.01 && isGrounded) {
           const dampingFactor = 1 - ROLL_DAMPING;
           Body.setVelocity(lemon, {
             x: lemon.velocity.x * dampingFactor,
