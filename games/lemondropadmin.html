@@ -249,8 +249,56 @@
     </div>
 
     <div id="adminContainer" class="hidden">
+        <!-- Session Management -->
+        <div class="section">
+            <h2>SESSION MANAGEMENT</h2>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="sessionLocation">LOCATION:</label>
+                    <select id="sessionLocation">
+                        <option value="">Select location...</option>
+                        <option value="St. Dymphna's">St. Dymphna's</option>
+                        <option value="Radegast Hall">Radegast Hall</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="sessionDate">DATE:</label>
+                    <input type="date" id="sessionDate">
+                </div>
+                <div class="control-group">
+                    <label>&nbsp;</label>
+                    <button onclick="createSession()">CREATE SESSION</button>
+                </div>
+            </div>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="existingSessionSelect">LOAD EXISTING SESSION:</label>
+                    <select id="existingSessionSelect" onchange="loadSession(this.value)">
+                        <option value="">Select a session...</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>&nbsp;</label>
+                    <button onclick="loadExistingSessions()">REFRESH SESSIONS</button>
+                </div>
+            </div>
+            <div id="currentSessionInfo" class="hidden" style="margin-top: 15px; padding: 15px; background: rgba(255,215,0,0.2); border: 2px solid #FFD700;">
+                <strong style="color: #FFD700;">ACTIVE SESSION:</strong>
+                <span id="sessionInfoText" style="color: #fff; margin-left: 10px;"></span>
+            </div>
+        </div>
+
         <div class="section">
         <div class="controls">
+            <div class="control-group">
+                <label for="gameFilter">GAME MODE:</label>
+                <select id="gameFilter">
+                    <option value="">All Games</option>
+                    <option value="lemondrop">Lemon Drop (Dodge)</option>
+                    <option value="lemondrop2">Lemon Drop 2 (Platform)</option>
+                </select>
+            </div>
+
             <div class="control-group">
                 <label for="barFilter">FILTER BY BAR:</label>
                 <select id="barFilter">
@@ -273,12 +321,14 @@
             <div class="control-group">
                 <label for="sortBy">SORT BY:</label>
                 <select id="sortBy">
-                    <option value="score-desc">Longest Time First</option>
-                    <option value="score-asc">Shortest Time First</option>
+                    <option value="score-desc">Highest Score First</option>
+                    <option value="score-asc">Lowest Score First</option>
                     <option value="timestamp-desc">Newest First</option>
                     <option value="timestamp-asc">Oldest First</option>
                     <option value="teamName-asc">Team Name A-Z</option>
                     <option value="teamName-desc">Team Name Z-A</option>
+                    <option value="location-asc">Location A-Z</option>
+                    <option value="location-desc">Location Z-A</option>
                 </select>
             </div>
             
@@ -295,11 +345,15 @@
             </div>
             <div class="stat-card">
                 <div class="stat-value" id="averageScore">0</div>
-                <div class="stat-label">AVERAGE TIME (SEC)</div>
+                <div class="stat-label">AVERAGE SCORE</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value" id="highScore">0</div>
-                <div class="stat-label">LONGEST TIME (SEC)</div>
+                <div class="stat-label">BEST SCORE</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="recentScore">-</div>
+                <div class="stat-label">MOST RECENT</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value" id="todayScores">0</div>
@@ -322,10 +376,11 @@
                 <thead>
                     <tr>
                         <th>RANK</th>
+                        <th>GAME</th>
                         <th>DATE/TIME</th>
                         <th>TEAM NAME</th>
                         <th>BAR LOCATION</th>
-                        <th>TIME (SEC)</th>
+                        <th>SCORE</th>
                         <th>DELETE</th>
                     </tr>
                 </thead>
@@ -439,36 +494,63 @@
             try {
                 allScores = [];
 
-                // Load from main path
-                const mainScoresRef = window.dbRef(window.db, 'games/lemondrop/answers');
-                const mainSnapshot = await window.dbGet(mainScoresRef);
-                
-                if (mainSnapshot.exists()) {
-                    const mainData = mainSnapshot.val();
-                    Object.keys(mainData).forEach(key => {
-                        const score = mainData[key];
+                // Load LemonDrop 1 (Dodge) scores
+                const ld1MainRef = window.dbRef(window.db, 'games/lemondrop/answers');
+                const ld1MainSnap = await window.dbGet(ld1MainRef);
+                if (ld1MainSnap.exists()) {
+                    const data = ld1MainSnap.val();
+                    Object.keys(data).forEach(key => {
+                        const score = data[key];
                         score.id = key;
                         score.source = 'main';
+                        score.game = 'lemondrop';
+                        score.gameName = 'Dodge';
                         allScores.push(score);
                     });
                 }
 
-                // Load from fallback path
-                const publicScoresRef = window.dbRef(window.db, 'publicAnswers/lemondrop');
-                const publicSnapshot = await window.dbGet(publicScoresRef);
-                
-                if (publicSnapshot.exists()) {
-                    const publicData = publicSnapshot.val();
-                    Object.keys(publicData).forEach(key => {
-                        const score = publicData[key];
+                const ld1PublicRef = window.dbRef(window.db, 'publicAnswers/lemondrop');
+                const ld1PublicSnap = await window.dbGet(ld1PublicRef);
+                if (ld1PublicSnap.exists()) {
+                    const data = ld1PublicSnap.val();
+                    Object.keys(data).forEach(key => {
+                        const score = data[key];
                         score.id = key;
                         score.source = 'public';
+                        score.game = 'lemondrop';
+                        score.gameName = 'Dodge';
                         allScores.push(score);
                     });
                 }
 
-                // Sort by score (highest first)
-                allScores.sort((a, b) => (b.score || 0) - (a.score || 0));
+                // Load LemonDrop 2 (Platform) scores
+                const ld2MainRef = window.dbRef(window.db, 'games/lemondrop2/answers');
+                const ld2MainSnap = await window.dbGet(ld2MainRef);
+                if (ld2MainSnap.exists()) {
+                    const data = ld2MainSnap.val();
+                    Object.keys(data).forEach(key => {
+                        const score = data[key];
+                        score.id = key;
+                        score.source = 'main';
+                        score.game = 'lemondrop2';
+                        score.gameName = 'Platform';
+                        allScores.push(score);
+                    });
+                }
+
+                const ld2PublicRef = window.dbRef(window.db, 'publicAnswers/lemondrop2');
+                const ld2PublicSnap = await window.dbGet(ld2PublicRef);
+                if (ld2PublicSnap.exists()) {
+                    const data = ld2PublicSnap.val();
+                    Object.keys(data).forEach(key => {
+                        const score = data[key];
+                        score.id = key;
+                        score.source = 'public';
+                        score.game = 'lemondrop2';
+                        score.gameName = 'Platform';
+                        allScores.push(score);
+                    });
+                }
 
                 hideLoading();
                 applyFilters();
@@ -485,8 +567,14 @@
             const barValue = barFilter.value;
             const dateValue = dateFilter.value;
             const teamValue = teamFilter.value.toLowerCase().trim();
+            const gameValue = document.getElementById('gameFilter').value;
 
             filteredScores = allScores.filter(score => {
+                // Game filter
+                if (gameValue && score.game !== gameValue) {
+                    return false;
+                }
+
                 // Bar filter
                 if (barValue && score.barLocation !== barValue) {
                     return false;
