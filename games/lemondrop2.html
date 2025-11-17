@@ -251,6 +251,8 @@
     let touchLeft = false;
     let touchRight = false;
     let touchJump = false;
+    let leftWall = null;
+    let rightWall = null;
 
     function initGame() {
       cleanup();
@@ -304,6 +306,8 @@
       platforms = [];
       groundedContacts = 0;
       jumpHoldTicks = 0;
+      leftWall = null;
+      rightWall = null;
     }
 
     function createPlayer(width, height) {
@@ -372,16 +376,12 @@
       lastPlatformX = cursorX;
       levelWidth = cursorX + width * 2;
 
-      const leftWall = Bodies.rectangle(-200, height / 2, 400, height * 2, {
-        isStatic: true,
-        label: 'wall'
-      });
-      const rightWall = Bodies.rectangle(levelWidth + 200, height / 2, 400, height * 2, {
+      leftWall = Bodies.rectangle(-200, height / 2, 400, height * 2, {
         isStatic: true,
         label: 'wall'
       });
 
-      World.add(world, [leftWall, rightWall, ...platforms]);
+      World.add(world, [leftWall, ...platforms]);
     }
 
     function createPenPlatform(x, y, width) {
@@ -460,8 +460,9 @@
     }
 
     function handleKeyDown(e) {
+      const wasPressed = keys[e.code];
       keys[e.code] = true;
-      if ((e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') && canJump()) {
+      if (!wasPressed && (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') && canJump()) {
         performJump();
       }
     }
@@ -502,16 +503,19 @@
       }
 
       if (mobileJump) {
+        let jumpPressed = false;
         mobileJump.addEventListener('touchstart', (e) => {
           e.preventDefault();
-          if (canJump()) {
+          if (!jumpPressed && canJump()) {
             performJump();
+            jumpPressed = true;
           }
           touchJump = true;
         });
         mobileJump.addEventListener('touchend', (e) => {
           e.preventDefault();
           touchJump = false;
+          jumpPressed = false;
         });
       }
     }
@@ -619,6 +623,7 @@
 
     function performJump() {
       if (!lemon) return;
+      groundedContacts = 0;
       Body.setVelocity(lemon, { x: lemon.velocity.x, y: Math.min(lemon.velocity.y, -2) });
       Body.applyForce(lemon, {
         x: lemon.position.x,
