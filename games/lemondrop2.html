@@ -80,6 +80,52 @@
       max-height: 70vh;
       box-shadow: 0 0 25px rgba(8, 23, 45, 0.4);
     }
+    .mobile-controls {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 140px;
+      pointer-events: none;
+      z-index: 1000;
+    }
+    .mobile-btn {
+      position: absolute;
+      background: rgba(255, 255, 255, 0.3);
+      border: 3px solid rgba(0, 0, 0, 0.4);
+      border-radius: 8px;
+      pointer-events: all;
+      touch-action: none;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: rgba(0, 0, 0, 0.6);
+      font-weight: bold;
+    }
+    .mobile-btn:active {
+      background: rgba(255, 255, 255, 0.6);
+    }
+    .mobile-left {
+      bottom: 20px;
+      left: 20px;
+      width: 70px;
+      height: 70px;
+    }
+    .mobile-right {
+      bottom: 20px;
+      left: 100px;
+      width: 70px;
+      height: 70px;
+    }
+    .mobile-jump {
+      bottom: 20px;
+      right: 20px;
+      width: 90px;
+      height: 90px;
+    }
     @media (max-width: 700px) {
       body {
         padding: 10px;
@@ -94,6 +140,47 @@
       canvas {
         max-height: none;
         height: 420px;
+      }
+      .mobile-controls {
+        display: block;
+      }
+    }
+    @media (orientation: landscape) and (max-height: 600px) {
+      body {
+        padding: 5px;
+      }
+      h1 {
+        font-size: 14px;
+        margin-bottom: 5px;
+      }
+      .subtitle {
+        font-size: 8px;
+        margin-bottom: 8px;
+      }
+      .hud {
+        padding: 8px;
+        margin-bottom: 8px;
+        font-size: 8px;
+      }
+      canvas {
+        height: calc(100vh - 120px);
+      }
+      .mobile-controls {
+        display: block;
+        height: 100px;
+      }
+      .mobile-left, .mobile-right {
+        width: 55px;
+        height: 55px;
+        bottom: 10px;
+      }
+      .mobile-right {
+        left: 80px;
+      }
+      .mobile-jump {
+        width: 70px;
+        height: 70px;
+        bottom: 10px;
       }
     }
   </style>
@@ -111,6 +198,12 @@
       <button id="regenBtn">NEW LAYOUT</button>
     </div>
     <canvas id="platformCanvas" width="960" height="540"></canvas>
+  </div>
+
+  <div class="mobile-controls" id="mobileControls">
+    <button class="mobile-btn mobile-left" id="mobileLeft">◀</button>
+    <button class="mobile-btn mobile-right" id="mobileRight">▶</button>
+    <button class="mobile-btn mobile-jump" id="mobileJump">▲</button>
   </div>
 
   <script>
@@ -154,6 +247,10 @@
     let resizeHandler = null;
     let resizeTimeout = null;
     let jumpHoldTicks = 0;
+    let lastPlatformX = 0;
+    let touchLeft = false;
+    let touchRight = false;
+    let touchJump = false;
 
     function initGame() {
       cleanup();
@@ -272,7 +369,8 @@
         cursorX += platformWidth / 2;
       }
 
-      levelWidth = cursorX + width;
+      lastPlatformX = cursorX;
+      levelWidth = cursorX + width * 2;
 
       const leftWall = Bodies.rectangle(-200, height / 2, 400, height * 2, {
         isStatic: true,
@@ -325,6 +423,34 @@
       return compound;
     }
 
+    function extendLevel(viewWidth, viewHeight) {
+      const minWidth = 160;
+      const maxWidth = 280;
+      const baseY = viewHeight - 70;
+      const lastPlatform = platforms[platforms.length - 1];
+      let cursorX = lastPlatformX;
+      let currentY = lastPlatform ? lastPlatform.position.y : baseY;
+      
+      const newSegments = 15;
+      for (let i = 0; i < newSegments; i++) {
+        const platformWidth = minWidth + Math.random() * (maxWidth - minWidth);
+        const gap = 80 + Math.random() * 140;
+        cursorX += platformWidth / 2 + gap;
+
+        const offset = (Math.random() - 0.5) * 160;
+        currentY = clamp(currentY + offset, 160, baseY);
+
+        const platform = createPenPlatform(cursorX, currentY, platformWidth);
+        platforms.push(platform);
+        World.add(world, platform);
+        
+        cursorX += platformWidth / 2;
+      }
+      
+      lastPlatformX = cursorX;
+      levelWidth = cursorX + viewWidth * 2;
+    }
+
     function setupInput() {
       keys = {};
       if (inputBound) return;
@@ -348,12 +474,54 @@
       return keys.Space || keys.ArrowUp || keys.KeyW;
     }
 
+    function setupMobileControls() {
+      const mobileLeft = document.getElementById('mobileLeft');
+      const mobileRight = document.getElementById('mobileRight');
+      const mobileJump = document.getElementById('mobileJump');
+
+      if (mobileLeft) {
+        mobileLeft.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          touchLeft = true;
+        });
+        mobileLeft.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          touchLeft = false;
+        });
+      }
+
+      if (mobileRight) {
+        mobileRight.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          touchRight = true;
+        });
+        mobileRight.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          touchRight = false;
+        });
+      }
+
+      if (mobileJump) {
+        mobileJump.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          if (canJump()) {
+            performJump();
+          }
+          touchJump = true;
+        });
+        mobileJump.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          touchJump = false;
+        });
+      }
+    }
+
     function setupEvents(viewWidth, viewHeight) {
       Events.on(engine, 'beforeUpdate', () => {
         if (!lemon) return;
         let direction = 0;
-        if (keys.ArrowLeft || keys.KeyA) direction -= 1;
-        if (keys.ArrowRight || keys.KeyD) direction += 1;
+        if (keys.ArrowLeft || keys.KeyA || touchLeft) direction -= 1;
+        if (keys.ArrowRight || keys.KeyD || touchRight) direction += 1;
 
         const isGrounded = groundedContacts > 0;
         const moveForce = isGrounded ? MOVE_FORCE : AIR_MOVE_FORCE;
@@ -386,12 +554,17 @@
         }
 
         if (jumpHoldTicks > 0) {
-          if (isJumpKeyActive() && lemon.velocity.y < 0) {
+          if ((isJumpKeyActive() || touchJump) && lemon.velocity.y < 0) {
             Body.applyForce(lemon, lemon.position, { x: 0, y: -JUMP_HOLD_FORCE });
             jumpHoldTicks--;
-          } else if (!isJumpKeyActive() || lemon.velocity.y >= 0) {
+          } else if ((!isJumpKeyActive() && !touchJump) || lemon.velocity.y >= 0) {
             jumpHoldTicks = 0;
           }
+        }
+
+        // Generate more platforms if approaching the end
+        if (lemon.position.x > lastPlatformX - viewWidth * 2) {
+          extendLevel(viewWidth, viewHeight);
         }
       });
 
@@ -546,6 +719,7 @@
       distanceTravelled = 0;
     });
 
+    setupMobileControls();
     window.addEventListener('beforeunload', cleanup);
     initGame();
   </script>
