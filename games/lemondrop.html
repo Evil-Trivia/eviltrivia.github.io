@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evil Trivia - Lemon Drop</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Press Start 2P', cursive;
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(180deg, #87CEEB 0%, #4A90A4 100%);
+      min-height: 100vh;
+      touch-action: manipulation;
+      user-select: none;
+      overflow: hidden;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 15px;
+      position: relative;
+    }
+    
+    h1 {
+      text-align: center;
+      color: #fff;
+      margin-bottom: 10px;
+      font-size: 24px;
+      text-shadow: 4px 4px 0px #000;
+      line-height: 1.5;
+    }
+    
+    .subtitle {
+      text-align: center;
+      color: #FFD700;
+      margin-bottom: 15px;
+      font-size: 10px;
+      line-height: 1.8;
+      text-shadow: 2px 2px 0px #000;
+    }
+
+    .game-card {
+      background: #8B4513;
+      border: 4px solid #654321;
+      padding: 20px;
+      box-shadow: 8px 8px 0px rgba(0,0,0,0.5);
+      margin-top: 15px;
+      position: relative;
+      image-rendering: pixelated;
+      image-rendering: -moz-crisp-edges;
+      image-rendering: crisp-edges;
+    }
+    
+    .setup-form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .form-group {
+      width: 100%;
+      max-width: 400px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 10px;
+      color: #FFD700;
+      text-shadow: 2px 2px 0px #000;
+    }
+    
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 12px;
+      font-size: 12px;
+      font-family: 'Press Start 2P', cursive;
+      border: 3px solid #000;
+      background: #F5DEB3;
+      box-sizing: border-box;
+      image-rendering: pixelated;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: 3px solid #FFD700;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 15px;
+      margin-top: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    
+    .btn {
+      padding: 15px 25px;
+      background-color: #228B22;
+      color: white;
+      border: 3px solid #000;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: 'Press Start 2P', cursive;
+      box-shadow: 4px 4px 0px #000;
+      transition: all 0.1s;
+    }
+    
+    .btn:hover {
+      background-color: #32CD32;
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0px #000;
+    }
+    
+    .btn:active {
+      transform: translate(4px, 4px);
+      box-shadow: 0px 0px 0px #000;
+    }
+    
+    .btn:disabled {
+      background-color: #666;
+      cursor: not-allowed;
+    }
+    
+    .btn-secondary {
+      background-color: #4169E1;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #6495ED;
+    }
+    
+    #gameCanvas {
+      border: 4px solid #000;
+      display: block;
+      margin: 0 auto;
+      background: linear-gradient(180deg, #87CEEB 0%, #90EE90 70%, #8B7355 70%, #654321 100%);
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.3);
+      image-rendering: pixelated;
+      image-rendering: -moz-crisp-edges;
+      image-rendering: crisp-edges;
+    }
+    
+    .game-area {
+      display: none;
+    }
+
+    .game-hud {
+      text-align: center;
+      margin-bottom: 15px;
+      padding: 15px;
+      background: rgba(0,0,0,0.7);
+      border: 3px solid #000;
+      border-radius: 0;
+    }
+
+    .score-display {
+      font-size: 16px;
+      color: #FFD700;
+      text-shadow: 2px 2px 0px #000;
+      margin-bottom: 10px;
+    }
+
+    .instructions {
+      font-size: 8px;
+      color: #fff;
+      line-height: 1.8;
+      text-shadow: 1px 1px 0px #000;
+    }
+    
+    .results {
+      display: none;
+      text-align: center;
+      background: rgba(0,0,0,0.8);
+      padding: 30px;
+      border: 4px solid #FFD700;
+      margin-top: 20px;
+    }
+    
+    .game-over-title {
+      font-size: 24px;
+      color: #FF4444;
+      text-shadow: 3px 3px 0px #000;
+      margin-bottom: 20px;
+    }
+
+    .final-score {
+      font-size: 20px;
+      color: #FFD700;
+      text-shadow: 2px 2px 0px #000;
+      margin: 20px 0;
+    }
+    
+    .controls-hint {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.8);
+      padding: 15px 25px;
+      border: 3px solid #FFD700;
+      color: #fff;
+      font-size: 8px;
+      text-shadow: 1px 1px 0px #000;
+      z-index: 1000;
+      line-height: 1.8;
+    }
+
+    .touch-controls {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 150px;
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    .touch-left, .touch-right {
+      position: absolute;
+      width: 50%;
+      height: 100%;
+      pointer-events: all;
+      opacity: 0.3;
+      transition: opacity 0.1s;
+    }
+
+    .touch-left {
+      left: 0;
+      background: linear-gradient(to right, rgba(255,0,0,0.5), transparent);
+      border-right: 2px dashed #fff;
+    }
+
+    .touch-right {
+      right: 0;
+      background: linear-gradient(to left, rgba(0,0,255,0.5), transparent);
+      border-left: 2px dashed #fff;
+    }
+
+    .touch-left:active, .touch-right:active {
+      opacity: 0.6;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 600px) {
+      h1 {
+        font-size: 16px;
+      }
+      
+      .subtitle {
+        font-size: 8px;
+      }
+
+      .game-card {
+        padding: 10px;
+      }
+
+      .btn {
+        font-size: 10px;
+        padding: 12px 20px;
+      }
+
+      .touch-controls {
+        display: block;
+      }
+
+      .controls-hint {
+        display: none;
+      }
+    }
+
+    @media (max-width: 400px) {
+      h1 {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🍋 LEMON DROP 🍋</h1>
+    <div class="subtitle">
+      Catch the falling pens!<br>Move with arrow keys or tap screen sides
+    </div>
+
+    <div class="game-card">
+      <!-- Setup Form -->
+      <div id="setupForm" class="setup-form">
+        <div class="form-group">
+          <label for="teamName">TEAM NAME:</label>
+          <input type="text" id="teamName" placeholder="Enter team name">
+        </div>
+        
+        <div class="form-group">
+          <label for="barLocation">BAR LOCATION:</label>
+          <select id="barLocation">
+            <option value="">Select location...</option>
+            <option value="St. Dymphna's">St. Dymphna's</option>
+            <option value="Radegast Hall">Radegast Hall</option>
+          </select>
+        </div>
+        
+        <div class="button-group">
+          <button class="btn" onclick="startGame(false)">PLAY GAME</button>
+          <button class="btn btn-secondary" onclick="startGame(true)">PRACTICE MODE</button>
+        </div>
+      </div>
+
+      <!-- Game Area -->
+      <div id="gameArea" class="game-area">
+        <div class="game-hud">
+          <div class="score-display">SCORE: <span id="scoreValue">0</span></div>
+          <div class="instructions">Catch the pens! Don't let them hit the lemon!</div>
+        </div>
+        
+        <canvas id="gameCanvas"></canvas>
+      </div>
+
+      <!-- Results -->
+      <div id="results" class="results">
+        <div class="game-over-title">GAME OVER!</div>
+        <div class="final-score">FINAL SCORE: <span id="finalScore">0</span></div>
+        <div class="button-group">
+          <button class="btn" onclick="resetGame()">PLAY AGAIN</button>
+          <button class="btn btn-secondary" onclick="backToMenu()">MAIN MENU</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls-hint" id="controlsHint">
+    ⬅️ LEFT ARROW  |  RIGHT ARROW ➡️
+  </div>
+
+  <div class="touch-controls" id="touchControls">
+    <div class="touch-left" id="touchLeft"></div>
+    <div class="touch-right" id="touchRight"></div>
+  </div>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getDatabase, ref, push, set } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+        authDomain: "eviltrivia-47664.firebaseapp.com",
+        databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+        projectId: "eviltrivia-47664",
+        storageBucket: "eviltrivia-47664.firebaseapp.com",
+        messagingSenderId: "401826818140",
+        appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+        measurementId: "G-2W6RK96Y34"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    window.db = db;
+    window.dbRef = ref;
+    window.dbPush = push;
+    window.dbSet = set;
+  </script>
+
+  <script>
+    // Game variables
+    let engine, render, world;
+    let lemon, ground, leftWall, rightWall;
+    let pens = [];
+    let score = 0;
+    let gameActive = false;
+    let isPracticeMode = false;
+    let penSpawnInterval;
+    let gameSpeed = 1;
+    let lemonImage;
+    
+    const { Engine, Render, World, Bodies, Body, Events } = Matter;
+    
+    // DOM elements
+    const setupForm = document.getElementById('setupForm');
+    const gameArea = document.getElementById('gameArea');
+    const results = document.getElementById('results');
+    const canvas = document.getElementById('gameCanvas');
+    const scoreValue = document.getElementById('scoreValue');
+    const finalScoreEl = document.getElementById('finalScore');
+    const controlsHint = document.getElementById('controlsHint');
+    const touchControls = document.getElementById('touchControls');
+    const touchLeft = document.getElementById('touchLeft');
+    const touchRight = document.getElementById('touchRight');
+    
+    // Controls
+    let keys = {};
+    let touchingLeft = false;
+    let touchingRight = false;
+    
+    function startGame(practiceMode) {
+      const teamName = document.getElementById('teamName').value.trim();
+      const barLocation = document.getElementById('barLocation').value;
+      
+      if (!practiceMode && (!teamName || !barLocation)) {
+        alert('Please enter team name and select bar location, or use Practice Mode.');
+        return;
+      }
+      
+      isPracticeMode = practiceMode;
+      score = 0;
+      scoreValue.textContent = score;
+      
+      // Show game area
+      setupForm.style.display = 'none';
+      gameArea.style.display = 'block';
+      results.style.display = 'none';
+      
+      // Initialize game
+      initGame();
+    }
+    
+    function initGame() {
+      // Create engine
+      engine = Engine.create();
+      world = engine.world;
+      world.gravity.y = 1;
+      
+      // Canvas setup
+      const canvasWidth = Math.min(800, window.innerWidth - 40);
+      const canvasHeight = 600;
+      
+      render = Render.create({
+        canvas: canvas,
+        engine: engine,
+        options: {
+          width: canvasWidth,
+          height: canvasHeight,
+          wireframes: false,
+          background: 'transparent'
+        }
+      });
+      
+      // Create ground (dirt)
+      ground = Bodies.rectangle(canvasWidth / 2, canvasHeight - 20, canvasWidth, 40, { 
+        isStatic: true,
+        render: {
+          fillStyle: '#654321'
+        }
+      });
+      
+      // Create walls
+      leftWall = Bodies.rectangle(0, canvasHeight / 2, 20, canvasHeight, { 
+        isStatic: true,
+        render: {
+          fillStyle: '#654321'
+        }
+      });
+      
+      rightWall = Bodies.rectangle(canvasWidth, canvasHeight / 2, 20, canvasHeight, { 
+        isStatic: true,
+        render: {
+          fillStyle: '#654321'
+        }
+      });
+      
+      // Load lemon image and create lemon body
+      lemonImage = new Image();
+      lemonImage.src = '../images/lemon.png';
+      
+      lemonImage.onload = () => {
+        // Create lemon with physics properties
+        const lemonSize = 50;
+        lemon = Bodies.circle(canvasWidth / 2, canvasHeight - 100, lemonSize, {
+          density: 0.04,
+          friction: 0.01,
+          frictionAir: 0.01,
+          restitution: 0.3,
+          render: {
+            sprite: {
+              texture: '../images/lemon.png',
+              xScale: lemonSize * 2 / 100,
+              yScale: lemonSize * 2 / 100
+            }
+          }
+        });
+        
+        World.add(world, [ground, leftWall, rightWall, lemon]);
+        
+        // Start game loop
+        Render.run(render);
+        Engine.run(engine);
+        
+        gameActive = true;
+        startSpawningPens();
+      };
+      
+      // Collision detection
+      Events.on(engine, 'collisionStart', (event) => {
+        const pairs = event.pairs;
+        
+        pairs.forEach(pair => {
+          const { bodyA, bodyB } = pair;
+          
+          // Check if pen hit lemon
+          if ((bodyA === lemon || bodyB === lemon) && gameActive) {
+            const pen = bodyA === lemon ? bodyB : bodyA;
+            if (pen.label === 'pen') {
+              gameOver();
+            }
+          }
+          
+          // Check if pen hit ground (score!)
+          if ((bodyA === ground || bodyB === ground) && gameActive) {
+            const pen = bodyA === ground ? bodyB : bodyA;
+            if (pen.label === 'pen' && !pen.scored) {
+              pen.scored = true;
+              score++;
+              scoreValue.textContent = score;
+              
+              // Remove pen after scoring
+              setTimeout(() => {
+                World.remove(world, pen);
+                pens = pens.filter(p => p !== pen);
+              }, 100);
+              
+              // Increase difficulty
+              if (score % 5 === 0) {
+                gameSpeed += 0.1;
+              }
+            }
+          }
+        });
+      });
+      
+      // Update loop for controls
+      Events.on(engine, 'beforeUpdate', () => {
+        if (!gameActive || !lemon) return;
+        
+        const force = 0.002;
+        
+        if (keys.ArrowLeft || touchingLeft) {
+          Body.applyForce(lemon, lemon.position, { x: -force, y: 0 });
+        }
+        if (keys.ArrowRight || touchingRight) {
+          Body.applyForce(lemon, lemon.position, { x: force, y: 0 });
+        }
+        
+        // Keep lemon from going too high
+        if (lemon.position.y < 100) {
+          Body.setPosition(lemon, { x: lemon.position.x, y: 100 });
+        }
+      });
+    }
+    
+    function startSpawningPens() {
+      penSpawnInterval = setInterval(() => {
+        if (!gameActive) return;
+        spawnPen();
+      }, Math.max(1000, 2000 - score * 50)); // Spawn faster as score increases
+    }
+    
+    function spawnPen() {
+      const canvasWidth = canvas.width;
+      const x = Math.random() * (canvasWidth - 100) + 50;
+      
+      // Create pen (rectangle that looks like a pen)
+      const pen = Bodies.rectangle(x, -20, 8, 40, {
+        label: 'pen',
+        density: 0.001,
+        friction: 0.1,
+        restitution: 0.2,
+        angle: Math.random() * Math.PI * 2,
+        render: {
+          fillStyle: '#' + Math.floor(Math.random()*16777215).toString(16)
+        }
+      });
+      
+      pen.scored = false;
+      
+      // Add some random horizontal velocity
+      Body.setVelocity(pen, { 
+        x: (Math.random() - 0.5) * 2, 
+        y: gameSpeed * 2 
+      });
+      
+      World.add(world, pen);
+      pens.push(pen);
+      
+      // Remove pen if it goes off screen
+      setTimeout(() => {
+        if (pens.includes(pen)) {
+          World.remove(world, pen);
+          pens = pens.filter(p => p !== pen);
+        }
+      }, 10000);
+    }
+    
+    function gameOver() {
+      if (!gameActive) return;
+      gameActive = false;
+      
+      // Stop spawning
+      clearInterval(penSpawnInterval);
+      
+      // Create lemon juice splatter effect
+      createJuiceSplatter();
+      
+      // Show game over after brief delay
+      setTimeout(() => {
+        // Clean up
+        if (render) {
+          Render.stop(render);
+          Engine.clear(engine);
+          World.clear(world);
+        }
+        
+        // Show results
+        gameArea.style.display = 'none';
+        results.style.display = 'block';
+        finalScoreEl.textContent = score;
+        
+        // Submit score
+        if (!isPracticeMode) {
+          submitScore();
+        }
+      }, 1500);
+    }
+    
+    function createJuiceSplatter() {
+      if (!lemon) return;
+      
+      const juiceCount = 20;
+      for (let i = 0; i < juiceCount; i++) {
+        const angle = (Math.PI * 2 * i) / juiceCount;
+        const speed = 5 + Math.random() * 5;
+        
+        const juice = Bodies.circle(
+          lemon.position.x,
+          lemon.position.y,
+          3 + Math.random() * 3,
+          {
+            friction: 0.001,
+            restitution: 0.8,
+            render: {
+              fillStyle: '#FFD700'
+            }
+          }
+        );
+        
+        Body.setVelocity(juice, {
+          x: Math.cos(angle) * speed,
+          y: Math.sin(angle) * speed
+        });
+        
+        World.add(world, juice);
+        
+        // Remove juice after a bit
+        setTimeout(() => {
+          World.remove(world, juice);
+        }, 2000);
+      }
+    }
+    
+    async function submitScore() {
+      const teamName = document.getElementById('teamName').value.trim();
+      const barLocation = document.getElementById('barLocation').value;
+      
+      if (!teamName || !barLocation) return;
+      
+      const scoreData = {
+        teamName: teamName,
+        barLocation: barLocation,
+        score: score,
+        timestamp: Date.now(),
+        date: new Date().toISOString().split('T')[0]
+      };
+      
+      try {
+        const answersRef = window.dbRef(window.db, 'games/lemondrop/answers');
+        const newAnswerRef = window.dbPush(answersRef);
+        await window.dbSet(newAnswerRef, scoreData);
+        console.log('Score submitted successfully');
+      } catch (error) {
+        console.error('Error submitting to main path:', error);
+        
+        try {
+          const publicAnswersRef = window.dbRef(window.db, 'publicAnswers/lemondrop');
+          const newAnswerRef = window.dbPush(publicAnswersRef);
+          await window.dbSet(newAnswerRef, scoreData);
+          console.log('Score submitted to fallback path');
+        } catch (fallbackError) {
+          console.error('Error submitting to fallback path:', fallbackError);
+        }
+      }
+    }
+    
+    function resetGame() {
+      results.style.display = 'none';
+      score = 0;
+      scoreValue.textContent = score;
+      gameSpeed = 1;
+      pens = [];
+      initGame();
+    }
+    
+    function backToMenu() {
+      results.style.display = 'none';
+      gameArea.style.display = 'none';
+      setupForm.style.display = 'flex';
+      
+      // Clean up game
+      if (render) {
+        Render.stop(render);
+        Engine.clear(engine);
+        World.clear(world);
+      }
+      
+      score = 0;
+      gameSpeed = 1;
+      pens = [];
+    }
+    
+    // Keyboard controls
+    window.addEventListener('keydown', (e) => {
+      keys[e.key] = true;
+      
+      if (gameActive && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+      }
+    });
+    
+    window.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+    
+    // Touch controls
+    touchLeft.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      touchingLeft = true;
+    });
+    
+    touchLeft.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      touchingLeft = false;
+    });
+    
+    touchRight.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      touchingRight = true;
+    });
+    
+    touchRight.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      touchingRight = false;
+    });
+    
+    // Make functions global
+    window.startGame = startGame;
+    window.resetGame = resetGame;
+    window.backToMenu = backToMenu;
+    
+    // Hide controls hint after a few seconds
+    setTimeout(() => {
+      if (controlsHint) {
+        controlsHint.style.display = 'none';
+      }
+    }, 5000);
+  </script>
+</body>
+</html>
+
