@@ -455,9 +455,10 @@
         }
       });
       
-      // Create ground (dirt)
+      // Create ground (dirt) with good friction for rolling
       ground = Bodies.rectangle(canvasWidth / 2, canvasHeight - 20, canvasWidth, 40, { 
         isStatic: true,
+        friction: 0.8,
         render: {
           fillStyle: '#654321'
         }
@@ -483,13 +484,13 @@
       lemonImage.src = '../images/lemon.png';
       
       lemonImage.onload = () => {
-        // Create lemon with physics properties (much smaller)
-        const lemonSize = 20;
-        lemon = Bodies.circle(canvasWidth / 2, canvasHeight - 100, lemonSize, {
-          density: 0.04,
-          friction: 0.01,
-          frictionAir: 0.01,
-          restitution: 0.3,
+        // Create lemon with physics properties (small and rolly!)
+        const lemonSize = 15;
+        lemon = Bodies.circle(canvasWidth / 2, canvasHeight - 80, lemonSize, {
+          density: 0.001,
+          friction: 0.5,
+          frictionAir: 0.005,
+          restitution: 0.2,
           render: {
             sprite: {
               texture: '../images/lemon.png',
@@ -546,7 +547,7 @@
       Events.on(engine, 'beforeUpdate', () => {
         if (!gameActive || !lemon) return;
         
-        const force = 0.002;
+        const force = 0.0008;
         
         if (keys.ArrowLeft || touchingLeft) {
           Body.applyForce(lemon, lemon.position, { x: -force, y: 0 });
@@ -555,9 +556,9 @@
           Body.applyForce(lemon, lemon.position, { x: force, y: 0 });
         }
         
-        // Keep lemon from going too high
-        if (lemon.position.y < 100) {
-          Body.setPosition(lemon, { x: lemon.position.x, y: 100 });
+        // Keep lemon on the ground level (no jumping too high)
+        if (lemon.position.y < canvasHeight - 100) {
+          Body.setVelocity(lemon, { x: lemon.velocity.x, y: Math.max(lemon.velocity.y, 0) });
         }
       });
     }
@@ -756,12 +757,26 @@
     }
     
     function resetGame() {
+      // Don't return to menu, just restart with same team
       results.style.display = 'none';
+      gameArea.style.display = 'block';
+      
       score = 0;
       gameStartTime = Date.now();
       scoreValue.textContent = '0';
       gameSpeed = 1;
       pens = [];
+      
+      // Clean up old game
+      if (render) {
+        Render.stop(render);
+        Engine.clear(engine);
+        World.clear(world);
+      }
+      clearTimeout(penSpawnInterval);
+      clearInterval(scoreUpdateInterval);
+      
+      // Start fresh game
       initGame();
     }
     
