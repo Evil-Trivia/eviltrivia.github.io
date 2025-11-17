@@ -253,14 +253,26 @@
         <div class="section">
             <h2>SESSION MANAGEMENT</h2>
             <p style="color: #fff; font-size: 9px; line-height: 1.6; margin-bottom: 15px;">
-                Load a session from the grading page to enable team dropdowns in the games.
+                Load sessions from the grading page. You can activate one session per location.
             </p>
             <div class="controls">
                 <div class="control-group">
+                    <label for="sessionLocationFilter">LOCATION:</label>
+                    <select id="sessionLocationFilter" onchange="filterSessionsByLocation()">
+                        <option value="">All Locations</option>
+                        <option value="St. Dymphna's">St. Dymphna's</option>
+                        <option value="Radegast Hall">Radegast Hall</option>
+                    </select>
+                </div>
+                <div class="control-group">
                     <label for="existingSessionSelect">SELECT SESSION:</label>
-                    <select id="existingSessionSelect" onchange="loadSession(this.value)">
+                    <select id="existingSessionSelect">
                         <option value="">Select a session...</option>
                     </select>
+                </div>
+                <div class="control-group">
+                    <label>&nbsp;</label>
+                    <button onclick="activateSession()">ACTIVATE SESSION</button>
                 </div>
                 <div class="control-group">
                     <label>&nbsp;</label>
@@ -268,12 +280,14 @@
                 </div>
                 <div class="control-group">
                     <label>&nbsp;</label>
-                    <button onclick="clearSession()" style="background-color: #DC143C;">CLEAR SESSION</button>
+                    <button onclick="clearAllSessions()" style="background-color: #DC143C;">CLEAR ALL</button>
                 </div>
             </div>
-            <div id="currentSessionInfo" class="hidden" style="margin-top: 15px; padding: 15px; background: rgba(255,215,0,0.2); border: 2px solid #FFD700;">
-                <strong style="color: #FFD700;">ACTIVE SESSION:</strong>
-                <span id="sessionInfoText" style="color: #fff; margin-left: 10px;"></span>
+            <div id="activeSessionsInfo" style="margin-top: 15px; padding: 15px; background: rgba(255,215,0,0.2); border: 2px solid #FFD700;">
+                <strong style="color: #FFD700;">ACTIVE SESSIONS:</strong>
+                <div id="activeSessionsList" style="color: #fff; margin-top: 10px; font-size: 9px; line-height: 1.8;">
+                    None
+                </div>
             </div>
         </div>
 
@@ -776,15 +790,17 @@
         }
 
         // Session management functions
+        let allSessions = [];
+        let filteredSessions = [];
+
         async function loadExistingSessions() {
             try {
                 const sessionsSnap = await window.dbGet(window.dbRef(window.db, 'grading'));
-                const sessionSelect = document.getElementById('existingSessionSelect');
-                sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+                allSessions = [];
                 
                 if (sessionsSnap.exists()) {
                     const sessions = sessionsSnap.val();
-                    const sessionArray = Object.entries(sessions)
+                    allSessions = Object.entries(sessions)
                         .map(([id, data]) => ({
                             id: id,
                             location: data.location || 'Unknown',
@@ -793,23 +809,40 @@
                             triviaName: data.triviaName || ''
                         }))
                         .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-                    sessionArray.forEach(session => {
-                        const option = document.createElement('option');
-                        option.value = session.id;
-                        option.textContent = `${session.date} - ${session.location}${session.triviaName ? ' - ' + session.triviaName : ''}`;
-                        sessionSelect.appendChild(option);
-                    });
                 }
+                
+                filterSessionsByLocation();
+                await displayActiveSessions();
             } catch (error) {
                 console.error("Error loading sessions:", error);
                 alert("Error loading sessions: " + error.message);
             }
         }
 
-        async function loadSession(sessionId) {
+        function filterSessionsByLocation() {
+            const locationFilter = document.getElementById('sessionLocationFilter').value;
+            const sessionSelect = document.getElementById('existingSessionSelect');
+            sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+            
+            filteredSessions = locationFilter 
+                ? allSessions.filter(s => s.location === locationFilter)
+                : allSessions;
+
+            filteredSessions.forEach(session => {
+                const option = document.createElement('option');
+                option.value = session.id;
+                option.dataset.location = session.location;
+                option.textContent = `${session.date} - ${session.location}${session.triviaName ? ' - ' + session.triviaName : ''}`;
+                sessionSelect.appendChild(option);
+            });
+        }
+
+        async function activateSession() {
+            const sessionSelect = document.getElementById('existingSessionSelect');
+            const sessionId = sessionSelect.value;
+            
             if (!sessionId) {
-                clearSession();
+                alert('Please select a session');
                 return;
             }
 
@@ -821,69 +854,101 @@
                 }
 
                 const sessionData = sessionSnap.val();
+                const location = sessionData.location;
                 
-                // Set as active session in Firebase
-                await window.dbSet(window.dbRef(window.db, 'games/lemondrop/activeSession'), sessionId);
+                // Get current active sessions
+                const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
+                const activeSessions = activeSessionsSnap.exists() ? activeSessionsSnap.val() : {};
                 
-                const sessionInfo = document.getElementById('currentSessionInfo');
-                const sessionInfoText = document.getElementById('sessionInfoText');
-                sessionInfoText.textContent = `${sessionData.date} - ${sessionData.location}`;
-                sessionInfo.classList.remove('hidden');
+                // Set this session for this location
+                activeSessions[location] = sessionId;
+                await window.dbSet(window.dbRef(window.db, 'games/lemondrop/activeSessions'), activeSessions);
 
-                alert('Session activated! Teams can now select from dropdown in game pages.');
+                alert(`Session activated for ${location}!`);
+                await displayActiveSessions();
             } catch (error) {
-                console.error("Error loading session:", error);
-                alert("Error loading session: " + error.message);
+                console.error("Error activating session:", error);
+                alert("Error activating session: " + error.message);
             }
         }
 
-        async function clearSession() {
+        async function displayActiveSessions() {
             try {
-                // Remove active session from Firebase
-                await window.dbRemove(window.dbRef(window.db, 'games/lemondrop/activeSession'));
+                const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
+                const activeSessionsList = document.getElementById('activeSessionsList');
                 
-                document.getElementById('currentSessionInfo').classList.add('hidden');
-                document.getElementById('existingSessionSelect').value = '';
-                alert('Session cleared. Games will now use manual team entry.');
-            } catch (error) {
-                console.error("Error clearing session:", error);
-                alert("Error clearing session: " + error.message);
-            }
-        }
+                if (!activeSessionsSnap.exists() || Object.keys(activeSessionsSnap.val()).length === 0) {
+                    activeSessionsList.innerHTML = 'None';
+                    return;
+                }
 
-        // Check for active session on load
-        async function checkActiveSession() {
-            try {
-                const activeSessionSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSession'));
-                if (activeSessionSnap.exists()) {
-                    const sessionId = activeSessionSnap.val();
-                    document.getElementById('existingSessionSelect').value = sessionId;
-                    
+                const activeSessions = activeSessionsSnap.val();
+                let html = '';
+                
+                for (const [location, sessionId] of Object.entries(activeSessions)) {
                     const sessionSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}`));
                     if (sessionSnap.exists()) {
                         const sessionData = sessionSnap.val();
-                        const sessionInfo = document.getElementById('currentSessionInfo');
-                        const sessionInfoText = document.getElementById('sessionInfoText');
-                        sessionInfoText.textContent = `${sessionData.date} - ${sessionData.location}`;
-                        sessionInfo.classList.remove('hidden');
+                        html += `<div style="margin-bottom: 8px;">
+                            <strong>${location}:</strong> ${sessionData.date}
+                            <button onclick="removeSessionForLocation('${location}')" style="margin-left: 10px; padding: 4px 8px; font-size: 7px; background: #DC143C;">REMOVE</button>
+                        </div>`;
                     }
                 }
+                
+                activeSessionsList.innerHTML = html || 'None';
             } catch (error) {
-                console.error("Error checking active session:", error);
+                console.error("Error displaying active sessions:", error);
+            }
+        }
+
+        async function removeSessionForLocation(location) {
+            try {
+                const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
+                if (!activeSessionsSnap.exists()) return;
+                
+                const activeSessions = activeSessionsSnap.val();
+                delete activeSessions[location];
+                
+                if (Object.keys(activeSessions).length === 0) {
+                    await window.dbRemove(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
+                } else {
+                    await window.dbSet(window.dbRef(window.db, 'games/lemondrop/activeSessions'), activeSessions);
+                }
+                
+                alert(`Session removed for ${location}`);
+                await displayActiveSessions();
+            } catch (error) {
+                console.error("Error removing session:", error);
+                alert("Error removing session: " + error.message);
+            }
+        }
+
+        async function clearAllSessions() {
+            if (!confirm('Clear all active sessions?')) return;
+            
+            try {
+                await window.dbRemove(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
+                alert('All sessions cleared');
+                await displayActiveSessions();
+            } catch (error) {
+                console.error("Error clearing sessions:", error);
+                alert("Error clearing sessions: " + error.message);
             }
         }
 
         // Make functions global
         window.deleteScore = deleteScore;
         window.loadExistingSessions = loadExistingSessions;
-        window.loadSession = loadSession;
-        window.clearSession = clearSession;
+        window.activateSession = activateSession;
+        window.filterSessionsByLocation = filterSessionsByLocation;
+        window.removeSessionForLocation = removeSessionForLocation;
+        window.clearAllSessions = clearAllSessions;
 
         // Load sessions on page load
         setTimeout(() => {
             if (!document.getElementById('adminContainer').classList.contains('hidden')) {
                 loadExistingSessions();
-                checkActiveSession();
             }
         }, 1000);
     </script>

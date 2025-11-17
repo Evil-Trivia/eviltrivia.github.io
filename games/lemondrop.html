@@ -454,6 +454,15 @@
     <div class="game-card">
       <!-- Setup Form -->
       <div id="setupForm" class="setup-form">
+        <div class="form-group">
+          <label for="barLocation">BAR LOCATION:</label>
+          <select id="barLocation" onchange="onLocationChange()">
+            <option value="">Select location...</option>
+            <option value="St. Dymphna's">St. Dymphna's</option>
+            <option value="Radegast Hall">Radegast Hall</option>
+          </select>
+        </div>
+
         <div class="form-group" id="teamInputGroup">
           <label for="teamName">TEAM NAME:</label>
           <input type="text" id="teamName" placeholder="Enter team name">
@@ -463,15 +472,6 @@
           <label for="teamSelect">SELECT TEAM:</label>
           <select id="teamSelect">
             <option value="">Select your team...</option>
-          </select>
-        </div>
-        
-        <div class="form-group">
-          <label for="barLocation">BAR LOCATION:</label>
-          <select id="barLocation">
-            <option value="">Select location...</option>
-            <option value="St. Dymphna's">St. Dymphna's</option>
-            <option value="Radegast Hall">Radegast Hall</option>
           </select>
         </div>
         
@@ -672,15 +672,45 @@
       });
     }
     
-    async function loadSessionTeams() {
+    async function onLocationChange() {
+      const location = document.getElementById('barLocation').value;
+      if (!location) {
+        // Reset to manual entry
+        document.getElementById('teamInputGroup').classList.remove('hidden');
+        document.getElementById('teamSelectGroup').classList.add('hidden');
+        return;
+      }
+      
+      await loadSessionTeamsForLocation(location);
+    }
+
+    async function loadSessionTeamsForLocation(location) {
       try {
-        // Check for active session in Firebase
-        const activeSessionSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSession'));
-        if (!activeSessionSnap.exists()) return false;
+        // Check for active sessions in Firebase
+        const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
+        if (!activeSessionsSnap.exists()) {
+          // No active sessions, use manual entry
+          document.getElementById('teamInputGroup').classList.remove('hidden');
+          document.getElementById('teamSelectGroup').classList.add('hidden');
+          return false;
+        }
         
-        const sessionId = activeSessionSnap.val();
+        const activeSessions = activeSessionsSnap.val();
+        const sessionId = activeSessions[location];
+        
+        if (!sessionId) {
+          // No session for this location
+          document.getElementById('teamInputGroup').classList.remove('hidden');
+          document.getElementById('teamSelectGroup').classList.add('hidden');
+          return false;
+        }
+        
         const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
-        if (!teamsSnap.exists()) return false;
+        if (!teamsSnap.exists()) {
+          document.getElementById('teamInputGroup').classList.remove('hidden');
+          document.getElementById('teamSelectGroup').classList.add('hidden');
+          return false;
+        }
 
         const teams = teamsSnap.val();
         const teamSelect = document.getElementById('teamSelect');
@@ -697,16 +727,11 @@
         document.getElementById('teamInputGroup').classList.add('hidden');
         document.getElementById('teamSelectGroup').classList.remove('hidden');
         
-        // Auto-fill location from session
-        const sessionSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}`));
-        if (sessionSnap.exists()) {
-          const sessionData = sessionSnap.val();
-          document.getElementById('barLocation').value = sessionData.location || '';
-        }
-        
         return true;
       } catch (error) {
         console.error('Error loading session teams:', error);
+        document.getElementById('teamInputGroup').classList.remove('hidden');
+        document.getElementById('teamSelectGroup').classList.add('hidden');
         return false;
       }
     }
@@ -1431,9 +1456,7 @@
     window.startGame = startGame;
     window.resetGame = resetGame;
     window.backToMenu = backToMenu;
-    
-    // Load session teams on page load
-    loadSessionTeams();
+    window.onLocationChange = onLocationChange;
     
     // Hide controls hint after a few seconds
     setTimeout(() => {
