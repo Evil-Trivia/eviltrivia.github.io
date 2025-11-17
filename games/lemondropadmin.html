@@ -387,7 +387,7 @@
     <!-- Firebase -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
-        import { getDatabase, ref, get, remove } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        import { getDatabase, ref, get, remove, set } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
 
         const firebaseConfig = {
@@ -408,6 +408,7 @@
         window.dbRef = ref;
         window.dbGet = get;
         window.dbRemove = remove;
+        window.dbSet = set;
 
         // Authentication check
         onAuthStateChanged(auth, async (user) => {
@@ -820,33 +821,55 @@
                 }
 
                 const sessionData = sessionSnap.val();
-                localStorage.setItem('lemondropSession', sessionId);
+                
+                // Set as active session in Firebase
+                await window.dbSet(window.dbRef(window.db, 'games/lemondrop/activeSession'), sessionId);
                 
                 const sessionInfo = document.getElementById('currentSessionInfo');
                 const sessionInfoText = document.getElementById('sessionInfoText');
                 sessionInfoText.textContent = `${sessionData.date} - ${sessionData.location}`;
                 sessionInfo.classList.remove('hidden');
 
-                alert('Session loaded! Teams can now select from dropdown in game pages.');
+                alert('Session activated! Teams can now select from dropdown in game pages.');
             } catch (error) {
                 console.error("Error loading session:", error);
                 alert("Error loading session: " + error.message);
             }
         }
 
-        function clearSession() {
-            localStorage.removeItem('lemondropSession');
-            document.getElementById('currentSessionInfo').classList.add('hidden');
-            document.getElementById('existingSessionSelect').value = '';
-            alert('Session cleared');
+        async function clearSession() {
+            try {
+                // Remove active session from Firebase
+                await window.dbRemove(window.dbRef(window.db, 'games/lemondrop/activeSession'));
+                
+                document.getElementById('currentSessionInfo').classList.add('hidden');
+                document.getElementById('existingSessionSelect').value = '';
+                alert('Session cleared. Games will now use manual team entry.');
+            } catch (error) {
+                console.error("Error clearing session:", error);
+                alert("Error clearing session: " + error.message);
+            }
         }
 
         // Check for active session on load
-        function checkActiveSession() {
-            const sessionId = localStorage.getItem('lemondropSession');
-            if (sessionId) {
-                document.getElementById('existingSessionSelect').value = sessionId;
-                loadSession(sessionId);
+        async function checkActiveSession() {
+            try {
+                const activeSessionSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSession'));
+                if (activeSessionSnap.exists()) {
+                    const sessionId = activeSessionSnap.val();
+                    document.getElementById('existingSessionSelect').value = sessionId;
+                    
+                    const sessionSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}`));
+                    if (sessionSnap.exists()) {
+                        const sessionData = sessionSnap.val();
+                        const sessionInfo = document.getElementById('currentSessionInfo');
+                        const sessionInfoText = document.getElementById('sessionInfoText');
+                        sessionInfoText.textContent = `${sessionData.date} - ${sessionData.location}`;
+                        sessionInfo.classList.remove('hidden');
+                    }
+                }
+            } catch (error) {
+                console.error("Error checking active session:", error);
             }
         }
 
