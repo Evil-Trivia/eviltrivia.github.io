@@ -856,15 +856,31 @@
                 const sessionData = sessionSnap.val();
                 const location = sessionData.location;
                 
+                // Get teams from this session
+                const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
+                const teamNames = [];
+                if (teamsSnap.exists()) {
+                    const teams = teamsSnap.val();
+                    Object.values(teams).forEach(team => {
+                        if (team.name) {
+                            teamNames.push(team.name);
+                        }
+                    });
+                }
+                
                 // Get current active sessions
                 const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
                 const activeSessions = activeSessionsSnap.exists() ? activeSessionsSnap.val() : {};
                 
-                // Set this session for this location
-                activeSessions[location] = sessionId;
+                // Set this session for this location with team names
+                activeSessions[location] = {
+                    sessionId: sessionId,
+                    date: sessionData.date,
+                    teams: teamNames
+                };
                 await window.dbSet(window.dbRef(window.db, 'games/lemondrop/activeSessions'), activeSessions);
 
-                alert(`Session activated for ${location}!`);
+                alert(`Session activated for ${location} with ${teamNames.length} teams!`);
                 await displayActiveSessions();
             } catch (error) {
                 console.error("Error activating session:", error);
@@ -885,15 +901,12 @@
                 const activeSessions = activeSessionsSnap.val();
                 let html = '';
                 
-                for (const [location, sessionId] of Object.entries(activeSessions)) {
-                    const sessionSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}`));
-                    if (sessionSnap.exists()) {
-                        const sessionData = sessionSnap.val();
-                        html += `<div style="margin-bottom: 8px;">
-                            <strong>${location}:</strong> ${sessionData.date}
-                            <button onclick="removeSessionForLocation('${location}')" style="margin-left: 10px; padding: 4px 8px; font-size: 7px; background: #DC143C;">REMOVE</button>
-                        </div>`;
-                    }
+                for (const [location, sessionData] of Object.entries(activeSessions)) {
+                    const teamCount = sessionData.teams ? sessionData.teams.length : 0;
+                    html += `<div style="margin-bottom: 8px;">
+                        <strong>${location}:</strong> ${sessionData.date} (${teamCount} teams)
+                        <button onclick="removeSessionForLocation('${location}')" style="margin-left: 10px; padding: 4px 8px; font-size: 7px; background: #DC143C;">REMOVE</button>
+                    </div>`;
                 }
                 
                 activeSessionsList.innerHTML = html || 'None';
