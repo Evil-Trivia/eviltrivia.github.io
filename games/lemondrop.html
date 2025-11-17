@@ -16,12 +16,13 @@
     body {
       font-family: 'Press Start 2P', cursive;
       margin: 0;
-      padding: 0;
+      padding: 0 0 180px 0;
       background: linear-gradient(180deg, #87CEEB 0%, #4A90A4 100%);
       min-height: 100vh;
       touch-action: manipulation;
       user-select: none;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;
     }
     
     .container {
@@ -234,6 +235,10 @@
       z-index: 999;
     }
 
+    .touch-controls.active {
+      display: block;
+    }
+
     .touch-left, .touch-right {
       position: absolute;
       width: 50%;
@@ -341,7 +346,7 @@
         padding: 12px 20px;
       }
 
-      .touch-controls {
+      .touch-controls.active {
         display: block;
       }
 
@@ -469,10 +474,11 @@
     const LEMON_SIZE_MULTIPLIER = 1.5;
     const LEMON_CONTROL_FORCE = 0.00033;
     const LEMON_MAX_SPEED = 4.6;
-    const LEMON_MAX_SPIN = 0.5;
+    const LEMON_MAX_SPIN = 0.32;
     const LEMON_FRICTION = 0.62;
     const LEMON_AIR_DRAG = 0.0035;
-    const LEMON_ROLL_TORQUE = 0.015;
+    const LEMON_CONTROL_TORQUE = 0.00008;
+    const LEMON_ROLL_DAMPING = 0.1;
     const LEMON_RESTITUTION = 0.36;
     const LEMON_DENSITY = 0.0015;
     const LEMON_SKIP_MIN_SPEED = 1.5;
@@ -510,6 +516,8 @@
     let touchIntroShown = false;
     let pendingStartConfig = null;
     let penCleanupIntervals = new Set();
+    let lemonGroundContacts = 0;
+    let lastGroundPoint = null;
     
     function recordInputActivity() {
       lastInputTime = Date.now();
@@ -588,6 +596,9 @@
       gameStartTime = Date.now();
       scoreValue.textContent = '0';
       resetIdleTimers();
+      if (touchControls) {
+        touchControls.classList.toggle('active', !!isTouchDevice);
+      }
       
       setupForm.style.display = 'none';
       gameArea.style.display = 'block';
@@ -601,6 +612,8 @@
       engine = Engine.create();
       world = engine.world;
       world.gravity.y = 1;
+      lemonGroundContacts = 0;
+      lastGroundPoint = null;
       resetIdleTimers();
       
       // Canvas setup
@@ -750,7 +763,7 @@
                 texture: '../images/lemon.png',
                 xScale: spriteScale,
                 yScale: spriteScale,
-                yOffset: 0.02
+                yOffset: 0.05
               }
             }
           },
@@ -785,7 +798,22 @@
             }
             
             if (other === ground) {
+              lemonGroundContacts += 1;
+              lastGroundPoint = pair.collision && pair.collision.supports
+                ? pair.collision.supports[0]
+                : lemon.position;
               handleLemonGroundImpact(pair);
+            }
+          }
+        });
+      });
+
+      Events.on(engine, 'collisionEnd', (event) => {
+        event.pairs.forEach(pair => {
+          if ((pair.bodyA === lemon || pair.bodyB === lemon) && (pair.bodyA === ground || pair.bodyB === ground)) {
+            lemonGroundContacts = Math.max(0, lemonGroundContacts - 1);
+            if (lemonGroundContacts === 0) {
+              lastGroundPoint = null;
             }
           }
         });
@@ -818,21 +846,13 @@
         if (keys.ArrowRight || touchingRight) inputDirection += 1;
         
         if (inputDirection !== 0) {
-          const lemonHeight = lemon.bounds.max.y - lemon.bounds.min.y;
-          const contactPoint = {
-            x: lemon.position.x,
-            y: lemon.position.y + lemonHeight / 2 - 2
-          };
-          Body.applyForce(lemon, contactPoint, {
-            x: inputDirection * LEMON_CONTROL_FORCE,
-            y: 0
-          });
+          applyRollTorque(inputDirection);
           recordInputActivity();
-          
-          Body.setAngularVelocity(
-            lemon,
-            lemon.angularVelocity + inputDirection * LEMON_ROLL_TORQUE
-          );
+        } else if (Math.abs(lemon.velocity.x) > 0.01 && lemonGroundContacts > 0) {
+          Body.setVelocity(lemon, {
+            x: lemon.velocity.x * (1 - LEMON_ROLL_DAMPING),
+            y: lemon.velocity.y
+          });
         }
         
         // Limit max velocity to prevent flying off screen
@@ -979,6 +999,22 @@
     function dropPenAboveLemon() {
       if (!gameActive || !lemon) return;
       spawnPen(lemon.position.x);
+    }
+
+    function applyRollTorque(direction) {
+      if (!lemon) return;
+      const halfHeight = (lemon.bounds.max.y - lemon.bounds.min.y) / 2;
+      const topPoint = {
+        x: lemon.position.x,
+        y: lemon.position.y - halfHeight * 0.9
+      };
+      const bottomPoint = {
+        x: lemon.position.x,
+        y: lemon.position.y + halfHeight * 0.9
+      };
+      const torqueForce = direction * LEMON_CONTROL_TORQUE;
+      Body.applyForce(lemon, topPoint, { x: torqueForce, y: 0 });
+      Body.applyForce(lemon, bottomPoint, { x: -torqueForce, y: 0 });
     }
 
     function stopSpawningPens() {
@@ -1133,6 +1169,9 @@
       results.style.display = 'none';
       gameArea.style.display = 'none';
       setupForm.style.display = 'flex';
+      if (touchControls) {
+        touchControls.classList.remove('active');
+      }
       
       // Clean up game
       if (render) {
