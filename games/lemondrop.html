@@ -152,6 +152,9 @@
       image-rendering: pixelated;
       image-rendering: -moz-crisp-edges;
       image-rendering: crisp-edges;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
     }
     
     .game-area {
@@ -256,6 +259,66 @@
       opacity: 0.6;
     }
 
+    .touch-intro {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.9);
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      z-index: 2000;
+      color: #fff;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .touch-intro.hidden {
+      display: none;
+    }
+
+    .touch-intro .touch-half {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-size: 14px;
+      gap: 10px;
+    }
+
+    .touch-intro .touch-half-left {
+      background: rgba(0, 0, 0, 0.3);
+      border-right: 2px solid rgba(255,255,255,0.2);
+    }
+
+    .touch-intro .touch-half-right {
+      background: rgba(0, 0, 0, 0.3);
+      border-left: 2px solid rgba(255,255,255,0.2);
+    }
+
+    .touch-intro .touch-label {
+      font-size: 16px;
+      color: #FFD700;
+    }
+
+    .touch-intro .touch-hint {
+      font-size: 12px;
+      color: #fff;
+    }
+
+    .touch-intro-cta {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #FFD700;
+      color: #000;
+      padding: 12px 24px;
+      border: 3px solid #000;
+      box-shadow: 4px 4px 0 #000;
+      font-size: 12px;
+    }
+
     .hidden {
       display: none;
     }
@@ -354,6 +417,18 @@
     <div class="touch-right" id="touchRight"></div>
   </div>
 
+  <div id="touchIntro" class="touch-intro hidden">
+    <div class="touch-half touch-half-left">
+      <div class="touch-label">Tap Left</div>
+      <div class="touch-hint">Move Left</div>
+    </div>
+    <div class="touch-half touch-half-right">
+      <div class="touch-label">Tap Right</div>
+      <div class="touch-hint">Move Right</div>
+    </div>
+    <div class="touch-intro-cta">Tap anywhere to begin</div>
+  </div>
+
   <!-- Firebase -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
@@ -423,6 +498,8 @@
     const touchControls = document.getElementById('touchControls');
     const touchLeft = document.getElementById('touchLeft');
     const touchRight = document.getElementById('touchRight');
+    const touchIntro = document.getElementById('touchIntro');
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     
     // Controls
     let keys = {};
@@ -430,6 +507,9 @@
     let touchingRight = false;
     let lastInputTime = 0;
     let lastIdleDropTime = 0;
+    let touchIntroShown = false;
+    let pendingStartConfig = null;
+    let penCleanupIntervals = new Set();
     
     function recordInputActivity() {
       lastInputTime = Date.now();
@@ -439,6 +519,47 @@
       const now = Date.now();
       lastInputTime = now;
       lastIdleDropTime = now;
+    }
+
+    function getCanvasDimensions() {
+      const minWidth = 320;
+      const maxWidth = 800;
+      const width = Math.max(minWidth, Math.min(maxWidth, window.innerWidth - 20));
+      const minHeight = 520;
+      const maxHeight = 900;
+      let height = Math.max(minHeight, Math.min(maxHeight, window.innerHeight - 140));
+      if (height < width * 1.05) {
+        height = Math.min(maxHeight, Math.round(width * 1.2));
+      }
+      return { width, height };
+    }
+
+    function applyCanvasDimensions() {
+      const { width, height } = getCanvasDimensions();
+      canvas.width = width;
+      canvas.height = height;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      return { width, height };
+    }
+
+    applyCanvasDimensions();
+
+    window.addEventListener('resize', () => {
+      if (!gameActive) {
+        applyCanvasDimensions();
+      }
+    });
+
+    if (touchIntro) {
+      touchIntro.addEventListener('click', () => {
+        if (touchIntro.classList.contains('hidden')) return;
+        touchIntro.classList.add('hidden');
+        touchIntroShown = true;
+        if (pendingStartConfig) {
+          beginGameplay(pendingStartConfig.practiceMode);
+        }
+      });
     }
     
     function startGame(practiceMode) {
@@ -450,18 +571,28 @@
         return;
       }
       
-      isPracticeMode = false;
+      pendingStartConfig = { practiceMode };
+      
+      if (isTouchDevice && !touchIntroShown && touchIntro) {
+        touchIntro.classList.remove('hidden');
+        return;
+      }
+      
+      beginGameplay(practiceMode);
+    }
+
+    function beginGameplay(practiceMode) {
+      pendingStartConfig = null;
+      isPracticeMode = practiceMode;
       score = 0;
       gameStartTime = Date.now();
       scoreValue.textContent = '0';
       resetIdleTimers();
       
-      // Show game area
       setupForm.style.display = 'none';
       gameArea.style.display = 'block';
       results.style.display = 'none';
       
-      // Initialize game
       initGame();
     }
     
@@ -473,8 +604,7 @@
       resetIdleTimers();
       
       // Canvas setup
-      const canvasWidth = Math.min(800, window.innerWidth - 40);
-      const canvasHeight = 600;
+      const { width: canvasWidth, height: canvasHeight } = applyCanvasDimensions();
       
       render = Render.create({
         canvas: canvas,
@@ -619,7 +749,8 @@
               sprite: {
                 texture: '../images/lemon.png',
                 xScale: spriteScale,
-                yScale: spriteScale
+                yScale: spriteScale,
+                yOffset: 0.02
               }
             }
           },
@@ -830,6 +961,7 @@
       const checkPenInterval = setInterval(() => {
         if (!gameActive || !pens.includes(pen)) {
           clearInterval(checkPenInterval);
+          penCleanupIntervals.delete(checkPenInterval);
           return;
         }
         
@@ -838,13 +970,35 @@
           World.remove(world, pen);
           pens = pens.filter(p => p !== pen);
           clearInterval(checkPenInterval);
+          penCleanupIntervals.delete(checkPenInterval);
         }
       }, 500);
+      penCleanupIntervals.add(checkPenInterval);
     }
     
     function dropPenAboveLemon() {
       if (!gameActive || !lemon) return;
       spawnPen(lemon.position.x);
+    }
+
+    function stopSpawningPens() {
+      if (penSpawnInterval) {
+        clearTimeout(penSpawnInterval);
+        penSpawnInterval = null;
+      }
+    }
+
+    function cleanupPens() {
+      penCleanupIntervals.forEach(intervalId => clearInterval(intervalId));
+      penCleanupIntervals.clear();
+      if (world) {
+        pens.forEach(pen => {
+          if (pen && !pen.isStatic) {
+            World.remove(world, pen);
+          }
+        });
+      }
+      pens = [];
     }
     
     function gameOver() {
@@ -855,7 +1009,7 @@
       score = Math.floor((Date.now() - gameStartTime) / 1000);
       
       // Stop spawning and scoring
-      clearTimeout(penSpawnInterval);
+      stopSpawningPens();
       clearInterval(scoreUpdateInterval);
       
       // Create lemon juice splatter effect
@@ -863,6 +1017,7 @@
       
       // Show game over after brief delay
       setTimeout(() => {
+        cleanupPens();
         // Clean up
         if (render) {
           Render.stop(render);
@@ -966,8 +1121,9 @@
         Engine.clear(engine);
         World.clear(world);
       }
-      clearTimeout(penSpawnInterval);
+      stopSpawningPens();
       clearInterval(scoreUpdateInterval);
+      cleanupPens();
       
       // Start fresh game
       initGame();
@@ -985,8 +1141,9 @@
         World.clear(world);
       }
       
-      clearTimeout(penSpawnInterval);
+      stopSpawningPens();
       clearInterval(scoreUpdateInterval);
+      cleanupPens();
       
       score = 0;
       gameSpeed = 1;
