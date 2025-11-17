@@ -407,6 +407,8 @@
     const PEN_GRAVITY_SCALE = 0.8;
     const PEN_RESTITUTION = 0.25;
     const GROUND_RESTITUTION = 0.25;
+    const IDLE_PEN_TIMEOUT = 1000;
+    const IDLE_EDGE_BUFFER = 40;
     
     const { Engine, Render, World, Bodies, Body, Events } = Matter;
     
@@ -426,6 +428,18 @@
     let keys = {};
     let touchingLeft = false;
     let touchingRight = false;
+    let lastInputTime = 0;
+    let lastIdleDropTime = 0;
+    
+    function recordInputActivity() {
+      lastInputTime = Date.now();
+    }
+    
+    function resetIdleTimers() {
+      const now = Date.now();
+      lastInputTime = now;
+      lastIdleDropTime = now;
+    }
     
     function startGame(practiceMode) {
       const teamName = document.getElementById('teamName').value.trim();
@@ -440,6 +454,7 @@
       score = 0;
       gameStartTime = Date.now();
       scoreValue.textContent = '0';
+      resetIdleTimers();
       
       // Show game area
       setupForm.style.display = 'none';
@@ -455,6 +470,7 @@
       engine = Engine.create();
       world = engine.world;
       world.gravity.y = 1;
+      resetIdleTimers();
       
       // Canvas setup
       const canvasWidth = Math.min(800, window.innerWidth - 40);
@@ -680,6 +696,7 @@
             x: inputDirection * LEMON_CONTROL_FORCE,
             y: 0
           });
+          recordInputActivity();
           
           Body.setAngularVelocity(
             lemon,
@@ -706,6 +723,15 @@
           if (!counterForce) return;
           Body.applyForce(pen, pen.position, { x: 0, y: -counterForce });
         });
+
+        const now = Date.now();
+        if (
+          now - lastInputTime >= IDLE_PEN_TIMEOUT &&
+          now - lastIdleDropTime >= IDLE_PEN_TIMEOUT
+        ) {
+          dropPenAboveLemon();
+          lastIdleDropTime = now;
+        }
       });
     }
     
@@ -738,9 +764,12 @@
       schedulePenSpawn();
     }
     
-    function spawnPen() {
+    function spawnPen(targetX) {
       const canvasWidth = canvas.width;
-      const x = Math.random() * (canvasWidth - 100) + 50;
+      const hasTarget = typeof targetX === 'number' && !Number.isNaN(targetX);
+      const x = hasTarget
+        ? Math.max(IDLE_EDGE_BUFFER, Math.min(canvasWidth - IDLE_EDGE_BUFFER, targetX))
+        : Math.random() * (canvasWidth - 100) + 50;
       
       // Create pen body (looks like a real pen)
       const penColors = ['#000000', '#0000FF', '#FF0000', '#000080', '#008000'];
@@ -787,7 +816,7 @@
       
       // Add some random horizontal velocity
       Body.setVelocity(pen, { 
-        x: (Math.random() - 0.5) * 2, 
+        x: hasTarget ? 0 : (Math.random() - 0.5) * 2, 
         y: (2 + gameSpeed) * PEN_FALL_SPEED_SCALE
       });
       
@@ -811,6 +840,11 @@
           clearInterval(checkPenInterval);
         }
       }, 500);
+    }
+    
+    function dropPenAboveLemon() {
+      if (!gameActive || !lemon) return;
+      spawnPen(lemon.position.x);
     }
     
     function gameOver() {
@@ -924,6 +958,7 @@
       scoreValue.textContent = '0';
       gameSpeed = 1;
       pens = [];
+      resetIdleTimers();
       
       // Clean up old game
       if (render) {
@@ -956,6 +991,7 @@
       score = 0;
       gameSpeed = 1;
       pens = [];
+      resetIdleTimers();
     }
     
     // Keyboard controls
@@ -963,6 +999,7 @@
       keys[e.key] = true;
       
       if (gameActive && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        recordInputActivity();
         e.preventDefault();
       }
     });
@@ -975,6 +1012,7 @@
     touchLeft.addEventListener('touchstart', (e) => {
       e.preventDefault();
       touchingLeft = true;
+      recordInputActivity();
     });
     
     touchLeft.addEventListener('touchend', (e) => {
@@ -985,6 +1023,7 @@
     touchRight.addEventListener('touchstart', (e) => {
       e.preventDefault();
       touchingRight = true;
+      recordInputActivity();
     });
     
     touchRight.addEventListener('touchend', (e) => {
