@@ -391,12 +391,20 @@
     let lemonImage;
     let gameStartTime = 0;
     let scoreUpdateInterval;
-    const LEMON_SIZE_MULTIPLIER = 1.1;
+    const LEMON_SIZE_MULTIPLIER = 1.21;
     const LEMON_CONTROL_FORCE = 0.00025;
     const LEMON_MAX_SPEED = 4.5;
-    const LEMON_MAX_SPIN = 0.35;
+    const LEMON_MAX_SPIN = 0.5;
+    const LEMON_FRICTION = 0.65;
+    const LEMON_AIR_DRAG = 0.006;
+    const LEMON_RESTITUTION = 0.42;
+    const LEMON_SKIP_MIN_SPEED = 1.5;
+    const LEMON_SKIP_FORCE_BASE = 0.6;
+    const LEMON_SKIP_FORCE_SCALE = 0.25;
     const PEN_FALL_SPEED_SCALE = 0.8;
     const PEN_GRAVITY_SCALE = 0.8;
+    const PEN_RESTITUTION = 0.25;
+    const GROUND_RESTITUTION = 0.25;
     
     const { Engine, Render, World, Bodies, Body, Events } = Matter;
     
@@ -468,14 +476,14 @@
       // Only lemon collides with ground, pens pass through
       ground = Bodies.rectangle(canvasWidth / 2, canvasHeight - 5, canvasWidth, 10, { 
         isStatic: true,
-        friction: 0.9,
-        restitution: 0.1,
+        friction: 0.7,
+        restitution: GROUND_RESTITUTION,
         collisionFilter: {
           category: 0x0001,
           mask: 0x0002  // Only collides with lemon category
         },
         render: {
-          fillStyle: '#654321'
+          visible: false
         }
       });
       
@@ -581,9 +589,10 @@
           [scaledVertices], 
           {
             density: 0.001,
-            friction: 0.9,
-            frictionAir: 0.008,
-            restitution: 0.05,
+            friction: LEMON_FRICTION,
+            frictionStatic: 0.85,
+            frictionAir: LEMON_AIR_DRAG,
+            restitution: LEMON_RESTITUTION,
             collisionFilter: {
               category: 0x0002,
               mask: 0x0001 | 0x0004
@@ -620,13 +629,36 @@
           
           // Check if pen hit lemon
           if ((bodyA === lemon || bodyB === lemon) && gameActive) {
-            const pen = bodyA === lemon ? bodyB : bodyA;
-            if (pen.label === 'pen') {
+            const other = bodyA === lemon ? bodyB : bodyA;
+            if (other.label === 'pen') {
               gameOver();
+              return;
+            }
+            
+            if (other === ground) {
+              handleLemonGroundImpact(pair);
             }
           }
         });
       });
+      
+      function handleLemonGroundImpact(pair) {
+        if (!lemon || !ground) return;
+        
+        const horizontalSpeed = Math.abs(lemon.velocity.x);
+        if (horizontalSpeed < LEMON_SKIP_MIN_SPEED || lemon.velocity.y < 0.5) return;
+        
+        const gravityScale = world.gravity.scale ?? 0.001;
+        const contactPoint = (pair.collision && pair.collision.supports && pair.collision.supports[0]) || lemon.position;
+        const tangentialFactor = Math.max(0, horizontalSpeed - LEMON_SKIP_MIN_SPEED) * LEMON_SKIP_FORCE_SCALE;
+        const spinFactor = Math.min(0.4, Math.abs(lemon.angularVelocity) * 0.2);
+        const skipIntensity = Math.min(1.4, LEMON_SKIP_FORCE_BASE + tangentialFactor + spinFactor);
+        
+        if (skipIntensity <= 0) return;
+        
+        const upwardForce = lemon.mass * world.gravity.y * gravityScale * skipIntensity;
+        Body.applyForce(lemon, contactPoint, { x: 0, y: -upwardForce });
+      }
       
       // Update loop for controls
       Events.on(engine, 'beforeUpdate', () => {
@@ -736,7 +768,7 @@
         density: 0.001,
         friction: 0.1,
         frictionAir: 0.01,
-        restitution: 0.2,
+        restitution: PEN_RESTITUTION,
         angle: Math.random() * Math.PI * 0.5 - Math.PI * 0.25, // Slight random angle
         collisionFilter: {
           category: 0x0004,  // Pen category
