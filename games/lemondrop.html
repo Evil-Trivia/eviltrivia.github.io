@@ -454,9 +454,16 @@
     <div class="game-card">
       <!-- Setup Form -->
       <div id="setupForm" class="setup-form">
-        <div class="form-group">
+        <div class="form-group" id="teamInputGroup">
           <label for="teamName">TEAM NAME:</label>
           <input type="text" id="teamName" placeholder="Enter team name">
+        </div>
+        
+        <div class="form-group hidden" id="teamSelectGroup">
+          <label for="teamSelect">SELECT TEAM:</label>
+          <select id="teamSelect">
+            <option value="">Select your team...</option>
+          </select>
         </div>
         
         <div class="form-group">
@@ -487,6 +494,10 @@
       <div id="results" class="results">
         <div class="game-over-title">GAME OVER!</div>
         <div class="final-score">YOU SURVIVED: <span id="finalScore">0</span> SECONDS</div>
+        <div id="scoreStats" style="margin: 20px 0; font-size: 10px; line-height: 2; color: #FFD700;">
+          <div>BEST SCORE: <span id="bestScoreDisplay">Loading...</span></div>
+          <div>MOST RECENT: <span id="recentScoreDisplay">Loading...</span></div>
+        </div>
         <div class="button-group">
           <button class="btn" onclick="resetGame()">PLAY AGAIN</button>
           <button class="btn btn-secondary" onclick="backToMenu()">MAIN MENU</button>
@@ -526,7 +537,7 @@
   <!-- Firebase -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
-    import { getDatabase, ref, push, set } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
 
     const firebaseConfig = {
         apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -545,6 +556,7 @@
     window.dbRef = ref;
     window.dbPush = push;
     window.dbSet = set;
+    window.dbGet = get;
   </script>
 
   <script>
@@ -660,12 +672,58 @@
       });
     }
     
+    async function loadSessionTeams() {
+      const sessionId = localStorage.getItem('lemondropSession');
+      if (!sessionId) return false;
+
+      try {
+        const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
+        if (!teamsSnap.exists()) return false;
+
+        const teams = teamsSnap.val();
+        const teamSelect = document.getElementById('teamSelect');
+        teamSelect.innerHTML = '<option value="">Select your team...</option>';
+        
+        Object.entries(teams).forEach(([teamId, team]) => {
+          const option = document.createElement('option');
+          option.value = team.name;
+          option.textContent = team.name;
+          teamSelect.appendChild(option);
+        });
+
+        // Show dropdown, hide input
+        document.getElementById('teamInputGroup').classList.add('hidden');
+        document.getElementById('teamSelectGroup').classList.remove('hidden');
+        
+        // Auto-fill location from session
+        const sessionSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}`));
+        if (sessionSnap.exists()) {
+          const sessionData = sessionSnap.val();
+          document.getElementById('barLocation').value = sessionData.location || '';
+        }
+        
+        return true;
+      } catch (error) {
+        console.error('Error loading session teams:', error);
+        return false;
+      }
+    }
+
     function startGame(practiceMode) {
-      const teamName = document.getElementById('teamName').value.trim();
+      const teamInputGroup = document.getElementById('teamInputGroup');
+      const teamSelectGroup = document.getElementById('teamSelectGroup');
+      
+      let teamName;
+      if (teamSelectGroup.classList.contains('hidden')) {
+        teamName = document.getElementById('teamName').value.trim();
+      } else {
+        teamName = document.getElementById('teamSelect').value;
+      }
+      
       const barLocation = document.getElementById('barLocation').value;
       
       if (!teamName || !barLocation) {
-        alert('Please enter team name and select bar location.');
+        alert('Please enter/select team name and bar location.');
         return;
       }
       
@@ -1163,9 +1221,52 @@
         results.style.display = 'block';
         finalScoreEl.textContent = score;
         
+        // Load and display score stats
+        loadScoreStats();
+        
         // Submit score
         submitScore();
       }, 1500);
+    }
+    
+    async function loadScoreStats() {
+      try {
+        document.getElementById('bestScoreDisplay').textContent = 'Loading...';
+        document.getElementById('recentScoreDisplay').textContent = 'Loading...';
+        
+        const scores = [];
+        
+        // Load from both paths
+        const mainSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/answers'));
+        if (mainSnap.exists()) {
+          Object.values(mainSnap.val()).forEach(s => scores.push(s));
+        }
+        
+        const publicSnap = await window.dbGet(window.dbRef(window.db, 'publicAnswers/lemondrop'));
+        if (publicSnap.exists()) {
+          Object.values(publicSnap.val()).forEach(s => scores.push(s));
+        }
+        
+        if (scores.length === 0) {
+          document.getElementById('bestScoreDisplay').textContent = 'No scores yet';
+          document.getElementById('recentScoreDisplay').textContent = 'No scores yet';
+          return;
+        }
+        
+        // Find best score
+        const bestScore = Math.max(...scores.map(s => s.score || 0));
+        document.getElementById('bestScoreDisplay').textContent = `${bestScore}s`;
+        
+        // Find most recent
+        scores.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const recent = scores[0];
+        document.getElementById('recentScoreDisplay').textContent = `${recent.score || 0}s by ${recent.teamName || 'Unknown'}`;
+        
+      } catch (error) {
+        console.error('Error loading score stats:', error);
+        document.getElementById('bestScoreDisplay').textContent = 'Error';
+        document.getElementById('recentScoreDisplay').textContent = 'Error';
+      }
     }
     
     function createJuiceSplatter() {
@@ -1328,6 +1429,9 @@
     window.startGame = startGame;
     window.resetGame = resetGame;
     window.backToMenu = backToMenu;
+    
+    // Load session teams on page load
+    loadSessionTeams();
     
     // Hide controls hint after a few seconds
     setTimeout(() => {
