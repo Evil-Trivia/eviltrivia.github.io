@@ -251,18 +251,7 @@
       const minWidth = 160;
       const maxWidth = 280;
       const baseY = height - 70;
-      const startPlatform = Bodies.rectangle(
-        140,
-        baseY - 20,
-        260,
-        26,
-        {
-          isStatic: true,
-          label: 'platform',
-          friction: 0.95,
-          render: { fillStyle: '#2f2112' }
-        }
-      );
+      const startPlatform = createPenPlatform(140, baseY - 20, 260);
       platforms.push(startPlatform);
       
       let cursorX = startPlatform.bounds.max.x;
@@ -276,20 +265,7 @@
         const offset = (Math.random() - 0.5) * 160;
         currentY = clamp(currentY + offset, 160, baseY);
 
-        const platform = Bodies.rectangle(
-          cursorX,
-          currentY,
-          platformWidth,
-          22,
-          {
-            isStatic: true,
-            label: 'platform',
-            friction: 0.95,
-            render: {
-              fillStyle: '#2f2112'
-            }
-          }
-        );
+        const platform = createPenPlatform(cursorX, currentY, platformWidth);
 
         platforms.push(platform);
         cursorX += platformWidth / 2;
@@ -307,6 +283,46 @@
       });
 
       World.add(world, [leftWall, rightWall, ...platforms]);
+    }
+
+    function createPenPlatform(x, y, width) {
+      const penColors = ['#000000', '#0000FF', '#FF0000', '#000080', '#008000'];
+      const numPens = Math.floor(width / 12);
+      const parts = [];
+      
+      for (let i = 0; i < numPens; i++) {
+        const penX = x - width/2 + (i * (width / numPens)) + (width / numPens / 2);
+        const color = penColors[Math.floor(Math.random() * penColors.length)];
+        
+        const penBody = Bodies.rectangle(penX, y, 6, 18, {
+          isStatic: true,
+          render: { fillStyle: color }
+        });
+        
+        const penTip = Bodies.trapezoid(penX, y + 11, 5, 6, 0.2, {
+          isStatic: true,
+          render: { fillStyle: '#FFD700' }
+        });
+        
+        const penTop = Bodies.circle(penX, y - 11, 3, {
+          isStatic: true,
+          render: { fillStyle: color }
+        });
+        
+        parts.push(penBody, penTip, penTop);
+      }
+      
+      const platform = Body.create({
+        parts: [
+          Bodies.rectangle(x, y, width, 22, { isStatic: true }),
+          ...parts
+        ],
+        isStatic: true,
+        label: 'platform',
+        friction: 0.95
+      });
+      
+      return platform;
     }
 
     function setupInput() {
