@@ -451,7 +451,10 @@
           width: canvasWidth,
           height: canvasHeight,
           wireframes: false,
-          background: 'transparent'
+          background: 'transparent',
+          showCollisions: true,  // Debug: show collision points
+          showVertexNumbers: false,
+          showConvexHulls: false
         }
       });
       
@@ -494,45 +497,69 @@
         const imgWidth = lemonImage.width;
         const imgHeight = lemonImage.height;
         
-        // Target size for the lemon in the game
-        const targetSize = 60; // pixels
+        // Target size for the lemon in the game (MUCH SMALLER)
+        const targetSize = 35; // pixels
         const spriteScale = targetSize / imgWidth;
         
         // Trace the lemon PNG outline based on actual image (1000x1000px)
         // Vertices trace the BLACK OUTLINE of the lemon, centered at (0, 0)
-        // Going clockwise from top
+        // Using more vertices for smoother rolling
         const lemonVertices = [
-          { x: -100, y: -450 },   // top left bump start
-          { x: -50, y: -480 },    // top left peak
           { x: 0, y: -490 },      // very top
-          { x: 80, y: -485 },     // top right area
-          { x: 180, y: -460 },    // top right
-          { x: 280, y: -410 },    // upper right curve
-          { x: 360, y: -340 },    // right upper section
-          { x: 420, y: -250 },    // right side upper
-          { x: 460, y: -140 },    // right side middle-upper
-          { x: 480, y: -20 },     // right widest point
-          { x: 485, y: 100 },     // right side middle-lower
-          { x: 470, y: 220 },     // right lower section
-          { x: 430, y: 320 },     // right bottom curve start
-          { x: 370, y: 390 },     // bottom right curve
-          { x: 280, y: 440 },     // bottom right
-          { x: 160, y: 475 },     // bottom right tip area
-          { x: 40, y: 490 },      // bottom center-right
-          { x: -60, y: 485 },     // bottom center-left
-          { x: -160, y: 465 },    // bottom left tip area
-          { x: -250, y: 425 },    // bottom left
-          { x: -330, y: 365 },    // bottom left curve
-          { x: -390, y: 285 },    // left bottom curve start
-          { x: -430, y: 190 },    // left lower section
-          { x: -455, y: 80 },     // left side middle-lower
-          { x: -470, y: -40 },    // left widest point
-          { x: -465, y: -160 },   // left side middle-upper
-          { x: -440, y: -270 },   // left side upper
-          { x: -390, y: -360 },   // left upper section
-          { x: -320, y: -420 },   // upper left curve
-          { x: -230, y: -455 },   // top left
-          { x: -150, y: -465 }    // back to top left bump
+          { x: 50, y: -485 },     // top right
+          { x: 100, y: -475 },    
+          { x: 150, y: -460 },    
+          { x: 200, y: -440 },    
+          { x: 250, y: -415 },    
+          { x: 300, y: -380 },    
+          { x: 345, y: -340 },    
+          { x: 385, y: -295 },    
+          { x: 420, y: -245 },    
+          { x: 445, y: -190 },    
+          { x: 465, y: -130 },    
+          { x: 478, y: -65 },     
+          { x: 485, y: 0 },       // right widest
+          { x: 485, y: 65 },      
+          { x: 478, y: 130 },     
+          { x: 465, y: 190 },     
+          { x: 445, y: 245 },     
+          { x: 420, y: 295 },     
+          { x: 385, y: 340 },     
+          { x: 345, y: 380 },     
+          { x: 300, y: 415 },     
+          { x: 250, y: 440 },     
+          { x: 200, y: 460 },     
+          { x: 150, y: 475 },     
+          { x: 100, y: 485 },     
+          { x: 50, y: 490 },      
+          { x: 0, y: 492 },       // bottom tip
+          { x: -50, y: 490 },     
+          { x: -100, y: 485 },    
+          { x: -150, y: 475 },    
+          { x: -200, y: 460 },    
+          { x: -250, y: 440 },    
+          { x: -300, y: 415 },    
+          { x: -345, y: 380 },    
+          { x: -385, y: 340 },    
+          { x: -420, y: 295 },    
+          { x: -445, y: 245 },    
+          { x: -465, y: 190 },    
+          { x: -478, y: 130 },    
+          { x: -485, y: 65 },     
+          { x: -490, y: 0 },      // left widest
+          { x: -485, y: -65 },    
+          { x: -478, y: -130 },   
+          { x: -465, y: -190 },   
+          { x: -445, y: -245 },   
+          { x: -420, y: -295 },   
+          { x: -385, y: -340 },   
+          { x: -345, y: -380 },   
+          { x: -300, y: -415 },   
+          { x: -250, y: -440 },   
+          { x: -200, y: -460 },   
+          { x: -150, y: -475 },   
+          { x: -100, y: -485 },   
+          { x: -50, y: -490 }     // back to top
         ];
         
         // Scale vertices to match sprite size
@@ -543,7 +570,7 @@
         
         lemon = Bodies.fromVertices(
           canvasWidth / 2, 
-          canvasHeight - 50, 
+          canvasHeight - 30, 
           [scaledVertices], 
           {
             density: 0.001,
@@ -598,8 +625,8 @@
       Events.on(engine, 'beforeUpdate', () => {
         if (!gameActive || !lemon) return;
         
-        // Much gentler force for smaller lemon
-        const force = 0.0003;
+        // Adjusted force for smaller lemon (35px)
+        const force = 0.0002;
         
         if (keys.ArrowLeft || touchingLeft) {
           Body.applyForce(lemon, lemon.position, { x: -force, y: 0 });
@@ -609,9 +636,9 @@
         }
         
         // Limit max velocity to prevent flying off screen
-        if (Math.abs(lemon.velocity.x) > 5) {
+        if (Math.abs(lemon.velocity.x) > 4) {
           Body.setVelocity(lemon, { 
-            x: Math.sign(lemon.velocity.x) * 5, 
+            x: Math.sign(lemon.velocity.x) * 4, 
             y: lemon.velocity.y 
           });
         }
