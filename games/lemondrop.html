@@ -202,6 +202,7 @@
       color: #FFD700;
       text-shadow: 2px 2px 0px #000;
       margin: 20px 0;
+      line-height: 1.8;
     }
     
     .controls-hint {
@@ -297,7 +298,7 @@
   <div class="container">
     <h1>🍋 LEMON DROP 🍋</h1>
     <div class="subtitle">
-      Catch the falling pens!<br>Move with arrow keys or tap screen sides
+      Dodge the falling pens!<br>Move with arrow keys or tap screen sides
     </div>
 
     <div class="game-card">
@@ -319,15 +320,14 @@
         
         <div class="button-group">
           <button class="btn" onclick="startGame(false)">PLAY GAME</button>
-          <button class="btn btn-secondary" onclick="startGame(true)">PRACTICE MODE</button>
         </div>
       </div>
 
       <!-- Game Area -->
       <div id="gameArea" class="game-area">
         <div class="game-hud">
-          <div class="score-display">SCORE: <span id="scoreValue">0</span></div>
-          <div class="instructions">Catch the pens! Don't let them hit the lemon!</div>
+          <div class="score-display">TIME SURVIVED: <span id="scoreValue">0</span>s</div>
+          <div class="instructions">Dodge the pens! Don't let them hit the lemon!</div>
         </div>
         
         <canvas id="gameCanvas"></canvas>
@@ -336,7 +336,7 @@
       <!-- Results -->
       <div id="results" class="results">
         <div class="game-over-title">GAME OVER!</div>
-        <div class="final-score">FINAL SCORE: <span id="finalScore">0</span></div>
+        <div class="final-score">YOU SURVIVED: <span id="finalScore">0</span> SECONDS</div>
         <div class="button-group">
           <button class="btn" onclick="resetGame()">PLAY AGAIN</button>
           <button class="btn btn-secondary" onclick="backToMenu()">MAIN MENU</button>
@@ -389,6 +389,8 @@
     let penSpawnInterval;
     let gameSpeed = 1;
     let lemonImage;
+    let gameStartTime = 0;
+    let scoreUpdateInterval;
     
     const { Engine, Render, World, Bodies, Body, Events } = Matter;
     
@@ -413,14 +415,15 @@
       const teamName = document.getElementById('teamName').value.trim();
       const barLocation = document.getElementById('barLocation').value;
       
-      if (!practiceMode && (!teamName || !barLocation)) {
-        alert('Please enter team name and select bar location, or use Practice Mode.');
+      if (!teamName || !barLocation) {
+        alert('Please enter team name and select bar location.');
         return;
       }
       
-      isPracticeMode = practiceMode;
+      isPracticeMode = false;
       score = 0;
-      scoreValue.textContent = score;
+      gameStartTime = Date.now();
+      scoreValue.textContent = '0';
       
       // Show game area
       setupForm.style.display = 'none';
@@ -480,8 +483,8 @@
       lemonImage.src = '../images/lemon.png';
       
       lemonImage.onload = () => {
-        // Create lemon with physics properties
-        const lemonSize = 50;
+        // Create lemon with physics properties (much smaller)
+        const lemonSize = 20;
         lemon = Bodies.circle(canvasWidth / 2, canvasHeight - 100, lemonSize, {
           density: 0.04,
           friction: 0.01,
@@ -503,7 +506,9 @@
         Engine.run(engine);
         
         gameActive = true;
+        gameStartTime = Date.now();
         startSpawningPens();
+        startScoreTimer();
       };
       
       // Collision detection
@@ -521,24 +526,17 @@
             }
           }
           
-          // Check if pen hit ground (score!)
+          // Check if pen hit ground (remove it)
           if ((bodyA === ground || bodyB === ground) && gameActive) {
             const pen = bodyA === ground ? bodyB : bodyA;
-            if (pen.label === 'pen' && !pen.scored) {
-              pen.scored = true;
-              score++;
-              scoreValue.textContent = score;
+            if (pen.label === 'pen' && !pen.removed) {
+              pen.removed = true;
               
-              // Remove pen after scoring
+              // Remove pen after hitting ground
               setTimeout(() => {
                 World.remove(world, pen);
                 pens = pens.filter(p => p !== pen);
               }, 100);
-              
-              // Increase difficulty
-              if (score % 5 === 0) {
-                gameSpeed += 0.1;
-              }
             }
           }
         });
@@ -564,36 +562,85 @@
       });
     }
     
+    function startScoreTimer() {
+      scoreUpdateInterval = setInterval(() => {
+        if (!gameActive) {
+          clearInterval(scoreUpdateInterval);
+          return;
+        }
+        score = Math.floor((Date.now() - gameStartTime) / 1000);
+        scoreValue.textContent = score;
+      }, 100);
+    }
+    
     function startSpawningPens() {
-      penSpawnInterval = setInterval(() => {
+      let baseSpawnRate = 800; // Start spawning every 800ms
+      
+      function schedulePenSpawn() {
         if (!gameActive) return;
-        spawnPen();
-      }, Math.max(1000, 2000 - score * 50)); // Spawn faster as score increases
+        
+        // Increase spawn rate based on time survived (score)
+        const spawnDelay = Math.max(200, baseSpawnRate - (score * 15));
+        
+        penSpawnInterval = setTimeout(() => {
+          spawnPen();
+          schedulePenSpawn(); // Schedule next spawn
+        }, spawnDelay);
+      }
+      
+      schedulePenSpawn();
     }
     
     function spawnPen() {
       const canvasWidth = canvas.width;
       const x = Math.random() * (canvasWidth - 100) + 50;
       
-      // Create pen (rectangle that looks like a pen)
-      const pen = Bodies.rectangle(x, -20, 8, 40, {
+      // Create pen body (looks like a real pen)
+      const penColors = ['#000000', '#0000FF', '#FF0000', '#000080', '#008000'];
+      const color = penColors[Math.floor(Math.random() * penColors.length)];
+      
+      // Create compound body for pen shape
+      const penTip = Bodies.trapezoid(x, -20, 5, 8, 0.2, {
+        label: 'pen',
+        render: {
+          fillStyle: '#FFD700'
+        }
+      });
+      
+      const penBody = Bodies.rectangle(x, -35, 6, 50, {
+        label: 'pen',
+        render: {
+          fillStyle: color
+        }
+      });
+      
+      const penTop = Bodies.circle(x, -62, 4, {
+        label: 'pen',
+        render: {
+          fillStyle: color
+        }
+      });
+      
+      // Combine into one pen
+      const pen = Body.create({
+        parts: [penBody, penTip, penTop],
         label: 'pen',
         density: 0.001,
         friction: 0.1,
         restitution: 0.2,
-        angle: Math.random() * Math.PI * 2,
-        render: {
-          fillStyle: '#' + Math.floor(Math.random()*16777215).toString(16)
-        }
+        angle: Math.random() * Math.PI * 0.5 - Math.PI * 0.25 // Slight random angle
       });
       
-      pen.scored = false;
+      pen.removed = false;
       
       // Add some random horizontal velocity
       Body.setVelocity(pen, { 
         x: (Math.random() - 0.5) * 2, 
-        y: gameSpeed * 2 
+        y: 2 + gameSpeed
       });
+      
+      // Add slight rotation
+      Body.setAngularVelocity(pen, (Math.random() - 0.5) * 0.1);
       
       World.add(world, pen);
       pens.push(pen);
@@ -604,15 +651,19 @@
           World.remove(world, pen);
           pens = pens.filter(p => p !== pen);
         }
-      }, 10000);
+      }, 15000);
     }
     
     function gameOver() {
       if (!gameActive) return;
       gameActive = false;
       
-      // Stop spawning
-      clearInterval(penSpawnInterval);
+      // Calculate final score
+      score = Math.floor((Date.now() - gameStartTime) / 1000);
+      
+      // Stop spawning and scoring
+      clearTimeout(penSpawnInterval);
+      clearInterval(scoreUpdateInterval);
       
       // Create lemon juice splatter effect
       createJuiceSplatter();
@@ -632,9 +683,7 @@
         finalScoreEl.textContent = score;
         
         // Submit score
-        if (!isPracticeMode) {
-          submitScore();
-        }
+        submitScore();
       }, 1500);
     }
     
@@ -709,7 +758,8 @@
     function resetGame() {
       results.style.display = 'none';
       score = 0;
-      scoreValue.textContent = score;
+      gameStartTime = Date.now();
+      scoreValue.textContent = '0';
       gameSpeed = 1;
       pens = [];
       initGame();
@@ -726,6 +776,9 @@
         Engine.clear(engine);
         World.clear(world);
       }
+      
+      clearTimeout(penSpawnInterval);
+      clearInterval(scoreUpdateInterval);
       
       score = 0;
       gameSpeed = 1;
