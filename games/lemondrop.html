@@ -391,6 +391,12 @@
     let lemonImage;
     let gameStartTime = 0;
     let scoreUpdateInterval;
+    const LEMON_SIZE_MULTIPLIER = 1.1;
+    const LEMON_CONTROL_FORCE = 0.00025;
+    const LEMON_MAX_SPEED = 4.5;
+    const LEMON_MAX_SPIN = 0.35;
+    const PEN_FALL_SPEED_SCALE = 0.8;
+    const PEN_GRAVITY_SCALE = 0.8;
     
     const { Engine, Render, World, Bodies, Body, Events } = Matter;
     
@@ -498,7 +504,8 @@
         const imgHeight = lemonImage.height;
         
         // Target size for the lemon in the game (MUCH SMALLER)
-        const targetSize = 35; // pixels
+        const baseLemonSize = 35; // pixels
+        const targetSize = baseLemonSize * LEMON_SIZE_MULTIPLIER;
         const spriteScale = targetSize / imgWidth;
         
         // Trace the lemon PNG outline based on actual image (1000x1000px)
@@ -575,7 +582,7 @@
           {
             density: 0.001,
             friction: 0.9,
-            frictionAir: 0.02,
+            frictionAir: 0.008,
             restitution: 0.05,
             collisionFilter: {
               category: 0x0002,
@@ -625,23 +632,41 @@
       Events.on(engine, 'beforeUpdate', () => {
         if (!gameActive || !lemon) return;
         
-        // Adjusted force for smaller lemon (35px)
-        const force = 0.0002;
+        let inputDirection = 0;
+        if (keys.ArrowLeft || touchingLeft) inputDirection -= 1;
+        if (keys.ArrowRight || touchingRight) inputDirection += 1;
         
-        if (keys.ArrowLeft || touchingLeft) {
-          Body.applyForce(lemon, lemon.position, { x: -force, y: 0 });
-        }
-        if (keys.ArrowRight || touchingRight) {
-          Body.applyForce(lemon, lemon.position, { x: force, y: 0 });
+        if (inputDirection !== 0) {
+          const lemonHeight = lemon.bounds.max.y - lemon.bounds.min.y;
+          const contactPoint = {
+            x: lemon.position.x,
+            y: lemon.position.y + lemonHeight / 2 - 2
+          };
+          Body.applyForce(lemon, contactPoint, {
+            x: inputDirection * LEMON_CONTROL_FORCE,
+            y: 0
+          });
         }
         
         // Limit max velocity to prevent flying off screen
-        if (Math.abs(lemon.velocity.x) > 4) {
+        if (Math.abs(lemon.velocity.x) > LEMON_MAX_SPEED) {
           Body.setVelocity(lemon, { 
-            x: Math.sign(lemon.velocity.x) * 4, 
+            x: Math.sign(lemon.velocity.x) * LEMON_MAX_SPEED, 
             y: lemon.velocity.y 
           });
         }
+        
+        if (Math.abs(lemon.angularVelocity) > LEMON_MAX_SPIN) {
+          Body.setAngularVelocity(lemon, Math.sign(lemon.angularVelocity) * LEMON_MAX_SPIN);
+        }
+        
+        const gravityScale = world.gravity.scale ?? 0.001;
+        pens.forEach(pen => {
+          if (!pen || pen.isSleeping) return;
+          const counterForce = pen.mass * world.gravity.y * gravityScale * (1 - PEN_GRAVITY_SCALE);
+          if (!counterForce) return;
+          Body.applyForce(pen, pen.position, { x: 0, y: -counterForce });
+        });
       });
     }
     
@@ -710,6 +735,7 @@
         label: 'pen',
         density: 0.001,
         friction: 0.1,
+        frictionAir: 0.01,
         restitution: 0.2,
         angle: Math.random() * Math.PI * 0.5 - Math.PI * 0.25, // Slight random angle
         collisionFilter: {
@@ -723,7 +749,7 @@
       // Add some random horizontal velocity
       Body.setVelocity(pen, { 
         x: (Math.random() - 0.5) * 2, 
-        y: 2 + gameSpeed
+        y: (2 + gameSpeed) * PEN_FALL_SPEED_SCALE
       });
       
       // Add slight rotation
@@ -740,7 +766,7 @@
         }
         
         // Remove pen if it's fallen below the screen
-        if (pen.position.y > canvasHeight + 100) {
+        if (pen.position.y > canvas.height + 100) {
           World.remove(world, pen);
           pens = pens.filter(p => p !== pen);
           clearInterval(checkPenInterval);
