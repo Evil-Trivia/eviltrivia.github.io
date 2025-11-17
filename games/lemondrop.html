@@ -490,43 +490,53 @@
       lemonImage.src = '../images/lemon.png';
       
       lemonImage.onload = () => {
-        // Create lemon with irregular polygon shape (wobbles as it rolls!)
-        const lemonSize = 12; // Even smaller!
-        const scale = lemonSize / 50;
+        // Create lemon matching ACTUAL PNG shape - 33% smaller (12 * 0.67 = 8)
+        const lemonSize = 8;
+        const scale = lemonSize / 45; // Adjusted scale for accurate tracing
         
-        // Create vertices for a wonky lemon shape (scaled to size)
+        // Trace the actual lemon PNG outline (clockwise from top)
+        // These vertices match the wobbly lemon PNG shape
         const lemonVertices = [
-          { x: 0 * scale, y: -40 * scale },      // top point
-          { x: 15 * scale, y: -35 * scale },     // top right
-          { x: 30 * scale, y: -20 * scale },     // right upper bulge
-          { x: 38 * scale, y: 0 * scale },       // right side
-          { x: 32 * scale, y: 20 * scale },      // right lower
-          { x: 18 * scale, y: 32 * scale },      // bottom right
-          { x: 0 * scale, y: 38 * scale },       // bottom point
-          { x: -18 * scale, y: 32 * scale },     // bottom left
-          { x: -32 * scale, y: 20 * scale },     // left lower
-          { x: -38 * scale, y: 0 * scale },      // left side
-          { x: -30 * scale, y: -20 * scale },    // left upper bulge
-          { x: -15 * scale, y: -35 * scale }     // top left
+          { x: -8 * scale, y: -45 * scale },     // top left bump
+          { x: 5 * scale, y: -47 * scale },      // top peak  
+          { x: 18 * scale, y: -42 * scale },     // top right
+          { x: 28 * scale, y: -35 * scale },     // upper right
+          { x: 38 * scale, y: -22 * scale },     // right upper bulge
+          { x: 44 * scale, y: -8 * scale },      // right widest
+          { x: 46 * scale, y: 5 * scale },       // right middle
+          { x: 43 * scale, y: 18 * scale },      // right lower
+          { x: 36 * scale, y: 28 * scale },      // lower right
+          { x: 25 * scale, y: 38 * scale },      // bottom right curve
+          { x: 10 * scale, y: 44 * scale },      // bottom right
+          { x: 0 * scale, y: 46 * scale },       // bottom tip
+          { x: -12 * scale, y: 44 * scale },     // bottom left  
+          { x: -22 * scale, y: 39 * scale },     // lower left curve
+          { x: -32 * scale, y: 30 * scale },     // left lower
+          { x: -40 * scale, y: 18 * scale },     // left side lower
+          { x: -45 * scale, y: 3 * scale },      // left widest
+          { x: -46 * scale, y: -10 * scale },    // left middle
+          { x: -42 * scale, y: -22 * scale },    // left upper
+          { x: -35 * scale, y: -32 * scale },    // upper left bulge
+          { x: -22 * scale, y: -40 * scale }     // top left curve
         ];
         
-        lemon = Bodies.fromVertices(canvasWidth / 2, canvasHeight - 20, [lemonVertices], {
+        lemon = Bodies.fromVertices(canvasWidth / 2, canvasHeight - 15, [lemonVertices], {
           density: 0.001,
-          friction: 0.8,
-          frictionAir: 0.01,
-          restitution: 0.1,
+          friction: 0.9,
+          frictionAir: 0.02,
+          restitution: 0.05,
           collisionFilter: {
-            category: 0x0002,  // Lemon category
-            mask: 0x0001 | 0x0004  // Collides with ground and pens
+            category: 0x0002,
+            mask: 0x0001 | 0x0004
           },
           render: {
             sprite: {
               texture: '../images/lemon.png',
-              xScale: lemonSize * 2 / 100,
-              yScale: lemonSize * 2 / 100
+              xScale: lemonSize * 2.2 / 100,  // Adjusted to match vertices
+              yScale: lemonSize * 2.2 / 100
             }
           }
-        });
+        }, true); // flagInternal = true for better vertex processing
         
         World.add(world, [ground, leftWall, rightWall, lemon]);
         
@@ -561,13 +571,22 @@
       Events.on(engine, 'beforeUpdate', () => {
         if (!gameActive || !lemon) return;
         
-        const force = 0.0005;
+        // Much gentler force for smaller lemon
+        const force = 0.0003;
         
         if (keys.ArrowLeft || touchingLeft) {
           Body.applyForce(lemon, lemon.position, { x: -force, y: 0 });
         }
         if (keys.ArrowRight || touchingRight) {
           Body.applyForce(lemon, lemon.position, { x: force, y: 0 });
+        }
+        
+        // Limit max velocity to prevent flying off screen
+        if (Math.abs(lemon.velocity.x) > 5) {
+          Body.setVelocity(lemon, { 
+            x: Math.sign(lemon.velocity.x) * 5, 
+            y: lemon.velocity.y 
+          });
         }
       });
     }
