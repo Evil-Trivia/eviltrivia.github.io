@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evil Trivia - Lemon Drop 2</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Press Start 2P', cursive;
+      background: linear-gradient(180deg, #1c2741 0%, #142235 100%);
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+      overflow: hidden;
+    }
+    .container {
+      width: 100%;
+      max-width: 1100px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 26px;
+      margin-bottom: 10px;
+      text-shadow: 4px 4px 0 #000;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 11px;
+      color: #ffd54f;
+      text-shadow: 2px 2px 0 #000;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+    .hud {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      background: rgba(0, 0, 0, 0.65);
+      border: 3px solid #000;
+      padding: 15px;
+      margin-bottom: 15px;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .hud span {
+      color: #78ffb6;
+    }
+    .hud button {
+      background: #f15a29;
+      border: 3px solid #000;
+      color: #fff;
+      padding: 10px 16px;
+      font-family: 'Press Start 2P', cursive;
+      cursor: pointer;
+      box-shadow: 3px 3px 0 #000;
+    }
+    .hud button:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0 #000;
+    }
+    canvas {
+      width: 100%;
+      border: 4px solid #000;
+      background: linear-gradient(180deg, #87CEEB 0%, #4a7a3c 70%, #2f1a10 100%);
+      image-rendering: pixelated;
+      max-height: 70vh;
+    }
+    @media (max-width: 700px) {
+      body {
+        padding: 10px;
+      }
+      h1 {
+        font-size: 18px;
+      }
+      .hud {
+        flex-direction: column;
+        font-size: 9px;
+      }
+      canvas {
+        max-height: none;
+        height: 420px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🍋 LEMON DROP II 🍋</h1>
+    <div class="subtitle">
+      Roll, bounce, and leap across an endless bar counter.<br>
+      Arrow keys (or A/D) to roll · Space to jump.
+    </div>
+    <div class="hud">
+      <div>Distance: <span id="distanceValue">0</span> m</div>
+      <div>Procedural level · camera follows the lemon</div>
+      <button id="regenBtn">NEW LAYOUT</button>
+    </div>
+    <canvas id="platformCanvas" width="960" height="540"></canvas>
+  </div>
+
+  <script>
+    const {
+      Engine,
+      Render,
+      Runner,
+      World,
+      Bodies,
+      Body,
+      Events,
+      Composite
+    } = Matter;
+
+    const canvas = document.getElementById('platformCanvas');
+    const distanceValue = document.getElementById('distanceValue');
+    const regenBtn = document.getElementById('regenBtn');
+
+    const MOVE_FORCE = 0.00035;
+    const MAX_MOVE_SPEED = 6;
+    const AIR_DRAG = 0.005;
+    const JUMP_FORCE = 0.018;
+    const CAMERA_LERP = 0.15;
+
+    let engine, world, render, runner;
+    let lemon;
+    let platforms = [];
+    let groundedContacts = 0;
+    let levelWidth = 4000;
+    let keys = {};
+    let cameraTarget = { x: 0, y: 0 };
+    let distanceTravelled = 0;
+    let inputBound = false;
+    let resizeHandler = null;
+    let resizeTimeout = null;
+
+    function initGame() {
+      cleanup();
+      distanceTravelled = 0;
+      distanceValue.textContent = '0';
+      engine = Engine.create();
+      world = engine.world;
+      world.gravity.y = 1.1;
+
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+
+      render = Render.create({
+        canvas,
+        engine,
+        options: {
+          width,
+          height,
+          background: 'transparent',
+          wireframes: false,
+          hasBounds: true,
+          pixelRatio: window.devicePixelRatio || 1
+        }
+      });
+
+      runner = Runner.create();
+
+      createLevel(width, height);
+      createPlayer(width, height);
+      setupInput();
+      setupEvents(width, height);
+
+      Render.run(render);
+      Runner.run(runner, engine);
+    }
+
+    function cleanup() {
+      if (render) {
+        Render.stop(render);
+        render.canvas && render.canvas.getContext('2d').clearRect(0, 0, render.canvas.width, render.canvas.height);
+        render.textures = {};
+      }
+      if (runner) {
+        Runner.stop(runner);
+      }
+      if (engine) {
+        Composite.clear(engine.world, false);
+        Engine.clear(engine);
+      }
+      lemon = null;
+      platforms = [];
+      groundedContacts = 0;
+    }
+
+    function createPlayer(width, height) {
+      const targetSize = 45;
+      const lemonVertices = getLemonVertices();
+      const scale = targetSize / 1000;
+      const scaledVertices = lemonVertices.map(v => ({
+        x: v.x * scale,
+        y: v.y * scale
+      }));
+
+      lemon = Bodies.fromVertices(
+        100,
+        height - 100,
+        [scaledVertices],
+        {
+          density: 0.002,
+          friction: 0.8,
+          frictionStatic: 0.9,
+          frictionAir: AIR_DRAG,
+          restitution: 0.15,
+          label: 'lemon',
+          render: {
+            sprite: {
+              texture: '../images/lemon.png',
+              xScale: scale,
+              yScale: scale
+            }
+          }
+        },
+        true
+      );
+
+      World.add(world, lemon);
+      cameraTarget.x = lemon.position.x;
+      cameraTarget.y = lemon.position.y;
+    }
+
+    function createLevel(width, height) {
+      platforms = [];
+      const segmentCount = 28;
+      const minWidth = 160;
+      const maxWidth = 280;
+      const baseY = height - 70;
+      let cursorX = 0;
+      let currentY = baseY;
+
+      for (let i = 0; i < segmentCount; i++) {
+        const platformWidth = minWidth + Math.random() * (maxWidth - minWidth);
+        const gap = 80 + Math.random() * 140;
+        cursorX += platformWidth / 2 + gap;
+
+        const offset = (Math.random() - 0.5) * 160;
+        currentY = clamp(currentY + offset, 160, baseY);
+
+        const platform = Bodies.rectangle(
+          cursorX,
+          currentY,
+          platformWidth,
+          22,
+          {
+            isStatic: true,
+            label: 'platform',
+            friction: 0.95,
+            render: {
+              fillStyle: '#2f2112'
+            }
+          }
+        );
+
+        platforms.push(platform);
+        cursorX += platformWidth / 2;
+      }
+
+      levelWidth = cursorX + width;
+
+      const floor = Bodies.rectangle(
+        levelWidth / 2,
+        height + 30,
+        levelWidth + 800,
+        120,
+        {
+          isStatic: true,
+          label: 'platform',
+          friction: 0.95,
+          render: {
+            fillStyle: '#3b2818'
+          }
+        }
+      );
+
+      const leftWall = Bodies.rectangle(-200, height / 2, 400, height * 2, {
+        isStatic: true,
+        label: 'wall'
+      });
+      const rightWall = Bodies.rectangle(levelWidth + 200, height / 2, 400, height * 2, {
+        isStatic: true,
+        label: 'wall'
+      });
+
+      World.add(world, [floor, leftWall, rightWall, ...platforms]);
+    }
+
+    function setupInput() {
+      keys = {};
+      if (inputBound) return;
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keyup', handleKeyUp);
+      inputBound = true;
+    }
+
+    function handleKeyDown(e) {
+      keys[e.code] = true;
+      if ((e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') && canJump()) {
+        performJump();
+      }
+    }
+
+    function handleKeyUp(e) {
+      keys[e.code] = false;
+    }
+
+    function setupEvents(viewWidth, viewHeight) {
+      Events.on(engine, 'beforeUpdate', () => {
+        if (!lemon) return;
+        let direction = 0;
+        if (keys.ArrowLeft || keys.KeyA) direction -= 1;
+        if (keys.ArrowRight || keys.KeyD) direction += 1;
+
+        if (direction !== 0) {
+          Body.applyForce(lemon, lemon.position, {
+            x: direction * MOVE_FORCE,
+            y: 0
+          });
+          Body.setAngularVelocity(lemon, lemon.angularVelocity + direction * 0.02);
+        }
+
+        if (Math.abs(lemon.velocity.x) > MAX_MOVE_SPEED) {
+          Body.setVelocity(lemon, {
+            x: Math.sign(lemon.velocity.x) * MAX_MOVE_SPEED,
+            y: lemon.velocity.y
+          });
+        }
+      });
+
+      Events.on(engine, 'afterUpdate', () => {
+        if (!lemon) return;
+        updateCamera(viewWidth, viewHeight);
+        distanceTravelled = Math.max(distanceTravelled, Math.floor(lemon.position.x / 20));
+        distanceValue.textContent = distanceTravelled;
+
+        if (lemon.position.y > viewHeight + 400) {
+          resetPlayer(viewWidth, viewHeight);
+        }
+      });
+
+      Events.on(engine, 'collisionStart', event => adjustContacts(event.pairs, 1));
+      Events.on(engine, 'collisionEnd', event => adjustContacts(event.pairs, -1));
+
+      ensureResizeListener();
+    }
+
+    function adjustContacts(pairs, delta) {
+      pairs.forEach(pair => {
+        if (pair.bodyA === lemon || pair.bodyB === lemon) {
+          const other = pair.bodyA === lemon ? pair.bodyB : pair.bodyA;
+          if (!other.isStatic && other.label !== 'platform') return;
+
+          const normal = pair.collision.normal;
+          const touchingGround = (pair.bodyA === lemon && normal.y < -0.4) ||
+                                 (pair.bodyB === lemon && normal.y > 0.4);
+          if (touchingGround) {
+            groundedContacts = Math.max(0, groundedContacts + delta);
+          }
+        }
+      });
+    }
+
+    function canJump() {
+      return groundedContacts > 0;
+    }
+
+    function performJump() {
+      if (!lemon) return;
+      Body.setVelocity(lemon, { x: lemon.velocity.x, y: Math.min(lemon.velocity.y, -2) });
+      Body.applyForce(lemon, {
+        x: lemon.position.x,
+        y: lemon.position.y + 10
+      }, {
+        x: 0,
+        y: -JUMP_FORCE
+      });
+    }
+
+    function resetPlayer(viewWidth, viewHeight) {
+      if (!lemon) return;
+      Body.setPosition(lemon, { x: 80, y: viewHeight - 120 });
+      Body.setVelocity(lemon, { x: 0, y: 0 });
+      Body.setAngularVelocity(lemon, 0);
+      distanceTravelled = 0;
+    }
+
+    function updateCamera(viewWidth, viewHeight) {
+      const marginX = viewWidth * 0.3;
+      const marginY = viewHeight * 0.4;
+      const minX = render.bounds.min.x + marginX;
+      const maxX = render.bounds.max.x - marginX;
+
+      let targetX = cameraTarget.x;
+      if (lemon.position.x < minX || lemon.position.x > maxX) {
+        targetX = lemon.position.x;
+      } else {
+        targetX = lerp(cameraTarget.x, lemon.position.x, CAMERA_LERP);
+      }
+
+      const targetY = lerp(cameraTarget.y, lemon.position.y, CAMERA_LERP);
+
+      cameraTarget.x = clamp(targetX, viewWidth / 2, levelWidth - viewWidth / 2);
+      cameraTarget.y = clamp(targetY, viewHeight / 2, viewHeight * 1.5);
+
+      const halfW = viewWidth / 2;
+      const halfH = viewHeight / 2;
+
+      render.bounds.min.x = cameraTarget.x - halfW;
+      render.bounds.max.x = cameraTarget.x + halfW;
+      render.bounds.min.y = cameraTarget.y - halfH;
+      render.bounds.max.y = cameraTarget.y + halfH;
+
+      Render.lookAt(render, render.bounds);
+    }
+
+    function getLemonVertices() {
+      return [
+        { x: 0, y: -490 }, { x: 50, y: -485 }, { x: 100, y: -475 },
+        { x: 150, y: -460 }, { x: 200, y: -440 }, { x: 250, y: -415 },
+        { x: 300, y: -380 }, { x: 345, y: -340 }, { x: 385, y: -295 },
+        { x: 420, y: -245 }, { x: 445, y: -190 }, { x: 465, y: -130 },
+        { x: 478, y: -65 }, { x: 485, y: 0 }, { x: 485, y: 65 },
+        { x: 478, y: 130 }, { x: 465, y: 190 }, { x: 445, y: 245 },
+        { x: 420, y: 295 }, { x: 385, y: 340 }, { x: 345, y: 380 },
+        { x: 300, y: 415 }, { x: 250, y: 440 }, { x: 200, y: 460 },
+        { x: 150, y: 475 }, { x: 100, y: 485 }, { x: 50, y: 490 },
+        { x: 0, y: 492 }, { x: -50, y: 490 }, { x: -100, y: 485 },
+        { x: -150, y: 475 }, { x: -200, y: 460 }, { x: -250, y: 440 },
+        { x: -300, y: 415 }, { x: -345, y: 380 }, { x: -385, y: 340 },
+        { x: -420, y: 295 }, { x: -445, y: 245 }, { x: -465, y: 190 },
+        { x: -478, y: 130 }, { x: -485, y: 65 }, { x: -490, y: 0 },
+        { x: -485, y: -65 }, { x: -478, y: -130 }, { x: -465, y: -190 },
+        { x: -445, y: -245 }, { x: -420, y: -295 }, { x: -385, y: -340 },
+        { x: -345, y: -380 }, { x: -300, y: -415 }, { x: -250, y: -440 },
+        { x: -200, y: -460 }, { x: -150, y: -475 }, { x: -100, y: -485 },
+        { x: -50, y: -490 }
+      ];
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    function lerp(start, end, t) {
+      return start + (end - start) * t;
+    }
+
+    function ensureResizeListener() {
+      if (resizeHandler) return;
+      resizeHandler = () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          if (render) {
+            Render.stop(render);
+          }
+          initGame();
+        }, 250);
+      };
+      window.addEventListener('resize', resizeHandler);
+    }
+
+    regenBtn.addEventListener('click', () => {
+      initGame();
+      distanceTravelled = 0;
+    });
+
+    window.addEventListener('beforeunload', cleanup);
+    initGame();
+  </script>
+</body>
+</html>
+
