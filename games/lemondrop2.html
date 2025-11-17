@@ -331,15 +331,10 @@
         </select>
       </div>
 
-      <div class="form-group" id="teamInputGroup2">
-        <label for="teamName2">TEAM NAME:</label>
-        <input type="text" id="teamName2" placeholder="Enter team name" autocomplete="off">
-      </div>
-      
-      <div class="form-group" id="teamSelectGroup2" style="display: none;">
+      <div class="form-group">
         <label for="teamSelect2">SELECT TEAM:</label>
         <select id="teamSelect2">
-          <option value="">Select your team...</option>
+          <option value="">Loading teams...</option>
         </select>
       </div>
       
@@ -908,87 +903,61 @@
       window.addEventListener('resize', resizeHandler);
     }
 
-    // Session and team management
-    async function onLocationChange2() {
-      const location = document.getElementById('barLocation2').value;
-      const teamInputGroup = document.getElementById('teamInputGroup2');
-      const teamSelectGroup = document.getElementById('teamSelectGroup2');
-      
-      if (!location) {
-        teamInputGroup.style.display = 'block';
-        teamSelectGroup.style.display = 'none';
-        return;
-      }
-      
-      await loadSessionTeamsForLocation2(location);
-    }
-
-    async function loadSessionTeamsForLocation2(location) {
-      const teamInputGroup = document.getElementById('teamInputGroup2');
-      const teamSelectGroup = document.getElementById('teamSelectGroup2');
-      
+    // Team management
+    async function loadAllTeams2() {
       try {
-        const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
-        if (!activeSessionsSnap.exists()) {
-          teamInputGroup.style.display = 'block';
-          teamSelectGroup.style.display = 'none';
-          return false;
-        }
-        
-        const activeSessions = activeSessionsSnap.val();
-        const sessionId = activeSessions[location];
-        
-        if (!sessionId) {
-          teamInputGroup.style.display = 'block';
-          teamSelectGroup.style.display = 'none';
-          return false;
-        }
-        
-        const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
-        if (!teamsSnap.exists()) {
-          teamInputGroup.style.display = 'block';
-          teamSelectGroup.style.display = 'none';
-          return false;
-        }
-
-        const teams = teamsSnap.val();
         const teamSelect = document.getElementById('teamSelect2');
         teamSelect.innerHTML = '<option value="">Select your team...</option>';
         
-        Object.entries(teams).forEach(([teamId, team]) => {
+        const allTeams = new Set();
+        
+        // Load all sessions from grading
+        const sessionsSnap = await window.dbGet(window.dbRef(window.db, 'grading'));
+        if (sessionsSnap.exists()) {
+          const sessions = sessionsSnap.val();
+          
+          // Collect all unique team names from all sessions
+          for (const sessionId in sessions) {
+            const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
+            if (teamsSnap.exists()) {
+              const teams = teamsSnap.val();
+              Object.values(teams).forEach(team => {
+                if (team.name) {
+                  allTeams.add(team.name);
+                }
+              });
+            }
+          }
+        }
+        
+        // Sort and add to dropdown
+        const sortedTeams = Array.from(allTeams).sort();
+        sortedTeams.forEach(teamName => {
           const option = document.createElement('option');
-          option.value = team.name;
-          option.textContent = team.name;
+          option.value = teamName;
+          option.textContent = teamName;
           teamSelect.appendChild(option);
         });
-
-        teamInputGroup.style.display = 'none';
-        teamSelectGroup.style.display = 'block';
         
-        return true;
+        if (sortedTeams.length === 0) {
+          teamSelect.innerHTML = '<option value="">No teams found</option>';
+        }
       } catch (error) {
-        console.error('Error loading session teams:', error);
-        teamInputGroup.style.display = 'block';
-        teamSelectGroup.style.display = 'none';
-        return false;
+        console.error('Error loading teams:', error);
+        document.getElementById('teamSelect2').innerHTML = '<option value="">Error loading teams</option>';
       }
     }
 
+    async function onLocationChange2() {
+      // Location change doesn't affect team list - all teams always visible
+    }
+
     function startGame2() {
-      const teamInputGroup = document.getElementById('teamInputGroup2');
-      const teamSelectGroup = document.getElementById('teamSelectGroup2');
-      
-      let teamName;
-      if (teamSelectGroup.style.display === 'none') {
-        teamName = document.getElementById('teamName2').value.trim();
-      } else {
-        teamName = document.getElementById('teamSelect2').value;
-      }
-      
+      const teamName = document.getElementById('teamSelect2').value;
       const barLocation = document.getElementById('barLocation2').value;
       
       if (!teamName || !barLocation) {
-        alert('Please enter/select team name and bar location.');
+        alert('Please select team name and bar location.');
         return;
       }
       
@@ -1045,6 +1014,9 @@
     window.addEventListener('beforeunload', cleanup);
     window.startGame2 = startGame2;
     window.onLocationChange2 = onLocationChange2;
+    
+    // Load all teams on page load
+    loadAllTeams2();
   </script>
 </body>
 </html>
