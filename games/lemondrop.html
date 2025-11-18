@@ -50,7 +50,6 @@
       color: #fff;
       margin-bottom: 10px;
       font-size: 24px;
-      text-shadow: 4px 4px 0px #000;
       line-height: 1.5;
     }
     
@@ -60,7 +59,6 @@
       margin-bottom: 15px;
       font-size: 10px;
       line-height: 1.8;
-      text-shadow: 2px 2px 0px #000;
     }
 
     .game-card {
@@ -499,9 +497,11 @@
       <div id="results" class="results">
         <div class="game-over-title">GAME OVER!</div>
         <div class="final-score">YOU SURVIVED: <span id="finalScore">0</span> SECONDS</div>
+        <div id="submissionMessage1" style="margin: 15px 0; font-size: 12px; color: #32CD32; display: none;">
+          ✓ Score saved successfully!
+        </div>
         <div id="scoreStats" style="margin: 20px 0; font-size: 10px; line-height: 2; color: #FFD700;">
-          <div>BEST SCORE: <span id="bestScoreDisplay">Loading...</span></div>
-          <div>MOST RECENT: <span id="recentScoreDisplay">Loading...</span></div>
+          <div>YOUR TEAM'S BEST: <span id="bestScoreDisplay">Loading...</span></div>
         </div>
         <div class="button-group">
           <button class="btn" onclick="resetGame()">PLAY AGAIN</button>
@@ -1252,8 +1252,8 @@
     
     async function loadScoreStats() {
       try {
+        const currentTeam = document.getElementById('teamSelect').value;
         document.getElementById('bestScoreDisplay').textContent = 'Loading...';
-        document.getElementById('recentScoreDisplay').textContent = 'Loading...';
         
         const scores = [];
         
@@ -1270,23 +1270,22 @@
         
         if (scores.length === 0) {
           document.getElementById('bestScoreDisplay').textContent = 'No scores yet';
-          document.getElementById('recentScoreDisplay').textContent = 'No scores yet';
           return;
         }
         
-        // Find best score
-        const bestScore = Math.max(...scores.map(s => s.score || 0));
-        document.getElementById('bestScoreDisplay').textContent = `${bestScore}s`;
+        // Filter scores for current team
+        const teamScores = scores.filter(s => s.teamName === currentTeam);
         
-        // Find most recent
-        scores.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-        const recent = scores[0];
-        document.getElementById('recentScoreDisplay').textContent = `${recent.score || 0}s by ${recent.teamName || 'Unknown'}`;
+        if (teamScores.length === 0) {
+          document.getElementById('bestScoreDisplay').textContent = 'First score for your team!';
+        } else {
+          const bestScore = Math.max(...teamScores.map(s => s.score || 0));
+          document.getElementById('bestScoreDisplay').textContent = `${bestScore}s`;
+        }
         
       } catch (error) {
         console.error('Error loading score stats:', error);
         document.getElementById('bestScoreDisplay').textContent = 'Error';
-        document.getElementById('recentScoreDisplay').textContent = 'Error';
       }
     }
     
@@ -1326,7 +1325,7 @@
     }
     
     async function submitScore() {
-      const teamName = document.getElementById('teamName').value.trim();
+      const teamName = document.getElementById('teamSelect').value;
       const barLocation = document.getElementById('barLocation').value;
       
       if (!teamName || !barLocation) return;
@@ -1344,6 +1343,7 @@
         const newAnswerRef = window.dbPush(answersRef);
         await window.dbSet(newAnswerRef, scoreData);
         console.log('Score submitted successfully');
+        document.getElementById('submissionMessage1').style.display = 'block';
       } catch (error) {
         console.error('Error submitting to main path:', error);
         
@@ -1352,6 +1352,7 @@
           const newAnswerRef = window.dbPush(publicAnswersRef);
           await window.dbSet(newAnswerRef, scoreData);
           console.log('Score submitted to fallback path');
+          document.getElementById('submissionMessage1').style.display = 'block';
         } catch (fallbackError) {
           console.error('Error submitting to fallback path:', fallbackError);
         }
