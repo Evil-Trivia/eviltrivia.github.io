@@ -601,40 +601,7 @@
         }
 
         function applySorting() {
-            const sortBy = document.getElementById('sortBy').value;
-            const [field, direction] = sortBy.split('-');
-            
-            filteredScores.sort((a, b) => {
-                let aVal, bVal;
-                
-                switch(field) {
-                    case 'timestamp':
-                        aVal = a.timestamp || 0;
-                        bVal = b.timestamp || 0;
-                        break;
-                    case 'score':
-                        aVal = a.score || 0;
-                        bVal = b.score || 0;
-                        break;
-                    case 'teamName':
-                        aVal = (a.teamName || '').toLowerCase();
-                        bVal = (b.teamName || '').toLowerCase();
-                        break;
-                    case 'location':
-                        aVal = (a.barLocation || '').toLowerCase();
-                        bVal = (b.barLocation || '').toLowerCase();
-                        break;
-                    default:
-                        return 0;
-                }
-                
-                if (direction === 'asc') {
-                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-                } else {
-                    return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
-                }
-            });
-            
+            // Sorting is now done in populateTable
             updateDisplay();
         }
 
@@ -676,10 +643,50 @@
                 }
             });
             
-            // Sort grouped entries by team name
-            const sortedEntries = Object.values(grouped).sort((a, b) => 
-                a.teamName.localeCompare(b.teamName)
-            );
+            // Apply sorting to grouped entries
+            const sortBy = document.getElementById('sortBy').value;
+            const [field, direction] = sortBy.split('-');
+            
+            const sortedEntries = Object.values(grouped).sort((a, b) => {
+                let aVal, bVal;
+                
+                switch(field) {
+                    case 'teamName':
+                        aVal = a.teamName.toLowerCase();
+                        bVal = b.teamName.toLowerCase();
+                        break;
+                    case 'location':
+                        aVal = a.location.toLowerCase();
+                        bVal = b.location.toLowerCase();
+                        break;
+                    case 'score':
+                        // Sort by highest score across both games
+                        const aDodgeHigh = a.dodgeScores.length > 0 ? Math.max(...a.dodgeScores.map(s => s.score || 0)) : 0;
+                        const aPlatformHigh = a.platformScores.length > 0 ? Math.max(...a.platformScores.map(s => s.score || 0)) : 0;
+                        const bDodgeHigh = b.dodgeScores.length > 0 ? Math.max(...b.dodgeScores.map(s => s.score || 0)) : 0;
+                        const bPlatformHigh = b.platformScores.length > 0 ? Math.max(...b.platformScores.map(s => s.score || 0)) : 0;
+                        aVal = Math.max(aDodgeHigh, aPlatformHigh);
+                        bVal = Math.max(bDodgeHigh, bPlatformHigh);
+                        break;
+                    case 'timestamp':
+                        // Sort by most recent timestamp across both games
+                        const aDodgeRecent = a.dodgeScores.length > 0 ? Math.max(...a.dodgeScores.map(s => s.timestamp || 0)) : 0;
+                        const aPlatformRecent = a.platformScores.length > 0 ? Math.max(...a.platformScores.map(s => s.timestamp || 0)) : 0;
+                        const bDodgeRecent = b.dodgeScores.length > 0 ? Math.max(...b.dodgeScores.map(s => s.timestamp || 0)) : 0;
+                        const bPlatformRecent = b.platformScores.length > 0 ? Math.max(...b.platformScores.map(s => s.timestamp || 0)) : 0;
+                        aVal = Math.max(aDodgeRecent, aPlatformRecent);
+                        bVal = Math.max(bDodgeRecent, bPlatformRecent);
+                        break;
+                    default:
+                        return 0;
+                }
+                
+                if (direction === 'asc') {
+                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                } else {
+                    return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+                }
+            });
             
             sortedEntries.forEach(entry => {
                 const row = document.createElement('tr');
