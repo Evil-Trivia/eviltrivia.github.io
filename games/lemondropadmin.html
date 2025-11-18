@@ -378,13 +378,12 @@
             <table id="scoresTable" class="hidden">
                 <thead>
                     <tr>
-                        <th>RANK</th>
-                        <th>GAME</th>
-                        <th>DATE/TIME</th>
                         <th>TEAM NAME</th>
-                        <th>BAR LOCATION</th>
-                        <th>SCORE</th>
-                        <th>DELETE</th>
+                        <th>LOCATION</th>
+                        <th>RECENT (DODGE)</th>
+                        <th>HIGH (DODGE)</th>
+                        <th>RECENT (PLATFORM)</th>
+                        <th>HIGH (PLATFORM)</th>
                     </tr>
                 </thead>
                 <tbody id="scoresTableBody">
@@ -656,22 +655,56 @@
         function populateTable() {
             scoresTableBody.innerHTML = '';
 
-            filteredScores.forEach((score, index) => {
+            // Group scores by team name and location
+            const grouped = {};
+            
+            filteredScores.forEach(score => {
+                const key = `${score.teamName}|${score.barLocation}`;
+                if (!grouped[key]) {
+                    grouped[key] = {
+                        teamName: score.teamName || 'Unknown',
+                        location: score.barLocation || 'Unknown',
+                        dodgeScores: [],
+                        platformScores: []
+                    };
+                }
+                
+                if (score.game === 'lemondrop') {
+                    grouped[key].dodgeScores.push(score);
+                } else if (score.game === 'lemondrop2') {
+                    grouped[key].platformScores.push(score);
+                }
+            });
+            
+            // Sort grouped entries by team name
+            const sortedEntries = Object.values(grouped).sort((a, b) => 
+                a.teamName.localeCompare(b.teamName)
+            );
+            
+            sortedEntries.forEach(entry => {
                 const row = document.createElement('tr');
                 
-                const dateTime = new Date(score.timestamp).toLocaleString();
-                const scoreClass = getScoreClass(score.score, index);
-                const rank = index + 1;
-                const rankDisplay = rank <= 3 ? `🏆 ${rank}` : rank;
+                // Get stats for each game
+                const dodgeRecent = entry.dodgeScores.length > 0 
+                    ? entry.dodgeScores.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0].score 
+                    : '-';
+                const dodgeHigh = entry.dodgeScores.length > 0 
+                    ? Math.max(...entry.dodgeScores.map(s => s.score || 0))
+                    : '-';
+                const platformRecent = entry.platformScores.length > 0 
+                    ? entry.platformScores.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0].score 
+                    : '-';
+                const platformHigh = entry.platformScores.length > 0 
+                    ? Math.max(...entry.platformScores.map(s => s.score || 0))
+                    : '-';
                 
                 row.innerHTML = `
-                    <td class="score-cell ${rank <= 3 ? 'score-top' : ''}">${rankDisplay}</td>
-                    <td>${score.gameName || 'Unknown'}</td>
-                    <td>${dateTime}</td>
-                    <td>${escapeHtml(score.teamName || 'Unknown')}</td>
-                    <td>${escapeHtml(score.barLocation || 'Unknown')}</td>
-                    <td class="score-cell ${scoreClass}">${score.score || 0}</td>
-                    <td><button class="btn-delete" onclick="deleteScore('${score.id}', '${score.source}', '${score.game}')">DELETE</button></td>
+                    <td><strong>${escapeHtml(entry.teamName)}</strong></td>
+                    <td>${escapeHtml(entry.location)}</td>
+                    <td class="score-cell">${dodgeRecent}</td>
+                    <td class="score-cell score-good">${dodgeHigh}</td>
+                    <td class="score-cell">${platformRecent}</td>
+                    <td class="score-cell score-good">${platformHigh}</td>
                 `;
                 
                 scoresTableBody.appendChild(row);
