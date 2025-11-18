@@ -683,52 +683,52 @@
       });
     }
     
-    async function loadAllTeams() {
+    async function onLocationChange() {
+      const location = document.getElementById('barLocation').value;
+      const teamSelect = document.getElementById('teamSelect');
+      
+      if (!location) {
+        teamSelect.innerHTML = '<option value="">Select location first</option>';
+        return;
+      }
+      
+      await loadTeamsForLocation(location);
+    }
+
+    async function loadTeamsForLocation(location) {
       try {
         const teamSelect = document.getElementById('teamSelect');
-        teamSelect.innerHTML = '<option value="">Select your team...</option>';
+        teamSelect.innerHTML = '<option value="">Loading...</option>';
         
-        const allTeams = new Set();
-        
-        // Load teams directly from active sessions (no auth needed)
+        // Load teams for this specific location from active sessions
         const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
-        if (activeSessionsSnap.exists()) {
-          const activeSessions = activeSessionsSnap.val();
-          
-          // Collect team names from each active session
-          for (const location in activeSessions) {
-            const sessionData = activeSessions[location];
-            if (sessionData.teams && Array.isArray(sessionData.teams)) {
-              sessionData.teams.forEach(teamName => {
-                if (teamName) {
-                  allTeams.add(teamName);
-                }
-              });
-            }
-          }
+        
+        if (!activeSessionsSnap.exists()) {
+          teamSelect.innerHTML = '<option value="">No active sessions - contact admin</option>';
+          return;
         }
         
-        // Sort and add to dropdown
-        const sortedTeams = Array.from(allTeams).sort();
-        sortedTeams.forEach(teamName => {
+        const activeSessions = activeSessionsSnap.val();
+        const sessionData = activeSessions[location];
+        
+        if (!sessionData || !sessionData.teams || sessionData.teams.length === 0) {
+          teamSelect.innerHTML = '<option value="">No active session for this location</option>';
+          return;
+        }
+        
+        // Populate with teams from this location only
+        teamSelect.innerHTML = '<option value="">Select your team...</option>';
+        sessionData.teams.sort().forEach(teamName => {
           const option = document.createElement('option');
           option.value = teamName;
           option.textContent = teamName;
           teamSelect.appendChild(option);
         });
         
-        if (sortedTeams.length === 0) {
-          teamSelect.innerHTML = '<option value="">No active sessions - contact admin</option>';
-        }
       } catch (error) {
         console.error('Error loading teams:', error);
         document.getElementById('teamSelect').innerHTML = '<option value="">Error loading teams</option>';
       }
-    }
-
-    async function onLocationChange() {
-      // Location change doesn't affect team list anymore - all teams always visible
-      // This function kept for compatibility
     }
 
     function startGame(practiceMode) {
@@ -1443,16 +1443,6 @@
     window.resetGame = resetGame;
     window.backToMenu = backToMenu;
     window.onLocationChange = onLocationChange;
-    
-    // Load all teams after Firebase initializes
-    function waitForFirebase() {
-      if (window.dbRef && window.dbGet) {
-        loadAllTeams();
-      } else {
-        setTimeout(waitForFirebase, 100);
-      }
-    }
-    waitForFirebase();
     
     // Hide controls hint after a few seconds
     setTimeout(() => {
