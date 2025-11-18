@@ -806,6 +806,14 @@
         const auth = getAuth(app);
         const db = getDatabase(app);
 
+        // HTML escaping function to prevent XSS attacks
+        function escapeHtml(text) {
+            if (text == null) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         // Add variable to store original team order
         let originalTeamOrder = [];
 
@@ -1002,12 +1010,14 @@
                     Object.entries(teams).forEach(([teamId, team]) => {
                         const row = document.createElement('tr');
                         row.id = `team_${teamId}`;
+                        const escapedTeamId = JSON.stringify(teamId);
+                        const escapedTeamName = escapeHtml(team.name || '');
                         row.innerHTML = `
-                            <td class="team-name">${team.name}</td>
+                            <td class="team-name">${escapedTeamName}</td>
                             <td class="team-size">${team.size}</td>
                             <td>
-                                <button onclick="editTeam('${teamId}')">Edit</button>
-                                <button onclick="deleteTeam('${teamId}')">Delete</button>
+                                <button onclick="editTeam(${escapedTeamId})">Edit</button>
+                                <button onclick="deleteTeam(${escapedTeamId})">Delete</button>
                             </td>
                         `;
                         teamTableBody.appendChild(row);
@@ -1148,16 +1158,18 @@
             const currentSize = row.querySelector('.team-size').textContent;
 
             // Replace cells with inputs
+            const escapedTeamId = JSON.stringify(teamId);
+            const escapedName = escapeHtml(currentName);
             row.innerHTML = `
                 <td>
-                    <input type="text" class="edit-name" value="${currentName}" />
+                    <input type="text" class="edit-name" value="${escapedName}" />
                 </td>
                 <td>
                     <input type="number" class="edit-size" value="${currentSize}" min="1" max="10" />
                 </td>
                 <td>
-                    <button onclick="saveTeamEdit('${teamId}')">Save</button>
-                    <button onclick="cancelTeamEdit('${teamId}')">Cancel</button>
+                    <button onclick="saveTeamEdit(${escapedTeamId})">Save</button>
+                    <button onclick="cancelTeamEdit(${escapedTeamId})">Cancel</button>
                 </td>
             `;
         };
@@ -1406,17 +1418,20 @@
                     }, {});
 
                 // Create table rows using the original order but showing correct ranks
-                const tableRows = teamScores.map(team => `
-                    <tr data-team-id="${team.teamId}">
+                const tableRows = teamScores.map(team => {
+                    const escapedTeamId = escapeHtml(team.teamId);
+                    const escapedTeamName = escapeHtml(team.name || '');
+                    return `
+                    <tr data-team-id="${escapedTeamId}">
                         <td class="rank-cell">${ranks[team.teamId]}</td>
-                        <td>${team.name}</td>
+                        <td>${escapedTeamName}</td>
                         <td>${team.size}</td>
                         ${team.roundScores.map(score => `<td>${score.toFixed(2)}</td>`).join('')}
                         <td>
                             <input type="number" 
                                    class="bonus-input ig-challenge" 
                                    value="${team.igChallenge}" 
-                                   data-team-id="${team.teamId}"
+                                   data-team-id="${escapedTeamId}"
                                    step="1"
                                    style="width: 60px;">
                         </td>
@@ -1424,7 +1439,7 @@
                             <input type="number" 
                                    class="bonus-input team-name-bonus" 
                                    value="${team.teamNameBonus}" 
-                                   data-team-id="${team.teamId}"
+                                   data-team-id="${escapedTeamId}"
                                    step="1"
                                    style="width: 60px;">
                         </td>
@@ -1433,7 +1448,7 @@
                                 <input type="number" 
                                        class="bonus-input final-challenge" 
                                        value="${team.finalChallenge}" 
-                                       data-team-id="${team.teamId}"
+                                       data-team-id="${escapedTeamId}"
                                        step="1"
                                        style="width: 60px;">
                             </td>
@@ -1441,7 +1456,8 @@
                         <td class="size-penalty">${team.sizePenalty}</td>
                         <td><strong>${team.total.toFixed(2)}</strong></td>
                     </tr>
-                `).join('');
+                `;
+                }).join('');
 
                 // Update table
                 const scoresTableHead = document.getElementById('scoresTableHead');
@@ -1698,12 +1714,14 @@
                                         </tr>
                                     ` : '';
 
+                                    const escapedAnswer = escapeHtml(q.answer || '');
+                                    const escapedPath = escapeHtml(q.path);
                                     return `
                                         ${formatSeparator}
-                                        <tr data-question-path="${q.path}" data-question-num="${q.questionNumber}" data-format="${q.format}">
-                                            <td>${q.format} #${q.questionNumber}</td>
+                                        <tr data-question-path="${escapedPath}" data-question-num="${q.questionNumber}" data-format="${escapeHtml(q.format)}">
+                                            <td>${escapeHtml(q.format)} #${q.questionNumber}</td>
                                             <td>${formatQuestionContent(q)}</td>
-                                            <td>${q.answer}</td>
+                                            <td>${escapedAnswer}</td>
                                             <td>
                                                 <div class="score-buttons" data-max-points="${maxPoints.toFixed(2)}">
                                                     ${[100, 75, 66, 50, 33, 25, 0].map(value => `
@@ -1857,17 +1875,20 @@
                 const match = question.imageLink.match(/[?&]id=([^&]+)/);
                 const googleFileId = match ? match[1] : '';
                 if (googleFileId) {
+                    // Escape the file ID to prevent XSS
+                    const escapedFileId = escapeHtml(googleFileId);
                     return `
                         <iframe 
-                            src="https://drive.google.com/file/d/${googleFileId}/preview" 
+                            src="https://drive.google.com/file/d/${escapedFileId}/preview" 
                             width="320" height="240" 
                             allow="autoplay">
                         </iframe>
                     `;
                 }
-                return `(Image link error - Link format: ${question.imageLink})`;
+                const escapedLink = escapeHtml(question.imageLink);
+                return `(Image link error - Link format: ${escapedLink})`;
             }
-            return question.question;
+            return escapeHtml(question.question);
         }
 
         // Add event listener for trivia breakdown button
@@ -2119,12 +2140,12 @@
                     
                     return `
                         <tr class="${hasTeams ? '' : 'no-data'}">
-                            <td>${row.format}</td>
+                            <td>${escapeHtml(row.format)}</td>
                             <td>${row.round}</td>
                             <td>${row.order}</td>
                             <td>${row.number}</td>
-                            <td class="question-cell">${row.question}</td>
-                            <td class="question-cell">${row.answer}</td>
+                            <td class="question-cell">${escapeHtml(row.question || '')}</td>
+                            <td class="question-cell">${escapeHtml(row.answer || '')}</td>
                             <td>${hasTeams ? rightCount : '-'}</td>
                             <td>${hasTeams ? wrongCount : '-'}</td>
                             <td>${hasTeams ? percentFormatted : '-'}</td>
