@@ -482,6 +482,7 @@
     let touchJump = false;
     let leftWall = null;
     let rightWall = null;
+    let gameEnded = false;
 
     function initGame() {
       cleanup();
@@ -807,7 +808,9 @@
         distanceTravelled = Math.max(distanceTravelled, Math.floor(lemon.position.x / 20));
         distanceValue.textContent = distanceTravelled;
 
-        if (lemon.position.y > viewHeight + 400) {
+        // Use canvas height for consistent game over detection
+        const currentHeight = canvas.height || viewHeight;
+        if (lemon.position.y > currentHeight + 200) {
           gameOver2();
         }
       });
@@ -899,8 +902,19 @@
     async function loadScoreStats2() {
       try {
         const currentTeam = window.currentTeamName;
+        
+        if (!currentTeam) {
+          document.getElementById('bestScoreDisplay2').textContent = 'No team selected';
+          return;
+        }
+        
+        // Wait for Firebase to be ready
+        if (!window.dbGet || !window.dbRef) {
+          setTimeout(() => loadScoreStats2(), 200);
+          return;
+        }
+        
         document.getElementById('bestScoreDisplay2').textContent = 'Loading...';
-        document.getElementById('recentScoreDisplay2').textContent = 'Loading...';
         
         const scores = [];
         
@@ -916,7 +930,6 @@
         
         if (scores.length === 0) {
           document.getElementById('bestScoreDisplay2').textContent = 'No scores yet';
-          document.getElementById('recentScoreDisplay2').textContent = 'No scores yet';
           return;
         }
         
@@ -925,20 +938,14 @@
         
         if (teamScores.length === 0) {
           document.getElementById('bestScoreDisplay2').textContent = 'First score for your team!';
-          document.getElementById('recentScoreDisplay2').textContent = '-';
         } else {
           const bestScore = Math.max(...teamScores.map(s => s.score || 0));
           document.getElementById('bestScoreDisplay2').textContent = `${bestScore}m`;
-          
-          teamScores.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-          const recent = teamScores[0];
-          document.getElementById('recentScoreDisplay2').textContent = `${recent.score || 0}m`;
         }
         
       } catch (error) {
         console.error('Error loading score stats:', error);
-        document.getElementById('bestScoreDisplay2').textContent = 'Error';
-        document.getElementById('recentScoreDisplay2').textContent = 'Error';
+        document.getElementById('bestScoreDisplay2').textContent = 'Error loading';
       }
     }
 
