@@ -122,16 +122,18 @@
       flex-wrap: wrap;
       justify-content: space-between;
       gap: 10px;
-      background: rgba(255, 255, 255, 0.7);
-      border: 3px solid #1c3b65;
+      background: rgba(0, 0, 0, 0.8);
+      border: 3px solid #000;
       padding: 15px;
       margin-bottom: 15px;
-      font-size: 10px;
+      font-size: 14px;
       text-transform: uppercase;
-      color: #0b2540;
+      color: #fff;
     }
     .hud span {
-      color: #78ffb6;
+      color: #FFD700;
+      font-weight: bold;
+      text-shadow: 2px 2px 0 #000;
     }
     .hud button {
       background: #ff9b42;
@@ -158,6 +160,36 @@
       flex: 1;
       display: flex;
       flex-direction: column;
+    }
+    .game-over-screen {
+      display: none;
+      background: #8B4513;
+      border: 4px solid #654321;
+      padding: 40px;
+      box-shadow: 8px 8px 0px rgba(0,0,0,0.5);
+      margin-top: 20px;
+      text-align: center;
+    }
+    .game-over-screen.active {
+      display: block;
+    }
+    .game-over-title {
+      font-size: 24px;
+      color: #FF4444;
+      text-shadow: 3px 3px 0px #000;
+      margin-bottom: 20px;
+    }
+    .game-over-score {
+      font-size: 32px;
+      color: #FFD700;
+      text-shadow: 3px 3px 0px #000;
+      margin: 20px 0;
+    }
+    .game-over-stats {
+      margin: 20px 0;
+      font-size: 12px;
+      line-height: 2;
+      color: #fff;
     }
     .mobile-controls {
       display: none;
@@ -344,11 +376,24 @@
     <!-- Game Screen -->
     <div id="gameScreen" class="game-screen">
       <div class="hud">
-        <div>Distance: <span id="distanceValue">0</span> m</div>
-        <div>Procedural level · camera follows the lemon</div>
+        <div>DISTANCE: <span id="distanceValue">0</span> M</div>
         <button id="regenBtn">NEW LAYOUT</button>
       </div>
       <canvas id="platformCanvas" width="960" height="540"></canvas>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameOverScreen" class="game-over-screen">
+      <div class="game-over-title">GAME OVER!</div>
+      <div class="game-over-score">DISTANCE: <span id="finalDistance">0</span> M</div>
+      <div id="scoreStats2" class="game-over-stats">
+        <div>BEST SCORE: <span id="bestScoreDisplay2">Loading...</span></div>
+        <div>MOST RECENT: <span id="recentScoreDisplay2">Loading...</span></div>
+      </div>
+      <div class="button-group">
+        <button class="btn" onclick="playAgain2()">PLAY AGAIN</button>
+        <button class="btn btn-secondary" onclick="backToSetup2()">MAIN MENU</button>
+      </div>
     </div>
   </div>
 
@@ -763,7 +808,7 @@
         distanceValue.textContent = distanceTravelled;
 
         if (lemon.position.y > viewHeight + 400) {
-          resetPlayer(viewWidth, viewHeight);
+          gameOver2();
         }
       });
 
@@ -817,6 +862,71 @@
         y: -JUMP_FORCE
       });
       jumpHoldTicks = MAX_JUMP_HOLD_TICKS;
+    }
+
+    function gameOver2() {
+      if (runner) Runner.stop(runner);
+      
+      const finalScore = distanceTravelled;
+      document.getElementById('finalDistance').textContent = finalScore;
+      
+      // Hide game, show game over
+      document.getElementById('gameScreen').classList.remove('active');
+      document.getElementById('gameOverScreen').classList.add('active');
+      
+      // Submit score and load stats
+      submitScore2(finalScore);
+      loadScoreStats2();
+    }
+
+    function playAgain2() {
+      document.getElementById('gameOverScreen').classList.remove('active');
+      document.getElementById('gameScreen').classList.add('active');
+      distanceTravelled = 0;
+      initGame();
+    }
+
+    function backToSetup2() {
+      document.getElementById('gameOverScreen').classList.remove('active');
+      document.getElementById('setupScreen').classList.remove('hidden');
+      cleanup();
+    }
+
+    async function loadScoreStats2() {
+      try {
+        document.getElementById('bestScoreDisplay2').textContent = 'Loading...';
+        document.getElementById('recentScoreDisplay2').textContent = 'Loading...';
+        
+        const scores = [];
+        
+        const mainSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop2/answers'));
+        if (mainSnap.exists()) {
+          Object.values(mainSnap.val()).forEach(s => scores.push(s));
+        }
+        
+        const publicSnap = await window.dbGet(window.dbRef(window.db, 'publicAnswers/lemondrop2'));
+        if (publicSnap.exists()) {
+          Object.values(publicSnap.val()).forEach(s => scores.push(s));
+        }
+        
+        if (scores.length === 0) {
+          document.getElementById('bestScoreDisplay2').textContent = 'No scores yet';
+          document.getElementById('recentScoreDisplay2').textContent = 'No scores yet';
+          return;
+        }
+        
+        const bestScore = Math.max(...scores.map(s => s.score || 0));
+        document.getElementById('bestScoreDisplay2').textContent = `${bestScore}m`;
+        
+        scores.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const recent = scores[0];
+        document.getElementById('recentScoreDisplay2').textContent = `${recent.score || 0}m by ${recent.teamName || 'Unknown'}`;
+        
+      } catch (error) {
+        console.error('Error loading score stats:', error);
+        document.getElementById('bestScoreDisplay2').textContent = 'Error';
+        document.getElementById('recentScoreDisplay2').textContent = 'Error';
+      }
     }
 
     function resetPlayer(viewWidth, viewHeight) {
@@ -1021,6 +1131,8 @@
     window.addEventListener('beforeunload', cleanup);
     window.startGame2 = startGame2;
     window.onLocationChange2 = onLocationChange2;
+    window.playAgain2 = playAgain2;
+    window.backToSetup2 = backToSetup2;
   </script>
 </body>
 </html>
