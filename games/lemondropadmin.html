@@ -567,13 +567,35 @@
             }
         }
 
-        function applyFilters() {
+        async function applyFilters() {
             const barValue = barFilter.value;
             const dateValue = dateFilter.value;
             const teamValue = teamFilter.value.toLowerCase().trim();
             const gameValue = document.getElementById('gameFilter').value;
 
+            // Get active session team names
+            let activeTeamNames = new Set();
+            try {
+                const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
+                if (activeSessionsSnap.exists()) {
+                    const activeSessions = activeSessionsSnap.val();
+                    for (const locationKey in activeSessions) {
+                        const sessionData = activeSessions[locationKey];
+                        if (sessionData.teams && Array.isArray(sessionData.teams)) {
+                            sessionData.teams.forEach(team => activeTeamNames.add(team));
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading active teams:', error);
+            }
+
             filteredScores = allScores.filter(score => {
+                // Only show scores from teams in active sessions
+                if (activeTeamNames.size > 0 && !activeTeamNames.has(score.teamName)) {
+                    return false;
+                }
+
                 // Game filter
                 if (gameValue && score.game !== gameValue) {
                     return false;
