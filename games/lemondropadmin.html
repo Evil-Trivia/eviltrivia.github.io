@@ -837,6 +837,16 @@
             });
         }
 
+        function encodeLocationKey(location) {
+            // Encode location to be Firebase-safe (no special chars)
+            return location.replace(/[.#$\[\]']/g, '_');
+        }
+
+        function decodeLocationKey(key) {
+            // For display purposes - we'll store the original location in the data
+            return key;
+        }
+
         async function activateSession() {
             const sessionSelect = document.getElementById('existingSessionSelect');
             const sessionId = sessionSelect.value;
@@ -855,6 +865,7 @@
 
                 const sessionData = sessionSnap.val();
                 const location = sessionData.location;
+                const locationKey = encodeLocationKey(location);
                 
                 // Get teams from this session
                 const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
@@ -873,9 +884,10 @@
                 const activeSessions = activeSessionsSnap.exists() ? activeSessionsSnap.val() : {};
                 
                 // Set this session for this location with team names
-                activeSessions[location] = {
+                activeSessions[locationKey] = {
                     sessionId: sessionId,
                     date: sessionData.date,
+                    location: location,  // Store original location name
                     teams: teamNames
                 };
                 await window.dbSet(window.dbRef(window.db, 'games/lemondrop/activeSessions'), activeSessions);
@@ -901,11 +913,12 @@
                 const activeSessions = activeSessionsSnap.val();
                 let html = '';
                 
-                for (const [location, sessionData] of Object.entries(activeSessions)) {
+                for (const [locationKey, sessionData] of Object.entries(activeSessions)) {
+                    const displayLocation = sessionData.location || locationKey;
                     const teamCount = sessionData.teams ? sessionData.teams.length : 0;
                     html += `<div style="margin-bottom: 8px;">
-                        <strong>${location}:</strong> ${sessionData.date} (${teamCount} teams)
-                        <button onclick="removeSessionForLocation('${location}')" style="margin-left: 10px; padding: 4px 8px; font-size: 7px; background: #DC143C;">REMOVE</button>
+                        <strong>${displayLocation}:</strong> ${sessionData.date} (${teamCount} teams)
+                        <button onclick="removeSessionForLocation('${locationKey}')" style="margin-left: 10px; padding: 4px 8px; font-size: 7px; background: #DC143C;">REMOVE</button>
                     </div>`;
                 }
                 
@@ -915,13 +928,14 @@
             }
         }
 
-        async function removeSessionForLocation(location) {
+        async function removeSessionForLocation(locationKey) {
             try {
                 const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
                 if (!activeSessionsSnap.exists()) return;
                 
                 const activeSessions = activeSessionsSnap.val();
-                delete activeSessions[location];
+                const displayLocation = activeSessions[locationKey]?.location || locationKey;
+                delete activeSessions[locationKey];
                 
                 if (Object.keys(activeSessions).length === 0) {
                     await window.dbRemove(window.dbRef(window.db, 'games/lemondrop/activeSessions'));
@@ -929,7 +943,7 @@
                     await window.dbSet(window.dbRef(window.db, 'games/lemondrop/activeSessions'), activeSessions);
                 }
                 
-                alert(`Session removed for ${location}`);
+                alert(`Session removed for ${displayLocation}`);
                 await displayActiveSessions();
             } catch (error) {
                 console.error("Error removing session:", error);
