@@ -1050,6 +1050,125 @@
             min-width: 400px;
             max-width: 600px;
         }
+
+        /* Teams summary view */
+        .team-filter-container {
+            margin-bottom: 20px;
+        }
+        
+        .team-filter {
+            background: #fffbea;
+            border: 1px solid #ffe082;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+        
+        .team-filter-label {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #5d4037;
+        }
+        
+        .team-filter-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .team-filter-chip {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 999px;
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .team-filter-chip:hover {
+            border-color: #999;
+            color: #000;
+        }
+        
+        .team-filter-chip.active {
+            background: #000;
+            color: white;
+            border-color: #000;
+        }
+        
+        .team-filter-chip:focus {
+            outline: none;
+        }
+        
+        .team-filter-hint {
+            margin-top: 10px;
+            font-size: 0.8rem;
+            color: #6d4c41;
+        }
+        
+        .team-summary-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            overflow-x: auto;
+        }
+        
+        .team-summary-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .team-summary-table thead {
+            background: #111;
+            color: white;
+        }
+        
+        .team-summary-table th,
+        .team-summary-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            text-align: left;
+        }
+        
+        .team-summary-table th {
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .team-summary-table th span.sort-indicator {
+            font-size: 0.8em;
+            margin-left: 6px;
+        }
+        
+        .team-summary-table tr:hover {
+            background-color: #fafafa;
+        }
+        
+        .team-summary-table td.numeric {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        
+        .team-summary-name {
+            font-weight: 600;
+            font-size: 1rem;
+            color: #212121;
+        }
+        
+        .team-summary-meta {
+            margin-top: 6px;
+            font-size: 0.85rem;
+            color: #757575;
+        }
+        
+        .team-summary-empty {
+            padding: 40px;
+            text-align: center;
+            color: #777;
+            font-size: 1rem;
+        }
         
         /* Fill-in view specific column widths to prevent horizontal scroll */
         .data-table .fillin-trivia-name-cell {
@@ -1433,6 +1552,7 @@
         <div id="view-toolbar" class="hidden" style="background-color: white; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
             <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 15px;">
                 <button id="btn-full-archive" class="toolbar-btn active" onclick="showView('full-archive')">Full Archive</button>
+                <button id="btn-teams" class="toolbar-btn" onclick="showView('teams')">Teams</button>
                 <button id="btn-puzzles" class="toolbar-btn" onclick="showView('puzzles')">Puzzles</button>
                 <button id="btn-visuals" class="toolbar-btn" onclick="showView('visuals')">Visuals</button>
                 <button id="btn-fill-ins" class="toolbar-btn" onclick="showView('fill-ins')">Fill-Ins</button>
@@ -1536,6 +1656,15 @@
                     <!-- Music table will be loaded here -->
                 </div>
             </div>
+
+            <!-- Teams View -->
+            <div id="teams-view" class="special-view-container" style="display: none;">
+                <div id="teams-loading" class="loading">Loading team stats...</div>
+                <div id="teams-filter-container" class="team-filter-container" style="display: none;"></div>
+                <div id="teams-content" style="overflow-x: auto;">
+                    <!-- Team summary table will be loaded here -->
+                </div>
+            </div>
         </div>
     </div>
     
@@ -1574,6 +1703,10 @@
         const fullArchive = document.getElementById('full-archive');
         const fullArchiveLoading = document.getElementById('full-archive-loading');
         const fullArchiveList = document.getElementById('full-archive-list');
+        const teamsView = document.getElementById('teams-view');
+        const teamsLoading = document.getElementById('teams-loading');
+        const teamsContent = document.getElementById('teams-content');
+        const teamsFilterContainer = document.getElementById('teams-filter-container');
         
         // Legacy elements
         const archiveList = document.getElementById('archive-list');
@@ -1588,6 +1721,15 @@
         let isLoading = false;
         let hasMoreData = true;
         let itemsPerPage = 10;
+        
+        // Team view state
+        const teamViewState = {
+            data: [],
+            locations: [],
+            selectedLocations: new Set(),
+            sortColumn: 'triviaNumber',
+            sortDirection: 'desc'
+        };
         
         // Helper function to format dates
         function formatDate(dateString) {
@@ -3973,6 +4115,7 @@
                 document.getElementById('visuals-view').style.display = 'none';
                 document.getElementById('fill-ins-view').style.display = 'none';
                 document.getElementById('music-view').style.display = 'none';
+                document.getElementById('teams-view').style.display = 'none';
                 
                 // Remove active class from all buttons
                 document.querySelectorAll('.toolbar-btn').forEach(btn => btn.classList.remove('active'));
@@ -4022,6 +4165,14 @@
                     document.getElementById('btn-music').classList.add('active');
                     buildMusicView();
                     // Hide "search trivia rounds only" checkbox for special views
+                    if (searchRoundsOnlyCheckbox && searchRoundsOnlyCheckbox.parentElement) {
+                        searchRoundsOnlyCheckbox.parentElement.style.display = 'none';
+                    }
+                } else if (viewName === 'teams') {
+                    console.log('Showing teams view...');
+                    document.getElementById('teams-view').style.display = 'block';
+                    document.getElementById('btn-teams').classList.add('active');
+                    buildTeamsView();
                     if (searchRoundsOnlyCheckbox && searchRoundsOnlyCheckbox.parentElement) {
                         searchRoundsOnlyCheckbox.parentElement.style.display = 'none';
                     }
@@ -4781,6 +4932,292 @@
                     loadingDiv.style.display = 'none';
                 }
             }
+        }
+        
+        // Build Teams summary view
+        async function buildTeamsView() {
+            if (!teamsContent || !teamsLoading) return;
+            
+            try {
+                teamsLoading.style.display = 'flex';
+                
+                if (teamViewState.data.length === 0) {
+                    // Ensure archive metadata is loaded for names/dates
+                    if (allTriviaData.size === 0) {
+                        await fetchAllTriviaData();
+                    }
+                    
+                    const sessionsSnap = await db.ref('grading').once('value');
+                    if (!sessionsSnap.exists()) {
+                        teamsFilterContainer.style.display = 'none';
+                        teamsContent.innerHTML = '<div class="team-summary-empty">No grading data available yet.</div>';
+                        return;
+                    }
+                    
+                    const sessions = sessionsSnap.val();
+                    const summaryMap = new Map();
+                    const allLocationsSet = new Set();
+                    
+                    Object.values(sessions).forEach(session => {
+                        if (!session || !session.triviaNumber) return;
+                        const triviaNumber = parseInt(session.triviaNumber);
+                        if (isNaN(triviaNumber)) return;
+                        
+                        const summaryRecord = prepareTeamSummaryRecord(summaryMap, triviaNumber, session);
+                        const rawLocation = typeof session.location === 'string' ? session.location : '';
+                        const normalizedLocation = rawLocation.trim() ? rawLocation.trim() : 'Unknown Location';
+                        
+                        summaryRecord.locations.add(normalizedLocation);
+                        allLocationsSet.add(normalizedLocation);
+                        
+                        if (session.teams) {
+                            Object.values(session.teams).forEach(team => {
+                                summaryRecord.totalTeams += 1;
+                                summaryRecord.totalPeople += parseInt(team.size) || 0;
+                            });
+                        }
+                    });
+                    
+                    teamViewState.data = Array.from(summaryMap.values()).map(record => ({
+                        triviaNumber: record.triviaNumber,
+                        triviaName: record.triviaName,
+                        triviaDate: record.triviaDate,
+                        totalTeams: record.totalTeams,
+                        totalPeople: record.totalPeople,
+                        locations: Array.from(record.locations).sort((a, b) => a.localeCompare(b))
+                    }));
+                    
+                    teamViewState.locations = Array.from(allLocationsSet).sort((a, b) => a.localeCompare(b));
+                    teamViewState.selectedLocations.clear();
+                }
+                
+                if (teamViewState.data.length === 0) {
+                    teamsFilterContainer.style.display = 'none';
+                    teamsContent.innerHTML = '<div class="team-summary-empty">No team data available yet.</div>';
+                    return;
+                }
+                
+                renderTeamFilters();
+                renderTeamSummaryTable();
+            } catch (error) {
+                console.error('Error building teams view:', error);
+                if (teamsContent) {
+                    teamsContent.innerHTML = `<div class="team-summary-empty" style="color: #d32f2f;">Unable to load team data.<br>${escapeHTML(error.message)}</div>`;
+                }
+                if (teamsFilterContainer) {
+                    teamsFilterContainer.style.display = 'none';
+                }
+            } finally {
+                teamsLoading.style.display = 'none';
+            }
+        }
+        
+        function prepareTeamSummaryRecord(summaryMap, triviaNumber, session) {
+            if (!summaryMap.has(triviaNumber)) {
+                const triviaData = allTriviaData.get(triviaNumber);
+                const triviaName = triviaData?.archive?.triviaName ||
+                                   triviaData?.overview?.['Trivia Name'] ||
+                                   triviaData?.overview?.triviaName ||
+                                   `Trivia ${triviaNumber}`;
+                
+                const fallbackDate = session?.date || '';
+                const triviaDate = triviaData?.archive?.date ||
+                                   triviaData?.archive?.metadata?.date ||
+                                   fallbackDate;
+                
+                summaryMap.set(triviaNumber, {
+                    triviaNumber,
+                    triviaName,
+                    triviaDate,
+                    totalTeams: 0,
+                    totalPeople: 0,
+                    locations: new Set()
+                });
+            } else if (!summaryMap.get(triviaNumber).triviaDate && session?.date) {
+                summaryMap.get(triviaNumber).triviaDate = session.date;
+            }
+            
+            return summaryMap.get(triviaNumber);
+        }
+        
+        function renderTeamFilters() {
+            if (!teamsFilterContainer) return;
+            
+            if (teamViewState.locations.length === 0) {
+                teamsFilterContainer.style.display = 'none';
+                teamsFilterContainer.innerHTML = '';
+                return;
+            }
+            
+            const chipsHTML = teamViewState.locations.map(location => `
+                <button type="button" class="team-filter-chip ${teamViewState.selectedLocations.size > 0 && teamViewState.selectedLocations.has(location) ? 'active' : ''}" data-location="${escapeHTML(location)}">
+                    ${escapeHTML(location)}
+                </button>
+            `).join('');
+            
+            teamsFilterContainer.innerHTML = `
+                <div class="team-filter">
+                    <div class="team-filter-label">Filter by location</div>
+                    <div class="team-filter-options" id="team-location-options">
+                        <button type="button" class="team-filter-chip ${teamViewState.selectedLocations.size === 0 ? 'active' : ''}" data-location="__ALL__">All Locations</button>
+                        ${chipsHTML || '<span class="team-filter-chip" data-location="__NONE__">No location data</span>'}
+                    </div>
+                    <div class="team-filter-hint">Click to toggle one or more locations. Select "All Locations" to reset.</div>
+                </div>
+            `;
+            
+            teamsFilterContainer.style.display = 'block';
+            
+            const optionsContainer = teamsFilterContainer.querySelector('#team-location-options');
+            if (optionsContainer) {
+                optionsContainer.addEventListener('click', handleTeamLocationFilterClick);
+            }
+        }
+        
+        function handleTeamLocationFilterClick(event) {
+            const chip = event.target.closest('.team-filter-chip');
+            if (!chip || chip.dataset.location === '__NONE__') return;
+            
+            const location = chip.dataset.location;
+            
+            if (location === '__ALL__') {
+                teamViewState.selectedLocations.clear();
+            } else {
+                if (teamViewState.selectedLocations.has(location)) {
+                    teamViewState.selectedLocations.delete(location);
+                } else {
+                    teamViewState.selectedLocations.add(location);
+                }
+            }
+            
+            updateTeamLocationFilterUI();
+            renderTeamSummaryTable();
+        }
+        
+        function updateTeamLocationFilterUI() {
+            if (!teamsFilterContainer) return;
+            
+            teamsFilterContainer.querySelectorAll('.team-filter-chip').forEach(chip => {
+                const location = chip.dataset.location;
+                if (location === '__ALL__') {
+                    chip.classList.toggle('active', teamViewState.selectedLocations.size === 0);
+                } else if (location !== '__NONE__') {
+                    const isActive = teamViewState.selectedLocations.size > 0 &&
+                                     teamViewState.selectedLocations.has(location);
+                    chip.classList.toggle('active', isActive);
+                }
+            });
+        }
+        
+        function renderTeamSummaryTable() {
+            if (!teamsContent) return;
+            
+            if (teamViewState.data.length === 0) {
+                teamsContent.innerHTML = '<div class="team-summary-empty">No team data available yet.</div>';
+                return;
+            }
+            
+            const filteredData = teamViewState.data.filter(entry => {
+                if (teamViewState.selectedLocations.size === 0) return true;
+                return entry.locations.some(location => teamViewState.selectedLocations.has(location));
+            });
+            
+            if (filteredData.length === 0) {
+                teamsContent.innerHTML = '<div class="team-summary-empty">No trivia nights match the selected locations.</div>';
+                return;
+            }
+            
+            const sortedData = [...filteredData].sort((a, b) => {
+                const aValue = getTeamSortValue(a, teamViewState.sortColumn);
+                const bValue = getTeamSortValue(b, teamViewState.sortColumn);
+                
+                if (aValue < bValue) return teamViewState.sortDirection === 'asc' ? -1 : 1;
+                if (aValue > bValue) return teamViewState.sortDirection === 'asc' ? 1 : -1;
+                return 0;
+            });
+            
+            const headers = [
+                { column: 'triviaName', label: 'Trivia Name' },
+                { column: 'triviaNumber', label: 'Trivia #' },
+                { column: 'triviaDate', label: 'Date' },
+                { column: 'totalTeams', label: 'Total Teams' },
+                { column: 'totalPeople', label: 'Total People' }
+            ];
+            
+            const headerHTML = headers.map(({ column, label }) => {
+                const indicator = getTeamSortIndicator(column);
+                return `<th onclick="sortTeamSummary('${column}')">${label}${indicator ? `<span class="sort-indicator">${indicator}</span>` : ''}</th>`;
+            }).join('');
+            
+            let tableHTML = `
+                <div class="team-summary-container">
+                    <table class="team-summary-table">
+                        <thead>
+                            <tr>${headerHTML}</tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            sortedData.forEach(entry => {
+                const locationLabel = entry.locations && entry.locations.length > 0 ?
+                    entry.locations.join(', ') : 'Unknown Location';
+                
+                tableHTML += `
+                    <tr>
+                        <td>
+                            <div class="team-summary-name">${escapeHTML(entry.triviaName)}</div>
+                            <div class="team-summary-meta">${escapeHTML(locationLabel)}</div>
+                        </td>
+                        <td class="numeric">${entry.triviaNumber}</td>
+                        <td>${formatDate(entry.triviaDate)}</td>
+                        <td class="numeric">${entry.totalTeams}</td>
+                        <td class="numeric">${entry.totalPeople}</td>
+                    </tr>
+                `;
+            });
+            
+            tableHTML += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            teamsContent.innerHTML = tableHTML;
+        }
+        
+        function sortTeamSummary(column) {
+            if (teamViewState.sortColumn === column) {
+                teamViewState.sortDirection = teamViewState.sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                teamViewState.sortColumn = column;
+                teamViewState.sortDirection = column === 'triviaName' ? 'asc' : 'desc';
+            }
+            
+            renderTeamSummaryTable();
+        }
+        
+        function getTeamSortValue(entry, column) {
+            switch (column) {
+                case 'triviaName':
+                    return (entry.triviaName || '').toLowerCase();
+                case 'triviaNumber':
+                    return entry.triviaNumber || 0;
+                case 'triviaDate': {
+                    const timestamp = entry.triviaDate ? Date.parse(entry.triviaDate) : NaN;
+                    return isNaN(timestamp) ? 0 : timestamp;
+                }
+                case 'totalTeams':
+                    return entry.totalTeams || 0;
+                case 'totalPeople':
+                    return entry.totalPeople || 0;
+                default:
+                    return entry.triviaNumber || 0;
+            }
+        }
+        
+        function getTeamSortIndicator(column) {
+            if (teamViewState.sortColumn !== column) return '';
+            return teamViewState.sortDirection === 'asc' ? '▲' : '▼';
         }
         
         // Function to open music player inline in table cell
