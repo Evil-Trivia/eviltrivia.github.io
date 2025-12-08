@@ -46,15 +46,28 @@ let clipboardTracks = []; // Array to store tracks for clipboard
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', init);
-loginButton.addEventListener('click', authorizeWithSpotify);
-searchForm.addEventListener('submit', handleSearch);
-loadMoreBtn.addEventListener('click', handleLoadMore);
-toggleClipboardBtn.addEventListener('click', toggleClipboard);
-clearClipboardBtn.addEventListener('click', clearClipboard);
-copyClipboardBtn.addEventListener('click', copyAllTracks);
 
 // Initialize the application
 function init() {
+    // Set up event listeners after DOM is loaded
+    if (loginButton) {
+        loginButton.addEventListener('click', authorizeWithSpotify);
+    }
+    if (searchForm) {
+        searchForm.addEventListener('submit', handleSearch);
+    }
+    if (loadMoreBtn) {
+        loadMoreBtn.addEventListener('click', handleLoadMore);
+    }
+    if (toggleClipboardBtn) {
+        toggleClipboardBtn.addEventListener('click', toggleClipboard);
+    }
+    if (clearClipboardBtn) {
+        clearClipboardBtn.addEventListener('click', clearClipboard);
+    }
+    if (copyClipboardBtn) {
+        copyClipboardBtn.addEventListener('click', copyAllTracks);
+    }
     // Check if we're coming back from Spotify authorization
     const params = new URLSearchParams(window.location.hash.substring(1));
     const accessToken = params.get('access_token');
