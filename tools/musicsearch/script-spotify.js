@@ -68,7 +68,7 @@ let clipboardTracks = []; // Array to store tracks for clipboard
 document.addEventListener('DOMContentLoaded', init);
 
 // Initialize the application
-function init() {
+async function init() {
     // Set up event listeners after DOM is loaded
     if (loginButton) {
         loginButton.addEventListener('click', authorizeWithSpotify);
