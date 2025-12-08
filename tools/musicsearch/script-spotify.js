@@ -5,6 +5,7 @@ const redirectUri = 'https://eviltrivia.com/tools/musicsearch/spotify.html'; // 
 
 // Spotify API endpoints
 const authEndpoint = 'https://accounts.spotify.com/authorize';
+const tokenEndpoint = 'https://accounts.spotify.com/api/token';
 const apiBaseUrl = 'https://api.spotify.com/v1';
 
 // Required scopes for the application
@@ -12,6 +13,25 @@ const scopes = [
     'user-read-private',
     'user-read-email'
 ];
+
+// PKCE helper functions
+function generateRandomString(length) {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < length; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
+}
+
+async function generateCodeChallenge(codeVerifier) {
+    const data = new TextEncoder().encode(codeVerifier);
+    const digest = await window.crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode.apply(null, [...new Uint8Array(digest)]))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+}
 
 // DOM elements
 const loginButton = document.getElementById('loginButton');
@@ -68,20 +88,69 @@ function init() {
     if (copyClipboardBtn) {
         copyClipboardBtn.addEventListener('click', copyAllTracks);
     }
-    // Check if we're coming back from Spotify authorization
-    const params = new URLSearchParams(window.location.hash.substring(1));
-    const accessToken = params.get('access_token');
     
-    if (accessToken) {
-        // We have an access token - store it
-        localStorage.setItem('spotify_access_token', accessToken);
-        localStorage.setItem('spotify_token_timestamp', Date.now());
-        
-        // Remove the access token from the URL to prevent sharing it
+    // Check for errors in URL (both hash and query string)
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const queryParams = new URLSearchParams(window.location.search.substring(1));
+    
+    const error = hashParams.get('error') || queryParams.get('error');
+    if (error) {
+        const errorDescription = hashParams.get('error_description') || queryParams.get('error_description') || error;
+        showError(`Spotify authentication error: ${errorDescription}. Please check your Spotify app configuration.`);
+        // Clean up the URL
         window.history.replaceState({}, document.title, redirectUri);
+        // Clean up stored values
+        localStorage.removeItem('spotify_code_verifier');
+        localStorage.removeItem('spotify_auth_state');
+        showLoginInterface();
+        return;
+    }
+    
+    // Check if we're coming back from Spotify authorization with a code (PKCE flow)
+    const code = queryParams.get('code');
+    const state = queryParams.get('state');
+    
+    if (code) {
+        // Verify state
+        const storedState = localStorage.getItem('spotify_auth_state');
+        if (state !== storedState) {
+            showError('Invalid state parameter. Authentication failed.');
+            window.history.replaceState({}, document.title, redirectUri);
+            localStorage.removeItem('spotify_code_verifier');
+            localStorage.removeItem('spotify_auth_state');
+            showLoginInterface();
+            return;
+        }
         
-        // Show search interface
-        showSearchInterface();
+        // Exchange code for token
+        try {
+            const codeVerifier = localStorage.getItem('spotify_code_verifier');
+            if (!codeVerifier) {
+                throw new Error('Code verifier not found');
+            }
+            
+            const tokenResponse = await exchangeCodeForToken(code, codeVerifier);
+            
+            // Store token
+            localStorage.setItem('spotify_access_token', tokenResponse.access_token);
+            localStorage.setItem('spotify_token_timestamp', Date.now());
+            
+            // Clean up
+            localStorage.removeItem('spotify_code_verifier');
+            localStorage.removeItem('spotify_auth_state');
+            
+            // Remove code from URL
+            window.history.replaceState({}, document.title, redirectUri);
+            
+            // Show search interface
+            showSearchInterface();
+        } catch (error) {
+            console.error('Error exchanging code for token:', error);
+            showError(`Failed to authenticate: ${error.message}`);
+            localStorage.removeItem('spotify_code_verifier');
+            localStorage.removeItem('spotify_auth_state');
+            showLoginInterface();
+        }
     } else {
         // Check if we have a valid token stored
         const storedToken = localStorage.getItem('spotify_access_token');
@@ -97,16 +166,62 @@ function init() {
     }
 }
 
-// Redirect to Spotify authorization page
-function authorizeWithSpotify() {
-    console.log("Authorizing with Spotify using:");
+// Redirect to Spotify authorization page using Authorization Code flow with PKCE
+async function authorizeWithSpotify() {
+    console.log("Authorizing with Spotify using PKCE:");
     console.log("Client ID:", clientId);
     console.log("Redirect URI:", redirectUri);
     
-    const authUrl = `${authEndpoint}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes.join(' '))}&response_type=token&show_dialog=true`;
+    // Generate PKCE parameters
+    const codeVerifier = generateRandomString(128);
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    
+    // Store code verifier for later use
+    localStorage.setItem('spotify_code_verifier', codeVerifier);
+    
+    // Create state parameter for CSRF protection
+    const state = generateRandomString(16);
+    localStorage.setItem('spotify_auth_state', state);
+    
+    const authUrl = `${authEndpoint}?` +
+        `client_id=${clientId}&` +
+        `response_type=code&` +
+        `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+        `scope=${encodeURIComponent(scopes.join(' '))}&` +
+        `code_challenge_method=S256&` +
+        `code_challenge=${codeChallenge}&` +
+        `state=${state}&` +
+        `show_dialog=true`;
+    
     console.log("Auth URL:", authUrl);
     
     window.location.href = authUrl;
+}
+
+// Exchange authorization code for access token
+async function exchangeCodeForToken(code, codeVerifier) {
+    const body = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        code_verifier: codeVerifier
+    });
+    
+    const response = await fetch(tokenEndpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: body.toString()
+    });
+    
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error_description || errorData.error || `HTTP ${response.status}`);
+    }
+    
+    return await response.json();
 }
 
 // Show the search interface
