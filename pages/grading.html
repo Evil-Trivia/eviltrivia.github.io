@@ -624,9 +624,25 @@
 <body>
     <div id="authContainer" class="screen">
         <div class="section">
-            <h2>Authentication Required</h2>
-            <p>You must be logged in as a grader or admin to access this page.</p>
-            <a href="/pages/account.html" class="button">Log In or Sign Up</a>
+            <h2>Unlock Grading</h2>
+            <p>Admins/graders can sign in for full access. Otherwise use the trivia unlock passwords.</p>
+            <div style="display: flex; flex-direction: column; gap: 10px; text-align: left;">
+                <label for="accessName">Your name (for tracking changes)</label>
+                <input type="text" id="accessName" placeholder="Your name" />
+
+                <label for="accessTriviaNumber">Trivia #</label>
+                <input type="number" id="accessTriviaNumber" placeholder="e.g. 235" min="1" />
+
+                <label for="accessPassword">Unlock password</label>
+                <input type="password" id="accessPassword" placeholder="TeamEnter or Master password" />
+
+                <button id="btnUnlockAccess">Unlock</button>
+                <small>TeamEnter or Master unlocks session setup and rubric. Round passwords will be requested when grading.</small>
+            </div>
+            <div style="margin-top: 16px; border-top: 1px solid #eee; padding-top: 12px;">
+                <p>Prefer account access? Admins/graders can sign in instead.</p>
+                <a href="/pages/account.html" class="button">Log In or Sign Up</a>
+            </div>
         </div>
     </div>
 
@@ -817,44 +833,259 @@
         // Add variable to store original team order
         let originalTeamOrder = [];
 
-        // Authentication check
-        onAuthStateChanged(auth, async (user) => {
+        // Access management
+        const ACCESS_STATE_KEY = 'gradingAccessState';
+        const ACCESS_NAME_KEY = 'gradingAccessName';
+        const accessCache = {};
+        let accessGrants = {};
+        let currentAccessName = localStorage.getItem(ACCESS_NAME_KEY) || '';
+        let isPrivilegedUser = false;
+
+        try {
+            const stored = localStorage.getItem(ACCESS_STATE_KEY);
+            if (stored) {
+                accessGrants = JSON.parse(stored) || {};
+            }
+        } catch (error) {
+            console.warn('Unable to load saved access state', error);
+            accessGrants = {};
+        }
+
+        function persistAccessState() {
+            localStorage.setItem(ACCESS_STATE_KEY, JSON.stringify(accessGrants));
+            if (currentAccessName) {
+                localStorage.setItem(ACCESS_NAME_KEY, currentAccessName);
+            }
+        }
+
+        function normalizePasswordKey(key = '') {
+            return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+
+        function extractPasswords(raw) {
+            const normalized = {};
+            Object.entries(raw || {}).forEach(([key, value]) => {
+                normalized[normalizePasswordKey(key)] = value;
+            });
+
+            const pick = (...keys) => keys
+                .map(k => normalized[k])
+                .find(v => v !== undefined && v !== null && String(v).trim() !== '');
+
+            const toTrimmed = (val) => val === undefined || val === null ? '' : String(val).trim();
+
+            return {
+                teamEnter: toTrimmed(pick('teamenterpw', 'teamenterpassword', 'unlockpw', 'unlockpassword', 'teamenter')),
+                master: toTrimmed(pick('masterpw', 'masterpassword', 'masterkey', 'master')),
+                rounds: {
+                    1: toTrimmed(pick('round1pw', 'round1password', 'round1')),
+                    2: toTrimmed(pick('round2pw', 'round2password', 'round2')),
+                    3: toTrimmed(pick('round3pw', 'round3password', 'round3'))
+                }
+            };
+        }
+
+        async function fetchTriviaPasswords(triviaNumber) {
+            if (!triviaNumber) return { teamEnter: '', master: '', rounds: {} };
+            if (accessCache[triviaNumber]) {
+                return accessCache[triviaNumber];
+            }
+            const snap = await get(child(ref(db), `trivia-archive/driveLookup/${triviaNumber}`));
+            const parsed = extractPasswords(snap.exists() ? snap.val() : {});
+            accessCache[triviaNumber] = parsed;
+            return parsed;
+        }
+
+        function getAccessState(triviaNumber) {
+            return accessGrants[triviaNumber] || { rounds: {} };
+        }
+
+        function updateAccessState(triviaNumber, updates) {
+            const existing = getAccessState(triviaNumber);
+            accessGrants[triviaNumber] = {
+                ...existing,
+                ...updates,
+                rounds: { ...existing.rounds, ...(updates.rounds || {}) }
+            };
+            persistAccessState();
+        }
+
+        function getAccessIdentity() {
+            if (currentAccessName) return currentAccessName;
+            const user = auth.currentUser;
             if (user) {
-                // User is signed in, check their role
-                try {
+                return user.displayName || user.email || user.uid;
+            }
+            return '';
+        }
+
+        function showAuthGate() {
+            document.getElementById('authContainer').style.display = 'block';
+            document.getElementById('screenSessionSetup').style.display = 'none';
+        }
+
+        function showSessionSetup() {
+            document.getElementById('authContainer').style.display = 'none';
+            document.getElementById('screenSessionSetup').style.display = 'block';
+        }
+
+        async function promptForPassword({ title, message, defaultTriviaNumber, requireTrivia = false }) {
+            return new Promise((resolve) => {
+                const dialog = document.createElement('div');
+                dialog.className = 'round-dialog';
+                dialog.innerHTML = `
+                    <h3>${title}</h3>
+                    <p>${message}</p>
+                    <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px; text-align:left;">
+                        <label>Name</label>
+                        <input type="text" id="dlgAccessName" value="${escapeHtml(currentAccessName)}" placeholder="Your name" />
+                        <label>Trivia #</label>
+                        <input type="number" id="dlgAccessTrivia" value="${defaultTriviaNumber || ''}" ${requireTrivia ? 'required' : ''} />
+                        <label>Password</label>
+                        <input type="password" id="dlgAccessPassword" placeholder="Enter password" />
+                    </div>
+                    <div style="margin-top:12px;">
+                        <button id="dlgAccessConfirm">Confirm</button>
+                        <button id="dlgAccessCancel">Cancel</button>
+                    </div>
+                `;
+
+                document.body.appendChild(dialog);
+
+                const cleanup = (result) => {
+                    if (dialog && dialog.parentNode) {
+                        dialog.parentNode.removeChild(dialog);
+                    }
+                    resolve(result);
+                };
+
+                document.getElementById('dlgAccessConfirm').onclick = () => {
+                    const name = document.getElementById('dlgAccessName').value.trim();
+                    const trivia = document.getElementById('dlgAccessTrivia').value.trim();
+                    const password = document.getElementById('dlgAccessPassword').value.trim();
+
+                    // Require a name on first unlock so we can attribute changes
+                    if (!currentAccessName && !name) {
+                        alert("Please enter your name so we can track changes.");
+                        return;
+                    }
+
+                    cleanup({ name, triviaNumber: trivia, password });
+                };
+                document.getElementById('dlgAccessCancel').onclick = () => cleanup(null);
+            });
+        }
+
+        async function validatePassword(triviaNumber, password, roundNum = null) {
+            const parsed = await fetchTriviaPasswords(triviaNumber);
+            const trimmed = (password || '').trim();
+            return {
+                parsed,
+                isMaster: parsed.master && trimmed === parsed.master,
+                isTeamEnter: parsed.teamEnter && trimmed === parsed.teamEnter,
+                isRoundMatch: roundNum ? (parsed.rounds?.[roundNum] && trimmed === parsed.rounds[roundNum]) : false
+            };
+        }
+
+        async function ensureTeamAccess(triviaNumber) {
+            if (isPrivilegedUser) return true;
+            if (!triviaNumber) {
+                alert("Please provide a trivia number first.");
+                return false;
+            }
+
+            const state = getAccessState(triviaNumber);
+            if (state.master || state.teamEnter) return true;
+
+            const response = await promptForPassword({
+                title: `Unlock Trivia #${triviaNumber}`,
+                message: 'Enter the TeamEnter or Master password to unlock session setup.',
+                defaultTriviaNumber: triviaNumber,
+                requireTrivia: true
+            });
+            if (!response) return false;
+
+            if (response.name) {
+                currentAccessName = response.name;
+                persistAccessState();
+            }
+
+            const validation = await validatePassword(triviaNumber, response.password);
+            if (validation.isMaster || validation.isTeamEnter) {
+                updateAccessState(triviaNumber, {
+                    master: state.master || validation.isMaster,
+                    teamEnter: state.teamEnter || validation.isTeamEnter
+                });
+                showToast(`Unlocked trivia #${triviaNumber}`, 'success', 3000);
+                return true;
+            }
+
+            showToast("Incorrect password for this trivia.", 'error', 4000);
+            return false;
+        }
+
+        async function ensureRoundAccess(triviaNumber, roundNum) {
+            if (isPrivilegedUser) return true;
+            const state = getAccessState(triviaNumber);
+            if (state.master || state.rounds?.[roundNum]) return true;
+
+            const response = await promptForPassword({
+                title: `Round ${roundNum} Password`,
+                message: 'Enter the round password or Master password to continue.',
+                defaultTriviaNumber: triviaNumber,
+                requireTrivia: true
+            });
+            if (!response) return false;
+
+            if (response.name) {
+                currentAccessName = response.name;
+                persistAccessState();
+            }
+
+            const validation = await validatePassword(triviaNumber, response.password, roundNum);
+            if (validation.isMaster || validation.isRoundMatch) {
+                updateAccessState(triviaNumber, {
+                    master: state.master || validation.isMaster,
+                    rounds: { [roundNum]: true }
+                });
+                showToast(`Unlocked round ${roundNum}`, 'success', 3000);
+                return true;
+            }
+
+            showToast("Incorrect round password.", 'error', 4000);
+            return false;
+        }
+
+        async function applyAuthState(user) {
+            try {
+                isPrivilegedUser = false;
+                if (user) {
                     const userRoleRef = ref(db, `users/${user.uid}/role`);
                     const roleSnapshot = await get(userRoleRef);
-                    
-                    if (roleSnapshot.exists()) {
-                        const role = roleSnapshot.val();
-                        if (role === 'admin' || role === 'grader') {
-                            // User has correct role, show grading interface
-                            document.getElementById('authContainer').style.display = 'none';
-                            document.getElementById('screenSessionSetup').style.display = 'block';
-                            // Load any necessary data
-                            if (typeof loadSessions === 'function') {
-                                await loadSessions();
-                            }
-                        } else {
-                            // User doesn't have correct role
-                            alert('You do not have permission to access this page.');
-                            window.location.href = '/pages/account.html';
+                    const role = roleSnapshot.exists() ? roleSnapshot.val() : '';
+                    if (role === 'admin' || role === 'grader') {
+                        isPrivilegedUser = true;
+                        showSessionSetup();
+                        if (typeof loadSessions === 'function') {
+                            await loadSessions();
                         }
-                    } else {
-                        // No role found
-                        alert('User role not found. Please contact administrator.');
-                        window.location.href = '/pages/account.html';
+                        return;
                     }
-                } catch (error) {
-                    console.error("Error checking user role:", error);
-                    alert('Error checking permissions. Please try again.');
                 }
-            } else {
-                // No user is signed in
-                document.getElementById('authContainer').style.display = 'block';
-                document.getElementById('screenSessionSetup').style.display = 'none';
+                // Non-privileged or not signed in
+                if (Object.keys(accessGrants || {}).length > 0) {
+                    showSessionSetup();
+                } else {
+                    showAuthGate();
+                }
+            } catch (error) {
+                console.error("Error checking user role:", error);
+                showAuthGate();
             }
-        });
+        }
+
+        // Authentication check
+        onAuthStateChanged(auth, applyAuthState);
 
         // Add a logout button
         const logoutButton = document.createElement('button');
@@ -878,6 +1109,41 @@
         }
 
         // Event Listeners
+        document.getElementById('btnUnlockAccess').addEventListener('click', async () => {
+            const name = document.getElementById('accessName').value.trim();
+            const triviaNumber = document.getElementById('accessTriviaNumber').value.trim();
+            const password = document.getElementById('accessPassword').value.trim();
+
+            if (!currentAccessName && !name) {
+                alert("Please enter your name so we can track changes.");
+                return;
+            }
+
+            if (!triviaNumber || !password) {
+                alert("Please enter a trivia number and password.");
+                return;
+            }
+
+            if (name) {
+                currentAccessName = name;
+                persistAccessState();
+            }
+
+            const validation = await validatePassword(triviaNumber, password);
+            const state = getAccessState(triviaNumber);
+            if (validation.isMaster || validation.isTeamEnter) {
+                updateAccessState(triviaNumber, {
+                    master: state.master || validation.isMaster,
+                    teamEnter: state.teamEnter || validation.isTeamEnter
+                });
+                showSessionSetup();
+                setDefaultDate();
+                showToast(`Unlocked trivia #${triviaNumber}`, 'success', 3000);
+            } else {
+                showToast("Incorrect password. Please try again.", 'error', 4000);
+            }
+        });
+
         document.getElementById('btnNewSession').addEventListener('click', async () => {
             console.log("New session button clicked");
             document.getElementById('newSessionForm').style.display = 'block';
@@ -908,6 +1174,22 @@
                 return;
             }
 
+            try {
+                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
+                if (!sessionSnap.exists()) {
+                    alert("Session not found.");
+                    return;
+                }
+                const sessionData = sessionSnap.val();
+                const triviaNumber = sessionData.triviaNumber || sessionData.triviaNum || '';
+                const canAccess = await ensureTeamAccess(triviaNumber);
+                if (!canAccess) return;
+            } catch (error) {
+                console.error("Error validating session access:", error);
+                showToast("Could not validate session access.", 'error', 4000);
+                return;
+            }
+
             localStorage.setItem('currentGradingSession', sessionId);
             await setupTeamScreen();
             showScreen('screenTeamSetup');
@@ -926,6 +1208,9 @@
                     alert("Please fill in all fields");
                     return;
                 }
+
+                const canAccess = await ensureTeamAccess(triviaNumber);
+                if (!canAccess) return;
 
                 // Format date for session ID (YYYYMMDD)
                 const dateFormatted = date.split('-').join('');
@@ -969,6 +1254,7 @@
                     triviaNumber: parseInt(triviaNumber),
                     triviaName: triviaName,
                     createdAt: new Date().toISOString(),
+                    createdBy: getAccessIdentity(),
                     availability: availability
                 };
                 console.log("Session data:", sessionData);
@@ -1232,6 +1518,12 @@
                 }
 
                 const session = sessionSnap.val();
+                const triviaNumber = session.triviaNumber || session.triviaNum || '';
+
+                const canAccess = await ensureTeamAccess(triviaNumber);
+                if (!canAccess) {
+                    return false;
+                }
                 // Check if session is closed
                 if (session.closed) {
                     localStorage.removeItem('currentGradingSession');
@@ -1252,34 +1544,27 @@
         document.addEventListener('DOMContentLoaded', async () => {
             try {
                 console.log("DOM Content Loaded");
-                const auth = getAuth();
-                
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        console.log("User is authenticated");
-                        const userRoleRef = ref(db, `users/${user.uid}/role`);
-                        const roleSnapshot = await get(userRoleRef);
-                        
-                        if (roleSnapshot.exists() && 
-                            (roleSnapshot.val() === 'admin' || roleSnapshot.val() === 'grader')) {
-                            console.log("User has correct role");
-                            document.getElementById('authContainer').style.display = 'none';
-                            document.getElementById('screenSessionSetup').style.display = 'block';
-                            
-                            // Check for existing session
-                            const hasActiveSession = await checkLastSession();
-                            if (!hasActiveSession) {
-                                console.log("No active session, showing setup screen");
-                                setDefaultDate();
-                                // Don't load options until "Create New Session" is clicked
-                            }
-                        }
-                    } else {
-                        console.log("No user authenticated");
-                        document.getElementById('authContainer').style.display = 'block';
-                        document.getElementById('screenSessionSetup').style.display = 'none';
+                await applyAuthState(auth.currentUser);
+
+                // Prefill unlock form with remembered data
+                document.getElementById('accessName').value = currentAccessName || '';
+                const unlockedTrivia = Object.keys(accessGrants || {});
+                if (unlockedTrivia.length) {
+                    document.getElementById('accessTriviaNumber').value = unlockedTrivia[0];
+                }
+
+                if (isPrivilegedUser) {
+                    // Check for existing session for privileged users
+                    const hasActiveSession = await checkLastSession();
+                    if (!hasActiveSession) {
+                        console.log("No active session, showing setup screen");
+                        setDefaultDate();
                     }
-                });
+                } else if (unlockedTrivia.length) {
+                    await checkLastSession();
+                } else {
+                    showAuthGate();
+                }
             } catch (error) {
                 console.error("Error during initialization:", error);
                 console.error(error.stack);
@@ -1538,6 +1823,9 @@
                     const chosenRound = parseInt(document.getElementById('roundSelectInput').value);
                     document.body.removeChild(roundDialog);
                     roundDialog = null;
+                    const triviaNumber = session.triviaNumber || session.triviaNum || '';
+                    const canAccess = await ensureRoundAccess(triviaNumber, chosenRound);
+                    if (!canAccess) return;
                     document.getElementById('currentRoundNum').textContent = chosenRound;
                     await setupGradingScreen(chosenRound);
                 };
@@ -1838,6 +2126,11 @@
                 
                 // Set the total score for the round
                 roundData.total = parseFloat(totalPoints.toFixed(2));
+                const editor = getAccessIdentity();
+                if (editor) {
+                    roundData.lastEditedBy = editor;
+                    roundData.lastEditedAt = new Date().toISOString();
+                }
                 
                 // Save the complete round data with proper hierarchy
                 const roundRef = ref(db, `grading/${sessionId}/teams/${teamId}/round${roundNum}`);
