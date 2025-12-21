@@ -14,12 +14,15 @@ const app = express();
 
 // Function to load environment variables
 function loadEnvironmentVariables() {
-  console.log('Loading Patreon environment variables...');
+  console.log('Loading environment variables...');
   
   // Try to load configuration from Firebase Functions config
   try {
-    const patreonConfig = functions.config().patreon;
+    const config = functions.config();
+    const patreonConfig = config.patreon;
+    const geniusConfig = config.genius;
     
+    // Load Patreon Config
     if (patreonConfig) {
       console.log('Found Patreon configuration in functions.config()');
       if (patreonConfig.client_id && !process.env.PATREON_CLIENT_ID) {
@@ -38,6 +41,14 @@ function loadEnvironmentVariables() {
         process.env.PATREON_REDIRECT_URI = patreonConfig.redirect_uri;
       }
     }
+
+    // Load Genius Config
+    if (geniusConfig) {
+        console.log('Found Genius configuration in functions.config()');
+        if (geniusConfig.access_token && !process.env.GENIUS_ACCESS_TOKEN) {
+            process.env.GENIUS_ACCESS_TOKEN = geniusConfig.access_token;
+        }
+    }
   } catch (error) {
     console.log('Could not load from functions.config():', error.message);
   }
@@ -48,13 +59,14 @@ function loadEnvironmentVariables() {
   if (!process.env.PATREON_CLIENT_SECRET) missingVars.push('PATREON_CLIENT_SECRET');
   if (!process.env.PATREON_WEBHOOK_SECRET) missingVars.push('PATREON_WEBHOOK_SECRET');
   if (!process.env.PATREON_REDIRECT_URI) missingVars.push('PATREON_REDIRECT_URI');
+  // Genius token is optional for app startup but required for lyrics search
+  if (!process.env.GENIUS_ACCESS_TOKEN) console.warn('⚠️ GENIUS_ACCESS_TOKEN not set. Lyrics search will fail.');
 
   if (missingVars.length > 0) {
     console.error(`⚠️ Missing required environment variables: ${missingVars.join(', ')}`);
-    console.error('Please set these using Firebase Functions Config:');
-    console.error('firebase functions:config:set patreon.client_id="YOUR_VALUE" patreon.client_secret="YOUR_VALUE" patreon.webhook_secret="YOUR_VALUE"');
+    console.error('Please set these using Firebase Functions Config.');
   } else {
-    console.log('✅ All Patreon environment variables are set');
+    console.log('✅ All required environment variables are set');
   }
 }
 
@@ -1044,5 +1056,37 @@ exports.migrateToFirestore = functions.https.onCall(async (data, context) => {
       'internal',
       `Migration failed: ${error.message}`
     );
+  }
+});
+
+// Helper to proxy Genius API requests securely
+exports.geniusSearch = functions.https.onCall(async (data, context) => {
+  // Verify user is authenticated (optional, but good practice if we want to limit usage)
+  // For now allowing unauthenticated use as requested by "seamlessly blends" with existing public tools
+  
+  const query = data.query;
+  if (!query) {
+    throw new functions.https.HttpsError('invalid-argument', 'Query is required');
+  }
+
+  const accessToken = process.env.GENIUS_ACCESS_TOKEN;
+  if (!accessToken) {
+    console.error('Genius Access Token not configured');
+    throw new functions.https.HttpsError('internal', 'Genius API not configured');
+  }
+
+  try {
+    console.log(`Searching Genius for: ${query}`);
+    const response = await axios.get('https://api.genius.com/search', {
+      params: { q: query },
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+
+    return response.data.response;
+  } catch (error) {
+    console.error('Error calling Genius API:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to search Genius API', error.message);
   }
 }); 
