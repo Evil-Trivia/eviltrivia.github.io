@@ -630,8 +630,16 @@
                 <label for="accessName">Your name (for tracking changes)</label>
                 <input type="text" id="accessName" placeholder="Your name" />
 
+                <label for="accessLocation">Location</label>
+                <select id="accessLocation" style="max-width: 400px;">
+                    <option value="">Select a location...</option>
+                </select>
+
+                <label for="accessDate">Date</label>
+                <input type="date" id="accessDate" />
+
                 <label for="accessPassword">Unlock password</label>
-                <input type="password" id="accessPassword" placeholder="TeamEnter or Master password" />
+                <input type="password" id="accessPassword" placeholder="TeamEnter, Master, or Round password" />
 
                 <button id="btnUnlockAccess">Unlock</button>
                 <small>TeamEnter or Master unlocks session setup and rubric. Round passwords will be requested when grading.</small>
@@ -834,7 +842,7 @@
         const ACCESS_STATE_KEY = 'gradingAccessState';
         const ACCESS_NAME_KEY = 'gradingAccessName';
         const accessCache = {};
-        let latestTriviaNumber = '';
+        let driveLookupCache = null;
         let accessGrants = {};
         let currentAccessName = localStorage.getItem(ACCESS_NAME_KEY) || '';
         let isPrivilegedUser = false;
@@ -927,21 +935,6 @@
             document.getElementById('screenSessionSetup').style.display = 'block';
         }
 
-        // Fetch the newest trivia number once (used to avoid asking user on unlock)
-        async function loadLatestTriviaNumber() {
-            try {
-                const triviaSnap = await get(child(ref(db), 'trivia-archive/archive'));
-                if (!triviaSnap.exists()) return '';
-                const keys = Object.keys(triviaSnap.val() || {}).filter(k => !isNaN(parseInt(k)));
-                const maxKey = keys.sort((a, b) => parseInt(b) - parseInt(a))[0];
-                latestTriviaNumber = maxKey || '';
-                return latestTriviaNumber;
-            } catch (err) {
-                console.warn('Unable to load latest trivia number', err);
-                return '';
-            }
-        }
-
         async function promptForPassword({ title, message, defaultTriviaNumber, requireTrivia = false }) {
             return new Promise((resolve) => {
                 const dialog = document.createElement('div');
@@ -998,6 +991,38 @@
                 isTeamEnter: parsed.teamEnter && trimmed === parsed.teamEnter,
                 isRoundMatch: roundNum ? (parsed.rounds?.[roundNum] && trimmed === parsed.rounds[roundNum]) : false
             };
+        }
+
+        async function findTriviaByPassword(password) {
+            const trimmed = (password || '').trim();
+            if (!trimmed) return null;
+            try {
+                if (!driveLookupCache) {
+                    const snap = await get(child(ref(db), 'trivia-archive/driveLookup'));
+                    driveLookupCache = snap.exists() ? snap.val() : {};
+                }
+                const entries = Object.entries(driveLookupCache || {});
+                for (const [triviaNumber, raw] of entries) {
+                    const parsed = extractPasswords(raw);
+                    if (parsed.master && trimmed === parsed.master) {
+                        return { triviaNumber, matchType: 'master' };
+                    }
+                    if (parsed.teamEnter && trimmed === parsed.teamEnter) {
+                        return { triviaNumber, matchType: 'teamEnter' };
+                    }
+                    if (parsed.rounds) {
+                        for (const [roundKey, roundPw] of Object.entries(parsed.rounds)) {
+                            if (roundPw && trimmed === roundPw) {
+                                return { triviaNumber, matchType: 'round', roundNum: parseInt(roundKey) };
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error searching trivia by password', err);
+                return null;
+            }
+            return null;
         }
 
         async function ensureTeamAccess(triviaNumber) {
@@ -1124,6 +1149,8 @@
         // Event Listeners
         document.getElementById('btnUnlockAccess').addEventListener('click', async () => {
             const name = document.getElementById('accessName').value.trim();
+            const location = document.getElementById('accessLocation').value.trim();
+            const date = document.getElementById('accessDate').value;
             const password = document.getElementById('accessPassword').value.trim();
 
             if (!currentAccessName && !name) {
@@ -1131,20 +1158,17 @@
                 return;
             }
 
-            if (!password) {
-                alert("Please enter a password.");
+            if (!location || !date || !password) {
+                alert("Please enter location, date, and password.");
                 return;
             }
 
-            const triviaNumber = latestTriviaNumber || Object.keys(accessGrants || {})[0] || '';
-            if (!triviaNumber) {
-                await loadLatestTriviaNumber();
-            }
-            const triviaToUse = triviaNumber || latestTriviaNumber;
-            if (!triviaToUse) {
-                alert("Could not determine the trivia number. Please try again shortly.");
+            const triviaMatch = await findTriviaByPassword(password);
+            if (!triviaMatch) {
+                alert("Could not determine the trivia number. Please check the password.");
                 return;
             }
+            const triviaToUse = triviaMatch.triviaNumber;
 
             if (name) {
                 currentAccessName = name;
@@ -1153,14 +1177,47 @@
 
             const validation = await validatePassword(triviaToUse, password);
             const state = getAccessState(triviaToUse);
-            if (validation.isMaster || validation.isTeamEnter) {
+            const isMaster = validation.isMaster || triviaMatch.matchType === 'master';
+            const isTeamEnter = validation.isTeamEnter || triviaMatch.matchType === 'teamEnter';
+            const roundNum = triviaMatch.roundNum;
+            const isRound = roundNum && (validation.isRoundMatch || triviaMatch.matchType === 'round');
+
+            if (isMaster || isTeamEnter || isRound) {
                 updateAccessState(triviaToUse, {
-                    master: state.master || validation.isMaster,
-                    teamEnter: state.teamEnter || validation.isTeamEnter
+                    master: state.master || isMaster,
+                    teamEnter: state.teamEnter || isTeamEnter,
+                    rounds: isRound ? { [roundNum]: true } : {}
                 });
-                showSessionSetup();
-                setDefaultDate();
-                showToast(`Unlocked trivia #${triviaToUse}`, 'success', 3000);
+
+                // Build session id
+                const dateFormatted = date.split('-').join('');
+                const safeLocation = location.replace(/[.#$[\]]/g, '_');
+                const sessionId = `${dateFormatted}_${safeLocation}_${triviaToUse}`;
+
+                // Try to load existing session
+                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
+                if (sessionSnap.exists() && !sessionSnap.val().closed) {
+                    localStorage.setItem('currentGradingSession', sessionId);
+                    await setupTeamScreen();
+                    await loadRubricScores();
+                    showScreen('screenRubric');
+                    showToast(`Loaded session for #${triviaToUse}`, 'success', 3000);
+                } else {
+                    // Prep form values and create session
+                    document.getElementById('locationSelect').value = location;
+                    document.getElementById('dateInput').value = date;
+                    // Ensure trivia option exists
+                    const triviaSelect = document.getElementById('triviaNumSelect');
+                    if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(triviaToUse))) {
+                        const opt = document.createElement('option');
+                        opt.value = triviaToUse;
+                        opt.textContent = `#${triviaToUse}`;
+                        triviaSelect.appendChild(opt);
+                    }
+                    if (triviaSelect) triviaSelect.value = triviaToUse;
+                    await createGradingSession();
+                    showToast(`Unlocked #${triviaToUse}. Created new session.`, 'success', 3000);
+                }
             } else {
                 showToast("Incorrect password. Please try again.", 'error', 4000);
             }
@@ -1542,9 +1599,12 @@
                 const session = sessionSnap.val();
                 const triviaNumber = session.triviaNumber || session.triviaNum || '';
 
-                const canAccess = await ensureTeamAccess(triviaNumber);
-                if (!canAccess) {
-                    return false;
+                // For non-privileged users, skip check if no stored access
+                if (!isPrivilegedUser) {
+                    const state = getAccessState(triviaNumber);
+                    if (!state.master && !state.teamEnter && !state.rounds) {
+                        return false;
+                    }
                 }
                 // Check if session is closed
                 if (session.closed) {
@@ -1567,10 +1627,18 @@
             try {
                 console.log("DOM Content Loaded");
                 await applyAuthState(auth.currentUser);
-                await loadLatestTriviaNumber();
 
                 // Prefill unlock form with remembered data
                 document.getElementById('accessName').value = currentAccessName || '';
+
+                // Load location list for unlock form
+                await loadAccessLocations();
+
+                // Default date to today
+                const today = new Date().toISOString().split('T')[0];
+                const accessDate = document.getElementById('accessDate');
+                if (accessDate) accessDate.value = today;
+
                 const unlockedTrivia = Object.keys(accessGrants || {});
 
                 if (isPrivilegedUser) {
@@ -2568,6 +2636,35 @@
             } catch (error) {
                 console.error("Error loading locations:", error);
                 alert("Error loading locations. Please try again.");
+            }
+        }
+
+        // Load locations into the unlock form
+        async function loadAccessLocations() {
+            try {
+                const locationsSnap = await get(child(ref(db), 'adminSettings/locations'));
+                const locationSelect = document.getElementById('accessLocation');
+                if (!locationSelect) return;
+                locationSelect.innerHTML = '<option value="">Select a location...</option>';
+                
+                if (locationsSnap.exists()) {
+                    const locations = locationsSnap.val();
+                    const locationArray = Object.entries(locations)
+                        .map(([id, data]) => ({
+                            id: id,
+                            name: data.name || 'Unknown Location'
+                        }))
+                        .sort((a, b) => a.name.localeCompare(b.name));
+
+                    locationArray.forEach(loc => {
+                        const option = document.createElement('option');
+                        option.value = loc.name;
+                        option.textContent = loc.name;
+                        locationSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error("Error loading locations for unlock:", error);
             }
         }
 
