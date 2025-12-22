@@ -1165,7 +1165,7 @@
 
             const triviaMatch = await findTriviaByPassword(password);
             if (!triviaMatch) {
-                alert("Could not determine the trivia number. Please check the password.");
+                showToast("Could not determine the trivia number. Check the password and try again.", 'error', 4000);
                 return;
             }
             const triviaToUse = triviaMatch.triviaNumber;
@@ -1195,28 +1195,39 @@
                 const sessionId = `${dateFormatted}_${safeLocation}_${triviaToUse}`;
 
                 // Try to load existing session
-                const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
-                if (sessionSnap.exists() && !sessionSnap.val().closed) {
-                    localStorage.setItem('currentGradingSession', sessionId);
-                    await setupTeamScreen();
-                    await loadRubricScores();
-                    showScreen('screenRubric');
-                    showToast(`Loaded session for #${triviaToUse}`, 'success', 3000);
-                } else {
-                    // Prep form values and create session
-                    document.getElementById('locationSelect').value = location;
-                    document.getElementById('dateInput').value = date;
-                    // Ensure trivia option exists
-                    const triviaSelect = document.getElementById('triviaNumSelect');
-                    if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(triviaToUse))) {
-                        const opt = document.createElement('option');
-                        opt.value = triviaToUse;
-                        opt.textContent = `#${triviaToUse}`;
-                        triviaSelect.appendChild(opt);
+                try {
+                    const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
+                    if (sessionSnap.exists() && !sessionSnap.val().closed) {
+                        localStorage.setItem('currentGradingSession', sessionId);
+                        await setupTeamScreen();
+                        await loadRubricScores();
+                        showScreen('screenRubric');
+                        showToast(`Loaded session for #${triviaToUse}`, 'success', 3000);
+                        return;
                     }
-                    if (triviaSelect) triviaSelect.value = triviaToUse;
+                } catch (err) {
+                    console.error("Error loading session (will prompt to try again):", err);
+                    showToast("Could not load session. Please try again or create a new one.", 'error', 4000);
+                }
+
+                // Prep form values and create session
+                document.getElementById('locationSelect').value = location;
+                document.getElementById('dateInput').value = date;
+                // Ensure trivia option exists
+                const triviaSelect = document.getElementById('triviaNumSelect');
+                if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(triviaToUse))) {
+                    const opt = document.createElement('option');
+                    opt.value = triviaToUse;
+                    opt.textContent = `#${triviaToUse}`;
+                    triviaSelect.appendChild(opt);
+                }
+                if (triviaSelect) triviaSelect.value = triviaToUse;
+                try {
                     await createGradingSession();
                     showToast(`Unlocked #${triviaToUse}. Created new session.`, 'success', 3000);
+                } catch (err) {
+                    console.error("Error creating session:", err);
+                    showToast("Could not create a session. Please try again.", 'error', 4000);
                 }
             } else {
                 showToast("Incorrect password. Please try again.", 'error', 4000);
@@ -2766,20 +2777,27 @@
             }, duration);
         }
 
-        // Handle logout
-        document.getElementById('logoutBtn').addEventListener('click', function() {
-            signOut(auth).then(() => {
-                window.location.href = '/pages/account.html';
-            }).catch((error) => {
-                console.error("Error signing out:", error);
+        // Handle logout (guard element)
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', function() {
+                signOut(auth).then(() => {
+                    window.location.href = '/pages/account.html';
+                }).catch((error) => {
+                    console.error("Error signing out:", error);
+                });
             });
-        });
+        }
 
-        // User is not logged in, show login button
-        document.getElementById('loginScreen').classList.add('active');
-        document.getElementById('loginButton').innerHTML = 
-            `<p>You need to be logged in to access this tool.</p>
-            <a href="/pages/account.html" class="button">Log In or Sign Up</a>`;
+        // User is not logged in, show login button (guard element)
+        const loginScreen = document.getElementById('loginScreen');
+        const loginButton = document.getElementById('loginButton');
+        if (loginScreen && loginButton) {
+            loginScreen.classList.add('active');
+            loginButton.innerHTML = 
+                `<p>You need to be logged in to access this tool.</p>
+                <a href="/pages/account.html" class="button">Log In or Sign Up</a>`;
+        }
     </script>
 </body>
 </html>
