@@ -1196,52 +1196,50 @@
                 const safeLocation = location.replace(/[.#$[\]]/g, '_');
                 const sessionId = `${dateFormatted}_${safeLocation}_${triviaToUse}`;
 
-                // Try to load existing session
+                // Try to load existing session first
                 try {
                     const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
                     if (sessionSnap.exists() && !sessionSnap.val().closed) {
+                        // Existing session found - load it
                         localStorage.setItem('currentGradingSession', sessionId);
                         await setupTeamScreen();
                         await loadRubricScores();
                         showScreen('screenRubric');
-                        showToast(`Loaded session for #${triviaToUse}`, 'success', 3000);
+                        showToast(`Loaded existing session for #${triviaToUse}`, 'success', 3000);
                         return;
                     }
-                } catch (err) {
-                    console.error("Error loading session (will prompt to try again):", err);
-                    showToast("Could not load session. Please try again or create a new one.", 'error', 4000);
-                }
-
-                // Prep form values and create session
-                const locationSelectEl = document.getElementById('locationSelect');
-                const dateInputEl = document.getElementById('dateInput');
-                if (locationSelectEl) {
-                    if (!Array.from(locationSelectEl.options).some(o => o.value === location)) {
-                        const optLoc = document.createElement('option');
-                        optLoc.value = location;
-                        optLoc.textContent = location;
-                        locationSelectEl.appendChild(optLoc);
+                    
+                    // No existing session or it's closed - create a new one
+                    console.log("No existing open session found, creating new session");
+                    const locationSelectEl = document.getElementById('locationSelect');
+                    const dateInputEl = document.getElementById('dateInput');
+                    if (locationSelectEl) {
+                        if (!Array.from(locationSelectEl.options).some(o => o.value === location)) {
+                            const optLoc = document.createElement('option');
+                            optLoc.value = location;
+                            optLoc.textContent = location;
+                            locationSelectEl.appendChild(optLoc);
+                        }
+                        locationSelectEl.value = location;
                     }
-                    locationSelectEl.value = location;
-                }
-                if (dateInputEl) {
-                    dateInputEl.value = date;
-                }
-                // Ensure trivia option exists
-                const triviaSelect = document.getElementById('triviaNumSelect');
-                if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(triviaToUse))) {
-                    const opt = document.createElement('option');
-                    opt.value = triviaToUse;
-                    opt.textContent = `#${triviaToUse}`;
-                    triviaSelect.appendChild(opt);
-                }
-                if (triviaSelect) triviaSelect.value = triviaToUse;
-                try {
+                    if (dateInputEl) {
+                        dateInputEl.value = date;
+                    }
+                    // Ensure trivia option exists
+                    const triviaSelect = document.getElementById('triviaNumSelect');
+                    if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(triviaToUse))) {
+                        const opt = document.createElement('option');
+                        opt.value = triviaToUse;
+                        opt.textContent = `#${triviaToUse}`;
+                        triviaSelect.appendChild(opt);
+                    }
+                    if (triviaSelect) triviaSelect.value = triviaToUse;
+                    
                     await createGradingSession();
-                    showToast(`Unlocked #${triviaToUse}. Created new session.`, 'success', 3000);
+                    showToast(`Created new session for #${triviaToUse}`, 'success', 3000);
                 } catch (err) {
-                    console.error("Error creating session:", err);
-                    showToast("Could not create a session. Please try again.", 'error', 4000);
+                    console.error("Error with session:", err);
+                    showToast("Could not load or create session. Please try again.", 'error', 4000);
                 }
             } else {
                 showToast("Incorrect password. Please try again.", 'error', 4000);
@@ -1665,9 +1663,15 @@
         document.addEventListener('DOMContentLoaded', async () => {
             try {
                 console.log("DOM Content Loaded");
+                
+                // Clear unlock state on page load so passwords are required on refresh
+                accessGrants = {};
+                localStorage.removeItem(ACCESS_STATE_KEY);
+                localStorage.removeItem('currentGradingSession');
+                
                 await applyAuthState(auth.currentUser);
 
-                // Prefill unlock form with remembered data
+                // Prefill unlock form with remembered data (name only)
                 document.getElementById('accessName').value = currentAccessName || '';
 
                 // Load location list for unlock form
@@ -1678,18 +1682,12 @@
                 const accessDate = document.getElementById('accessDate');
                 if (accessDate) accessDate.value = today;
 
-                const unlockedTrivia = Object.keys(accessGrants || {});
-
                 if (isPrivilegedUser) {
-                    // Check for existing session for privileged users
-                    const hasActiveSession = await checkLastSession();
-                    if (!hasActiveSession) {
-                        console.log("No active session, showing setup screen");
-                        setDefaultDate();
-                    }
-                } else if (unlockedTrivia.length) {
-                    await checkLastSession();
+                    // Admins/graders can access without passwords
+                    showSessionSetup();
+                    setDefaultDate();
                 } else {
+                    // Everyone else needs to unlock with password
                     showAuthGate();
                 }
             } catch (error) {
