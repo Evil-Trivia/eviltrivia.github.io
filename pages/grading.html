@@ -1150,7 +1150,9 @@
         document.getElementById('btnUnlockAccess').addEventListener('click', async () => {
             const name = document.getElementById('accessName').value.trim();
             const location = document.getElementById('accessLocation').value.trim();
-            const date = document.getElementById('accessDate').value;
+            const accessDateEl = document.getElementById('accessDate');
+            const dateRaw = accessDateEl ? accessDateEl.value : '';
+            const date = dateRaw || (accessDateEl && accessDateEl.valueAsDate ? accessDateEl.valueAsDate.toISOString().split('T')[0] : '');
             const password = document.getElementById('accessPassword').value.trim();
 
             if (!currentAccessName && !name) {
@@ -1159,7 +1161,7 @@
             }
 
             if (!location || !date || !password) {
-                alert("Please enter location, date, and password.");
+                showToast("Please enter location, date, and password.", 'error', 4000);
                 return;
             }
 
@@ -1211,8 +1213,20 @@
                 }
 
                 // Prep form values and create session
-                document.getElementById('locationSelect').value = location;
-                document.getElementById('dateInput').value = date;
+                const locationSelectEl = document.getElementById('locationSelect');
+                const dateInputEl = document.getElementById('dateInput');
+                if (locationSelectEl) {
+                    if (!Array.from(locationSelectEl.options).some(o => o.value === location)) {
+                        const optLoc = document.createElement('option');
+                        optLoc.value = location;
+                        optLoc.textContent = location;
+                        locationSelectEl.appendChild(optLoc);
+                    }
+                    locationSelectEl.value = location;
+                }
+                if (dateInputEl) {
+                    dateInputEl.value = date;
+                }
                 // Ensure trivia option exists
                 const triviaSelect = document.getElementById('triviaNumSelect');
                 if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(triviaToUse))) {
@@ -1288,14 +1302,28 @@
         // Update createGradingSession function
         async function createGradingSession() {
             try {
-                const location = document.getElementById('locationSelect').value;
-                const date = document.getElementById('dateInput').value;
-                const triviaNumber = document.getElementById('triviaNumSelect').value;
+                let location = document.getElementById('locationSelect').value;
+                let date = document.getElementById('dateInput').value;
+                let triviaNumber = document.getElementById('triviaNumSelect').value;
+
+                // Fallback to unlock form values if session form not filled yet
+                if (!location) {
+                    const accessLocationEl = document.getElementById('accessLocation');
+                    if (accessLocationEl) location = accessLocationEl.value;
+                }
+                if (!date) {
+                    const accessDateEl = document.getElementById('accessDate');
+                    if (accessDateEl) date = accessDateEl.value || (accessDateEl.valueAsDate ? accessDateEl.valueAsDate.toISOString().split('T')[0] : '');
+                }
+                if (!triviaNumber) {
+                    const unlockedTrivia = Object.keys(accessGrants || {});
+                    if (unlockedTrivia.length) triviaNumber = unlockedTrivia[0];
+                }
                 
                 console.log("Creating session with:", { location, date, triviaNumber });
                 
                 if (!location || !date || !triviaNumber) {
-                    alert("Please fill in all fields");
+                    showToast("Please fill in all fields", 'error', 4000);
                     return;
                 }
 
@@ -1434,7 +1462,7 @@
             console.log("Form values:", { location, date, triviaNumber });
             
             if (!location || !date || !triviaNumber) {
-                alert("Please fill in all fields");
+                showToast("Please fill in all fields", 'error', 4000);
                 return;
             }
 
