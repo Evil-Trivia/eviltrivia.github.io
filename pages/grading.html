@@ -642,7 +642,6 @@
                 <input type="password" id="accessPassword" placeholder="TeamEnter, Master, or Round password" />
 
                 <button id="btnUnlockAccess">Unlock</button>
-                <small>TeamEnter or Master unlocks session setup and rubric. Round passwords will be requested when grading.</small>
             </div>
             <div style="margin-top: 16px; border-top: 1px solid #eee; padding-top: 12px;">
                 <p>Prefer account access? Admins/graders can sign in instead.</p>
@@ -996,6 +995,59 @@
             });
         }
 
+        async function promptForTriviaSelection() {
+            return new Promise(async (resolve) => {
+                // Load all trivia options
+                const triviaSnap = await get(child(ref(db), 'trivia-archive/archive'));
+                if (!triviaSnap.exists()) {
+                    alert("No trivia found in archive.");
+                    resolve(null);
+                    return;
+                }
+
+                const triviaArchive = triviaSnap.val();
+                const triviaNumbers = Object.keys(triviaArchive).sort((a, b) => parseInt(b) - parseInt(a)); // Sort newest first
+
+                const dialog = document.createElement('div');
+                dialog.className = 'round-dialog';
+                
+                const optionsHtml = triviaNumbers.map(num => {
+                    const trivia = triviaArchive[num];
+                    return `<option value="${num}">${num} - ${trivia.triviaName || 'Unnamed Trivia'}</option>`;
+                }).join('');
+                
+                dialog.innerHTML = `
+                    <h3>Select Trivia Number</h3>
+                    <p>Choose which trivia number to use for this new session:</p>
+                    <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px; text-align:left;">
+                        <label>Trivia</label>
+                        <select id="dlgTriviaSelect" style="width: 100%;">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <button id="dlgTriviaConfirm">Confirm</button>
+                        <button id="dlgTriviaCancel">Cancel</button>
+                    </div>
+                `;
+
+                document.body.appendChild(dialog);
+
+                const cleanup = (result) => {
+                    if (dialog && dialog.parentNode) {
+                        dialog.parentNode.removeChild(dialog);
+                    }
+                    resolve(result);
+                };
+
+                document.getElementById('dlgTriviaConfirm').onclick = () => {
+                    const selected = document.getElementById('dlgTriviaSelect').value;
+                    cleanup(selected);
+                };
+                document.getElementById('dlgTriviaCancel').onclick = () => cleanup(null);
+            });
+        }
+
         async function validatePassword(triviaNumber, password, roundNum = null) {
             const parsed = await fetchTriviaPasswords(triviaNumber);
             const trimmed = (password || '').trim();
@@ -1294,16 +1346,17 @@
                         return;
                     }
                     
-                    // No existing session - go to team setup to create new one
-                    console.log("No existing open session found, preparing new session");
+                    // No existing session - prompt user to select trivia number
+                    console.log("No existing open session found, prompting for trivia selection");
                     
-                    // Store session details for later creation
-                    window.pendingSessionDetails = {
-                        location,
-                        date,
-                        triviaNumber: triviaToUse,
-                        sessionId
-                    };
+                    // Ask user to select which trivia number to use for the new session
+                    const selectedTrivia = await promptForTriviaSelection();
+                    if (!selectedTrivia) {
+                        showToast("Session creation cancelled.", 'info', 2000);
+                        return;
+                    }
+                    
+                    console.log("User selected trivia:", selectedTrivia);
                     
                     // Set up the new session form with these details
                     const locationSelectEl = document.getElementById('locationSelect');
@@ -1325,20 +1378,20 @@
                     if (dateInputEl) {
                         dateInputEl.value = date;
                     }
-                    if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(triviaToUse))) {
+                    if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(selectedTrivia))) {
                         const opt = document.createElement('option');
-                        opt.value = triviaToUse;
-                        opt.textContent = `#${triviaToUse}`;
+                        opt.value = selectedTrivia;
+                        opt.textContent = `#${selectedTrivia}`;
                         triviaSelect.appendChild(opt);
                     }
-                    if (triviaSelect) triviaSelect.value = triviaToUse;
+                    if (triviaSelect) triviaSelect.value = selectedTrivia;
                     
-                    // Create the session immediately and go to team setup
+                    // Create the session and go to team setup
                     await createGradingSession();
                     
                     // Hide auth screen after creating session
                     document.getElementById('authContainer').style.display = 'none';
-                    showToast(`Ready to add teams for #${triviaToUse}`, 'success', 3000);
+                    showToast(`Ready to add teams for trivia #${selectedTrivia}`, 'success', 3000);
                 } catch (err) {
                     console.error("Error with session:", err);
                     showToast("Could not load or create session. Please try again.", 'error', 4000);
