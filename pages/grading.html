@@ -1196,16 +1196,35 @@
                 const safeLocation = location.replace(/[.#$[\]]/g, '_');
                 const sessionId = `${dateFormatted}_${safeLocation}_${triviaToUse}`;
 
-                // Try to load existing session first
+                console.log('Unlock details:', { date, location, triviaToUse, sessionId });
+
+                // Try to find any existing session with matching location, date, and trivia
                 try {
-                    const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
-                    if (sessionSnap.exists() && !sessionSnap.val().closed) {
+                    const allSessionsSnap = await get(child(ref(db), 'grading'));
+                    let foundSession = null;
+                    
+                    if (allSessionsSnap.exists()) {
+                        const sessions = allSessionsSnap.val();
+                        // Look for session with matching location, date, and trivia number
+                        for (const [sid, sessionData] of Object.entries(sessions)) {
+                            if (sessionData.location === location && 
+                                sessionData.date === date && 
+                                sessionData.triviaNumber === parseInt(triviaToUse) &&
+                                !sessionData.closed) {
+                                foundSession = { id: sid, data: sessionData };
+                                console.log('Found matching session:', sid, sessionData);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (foundSession) {
                         // Existing session found - load it
-                        localStorage.setItem('currentGradingSession', sessionId);
+                        localStorage.setItem('currentGradingSession', foundSession.id);
                         await setupTeamScreen();
                         await loadRubricScores();
                         showScreen('screenRubric');
-                        showToast(`Loaded existing session for #${triviaToUse}`, 'success', 3000);
+                        showToast(`Loaded existing session for trivia #${triviaToUse}`, 'success', 3000);
                         return;
                     }
                     
