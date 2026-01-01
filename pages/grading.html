@@ -935,20 +935,25 @@
             document.getElementById('screenSessionSetup').style.display = 'block';
         }
 
-        async function promptForPassword({ title, message, defaultTriviaNumber, requireTrivia = false }) {
+        async function promptForPassword({ title, message, defaultTriviaNumber, requireTrivia = false, hideTrivia = false }) {
             return new Promise((resolve) => {
                 const dialog = document.createElement('div');
                 dialog.className = 'round-dialog';
+                const triviaFieldHtml = hideTrivia ? '' : `
+                    <label>Trivia #</label>
+                    <input type="number" id="dlgAccessTrivia" value="${defaultTriviaNumber || ''}" ${requireTrivia ? 'required' : ''} ${hideTrivia ? 'readonly' : ''} />
+                `;
+                
                 dialog.innerHTML = `
                     <h3>${title}</h3>
                     <p>${message}</p>
                     <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px; text-align:left;">
                         <label>Name</label>
                         <input type="text" id="dlgAccessName" value="${escapeHtml(currentAccessName)}" placeholder="Your name" />
-                        <label>Trivia #</label>
-                        <input type="number" id="dlgAccessTrivia" value="${defaultTriviaNumber || ''}" ${requireTrivia ? 'required' : ''} />
+                        ${triviaFieldHtml}
                         <label>Password</label>
                         <input type="password" id="dlgAccessPassword" placeholder="Enter password" />
+                        <div id="dlgErrorMessage" style="color: red; font-size: 14px; display: none; margin-top: 8px;"></div>
                     </div>
                     <div style="margin-top:12px;">
                         <button id="dlgAccessConfirm">Confirm</button>
@@ -964,19 +969,28 @@
                     }
                     resolve(result);
                 };
+                
+                const showError = (msg) => {
+                    const errorEl = document.getElementById('dlgErrorMessage');
+                    if (errorEl) {
+                        errorEl.textContent = msg;
+                        errorEl.style.display = 'block';
+                    }
+                };
 
                 document.getElementById('dlgAccessConfirm').onclick = () => {
                     const name = document.getElementById('dlgAccessName').value.trim();
-                    const trivia = document.getElementById('dlgAccessTrivia').value.trim();
+                    const triviaEl = document.getElementById('dlgAccessTrivia');
+                    const trivia = triviaEl ? triviaEl.value.trim() : defaultTriviaNumber;
                     const password = document.getElementById('dlgAccessPassword').value.trim();
 
                     // Require a name on first unlock so we can attribute changes
                     if (!currentAccessName && !name) {
-                        alert("Please enter your name so we can track changes.");
+                        showError("Please enter your name so we can track changes.");
                         return;
                     }
 
-                    cleanup({ name, triviaNumber: trivia, password });
+                    cleanup({ name, triviaNumber: trivia || defaultTriviaNumber, password });
                 };
                 document.getElementById('dlgAccessCancel').onclick = () => cleanup(null);
             });
@@ -1067,31 +1081,35 @@
             const state = getAccessState(triviaNumber);
             if (state.master || state.rounds?.[roundNum]) return true;
 
-            const response = await promptForPassword({
-                title: `Round ${roundNum} Password`,
-                message: 'Enter the round password or Master password to continue.',
-                defaultTriviaNumber: triviaNumber,
-                requireTrivia: true
-            });
-            if (!response) return false;
-
-            if (response.name) {
-                currentAccessName = response.name;
-                persistAccessState();
-            }
-
-            const validation = await validatePassword(triviaNumber, response.password, roundNum);
-            if (validation.isMaster || validation.isRoundMatch) {
-                updateAccessState(triviaNumber, {
-                    master: state.master || validation.isMaster,
-                    rounds: { [roundNum]: true }
+            // Keep asking for password until correct or cancelled
+            while (true) {
+                const response = await promptForPassword({
+                    title: `Round ${roundNum} Password`,
+                    message: 'Enter the round password or Master password to continue.',
+                    defaultTriviaNumber: triviaNumber,
+                    requireTrivia: true,
+                    hideTrivia: true  // Don't show trivia number field
                 });
-                showToast(`Unlocked round ${roundNum}`, 'success', 3000);
-                return true;
-            }
+                if (!response) return false;
 
-            showToast("Incorrect round password.", 'error', 4000);
-            return false;
+                if (response.name) {
+                    currentAccessName = response.name;
+                    persistAccessState();
+                }
+
+                const validation = await validatePassword(triviaNumber, response.password, roundNum);
+                if (validation.isMaster || validation.isRoundMatch) {
+                    updateAccessState(triviaNumber, {
+                        master: state.master || validation.isMaster,
+                        rounds: { [roundNum]: true }
+                    });
+                    showToast(`Unlocked round ${roundNum}`, 'success', 3000);
+                    return true;
+                }
+
+                // Show error but keep the loop going to prompt again
+                showToast("Incorrect round password. Please try again.", 'error', 3000);
+            }
         }
 
         async function applyAuthState(user) {
@@ -1978,6 +1996,19 @@
                             }
                         });
                     });
+                }
+                
+                // Hide certain buttons for non-privileged users
+                if (!isPrivilegedUser) {
+                    const switchSessionBtn = document.getElementById('btnSwitchSession');
+                    const triviaBreakdownBtn = document.getElementById('btnTriviaBreakdown');
+                    if (switchSessionBtn) switchSessionBtn.style.display = 'none';
+                    if (triviaBreakdownBtn) triviaBreakdownBtn.style.display = 'none';
+                } else {
+                    const switchSessionBtn = document.getElementById('btnSwitchSession');
+                    const triviaBreakdownBtn = document.getElementById('btnTriviaBreakdown');
+                    if (switchSessionBtn) switchSessionBtn.style.display = '';
+                    if (triviaBreakdownBtn) triviaBreakdownBtn.style.display = '';
                 }
 
             } catch (error) {
