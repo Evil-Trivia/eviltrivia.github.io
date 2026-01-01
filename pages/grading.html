@@ -1209,10 +1209,25 @@
                         return;
                     }
                     
-                    // No existing session or it's closed - create a new one
-                    console.log("No existing open session found, creating new session");
+                    // No existing session - go to team setup to create new one
+                    console.log("No existing open session found, preparing new session");
+                    
+                    // Store session details for later creation
+                    window.pendingSessionDetails = {
+                        location,
+                        date,
+                        triviaNumber: triviaToUse,
+                        sessionId
+                    };
+                    
+                    // Set up the new session form with these details
                     const locationSelectEl = document.getElementById('locationSelect');
                     const dateInputEl = document.getElementById('dateInput');
+                    const triviaSelect = document.getElementById('triviaNumSelect');
+                    
+                    // Load locations and trivia options first
+                    await Promise.all([loadLocations(), loadTriviaOptions()]);
+                    
                     if (locationSelectEl) {
                         if (!Array.from(locationSelectEl.options).some(o => o.value === location)) {
                             const optLoc = document.createElement('option');
@@ -1225,8 +1240,6 @@
                     if (dateInputEl) {
                         dateInputEl.value = date;
                     }
-                    // Ensure trivia option exists
-                    const triviaSelect = document.getElementById('triviaNumSelect');
                     if (triviaSelect && !Array.from(triviaSelect.options).some(o => o.value === String(triviaToUse))) {
                         const opt = document.createElement('option');
                         opt.value = triviaToUse;
@@ -1235,8 +1248,9 @@
                     }
                     if (triviaSelect) triviaSelect.value = triviaToUse;
                     
+                    // Create the session immediately and go to team setup
                     await createGradingSession();
-                    showToast(`Created new session for #${triviaToUse}`, 'success', 3000);
+                    showToast(`Ready to add teams for #${triviaToUse}`, 'success', 3000);
                 } catch (err) {
                     console.error("Error with session:", err);
                     showToast("Could not load or create session. Please try again.", 'error', 4000);
