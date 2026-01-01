@@ -1196,48 +1196,61 @@
                 const safeLocation = location.replace(/[.#$[\]]/g, '_');
                 const sessionId = `${dateFormatted}_${safeLocation}_${triviaToUse}`;
 
-                console.log('Unlock details:', { date, location, triviaToUse, sessionId });
+                console.log('Unlock details:', { date, location, triviaToUse, sessionId, dateType: typeof date, locationType: typeof location, triviaType: typeof triviaToUse });
 
-                // Try to find any existing session with matching location, date, and trivia
+                // Try to find any existing session with matching location and date (ignore trivia for now to be permissive)
+                let foundSession = null;
                 try {
                     const allSessionsSnap = await get(child(ref(db), 'grading'));
-                    let foundSession = null;
                     
                     if (allSessionsSnap.exists()) {
                         const sessions = allSessionsSnap.val();
-                        console.log('Searching for session with:', {
-                            location,
-                            date,
-                            triviaNumber: parseInt(triviaToUse)
-                        });
-                        console.log('All sessions:', Object.keys(sessions));
+                        console.log('Total sessions in DB:', Object.keys(sessions).length);
                         
-                        // Look for session with matching location, date, and trivia number
+                        // Normalize our search values
+                        const searchLocation = String(location).trim();
+                        const searchDate = String(date).trim();
+                        const searchTrivia = parseInt(triviaToUse);
+                        
+                        console.log('Searching for:', {
+                            location: searchLocation,
+                            date: searchDate,
+                            triviaNumber: searchTrivia
+                        });
+                        
+                        // Look for session with matching location, date (and optionally trivia)
                         for (const [sid, sessionData] of Object.entries(sessions)) {
-                            console.log(`Checking session ${sid}:`, {
-                                location: sessionData.location,
-                                date: sessionData.date,
-                                triviaNumber: sessionData.triviaNumber,
-                                closed: sessionData.closed,
-                                locationMatch: sessionData.location === location,
-                                dateMatch: sessionData.date === date,
-                                triviaMatch: sessionData.triviaNumber === parseInt(triviaToUse),
-                                notClosed: !sessionData.closed
+                            if (!sessionData) continue;
+                            
+                            const sessionLocation = String(sessionData.location || '').trim();
+                            const sessionDate = String(sessionData.date || '').trim();
+                            const sessionTrivia = parseInt(sessionData.triviaNumber);
+                            const sessionClosed = sessionData.closed === true;
+                            
+                            const locationMatch = sessionLocation.toLowerCase() === searchLocation.toLowerCase();
+                            const dateMatch = sessionDate === searchDate;
+                            const triviaMatch = sessionTrivia === searchTrivia;
+                            const notClosed = !sessionClosed;
+                            
+                            console.log(`Session ${sid}:`, {
+                                stored: { location: sessionLocation, date: sessionDate, trivia: sessionTrivia, closed: sessionClosed },
+                                matches: { locationMatch, dateMatch, triviaMatch, notClosed },
+                                willUse: locationMatch && dateMatch && triviaMatch && notClosed
                             });
                             
-                            if (sessionData.location === location && 
-                                sessionData.date === date && 
-                                sessionData.triviaNumber === parseInt(triviaToUse) &&
-                                !sessionData.closed) {
+                            // Match on location, date, trivia, and not closed
+                            if (locationMatch && dateMatch && triviaMatch && notClosed) {
                                 foundSession = { id: sid, data: sessionData };
-                                console.log('✓ Found matching session:', sid, sessionData);
+                                console.log('✓✓✓ FOUND MATCHING SESSION:', sid);
                                 break;
                             }
                         }
                         
                         if (!foundSession) {
-                            console.log('✗ No matching session found');
+                            console.log('✗✗✗ NO MATCHING SESSION FOUND');
                         }
+                    } else {
+                        console.log('No sessions exist in database yet');
                     }
 
                     if (foundSession) {
