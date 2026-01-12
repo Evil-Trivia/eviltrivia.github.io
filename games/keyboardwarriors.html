@@ -220,6 +220,8 @@
       background: rgba(0, 0, 0, 0.5);
       border: 3px solid #FFCC00;
       min-height: 150px;
+      max-height: 400px;
+      overflow-y: auto;
       color: #666;
       line-height: 1.8;
       font-family: 'Press Start 2P', cursive;
@@ -228,6 +230,7 @@
       cursor: text;
       user-select: none;
       -webkit-user-select: none;
+      scroll-behavior: smooth;
     }
 
     #wordDisplay .correct {
@@ -348,6 +351,8 @@
         font-size: 18px;
         padding: 20px;
         line-height: 1.6;
+        max-height: 300px;
+        overflow-y: auto;
       }
 
       /* Lock game area position on mobile */
@@ -366,6 +371,11 @@
       .game-area.active .container {
         max-height: 100vh;
         overflow-y: auto;
+      }
+
+      .game-hud {
+        padding: 10px;
+        margin-bottom: 10px;
       }
     }
 
@@ -642,6 +652,9 @@
         mobileHint.style.display = 'inline';
       }
       
+      // Scroll to top of word display
+      wordDisplay.scrollTop = 0;
+      
       // Focus input to show keyboard (especially on mobile)
       // Use multiple strategies for mobile keyboard
       requestAnimationFrame(() => {
@@ -698,20 +711,20 @@
     }
 
     function scrollToCurrentPosition() {
-      // Only scroll on mobile devices
-      if (!/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-        return;
-      }
-      
       const currentChar = document.getElementById('currentChar');
-      if (currentChar) {
-        // Scroll the current character into view, centered
-        currentChar.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-          inline: 'nearest'
-        });
-      }
+      if (!currentChar) return;
+      
+      // Get positions
+      const displayRect = wordDisplay.getBoundingClientRect();
+      const charRect = currentChar.getBoundingClientRect();
+      
+      // Calculate the offset to center the character in the display
+      const displayCenter = displayRect.height / 2;
+      const charOffset = charRect.top - displayRect.top;
+      const scrollOffset = charOffset - displayCenter + (charRect.height / 2);
+      
+      // Scroll the wordDisplay container
+      wordDisplay.scrollTop += scrollOffset;
     }
 
     async function loadParagraphSettings() {
@@ -816,20 +829,18 @@
         wordsTyped++;
       }
       
-      // Check if finished - must complete entire text with 100% accuracy
-      if (typed.length === fullText.length) {
-        // Check if everything was typed correctly
-        if (correctChars === fullText.length) {
-          // Perfect! Submit the score
-          setTimeout(() => {
-            endGame(true);
-          }, 100);
-        } else {
-          // Not 100% accurate - don't allow submission
-          setTimeout(() => {
-            endGame(false);
-          }, 100);
-        }
+      // Check if finished with 100% accuracy
+      if (typed.length === fullText.length && correctChars === fullText.length) {
+        // Perfect! Submit the score
+        setTimeout(() => {
+          endGame();
+        }, 100);
+        return;
+      }
+      
+      // Prevent typing beyond the text length
+      if (typed.length > fullText.length) {
+        typeInput.value = typed.slice(0, fullText.length);
         return;
       }
       
@@ -852,7 +863,7 @@
       wordsValue.textContent = wordsTyped;
     }
 
-    function endGame(isPerfect) {
+    function endGame() {
       gameActive = false;
       clearInterval(gameTimer);
       typeInput.disabled = true;
@@ -865,34 +876,18 @@
       const finalTimeRounded = Math.round(finalTimeElapsed);
       
       // Update results display
-      if (isPerfect) {
-        document.getElementById('finalTime').textContent = finalTimeRounded;
-        // Show success message
-        document.getElementById('submissionMessage').style.display = 'none'; // Will show after submit
-      } else {
-        // Not perfect - show error
-        document.getElementById('finalTime').textContent = 'N/A';
-        const submissionMsg = document.getElementById('submissionMessage');
-        submissionMsg.style.display = 'block';
-        submissionMsg.style.color = '#f00';
-        submissionMsg.textContent = '✗ Must type with 100% accuracy to submit!';
-      }
+      document.getElementById('finalTime').textContent = finalTimeRounded;
       
       // Show results
       gameArea.style.display = 'none';
       results.style.display = 'block';
       
-      // Only submit score if perfect
-      if (isPerfect) {
-        submitScore(finalTimeRounded).then(() => {
-          setTimeout(() => {
-            loadScoreStats();
-          }, 500);
-        });
-      } else {
-        // Don't load stats, just show error
-        document.getElementById('scoreStats').style.display = 'none';
-      }
+      // Submit score
+      submitScore(finalTimeRounded).then(() => {
+        setTimeout(() => {
+          loadScoreStats();
+        }, 500);
+      });
     }
 
     async function submitScore(timeInSeconds) {
