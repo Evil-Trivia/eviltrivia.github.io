@@ -179,6 +179,65 @@
       position: relative;
     }
 
+    .rules-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.95);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+      padding: 20px;
+    }
+
+    .rules-overlay.active {
+      display: flex;
+    }
+
+    .rules-content {
+      background: #2d2416;
+      border: 4px solid #FFCC00;
+      padding: 30px;
+      max-width: 600px;
+      box-shadow: 0 0 30px rgba(255, 204, 0, 0.5);
+    }
+
+    .rules-title {
+      font-size: 24px;
+      color: #FFCC00;
+      text-align: center;
+      margin-bottom: 20px;
+      text-shadow: 0 0 10px #FFCC00;
+    }
+
+    .rules-list {
+      color: #fff;
+      font-size: 12px;
+      line-height: 2;
+      margin-bottom: 20px;
+    }
+
+    .rules-list li {
+      margin-bottom: 15px;
+    }
+
+    .rules-continue {
+      text-align: center;
+      font-size: 10px;
+      color: #FFCC00;
+      margin-top: 20px;
+      text-shadow: 0 0 5px #FFCC00;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
     .game-hud {
       text-align: center;
       margin-bottom: 15px;
@@ -392,6 +451,23 @@
         padding: 10px;
         margin-bottom: 10px;
       }
+
+      .rules-content {
+        padding: 20px;
+        max-width: 90%;
+      }
+
+      .rules-title {
+        font-size: 18px;
+      }
+
+      .rules-list {
+        font-size: 10px;
+      }
+
+      .rules-continue {
+        font-size: 9px;
+      }
     }
 
     @media (max-width: 400px) {
@@ -403,6 +479,18 @@
         font-size: 16px;
         padding: 15px;
         line-height: 1.5;
+      }
+
+      .rules-title {
+        font-size: 16px;
+      }
+
+      .rules-list {
+        font-size: 9px;
+      }
+
+      .rules-content {
+        padding: 15px;
       }
     }
   </style>
@@ -497,6 +585,19 @@
     </div>
   </div>
 
+  <!-- Rules Overlay -->
+  <div id="rulesOverlay" class="rules-overlay">
+    <div class="rules-content">
+      <div class="rules-title">RULES</div>
+      <ol class="rules-list">
+        <li>Type the following paragraph as quickly as possible.</li>
+        <li>Your score will only submit if you have 100% accuracy (don't worry, you can use backspace).</li>
+        <li>Play as many times as you want. Good luck.</li>
+      </ol>
+      <div class="rules-continue">Start typing to begin...</div>
+    </div>
+  </div>
+
   <!-- Firebase -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
@@ -563,6 +664,7 @@
     const wpmValue = document.getElementById('wpmValue');
     const accuracyValue = document.getElementById('accuracyValue');
     const wordsValue = document.getElementById('wordsValue');
+    const rulesOverlay = document.getElementById('rulesOverlay');
 
     async function onLocationChange() {
       const location = document.getElementById('barLocation').value;
@@ -676,29 +778,15 @@
       // Scroll to top of word display
       wordDisplay.scrollTop = 0;
       
+      // Show rules overlay
+      rulesOverlay.classList.add('active');
+      
       // Focus input to show keyboard (especially on mobile)
-      // Use multiple strategies for mobile keyboard
       requestAnimationFrame(() => {
         typeInput.focus();
         
-        // Additional mobile trigger
         setTimeout(() => {
           typeInput.click();
-          
-          // iOS specific - create and trigger a touch event
-          if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-            try {
-              const touchEvent = new TouchEvent('touchstart', {
-                bubbles: true,
-                cancelable: true,
-                view: window
-              });
-              typeInput.dispatchEvent(touchEvent);
-            } catch (e) {
-              // Fallback if TouchEvent constructor not supported
-              console.log('Touch event not supported');
-            }
-          }
         }, 150);
       });
     }
@@ -812,12 +900,17 @@
     typeInput.addEventListener('input', (e) => {
       if (!gameActive) return;
       
-      // Start timer on first keystroke
-      if (!timerStarted && e.target.value.length > 0) {
-        startTimer();
+      const typed = e.target.value;
+      
+      // Dismiss rules overlay on first character typed
+      if (rulesOverlay.classList.contains('active') && typed.length > 0) {
+        rulesOverlay.classList.remove('active');
       }
       
-      const typed = e.target.value;
+      // Start timer on first keystroke
+      if (!timerStarted && typed.length > 0) {
+        startTimer();
+      }
       
       // Prevent typing beyond the text length
       if (typed.length > fullText.length) {
@@ -992,6 +1085,7 @@
 
     function resetGame() {
       results.style.display = 'none';
+      rulesOverlay.classList.remove('active');
       startGame();
     }
 
@@ -999,6 +1093,7 @@
       results.style.display = 'none';
       gameArea.style.display = 'none';
       gameArea.classList.remove('active');
+      rulesOverlay.classList.remove('active');
       setupForm.style.display = 'flex';
       
       // Unlock body scrolling
@@ -1008,20 +1103,53 @@
     // Add click handler to word display to focus input
     wordDisplay.addEventListener('click', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       if (gameActive && !typeInput.disabled) {
         typeInput.focus();
-        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        // Force keyboard on mobile
+        setTimeout(() => {
           typeInput.click();
-        }
+        }, 50);
       }
     });
     
     // Also handle touch events for better mobile support
-    wordDisplay.addEventListener('touchstart', (e) => {
+    wordDisplay.addEventListener('touchend', (e) => {
       e.preventDefault();
+      e.stopPropagation();
       if (gameActive && !typeInput.disabled) {
         typeInput.focus();
-        typeInput.click();
+        // Multiple triggers for iOS
+        setTimeout(() => {
+          typeInput.click();
+          typeInput.focus();
+        }, 50);
+      }
+    });
+    
+    // Prevent Enter key from causing issues
+    typeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    });
+    
+    // Prevent form submission
+    const form = typeInput.closest('form');
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        return false;
+      });
+    }
+    
+    // Click rules overlay to dismiss (optional)
+    rulesOverlay.addEventListener('click', (e) => {
+      if (e.target === rulesOverlay) {
+        rulesOverlay.classList.remove('active');
+        typeInput.focus();
       }
     });
     
