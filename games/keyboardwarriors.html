@@ -222,14 +222,23 @@
     }
 
     #wordDisplay .current {
-      background: rgba(0, 255, 255, 0.3);
-      border-bottom: 2px solid #0ff;
+      background: rgba(255, 204, 0, 0.5);
+      color: #fff;
+      text-shadow: 0 0 10px #FFCC00;
+      border-bottom: 3px solid #FFCC00;
+      padding: 2px;
       animation: blink 1s infinite;
     }
 
     @keyframes blink {
-      0%, 50% { opacity: 1; }
-      51%, 100% { opacity: 0.5; }
+      0%, 50% { 
+        background: rgba(255, 204, 0, 0.6);
+        border-bottom-color: #FFCC00;
+      }
+      51%, 100% { 
+        background: rgba(255, 204, 0, 0.3);
+        border-bottom-color: rgba(255, 204, 0, 0.5);
+      }
     }
 
     #typeInput {
@@ -363,7 +372,7 @@
       <!-- Game Area -->
       <div id="gameArea" class="game-area">
         <div class="game-hud">
-          <div class="timer-display">TIME: <span id="timerValue">60</span>s</div>
+          <div class="timer-display">TIME: <span id="timerValue">0</span>s <span id="startHint" style="font-size: 8px; color: #FFCC00; margin-left: 10px;">(Start typing to begin)</span></div>
           <div class="stats-display">
             <div class="stat-item">
               WPM<br><span class="stat-value" id="wpmValue">0</span>
@@ -459,6 +468,7 @@
 
     // Game variables
     let gameActive = false;
+    let timerStarted = false;
     let fullText = '';
     let currentCharIndex = 0;
     let wordsTyped = 0;
@@ -555,8 +565,9 @@
       errors = 0;
       currentCharIndex = 0;
       timeElapsed = 0;
+      timerStarted = false;
       gameActive = true;
-      gameStartTime = Date.now();
+      gameStartTime = 0; // Will be set on first keystroke
       
       // Update UI
       setupForm.style.display = 'none';
@@ -565,12 +576,26 @@
       
       typeInput.value = '';
       typeInput.disabled = false;
-      typeInput.focus();
       
       // Display the full text
       displayText();
-      startTimer();
       updateStats();
+      
+      // Show the start hint
+      const startHint = document.getElementById('startHint');
+      if (startHint) startHint.style.display = 'inline';
+      
+      // Reset timer display
+      timerValue.textContent = '0';
+      
+      // Focus input to show keyboard (especially on mobile)
+      setTimeout(() => {
+        typeInput.focus();
+        // Extra trigger for iOS
+        if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+          typeInput.click();
+        }
+      }, 100);
     }
 
     function displayText() {
@@ -640,7 +665,15 @@
 
 
     function startTimer() {
+      if (timerStarted) return;
+      
+      timerStarted = true;
+      gameStartTime = Date.now();
       timerValue.textContent = '0';
+      
+      // Hide the start hint
+      const startHint = document.getElementById('startHint');
+      if (startHint) startHint.style.display = 'none';
       
       gameTimer = setInterval(() => {
         if (!gameActive) {
@@ -655,6 +688,11 @@
     // Handle typing input
     typeInput.addEventListener('input', (e) => {
       if (!gameActive) return;
+      
+      // Start timer on first keystroke
+      if (!timerStarted && e.target.value.length > 0) {
+        startTimer();
+      }
       
       const typed = e.target.value;
       
@@ -706,7 +744,7 @@
 
     function updateStats() {
       // Calculate WPM (standard is correct words / minutes)
-      const timeInMinutes = (Date.now() - gameStartTime) / 1000 / 60;
+      const timeInMinutes = gameStartTime > 0 ? (Date.now() - gameStartTime) / 1000 / 60 : 0;
       const wpm = timeInMinutes > 0 ? Math.round(wordsTyped / timeInMinutes) : 0;
       
       // Calculate accuracy
@@ -723,7 +761,7 @@
       typeInput.disabled = true;
       
       // Calculate final stats based on actual time taken
-      const finalTimeElapsed = (Date.now() - gameStartTime) / 1000; // in seconds
+      const finalTimeElapsed = gameStartTime > 0 ? (Date.now() - gameStartTime) / 1000 : 0; // in seconds
       const timeInMinutes = finalTimeElapsed / 60;
       
       // Count actual words in the full text
