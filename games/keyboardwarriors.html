@@ -465,7 +465,7 @@
     let correctChars = 0;
     let totalChars = 0;
     let gameTimer = null;
-    let timeRemaining = 60;
+    let timeElapsed = 0;
     let gameStartTime = 0;
     let errors = 0;
 
@@ -554,7 +554,7 @@
       totalChars = 0;
       errors = 0;
       currentCharIndex = 0;
-      timeRemaining = 60;
+      timeElapsed = 0;
       gameActive = true;
       gameStartTime = Date.now();
       
@@ -640,16 +640,16 @@
 
 
     function startTimer() {
-      timerValue.textContent = timeRemaining;
+      timerValue.textContent = '0';
       
       gameTimer = setInterval(() => {
-        timeRemaining--;
-        timerValue.textContent = timeRemaining;
-        
-        if (timeRemaining <= 0) {
-          endGame();
+        if (!gameActive) {
+          clearInterval(gameTimer);
+          return;
         }
-      }, 1000);
+        timeElapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+        timerValue.textContent = timeElapsed;
+      }, 100);
     }
 
     // Handle typing input
@@ -678,17 +678,24 @@
       
       totalChars = typed.length;
       
-      // Count words (count spaces that were typed correctly)
+      // Count words typed (count spaces plus one for the last word if we're at the end)
       wordsTyped = 0;
       for (let i = 0; i < typed.length; i++) {
         if (fullText[i] === ' ' && typed[i] === ' ') {
           wordsTyped++;
         }
       }
+      // Add 1 if we've typed anything (for the first/current word)
+      if (typed.length > 0) {
+        wordsTyped++;
+      }
       
-      // Check if finished
-      if (typed.length === fullText.length && correctChars === fullText.length) {
-        endGame();
+      // Check if finished - must complete entire text
+      if (typed.length === fullText.length) {
+        // Small delay to show the final character highlighted
+        setTimeout(() => {
+          endGame();
+        }, 100);
         return;
       }
       
@@ -698,9 +705,9 @@
     });
 
     function updateStats() {
-      // Calculate WPM
-      const timeElapsed = (Date.now() - gameStartTime) / 1000 / 60; // in minutes
-      const wpm = timeElapsed > 0 ? Math.round(wordsTyped / timeElapsed) : 0;
+      // Calculate WPM (standard is correct words / minutes)
+      const timeInMinutes = (Date.now() - gameStartTime) / 1000 / 60;
+      const wpm = timeInMinutes > 0 ? Math.round(wordsTyped / timeInMinutes) : 0;
       
       // Calculate accuracy
       const accuracy = totalChars > 0 ? Math.round((correctChars / totalChars) * 100) : 100;
@@ -715,29 +722,35 @@
       clearInterval(gameTimer);
       typeInput.disabled = true;
       
-      // Calculate final stats
-      const timeElapsed = 60 / 60; // 1 minute
-      const finalWPM = Math.round(wordsTyped / timeElapsed);
-      const finalAccuracy = totalChars > 0 ? Math.round((correctChars / totalChars) * 100) : 100;
+      // Calculate final stats based on actual time taken
+      const finalTimeElapsed = (Date.now() - gameStartTime) / 1000; // in seconds
+      const timeInMinutes = finalTimeElapsed / 60;
+      
+      // Count actual words in the full text
+      const totalWordsInText = fullText.trim().split(/\s+/).length;
+      
+      // Calculate WPM based on total words in paragraph
+      const finalWPM = timeInMinutes > 0 ? Math.round(totalWordsInText / timeInMinutes) : 0;
+      const finalAccuracy = fullText.length > 0 ? Math.round((correctChars / fullText.length) * 100) : 100;
       
       // Update results display
       document.getElementById('finalWPM').textContent = finalWPM;
       document.getElementById('finalAccuracy').textContent = finalAccuracy;
-      document.getElementById('finalWords').textContent = wordsTyped;
+      document.getElementById('finalWords').textContent = totalWordsInText;
       
       // Show results
       gameArea.style.display = 'none';
       results.style.display = 'block';
       
       // Submit score
-      submitScore(finalWPM, finalAccuracy).then(() => {
+      submitScore(finalWPM, finalAccuracy, Math.round(finalTimeElapsed)).then(() => {
         setTimeout(() => {
           loadScoreStats();
         }, 500);
       });
     }
 
-    async function submitScore(wpm, accuracy) {
+    async function submitScore(wpm, accuracy, timeInSeconds) {
       const teamName = document.getElementById('teamSelect').value;
       const barLocation = document.getElementById('barLocation').value;
       
@@ -748,7 +761,8 @@
         barLocation: barLocation,
         wpm: wpm,
         accuracy: accuracy,
-        wordsTyped: wordsTyped,
+        timeSeconds: timeInSeconds,
+        wordsTyped: fullText.trim().split(/\s+/).length,
         timestamp: Date.now(),
         date: new Date().toISOString().split('T')[0]
       };
