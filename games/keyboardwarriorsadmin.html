@@ -354,10 +354,8 @@
             <div class="control-group">
                 <label for="sortBy">SORT BY:</label>
                 <select id="sortBy">
-                    <option value="wpm-desc">WPM (Best First)</option>
-                    <option value="wpm-asc">WPM (Worst First)</option>
-                    <option value="accuracy-desc">Accuracy (Best First)</option>
-                    <option value="accuracy-asc">Accuracy (Worst First)</option>
+                    <option value="time-asc">Time (Fastest First)</option>
+                    <option value="time-desc">Time (Slowest First)</option>
                     <option value="timestamp-desc">Most Recent</option>
                     <option value="timestamp-asc">Oldest</option>
                     <option value="teamName-asc">Team Name A-Z</option>
@@ -379,16 +377,12 @@
                 <div class="stat-label">TOTAL GAMES</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value" id="averageWPM">0</div>
-                <div class="stat-label">AVERAGE WPM</div>
+                <div class="stat-value" id="averageTime">0s</div>
+                <div class="stat-label">AVERAGE TIME</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value" id="highestWPM">0</div>
-                <div class="stat-label">BEST WPM</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="averageAccuracy">0%</div>
-                <div class="stat-label">AVG ACCURACY</div>
+                <div class="stat-value" id="fastestTime">0s</div>
+                <div class="stat-label">FASTEST TIME</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value" id="todayScores">0</div>
@@ -412,10 +406,7 @@
                     <tr>
                         <th>TEAM NAME</th>
                         <th>LOCATION</th>
-                        <th>WPM</th>
-                        <th>ACCURACY</th>
                         <th>TIME (s)</th>
-                        <th>WORDS</th>
                         <th>DATE</th>
                         <th>ACTION</th>
                     </tr>
@@ -511,9 +502,8 @@
 
         // Stats elements
         const totalScoresEl = document.getElementById('totalScores');
-        const averageWPMEl = document.getElementById('averageWPM');
-        const highestWPMEl = document.getElementById('highestWPM');
-        const averageAccuracyEl = document.getElementById('averageAccuracy');
+        const averageTimeEl = document.getElementById('averageTime');
+        const fastestTimeEl = document.getElementById('fastestTime');
         const todayScoresEl = document.getElementById('todayScores');
 
         // Event listeners
@@ -626,13 +616,9 @@
                 let aVal, bVal;
 
                 switch(field) {
-                    case 'wpm':
-                        aVal = a.wpm || 0;
-                        bVal = b.wpm || 0;
-                        break;
-                    case 'accuracy':
-                        aVal = a.accuracy || 0;
-                        bVal = b.accuracy || 0;
+                    case 'time':
+                        aVal = a.timeSeconds || 999999;
+                        bVal = b.timeSeconds || 999999;
                         break;
                     case 'timestamp':
                         aVal = a.timestamp || 0;
@@ -680,21 +666,15 @@
             filteredScores.forEach((score, index) => {
                 const row = document.createElement('tr');
                 
-                const wpm = score.wpm || 0;
-                const accuracy = score.accuracy || 0;
                 const timeSeconds = score.timeSeconds || 0;
-                const words = score.wordsTyped || 0;
                 const date = score.date || 'Unknown';
                 
-                const wpmClass = getScoreClass(wpm, index);
+                const timeClass = getScoreClass(timeSeconds, index);
                 
                 row.innerHTML = `
                     <td><strong>${escapeHtml(score.teamName || 'Unknown')}</strong></td>
                     <td>${escapeHtml(score.barLocation || 'Unknown')}</td>
-                    <td class="score-cell ${wpmClass}">${wpm}</td>
-                    <td class="score-cell">${accuracy}%</td>
-                    <td class="score-cell">${timeSeconds}s</td>
-                    <td class="score-cell">${words}</td>
+                    <td class="score-cell ${timeClass}">${timeSeconds}s</td>
                     <td>${date}</td>
                     <td style="text-align: center;">
                         <button class="btn-delete" onclick="deleteScore('${score.id}', '${score.source}')">DELETE</button>
@@ -707,27 +687,24 @@
 
         function updateStats() {
             const total = filteredScores.length;
-            const wpms = filteredScores.map(s => s.wpm || 0);
-            const accuracies = filteredScores.map(s => s.accuracy || 0);
+            const times = filteredScores.map(s => s.timeSeconds || 0).filter(t => t > 0);
             
-            const avgWPM = wpms.length > 0 ? Math.round(wpms.reduce((a, b) => a + b, 0) / wpms.length) : 0;
-            const highWPM = wpms.length > 0 ? Math.max(...wpms) : 0;
-            const avgAccuracy = accuracies.length > 0 ? Math.round(accuracies.reduce((a, b) => a + b, 0) / accuracies.length) : 0;
+            const avgTime = times.length > 0 ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : 0;
+            const fastestTime = times.length > 0 ? Math.min(...times) : 0;
             
             const today = new Date().toISOString().split('T')[0];
             const todayCount = filteredScores.filter(s => s.date === today).length;
 
             totalScoresEl.textContent = total;
-            averageWPMEl.textContent = avgWPM;
-            highestWPMEl.textContent = highWPM;
-            averageAccuracyEl.textContent = avgAccuracy + '%';
+            averageTimeEl.textContent = avgTime + 's';
+            fastestTimeEl.textContent = fastestTime + 's';
             todayScoresEl.textContent = todayCount;
         }
 
-        function getScoreClass(wpm, rank) {
+        function getScoreClass(time, rank) {
             if (rank < 3) return 'score-top';
-            if (wpm >= 60) return 'score-good';
-            if (wpm >= 40) return 'score-medium';
+            if (time <= 30) return 'score-good';
+            if (time <= 60) return 'score-medium';
             return 'score-low';
         }
 

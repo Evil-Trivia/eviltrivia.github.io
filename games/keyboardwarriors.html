@@ -448,17 +448,15 @@
 
       <!-- Results -->
       <div id="results" class="results">
-        <div class="game-over-title">TIME'S UP!</div>
+        <div class="game-over-title">COMPLETE!</div>
         <div class="final-score">
-          WORDS PER MINUTE: <span id="finalWPM">0</span><br>
-          ACCURACY: <span id="finalAccuracy">0</span>%<br>
-          WORDS TYPED: <span id="finalWords">0</span>
+          TIME: <span id="finalTime">0</span> SECONDS
         </div>
         <div id="submissionMessage" style="margin: 15px 0; font-size: 12px; color: #0f0; text-shadow: 0 0 10px #0f0; display: none;">
           ✓ Score saved successfully!
         </div>
         <div id="scoreStats" style="margin: 20px 0; font-size: 10px; line-height: 2; color: #FFCC00;">
-          <div>YOUR TEAM'S BEST: <span id="bestScoreDisplay">Loading...</span> WPM</div>
+          <div>YOUR TEAM'S BEST: <span id="bestScoreDisplay">Loading...</span>s</div>
         </div>
         <div class="button-group">
           <button class="btn" onclick="resetGame()">PLAY AGAIN</button>
@@ -836,35 +834,26 @@
       // Unlock body scrolling
       document.body.classList.remove('game-active');
       
-      // Calculate final stats based on actual time taken
+      // Calculate final time taken
       const finalTimeElapsed = gameStartTime > 0 ? (Date.now() - gameStartTime) / 1000 : 0; // in seconds
-      const timeInMinutes = finalTimeElapsed / 60;
-      
-      // Count actual words in the full text
-      const totalWordsInText = fullText.trim().split(/\s+/).length;
-      
-      // Calculate WPM based on total words in paragraph
-      const finalWPM = timeInMinutes > 0 ? Math.round(totalWordsInText / timeInMinutes) : 0;
-      const finalAccuracy = fullText.length > 0 ? Math.round((correctChars / fullText.length) * 100) : 100;
+      const finalTimeRounded = Math.round(finalTimeElapsed);
       
       // Update results display
-      document.getElementById('finalWPM').textContent = finalWPM;
-      document.getElementById('finalAccuracy').textContent = finalAccuracy;
-      document.getElementById('finalWords').textContent = totalWordsInText;
+      document.getElementById('finalTime').textContent = finalTimeRounded;
       
       // Show results
       gameArea.style.display = 'none';
       results.style.display = 'block';
       
       // Submit score
-      submitScore(finalWPM, finalAccuracy, Math.round(finalTimeElapsed)).then(() => {
+      submitScore(finalTimeRounded).then(() => {
         setTimeout(() => {
           loadScoreStats();
         }, 500);
       });
     }
 
-    async function submitScore(wpm, accuracy, timeInSeconds) {
+    async function submitScore(timeInSeconds) {
       const teamName = document.getElementById('teamSelect').value;
       const barLocation = document.getElementById('barLocation').value;
       
@@ -873,10 +862,7 @@
       const scoreData = {
         teamName: teamName,
         barLocation: barLocation,
-        wpm: wpm,
-        accuracy: accuracy,
         timeSeconds: timeInSeconds,
-        wordsTyped: fullText.trim().split(/\s+/).length,
         timestamp: Date.now(),
         date: new Date().toISOString().split('T')[0]
       };
@@ -931,8 +917,9 @@
         if (teamScores.length === 0) {
           document.getElementById('bestScoreDisplay').textContent = 'First score for your team!';
         } else {
-          const bestWPM = Math.max(...teamScores.map(s => s.wpm || 0));
-          document.getElementById('bestScoreDisplay').textContent = bestWPM;
+          // Best time is the LOWEST time (fastest)
+          const bestTime = Math.min(...teamScores.map(s => s.timeSeconds || 999999));
+          document.getElementById('bestScoreDisplay').textContent = bestTime;
         }
         
       } catch (error) {
