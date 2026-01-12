@@ -196,29 +196,40 @@
     }
 
     #wordDisplay {
-      font-size: 32px;
-      text-align: center;
+      font-size: 24px;
+      text-align: left;
       padding: 30px;
       margin: 20px 0;
       background: rgba(0, 0, 0, 0.5);
       border: 3px solid #0ff;
-      min-height: 100px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #fff;
-      text-shadow: 0 0 10px #fff;
-      line-height: 1.5;
+      min-height: 150px;
+      color: #666;
+      line-height: 1.8;
+      font-family: 'Press Start 2P', cursive;
+      word-wrap: break-word;
+      letter-spacing: 1px;
     }
 
     #wordDisplay .correct {
       color: #0f0;
-      text-shadow: 0 0 10px #0f0;
+      text-shadow: 0 0 5px #0f0;
     }
 
     #wordDisplay .incorrect {
       color: #f00;
-      text-shadow: 0 0 10px #f00;
+      text-shadow: 0 0 5px #f00;
+      background: rgba(255, 0, 0, 0.2);
+    }
+
+    #wordDisplay .current {
+      background: rgba(0, 255, 255, 0.3);
+      border-bottom: 2px solid #0ff;
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0.5; }
     }
 
     #typeInput {
@@ -294,8 +305,9 @@
       }
 
       #wordDisplay {
-        font-size: 24px;
+        font-size: 18px;
         padding: 20px;
+        line-height: 1.6;
       }
 
       #typeInput {
@@ -310,7 +322,9 @@
       }
 
       #wordDisplay {
-        font-size: 20px;
+        font-size: 16px;
+        padding: 15px;
+        line-height: 1.5;
       }
     }
   </style>
@@ -375,7 +389,7 @@
           spellcheck="false"
         >
         
-        <div class="instructions">Type the words shown above as quickly and accurately as possible!</div>
+        <div class="instructions">Type the text above as quickly and accurately as possible!</div>
       </div>
 
       <!-- Results -->
@@ -445,19 +459,15 @@
 
     // Game variables
     let gameActive = false;
-    let currentWord = '';
+    let fullText = '';
+    let currentCharIndex = 0;
     let wordsTyped = 0;
     let correctChars = 0;
     let totalChars = 0;
     let gameTimer = null;
     let timeRemaining = 60;
     let gameStartTime = 0;
-    
-    // Paragraph mode variables
-    let useParagraphMode = false;
-    let paragraphText = '';
-    let paragraphWords = [];
-    let currentWordIndex = 0;
+    let errors = 0;
 
     // DOM elements
     const setupForm = document.getElementById('setupForm');
@@ -542,10 +552,11 @@
       wordsTyped = 0;
       correctChars = 0;
       totalChars = 0;
+      errors = 0;
+      currentCharIndex = 0;
       timeRemaining = 60;
       gameActive = true;
       gameStartTime = Date.now();
-      currentWordIndex = 0;
       
       // Update UI
       setupForm.style.display = 'none';
@@ -556,10 +567,38 @@
       typeInput.disabled = false;
       typeInput.focus();
       
-      // Start game
-      nextWord();
+      // Display the full text
+      displayText();
       startTimer();
       updateStats();
+    }
+
+    function displayText() {
+      if (!fullText) return;
+      
+      let html = '';
+      const typed = typeInput.value;
+      
+      for (let i = 0; i < fullText.length; i++) {
+        const char = fullText[i];
+        
+        if (i < typed.length) {
+          // Already typed
+          if (typed[i] === char) {
+            html += `<span class="correct">${char === ' ' ? '&nbsp;' : char}</span>`;
+          } else {
+            html += `<span class="incorrect">${char === ' ' ? '&nbsp;' : char}</span>`;
+          }
+        } else if (i === typed.length) {
+          // Current character
+          html += `<span class="current">${char === ' ' ? '&nbsp;' : char}</span>`;
+        } else {
+          // Not yet typed
+          html += char === ' ' ? '&nbsp;' : char;
+        }
+      }
+      
+      wordDisplay.innerHTML = html;
     }
 
     async function loadParagraphSettings() {
@@ -569,48 +608,36 @@
         
         if (snapshot.exists()) {
           const data = snapshot.val();
-          paragraphText = data.text || '';
+          const paragraphText = data.text || '';
           
           if (paragraphText.trim()) {
-            useParagraphMode = true;
-            paragraphWords = paragraphText.trim().split(/\s+/);
-            console.log('Using paragraph mode with', paragraphWords.length, 'words');
+            fullText = paragraphText.trim();
+            console.log('Using paragraph mode:', fullText.length, 'characters');
           } else {
-            useParagraphMode = false;
-            console.log('Using random words mode (empty paragraph)');
+            // Generate random words text
+            generateRandomText();
           }
         } else {
-          useParagraphMode = false;
-          console.log('Using random words mode (no paragraph set)');
+          // Generate random words text
+          generateRandomText();
         }
       } catch (error) {
         console.error('Error loading paragraph settings:', error);
-        useParagraphMode = false;
-        console.log('Using random words mode (error loading)');
+        generateRandomText();
       }
     }
 
-    function nextWord() {
-      if (!gameActive) return;
-      
-      if (useParagraphMode) {
-        // Use words from the paragraph in order
-        if (currentWordIndex < paragraphWords.length) {
-          currentWord = paragraphWords[currentWordIndex];
-          currentWordIndex++;
-        } else {
-          // Loop back to beginning if we finish the paragraph
-          currentWordIndex = 0;
-          currentWord = paragraphWords[0];
-        }
-      } else {
-        // Use random words
-        currentWord = WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)];
+    function generateRandomText() {
+      // Generate a paragraph from random words (about 50 words)
+      const numWords = 50;
+      const words = [];
+      for (let i = 0; i < numWords; i++) {
+        words.push(WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)]);
       }
-      
-      wordDisplay.textContent = currentWord;
-      typeInput.value = '';
+      fullText = words.join(' ');
+      console.log('Using random words mode:', fullText.length, 'characters');
     }
+
 
     function startTimer() {
       timerValue.textContent = timeRemaining;
@@ -631,25 +658,43 @@
       
       const typed = e.target.value;
       
-      // Check if word is complete
-      if (typed === currentWord) {
-        wordsTyped++;
-        correctChars += currentWord.length;
-        totalChars += currentWord.length;
-        nextWord();
-        updateStats();
-      } else if (typed.length > currentWord.length || !currentWord.startsWith(typed)) {
-        // Wrong input - count as errors
-        const diff = Math.abs(typed.length - totalChars);
-        totalChars = Math.max(totalChars, correctChars + typed.length);
+      // Prevent typing beyond the text length
+      if (typed.length > fullText.length) {
+        typeInput.value = typed.slice(0, fullText.length);
+        return;
       }
       
-      // Visual feedback
-      if (currentWord.startsWith(typed)) {
-        wordDisplay.innerHTML = `<span class="correct">${typed}</span>${currentWord.slice(typed.length)}`;
-      } else {
-        wordDisplay.innerHTML = `<span class="incorrect">${typed}</span>${currentWord.slice(typed.length)}`;
+      // Calculate stats
+      correctChars = 0;
+      errors = 0;
+      
+      for (let i = 0; i < typed.length; i++) {
+        if (typed[i] === fullText[i]) {
+          correctChars++;
+        } else {
+          errors++;
+        }
       }
+      
+      totalChars = typed.length;
+      
+      // Count words (count spaces that were typed correctly)
+      wordsTyped = 0;
+      for (let i = 0; i < typed.length; i++) {
+        if (fullText[i] === ' ' && typed[i] === ' ') {
+          wordsTyped++;
+        }
+      }
+      
+      // Check if finished
+      if (typed.length === fullText.length && correctChars === fullText.length) {
+        endGame();
+        return;
+      }
+      
+      // Update display
+      displayText();
+      updateStats();
     });
 
     function updateStats() {
