@@ -225,7 +225,6 @@
       color: #666;
       line-height: 1.8;
       font-family: 'Press Start 2P', cursive;
-      word-wrap: break-word;
       letter-spacing: 1px;
       cursor: text;
       user-select: none;
@@ -291,6 +290,19 @@
       left: -9999px;
       opacity: 0;
       pointer-events: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    
+    /* Hide autocomplete dropdown */
+    #typeInput::-webkit-contacts-auto-fill-button,
+    #typeInput::-webkit-credentials-auto-fill-button {
+      visibility: hidden;
+      display: none !important;
+      pointer-events: none;
+      height: 0;
+      width: 0;
+      margin: 0;
     }
 
     .instructions {
@@ -350,8 +362,9 @@
       #wordDisplay {
         font-size: 18px;
         padding: 20px;
+        padding-bottom: 40px;
         line-height: 1.6;
-        max-height: 300px;
+        max-height: 250px;
         overflow-y: auto;
       }
 
@@ -442,16 +455,22 @@
         
         <div id="wordDisplay"></div>
         
-        <input 
-          type="text" 
-          id="typeInput" 
-          placeholder="Start typing..."
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck="false"
-          inputmode="text"
-        >
+        <form autocomplete="off" style="display: inline; margin: 0; padding: 0;">
+          <input 
+            type="text" 
+            id="typeInput" 
+            name="typing-input"
+            placeholder="Start typing..."
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            inputmode="text"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+          >
+        </form>
         
         <div class="instructions">Click or tap the text to start typing!<span id="mobileHint" style="display: none;"><br>Tap the text again if keyboard disappears</span></div>
       </div>
@@ -687,23 +706,51 @@
       
       let html = '';
       const typed = typeInput.value;
+      const words = fullText.split(' ');
+      let charIndex = 0;
       
-      for (let i = 0; i < fullText.length; i++) {
-        const char = fullText[i];
+      for (let wordIdx = 0; wordIdx < words.length; wordIdx++) {
+        const word = words[wordIdx];
         
-        if (i < typed.length) {
-          // Already typed
-          if (typed[i] === char) {
-            html += `<span class="correct">${char === ' ' ? '&nbsp;' : char}</span>`;
+        // Wrap each word in a span to prevent breaking
+        html += '<span style="white-space: nowrap;">';
+        
+        for (let i = 0; i < word.length; i++) {
+          const char = word[i];
+          
+          if (charIndex < typed.length) {
+            // Already typed
+            if (typed[charIndex] === char) {
+              html += `<span class="correct">${char}</span>`;
+            } else {
+              html += `<span class="incorrect">${char}</span>`;
+            }
+          } else if (charIndex === typed.length) {
+            // Current character
+            html += `<span class="current" id="currentChar">${char}</span>`;
           } else {
-            html += `<span class="incorrect">${char === ' ' ? '&nbsp;' : char}</span>`;
+            // Not yet typed
+            html += char;
           }
-        } else if (i === typed.length) {
-          // Current character - add ID for scrolling
-          html += `<span class="current" id="currentChar">${char === ' ' ? '&nbsp;' : char}</span>`;
-        } else {
-          // Not yet typed
-          html += char === ' ' ? '&nbsp;' : char;
+          charIndex++;
+        }
+        
+        html += '</span>';
+        
+        // Add space after word (except last word)
+        if (wordIdx < words.length - 1) {
+          if (charIndex < typed.length) {
+            if (typed[charIndex] === ' ') {
+              html += '<span class="correct">&nbsp;</span>';
+            } else {
+              html += '<span class="incorrect">&nbsp;</span>';
+            }
+          } else if (charIndex === typed.length) {
+            html += '<span class="current" id="currentChar">&nbsp;</span>';
+          } else {
+            html += '&nbsp;';
+          }
+          charIndex++;
         }
       }
       
@@ -718,10 +765,11 @@
       const displayRect = wordDisplay.getBoundingClientRect();
       const charRect = currentChar.getBoundingClientRect();
       
-      // Calculate the offset to center the character in the display
-      const displayCenter = displayRect.height / 2;
+      // Position the current line in the upper third of the visible area
+      // This keeps it well above the keyboard on mobile
+      const targetPosition = displayRect.height * 0.3; // 30% from top instead of 50% (center)
       const charOffset = charRect.top - displayRect.top;
-      const scrollOffset = charOffset - displayCenter + (charRect.height / 2);
+      const scrollOffset = charOffset - targetPosition + (charRect.height / 2);
       
       // Scroll the wordDisplay container
       wordDisplay.scrollTop += scrollOffset;
