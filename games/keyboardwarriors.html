@@ -164,6 +164,21 @@
       display: none;
     }
 
+    .game-area.active {
+      display: block;
+    }
+
+    /* Prevent scrolling and lock viewport on mobile */
+    body.game-active {
+      position: fixed;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .game-area.active .game-card {
+      position: relative;
+    }
+
     .game-hud {
       text-align: center;
       margin-bottom: 15px;
@@ -210,6 +225,9 @@
       font-family: 'Press Start 2P', cursive;
       word-wrap: break-word;
       letter-spacing: 1px;
+      cursor: text;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     #wordDisplay .correct {
@@ -224,41 +242,52 @@
     }
 
     #wordDisplay .current {
-      background: rgba(255, 204, 0, 0.5);
+      background: rgba(255, 204, 0, 0.6);
       color: #fff;
       text-shadow: 0 0 10px #FFCC00;
-      border-bottom: 3px solid #FFCC00;
-      padding: 2px;
-      animation: blink 1s infinite;
+      border-left: 3px solid #FFCC00;
+      border-right: 3px solid #FFCC00;
+      padding: 2px 4px;
+      animation: blink 0.8s infinite;
+      position: relative;
+    }
+
+    #wordDisplay .current::before {
+      content: '';
+      position: absolute;
+      left: -3px;
+      top: -2px;
+      bottom: -2px;
+      width: 3px;
+      background: #FFCC00;
+      animation: pulse 0.8s infinite;
     }
 
     @keyframes blink {
       0%, 50% { 
-        background: rgba(255, 204, 0, 0.6);
-        border-bottom-color: #FFCC00;
+        background: rgba(255, 204, 0, 0.7);
       }
       51%, 100% { 
-        background: rgba(255, 204, 0, 0.3);
-        border-bottom-color: rgba(255, 204, 0, 0.5);
+        background: rgba(255, 204, 0, 0.4);
+      }
+    }
+
+    @keyframes pulse {
+      0%, 100% { 
+        opacity: 1;
+        box-shadow: 0 0 10px #FFCC00;
+      }
+      50% { 
+        opacity: 0.5;
+        box-shadow: 0 0 5px #FFCC00;
       }
     }
 
     #typeInput {
-      width: 100%;
-      padding: 20px;
-      font-size: 20px;
-      font-family: 'Press Start 2P', cursive;
-      background: #1a1a1a;
-      border: 3px solid #FFCC00;
-      color: #fff;
-      text-align: center;
-      margin-bottom: 20px;
-    }
-
-    #typeInput:focus {
-      outline: none;
-      border-color: #FFD700;
-      box-shadow: 0 0 20px #FFCC00;
+      position: absolute;
+      left: -9999px;
+      opacity: 0;
+      pointer-events: none;
     }
 
     .instructions {
@@ -297,7 +326,7 @@
       display: none;
     }
 
-    @media (max-width: 600px) {
+      @media (max-width: 600px) {
       h1 {
         font-size: 16px;
       }
@@ -321,9 +350,22 @@
         line-height: 1.6;
       }
 
-      #typeInput {
-        font-size: 16px;
-        padding: 15px;
+      /* Lock game area position on mobile */
+      .game-area.active {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        overflow-y: auto;
+        z-index: 1000;
+        background: linear-gradient(180deg, #1a1a1a 0%, #2d2416 100%);
+        padding-top: 10px;
+      }
+
+      .game-area.active .container {
+        max-height: 100vh;
+        overflow-y: auto;
       }
     }
 
@@ -401,7 +443,7 @@
           inputmode="text"
         >
         
-        <div class="instructions">Type the text above as quickly and accurately as possible!<span id="mobileHint" style="display: none;"><br>Tap the text area if keyboard doesn't appear</span></div>
+        <div class="instructions">Click or tap the text to start typing!<span id="mobileHint" style="display: none;"><br>Tap the text again if keyboard disappears</span></div>
       </div>
 
       <!-- Results -->
@@ -575,7 +617,11 @@
       // Update UI
       setupForm.style.display = 'none';
       gameArea.style.display = 'block';
+      gameArea.classList.add('active');
       results.style.display = 'none';
+      
+      // Lock body to prevent scrolling on mobile
+      document.body.classList.add('game-active');
       
       typeInput.value = '';
       typeInput.disabled = false;
@@ -787,6 +833,9 @@
       clearInterval(gameTimer);
       typeInput.disabled = true;
       
+      // Unlock body scrolling
+      document.body.classList.remove('game-active');
+      
       // Calculate final stats based on actual time taken
       const finalTimeElapsed = gameStartTime > 0 ? (Date.now() - gameStartTime) / 1000 : 0; // in seconds
       const timeInMinutes = finalTimeElapsed / 60;
@@ -900,11 +949,27 @@
     function backToMenu() {
       results.style.display = 'none';
       gameArea.style.display = 'none';
+      gameArea.classList.remove('active');
       setupForm.style.display = 'flex';
+      
+      // Unlock body scrolling
+      document.body.classList.remove('game-active');
     }
 
-    // Add click handler to word display to focus input (for mobile)
-    wordDisplay.addEventListener('click', () => {
+    // Add click handler to word display to focus input
+    wordDisplay.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (gameActive && !typeInput.disabled) {
+        typeInput.focus();
+        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+          typeInput.click();
+        }
+      }
+    });
+    
+    // Also handle touch events for better mobile support
+    wordDisplay.addEventListener('touchstart', (e) => {
+      e.preventDefault();
       if (gameActive && !typeInput.disabled) {
         typeInput.focus();
         typeInput.click();
