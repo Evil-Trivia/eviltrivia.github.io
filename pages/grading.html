@@ -1567,16 +1567,23 @@
                     Object.entries(teams).forEach(([teamId, team]) => {
                         const row = document.createElement('tr');
                         row.id = `team_${teamId}`;
-                        const escapedTeamId = JSON.stringify(teamId);
                         const escapedTeamName = escapeHtml(team.name || '');
                         row.innerHTML = `
                             <td class="team-name">${escapedTeamName}</td>
                             <td class="team-size">${team.size}</td>
                             <td>
-                                <button onclick="editTeam(${escapedTeamId})">Edit</button>
-                                <button onclick="deleteTeam(${escapedTeamId})">Delete</button>
+                                <button class="edit-team-btn" data-team-id="${teamId}">Edit</button>
+                                <button class="delete-team-btn" data-team-id="${teamId}">Delete</button>
                             </td>
                         `;
+                        
+                        // Add event listeners to the buttons
+                        const editBtn = row.querySelector('.edit-team-btn');
+                        const deleteBtn = row.querySelector('.delete-team-btn');
+                        
+                        editBtn.addEventListener('click', () => window.editTeam(teamId));
+                        deleteBtn.addEventListener('click', () => window.deleteTeam(teamId));
+                        
                         teamTableBody.appendChild(row);
                     });
                 }
@@ -1715,7 +1722,6 @@
             const currentSize = row.querySelector('.team-size').textContent;
 
             // Replace cells with inputs
-            const escapedTeamId = JSON.stringify(teamId);
             const escapedName = escapeHtml(currentName);
             row.innerHTML = `
                 <td>
@@ -1725,10 +1731,14 @@
                     <input type="number" class="edit-size" value="${currentSize}" min="1" max="10" />
                 </td>
                 <td>
-                    <button onclick="saveTeamEdit(${escapedTeamId})">Save</button>
-                    <button onclick="cancelTeamEdit(${escapedTeamId})">Cancel</button>
+                    <button class="save-edit-btn">Save</button>
+                    <button class="cancel-edit-btn">Cancel</button>
                 </td>
             `;
+            
+            // Add event listeners
+            row.querySelector('.save-edit-btn').addEventListener('click', () => window.saveTeamEdit(teamId));
+            row.querySelector('.cancel-edit-btn').addEventListener('click', () => window.cancelTeamEdit(teamId));
         };
 
         // Update the return to team info button handler
@@ -1822,7 +1832,7 @@
                 // Clear unlock state on page load so passwords are required on refresh
                 accessGrants = {};
                 localStorage.removeItem(ACCESS_STATE_KEY);
-                localStorage.removeItem('currentGradingSession');
+                // Don't remove currentGradingSession - we want to preserve it!
                 
                 await applyAuthState(auth.currentUser);
 
@@ -1839,8 +1849,12 @@
 
                 if (isPrivilegedUser) {
                     // Admins/graders can access without passwords
-                    showSessionSetup();
-                    setDefaultDate();
+                    // Check if there's an existing session to resume
+                    const hasSession = await checkLastSession();
+                    if (!hasSession) {
+                        showSessionSetup();
+                        setDefaultDate();
+                    }
                 } else {
                     // Everyone else needs to unlock with password
                     showAuthGate();
