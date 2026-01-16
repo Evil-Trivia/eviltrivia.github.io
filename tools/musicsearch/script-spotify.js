@@ -286,13 +286,12 @@ async function handleSearch(event) {
             totalTracks = tracks.originalTotal;
             resultCount.textContent = allLoadedTracks.length;
             
-            // Use the toggle function to update the load more button
-            toggleLoadMoreButton(allLoadedTracks.length, tracks.originalTotal);
+            // Always show load more button initially - let subsequent loads determine if we're done
+            // Pass a high number to ensure button shows
+            const displayTotal = Math.max(tracks.originalTotal, allLoadedTracks.length + 50);
+            toggleLoadMoreButton(allLoadedTracks.length, displayTotal);
             
-            // Make sure the loadMoreBtn has a click event handler
-            loadMoreBtn.addEventListener('click', handleLoadMore);
-            
-            console.log(`Search complete. Showing ${allLoadedTracks.length} of ${tracks.originalTotal} total results.`);
+            console.log(`Search complete. Showing ${allLoadedTracks.length} results. Ready to load more.`);
         } else {
             showError('No tracks found matching your search.');
         }
@@ -368,10 +367,12 @@ async function handleLoadMore() {
 function toggleLoadMoreButton(currentCount, totalCount) {
     console.log(`toggleLoadMoreButton: currentCount=${currentCount}, totalCount=${totalCount}`);
     
-    // Always show the button if we have more results to load
-    if (totalCount > currentCount) {
+    // Show the button if we might have more results to load
+    // We'll be optimistic and show it unless explicitly told there are no more results
+    if (totalCount >= currentCount) {
         loadMoreBtn.style.display = 'inline-block';
-        loadMoreBtn.textContent = `Load More (${currentCount} of ${totalCount}+ shown)`;
+        const countText = totalCount > currentCount ? `${currentCount} of ${totalCount}+` : `${currentCount}`;
+        loadMoreBtn.innerHTML = `<i class="bi bi-arrow-down-circle"></i> Load More Results (${countText} shown)`;
         
         // Update filter info with counts
         if (lastSearchFields.length > 1) {
@@ -379,14 +380,14 @@ function toggleLoadMoreButton(currentCount, totalCount) {
                 if (field === 'track') return 'title';
                 return field;
             }).join(', ');
-            showFilterInfo(`Showing ${currentCount} tracks with "${lastQuery}" in ${fieldNames} (${totalCount}+ total matches)`);
+            showFilterInfo(`Showing ${currentCount} tracks with "${lastQuery}" in ${fieldNames} - Click "Load More" to find additional matches`);
         } else {
             const fieldType = lastSearchFields[0] === 'track' ? 'track title' : 
                              lastSearchFields[0] === 'artist' ? 'artist name' : 'album title';
-            showFilterInfo(`Showing ${currentCount} tracks matching "${lastQuery}" in ${fieldType} (${totalCount}+ total matches)`);
+            showFilterInfo(`Showing ${currentCount} tracks matching "${lastQuery}" in ${fieldType} - Click "Load More" for more results`);
         }
     } else {
-        // Hide the button if we've loaded all available results
+        // Hide the button only if we're certain there are no more results
         loadMoreBtn.style.display = 'none';
         showFilterInfo(`All available tracks loaded for "${lastQuery}" (${currentCount} tracks)`);
     }
@@ -495,14 +496,18 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
             showFilterInfo(`Showing tracks from albums matching "${query}" (${sortedTracks.length} results)`);
         }
         
-        // We need a larger "total" to tell the pagination system there are more results
-        // For multi-field searches, if any field has more results available, we should allow loading more
-        // We'll use a generous estimate: if we got results and totalPotentialResults is high, enable load more
-        const hasMorePotential = totalPotentialResults > sortedTracks.length;
-        // Set originalTotal higher than current results if there's potential for more
-        const calculatedTotal = hasMorePotential ? Math.max(totalPotentialResults, sortedTracks.length + 1) : sortedTracks.length;
+        // For pagination: we can't fully trust Spotify's total count when combining multiple searches
+        // or when deduplicating. Instead, we'll assume there are more results available if:
+        // 1. We got a decent number of results, OR
+        // 2. Any field search reports more results available
+        // We'll keep the load more button enabled and let actual API calls determine when we're done
+        const gotResults = sortedTracks.length > 0;
+        const potentialForMore = totalPotentialResults > (offset + limit);
         
-        console.log(`Search complete. Found ${sortedTracks.length} unique tracks. Total potential: ${totalPotentialResults}, calculatedTotal: ${calculatedTotal}`);
+        // Set a high total to enable load more - actual exhaustion will be detected by getting no new results
+        const calculatedTotal = (gotResults && potentialForMore) ? totalPotentialResults : sortedTracks.length;
+        
+        console.log(`Search complete. Found ${sortedTracks.length} unique tracks. Total potential: ${totalPotentialResults}, offset: ${offset}, calculatedTotal: ${calculatedTotal}`);
         
         return {
             items: sortedTracks,
