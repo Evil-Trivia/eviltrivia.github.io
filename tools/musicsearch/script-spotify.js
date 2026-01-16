@@ -327,6 +327,14 @@ async function handleLoadMore() {
             // Filter out any tracks we already have
             const uniqueNewTracks = tracks.items.filter(track => !existingTrackIds.has(track.id));
             
+            // If we got results but they're all duplicates, we've exhausted the results
+            if (uniqueNewTracks.length === 0) {
+                loadMoreBtn.style.display = 'none';
+                showFilterInfo(`All available tracks loaded for "${lastQuery}" (${allLoadedTracks.length} tracks)`);
+                console.log('No new unique tracks found. All results loaded.');
+                return;
+            }
+            
             // Add only unique new tracks to our allLoadedTracks array
             allLoadedTracks = [...allLoadedTracks, ...uniqueNewTracks];
             
@@ -346,6 +354,7 @@ async function handleLoadMore() {
         } else {
             // If no more results, hide the load more button
             loadMoreBtn.style.display = 'none';
+            showFilterInfo(`All available tracks loaded for "${lastQuery}" (${allLoadedTracks.length} tracks)`);
         }
     } catch (error) {
         loading.style.display = 'none';
@@ -487,11 +496,13 @@ async function searchTracks(query, searchFields, offset = 0, limit = RESULTS_PER
         }
         
         // We need a larger "total" to tell the pagination system there are more results
-        // Set originalTotal to be larger than the current result count if we have more results available
-        const moreResultsAvailable = totalPotentialResults > (offset + limit); 
-        const calculatedTotal = moreResultsAvailable ? totalPotentialResults : sortedTracks.length;
+        // For multi-field searches, if any field has more results available, we should allow loading more
+        // We'll use a generous estimate: if we got results and totalPotentialResults is high, enable load more
+        const hasMorePotential = totalPotentialResults > sortedTracks.length;
+        // Set originalTotal higher than current results if there's potential for more
+        const calculatedTotal = hasMorePotential ? Math.max(totalPotentialResults, sortedTracks.length + 1) : sortedTracks.length;
         
-        console.log(`Search complete. Found ${sortedTracks.length} unique tracks. Total potential: ${totalPotentialResults}`);
+        console.log(`Search complete. Found ${sortedTracks.length} unique tracks. Total potential: ${totalPotentialResults}, calculatedTotal: ${calculatedTotal}`);
         
         return {
             items: sortedTracks,
