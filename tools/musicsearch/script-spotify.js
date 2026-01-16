@@ -346,10 +346,12 @@ async function handleLoadMore() {
             // Update displayed count
             resultCount.textContent = allLoadedTracks.length;
             
-            // Update load more button visibility and text
-            toggleLoadMoreButton(allLoadedTracks.length, tracks.originalTotal);
+            // Keep load more button visible - we got new results so more might be available
+            // Pass a high total to ensure button stays visible until we truly exhaust results
+            const estimatedTotal = allLoadedTracks.length + 50;
+            toggleLoadMoreButton(allLoadedTracks.length, estimatedTotal);
             
-            console.log(`Added ${uniqueNewTracks.length} unique new tracks. Total: ${allLoadedTracks.length}`);
+            console.log(`Added ${uniqueNewTracks.length} unique new tracks. Total: ${allLoadedTracks.length}. Ready to load more.`);
         } else {
             // If no more results, hide the load more button
             loadMoreBtn.style.display = 'none';
