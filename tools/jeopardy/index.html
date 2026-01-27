@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evil Trivia - Jeopardy Answer Search</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #060CE9;
+            margin-top: 60px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        .content-box {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+        }
+        
+        .search-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+        }
+        
+        .results-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            display: none;
+            color: white;
+        }
+        
+        .loading-visible {
+            display: block !important;
+        }
+        
+        .btn-jeopardy {
+            background-color: #060CE9;
+            color: white;
+            border: none;
+        }
+        
+        .btn-jeopardy:hover {
+            background-color: #0509B8;
+            color: white;
+        }
+        
+        .nav-links {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        #clueResults {
+            display: none;
+        }
+        
+        .login-container {
+            text-align: center;
+            padding: 40px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+        }
+        
+        #errorMessage {
+            display: none;
+            margin-bottom: 20px;
+        }
+        
+        .table th {
+            position: sticky;
+            top: 0;
+            background-color: #060CE9;
+            color: white;
+            z-index: 1;
+        }
+        
+        .results-table {
+            max-height: 700px;
+            overflow-y: auto;
+        }
+        
+        .clue-row {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .clue-row:hover {
+            background-color: #f0f0f0 !important;
+        }
+        
+        .round-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        
+        .round-jeopardy {
+            background-color: #060CE9;
+            color: white;
+        }
+        
+        .round-double {
+            background-color: #FF8C00;
+            color: white;
+        }
+        
+        .round-final {
+            background-color: #DC143C;
+            color: white;
+        }
+        
+        .filter-group {
+            margin-bottom: 15px;
+        }
+        
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 8px 16px;
+            border: 2px solid #ddd;
+            background-color: white;
+            color: #333;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .filter-btn:hover {
+            border-color: #060CE9;
+            color: #060CE9;
+        }
+        
+        .filter-btn.active {
+            background-color: #060CE9;
+            color: white;
+            border-color: #060CE9;
+        }
+        
+        .stats-container {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .stat-item {
+            display: inline-block;
+            margin: 0 20px;
+        }
+        
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #060CE9;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .clue-answer {
+            font-weight: 600;
+            color: #060CE9;
+        }
+        
+        .clue-question {
+            font-style: italic;
+        }
+        
+        footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 0.9rem;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Jeopardy! Answer Search</h1>
+        
+        <div class="nav-links">
+            <a href="../index.html" class="btn btn-outline-light me-2">Tools Home</a>
+        </div>
+
+        <div class="alert alert-danger" role="alert" id="errorMessage">
+            <i class="bi bi-exclamation-triangle-fill"></i> <span id="errorText"></span>
+        </div>
+
+        <div id="loginContainer" class="login-container">
+            <h2 class="mb-4">Admin Access Required</h2>
+            <p class="mb-4">This tool requires admin privileges. Please log in.</p>
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Checking authentication...</span>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner-border text-light" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p>Loading Jeopardy! data...</p>
+        </div>
+
+        <!-- Search and Filters -->
+        <div id="searchContainer" class="search-container" style="display: none;">
+            <form id="searchForm">
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <label for="query" class="form-label">Search Term</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="query" placeholder="Search clues...">
+                            <button type="submit" class="btn btn-jeopardy">
+                                <i class="bi bi-search"></i> Search
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" id="clearSearch">
+                                Clear
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label class="form-label">Search In</label>
+                        <div class="d-flex flex-column">
+                            <div class="form-check">
+                                <input class="form-check-input search-field-checkbox" type="checkbox" id="searchAnswer" value="answer" checked>
+                                <label class="form-check-label" for="searchAnswer">Answer (Clue)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input search-field-checkbox" type="checkbox" id="searchQuestion" value="question">
+                                <label class="form-check-label" for="searchQuestion">Question (Response)</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Round Filters -->
+                <div class="filter-group">
+                    <label class="form-label">Filter by Round</label>
+                    <div class="filter-buttons">
+                        <button type="button" class="filter-btn active" data-filter="round" data-value="all">
+                            All Rounds
+                        </button>
+                        <button type="button" class="filter-btn" data-filter="round" data-value="Jeopardy!">
+                            Jeopardy!
+                        </button>
+                        <button type="button" class="filter-btn" data-filter="round" data-value="Double Jeopardy!">
+                            Double Jeopardy!
+                        </button>
+                        <button type="button" class="filter-btn" data-filter="round" data-value="Final Jeopardy!">
+                            Final Jeopardy!
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Stats -->
+        <div id="statsContainer" class="stats-container" style="display: none;">
+            <div class="stat-item">
+                <div class="stat-number" id="totalClues">0</div>
+                <div class="stat-label">Total Clues</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="filteredClues">0</div>
+                <div class="stat-label">Showing</div>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div id="clueResults" class="results-container">
+            <h2>Search Results <span id="resultCount" class="badge bg-primary">0</span></h2>
+            <div class="results-table">
+                <table class="table table-striped table-hover" id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Round</th>
+                            <th>Answer (Clue)</th>
+                            <th>Question (Response)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cluesContainer">
+                        <!-- Clue rows will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <footer>
+            <p>Data source: Jeopardy! Clue Database</p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+        import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.appspot.com",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99"
+        };
+        
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+        
+        // Global variables
+        let allClues = [];
+        let filteredClues = [];
+        let currentFilters = {
+            round: 'all',
+            searchFields: ['answer'],
+            searchTerm: ''
+        };
+        
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+        
+        function initializeApp() {
+            console.log('Initializing Jeopardy Search app...');
+            
+            // Check authentication
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    console.log('User logged in:', user.email);
+                    await checkAdminStatus(user);
+                } else {
+                    console.log('No user logged in');
+                    showError('Please log in to access this tool.');
+                }
+            });
+        }
+        
+        async function checkAdminStatus(user) {
+            try {
+                console.log('Checking admin status...');
+                
+                const userSnapshot = await get(ref(db, `users/${user.uid}`));
+                if (!userSnapshot.exists()) {
+                    showError('User not found in database.');
+                    return;
+                }
+                
+                const userData = userSnapshot.val();
+                let userRoles = [];
+                
+                if (userData?.roles && Array.isArray(userData.roles)) {
+                    userRoles = userData.roles;
+                } else if (userData?.role && typeof userData.role === 'string') {
+                    userRoles = [userData.role];
+                }
+                
+                const isAdmin = userRoles.includes('admin');
+                
+                if (isAdmin) {
+                    console.log('Admin access granted');
+                    document.getElementById('loginContainer').style.display = 'none';
+                    await loadJeopardyData();
+                } else {
+                    showError('Admin access required. You do not have permission to use this tool.');
+                }
+            } catch (error) {
+                console.error('Error checking admin status:', error);
+                showError('Failed to verify admin status: ' + error.message);
+            }
+        }
+        
+        async function loadJeopardyData() {
+            try {
+                showLoading();
+                console.log('Loading Jeopardy data from database...');
+                
+                // Load data from tools/jeopardy node
+                const jeopardyRef = ref(db, 'tools/jeopardy');
+                const snapshot = await get(jeopardyRef);
+                
+                if (!snapshot.exists()) {
+                    showError('No Jeopardy data found in database.');
+                    hideLoading();
+                    return;
+                }
+                
+                // Parse the data structure
+                const data = snapshot.val();
+                allClues = [];
+                
+                // The structure is: date -> round -> index -> {answer, question}
+                Object.keys(data).forEach(date => {
+                    const gameData = data[date];
+                    Object.keys(gameData).forEach(round => {
+                        const roundData = gameData[round];
+                        if (typeof roundData === 'object' && roundData !== null) {
+                            Object.keys(roundData).forEach(key => {
+                                const clue = roundData[key];
+                                if (clue && (clue.answer || clue.question)) {
+                                    allClues.push({
+                                        date: date,
+                                        round: round,
+                                        answer: clue.answer || '',
+                                        question: clue.question || ''
+                                    });
+                                }
+                            });
+                        }
+                    });
+                });
+                
+                console.log(`Loaded ${allClues.length} clues`);
+                
+                hideLoading();
+                document.getElementById('searchContainer').style.display = 'block';
+                document.getElementById('statsContainer').style.display = 'block';
+                
+                updateStats();
+                setupEventListeners();
+                performSearch(); // Show all initially
+                
+            } catch (error) {
+                console.error('Error loading Jeopardy data:', error);
+                showError('Failed to load Jeopardy data: ' + error.message);
+                hideLoading();
+            }
+        }
+        
+        function setupEventListeners() {
+            // Search form
+            document.getElementById('searchForm').addEventListener('submit', (e) => {
+                e.preventDefault();
+                performSearch();
+            });
+            
+            // Clear search
+            document.getElementById('clearSearch').addEventListener('click', () => {
+                document.getElementById('query').value = '';
+                currentFilters.searchTerm = '';
+                performSearch();
+            });
+            
+            // Search field checkboxes
+            document.querySelectorAll('.search-field-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', () => {
+                    updateSearchFields();
+                    performSearch();
+                });
+            });
+            
+            // Filter buttons
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const filterType = btn.dataset.filter;
+                    const filterValue = btn.dataset.value;
+                    
+                    // Update active state
+                    document.querySelectorAll(`[data-filter="${filterType}"]`).forEach(b => {
+                        b.classList.remove('active');
+                    });
+                    btn.classList.add('active');
+                    
+                    // Update filter
+                    currentFilters[filterType] = filterValue;
+                    performSearch();
+                });
+            });
+        }
+        
+        function updateSearchFields() {
+            const checkboxes = document.querySelectorAll('.search-field-checkbox:checked');
+            currentFilters.searchFields = Array.from(checkboxes).map(cb => cb.value);
+        }
+        
+        function performSearch() {
+            const searchTerm = document.getElementById('query').value.toLowerCase().trim();
+            currentFilters.searchTerm = searchTerm;
+            
+            // Filter clues
+            filteredClues = allClues.filter(clue => {
+                // Round filter
+                if (currentFilters.round !== 'all' && clue.round !== currentFilters.round) {
+                    return false;
+                }
+                
+                // Search term filter
+                if (searchTerm) {
+                    let matches = false;
+                    
+                    if (currentFilters.searchFields.includes('answer')) {
+                        matches = matches || (clue.answer && clue.answer.toLowerCase().includes(searchTerm));
+                    }
+                    
+                    if (currentFilters.searchFields.includes('question')) {
+                        matches = matches || (clue.question && clue.question.toLowerCase().includes(searchTerm));
+                    }
+                    
+                    if (!matches) return false;
+                }
+                
+                return true;
+            });
+            
+            displayResults();
+            updateStats();
+        }
+        
+        function displayResults() {
+            const container = document.getElementById('cluesContainer');
+            const resultsDiv = document.getElementById('clueResults');
+            const resultCount = document.getElementById('resultCount');
+            
+            if (filteredClues.length === 0) {
+                container.innerHTML = '<tr><td colspan="4" class="text-center">No clues found matching your search.</td></tr>';
+                resultsDiv.style.display = 'block';
+                resultCount.textContent = '0';
+                return;
+            }
+            
+            // Limit to first 500 results for performance
+            const displayClues = filteredClues.slice(0, 500);
+            
+            container.innerHTML = displayClues.map(clue => {
+                const roundClass = getRoundClass(clue.round);
+                return `
+                    <tr class="clue-row">
+                        <td>${formatDate(clue.date)}</td>
+                        <td><span class="round-badge ${roundClass}">${clue.round}</span></td>
+                        <td class="clue-answer">${escapeHtml(clue.answer)}</td>
+                        <td class="clue-question">${escapeHtml(clue.question)}</td>
+                    </tr>
+                `;
+            }).join('');
+            
+            resultsDiv.style.display = 'block';
+            resultCount.textContent = filteredClues.length;
+            
+            if (filteredClues.length > 500) {
+                container.innerHTML += `<tr><td colspan="4" class="text-center text-muted">Showing first 500 of ${filteredClues.length} results. Use filters to narrow down.</td></tr>`;
+            }
+        }
+        
+        function getRoundClass(round) {
+            if (round === 'Jeopardy!') return 'round-jeopardy';
+            if (round === 'Double Jeopardy!') return 'round-double';
+            if (round === 'Final Jeopardy!') return 'round-final';
+            return 'round-jeopardy';
+        }
+        
+        function formatDate(dateStr) {
+            // Assuming date format is YYYY-MM-DD or similar
+            try {
+                const date = new Date(dateStr);
+                return date.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                });
+            } catch {
+                return dateStr;
+            }
+        }
+        
+        function updateStats() {
+            document.getElementById('totalClues').textContent = allClues.length.toLocaleString();
+            document.getElementById('filteredClues').textContent = filteredClues.length.toLocaleString();
+        }
+        
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text ? text.replace(/[&<>"']/g, m => map[m]) : '';
+        }
+        
+        function showLoading() {
+            document.getElementById('loading').classList.add('loading-visible');
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading').classList.remove('loading-visible');
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            const errorText = document.getElementById('errorText');
+            errorText.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
