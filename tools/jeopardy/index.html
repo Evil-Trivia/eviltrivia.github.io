@@ -250,13 +250,16 @@
                     <div class="col-md-8">
                         <label for="query" class="form-label">Search Term</label>
                         <div class="input-group">
-                            <input type="text" class="form-control" id="query" placeholder="Search clues...">
+                            <input type="text" class="form-control" id="query" placeholder="Search clues... (supports * and ?)">
                             <button type="submit" class="btn btn-jeopardy">
                                 <i class="bi bi-search"></i> Search
                             </button>
                             <button type="button" class="btn btn-outline-secondary" id="clearSearch">
                                 Clear
                             </button>
+                        </div>
+                        <div class="form-text mt-1">
+                            Supports wildcards: * (any characters), ? (single character). Examples: "wash*", "?ashington", "*ton"
                         </div>
                     </div>
                     
@@ -440,28 +443,65 @@
                 const data = snapshot.val();
                 allClues = [];
                 
-                // The structure is: date -> round -> index -> {answer, question}
-                Object.keys(data).forEach(date => {
-                    const gameData = data[date];
-                    Object.keys(gameData).forEach(round => {
-                        const roundData = gameData[round];
-                        if (typeof roundData === 'object' && roundData !== null) {
-                            Object.keys(roundData).forEach(key => {
-                                const clue = roundData[key];
-                                if (clue && (clue.answer || clue.question)) {
-                                    allClues.push({
-                                        date: date,
-                                        round: round,
-                                        answer: clue.answer || '',
-                                        question: clue.question || ''
-                                    });
-                                }
-                            });
-                        }
-                    });
+                console.log('Data structure sample:', Object.keys(data).slice(0, 5));
+                
+                // The structure could be: date -> round -> index -> {answer, question}
+                // OR it could be flat with different structure
+                Object.keys(data).forEach(dateKey => {
+                    const gameData = data[dateKey];
+                    
+                    if (!gameData || typeof gameData !== 'object') {
+                        return;
+                    }
+                    
+                    // Check if this level has answer/question directly
+                    if (gameData.answer || gameData.question) {
+                        allClues.push({
+                            date: dateKey,
+                            round: 'Unknown',
+                            answer: gameData.answer || '',
+                            question: gameData.question || ''
+                        });
+                    } else {
+                        // Iterate through potential round keys
+                        Object.keys(gameData).forEach(roundKey => {
+                            const roundData = gameData[roundKey];
+                            
+                            if (!roundData || typeof roundData !== 'object') {
+                                return;
+                            }
+                            
+                            // Check if this is a clue object with answer/question
+                            if (roundData.answer || roundData.question) {
+                                allClues.push({
+                                    date: dateKey,
+                                    round: roundKey,
+                                    answer: roundData.answer || '',
+                                    question: roundData.question || ''
+                                });
+                            } else {
+                                // One more level deep - iterate through clue indices
+                                Object.keys(roundData).forEach(clueKey => {
+                                    const clue = roundData[clueKey];
+                                    if (clue && typeof clue === 'object' && (clue.answer || clue.question)) {
+                                        allClues.push({
+                                            date: dateKey,
+                                            round: roundKey,
+                                            answer: clue.answer || '',
+                                            question: clue.question || ''
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    }
                 });
                 
                 console.log(`Loaded ${allClues.length} clues`);
+                
+                if (allClues.length === 0) {
+                    showError('No clues found in database. Data structure may have changed.');
+                }
                 
                 hideLoading();
                 document.getElementById('searchContainer').style.display = 'block';
@@ -525,8 +565,30 @@
         }
         
         function performSearch() {
-            const searchTerm = document.getElementById('query').value.toLowerCase().trim();
+            const searchTerm = document.getElementById('query').value.trim();
             currentFilters.searchTerm = searchTerm;
+            
+            // Check if wildcards are used
+            const hasWildcards = searchTerm.includes('*') || searchTerm.includes('?');
+            let searchRegex = null;
+            
+            if (hasWildcards && searchTerm) {
+                // Convert wildcard pattern to regex
+                // First, escape all special regex characters
+                let escapedPattern = searchTerm.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+                
+                // Then replace our wildcards with regex equivalents
+                escapedPattern = escapedPattern
+                    .replace(/\*/g, '.*')      // * becomes .* (any characters)
+                    .replace(/\?/g, '.');      // ? becomes . (single character)
+                
+                try {
+                    searchRegex = new RegExp(escapedPattern, 'i');
+                } catch (e) {
+                    console.error('Invalid regex pattern:', e);
+                    searchRegex = null;
+                }
+            }
             
             // Filter clues
             filteredClues = allClues.filter(clue => {
@@ -539,12 +601,20 @@
                 if (searchTerm) {
                     let matches = false;
                     
-                    if (currentFilters.searchFields.includes('answer')) {
-                        matches = matches || (clue.answer && clue.answer.toLowerCase().includes(searchTerm));
+                    if (currentFilters.searchFields.includes('answer') && clue.answer) {
+                        if (hasWildcards && searchRegex) {
+                            matches = matches || searchRegex.test(clue.answer);
+                        } else {
+                            matches = matches || clue.answer.toLowerCase().includes(searchTerm.toLowerCase());
+                        }
                     }
                     
-                    if (currentFilters.searchFields.includes('question')) {
-                        matches = matches || (clue.question && clue.question.toLowerCase().includes(searchTerm));
+                    if (currentFilters.searchFields.includes('question') && clue.question) {
+                        if (hasWildcards && searchRegex) {
+                            matches = matches || searchRegex.test(clue.question);
+                        } else {
+                            matches = matches || clue.question.toLowerCase().includes(searchTerm.toLowerCase());
+                        }
                     }
                     
                     if (!matches) return false;
