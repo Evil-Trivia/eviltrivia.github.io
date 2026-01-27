@@ -320,6 +320,8 @@
                         <tr>
                             <th>Date</th>
                             <th>Round</th>
+                            <th>Category</th>
+                            <th>Value</th>
                             <th>Answer (Clue)</th>
                             <th>Question (Response)</th>
                         </tr>
@@ -427,81 +429,38 @@
         async function loadJeopardyData() {
             try {
                 showLoading();
-                console.log('Loading Jeopardy data from database...');
+                console.log('Loading Jeopardy data from JSON files...');
                 
-                // Load data from tools/jeopardy node
-                const jeopardyRef = ref(db, 'tools/jeopardy');
-                const snapshot = await get(jeopardyRef);
-                
-                if (!snapshot.exists()) {
-                    showError('No Jeopardy data found in database.');
-                    hideLoading();
-                    return;
+                // Load from the same JSON file as the games/jeopardy page
+                const response = await fetch('/games/jeopardy/data/jeopardy_clues_latest.json');
+                if (!response.ok) {
+                    throw new Error('Failed to load Jeopardy data file');
                 }
                 
-                // Parse the data structure
-                const data = snapshot.val();
-                allClues = [];
+                const data = await response.json();
+                console.log(`Loaded ${data.clues.length} clues from dataset`);
                 
-                console.log('Data structure sample:', Object.keys(data).slice(0, 5));
-                
-                // The structure could be: date -> round -> index -> {answer, question}
-                // OR it could be flat with different structure
-                Object.keys(data).forEach(dateKey => {
-                    const gameData = data[dateKey];
-                    
-                    if (!gameData || typeof gameData !== 'object') {
-                        return;
+                // Parse the clues into our format
+                allClues = data.clues.map(clue => {
+                    // Map round numbers to round names
+                    let roundName = 'Jeopardy!';
+                    if (clue.round === '2') {
+                        roundName = 'Double Jeopardy!';
+                    } else if (clue.round === '3' || clue.round === 'FJ') {
+                        roundName = 'Final Jeopardy!';
                     }
                     
-                    // Check if this level has answer/question directly
-                    if (gameData.answer || gameData.question) {
-                        allClues.push({
-                            date: dateKey,
-                            round: 'Unknown',
-                            answer: gameData.answer || '',
-                            question: gameData.question || ''
-                        });
-                    } else {
-                        // Iterate through potential round keys
-                        Object.keys(gameData).forEach(roundKey => {
-                            const roundData = gameData[roundKey];
-                            
-                            if (!roundData || typeof roundData !== 'object') {
-                                return;
-                            }
-                            
-                            // Check if this is a clue object with answer/question
-                            if (roundData.answer || roundData.question) {
-                                allClues.push({
-                                    date: dateKey,
-                                    round: roundKey,
-                                    answer: roundData.answer || '',
-                                    question: roundData.question || ''
-                                });
-                            } else {
-                                // One more level deep - iterate through clue indices
-                                Object.keys(roundData).forEach(clueKey => {
-                                    const clue = roundData[clueKey];
-                                    if (clue && typeof clue === 'object' && (clue.answer || clue.question)) {
-                                        allClues.push({
-                                            date: dateKey,
-                                            round: roundKey,
-                                            answer: clue.answer || '',
-                                            question: clue.question || ''
-                                        });
-                                    }
-                                });
-                            }
-                        });
-                    }
+                    return {
+                        date: clue.air_date || 'Unknown',
+                        round: roundName,
+                        answer: clue.answer || '',
+                        question: clue.question || '',
+                        category: clue.category || '',
+                        value: clue.clue_value || ''
+                    };
                 });
                 
-                console.log(`Loaded ${allClues.length} clues`);
-                
-                if (allClues.length === 0) {
-                    showError('No clues found in database. Data structure may have changed.');
-                }
+                console.log(`Processed ${allClues.length} clues`);
                 
                 hideLoading();
                 document.getElementById('searchContainer').style.display = 'block';
@@ -633,7 +592,7 @@
             const resultCount = document.getElementById('resultCount');
             
             if (filteredClues.length === 0) {
-                container.innerHTML = '<tr><td colspan="4" class="text-center">No clues found matching your search.</td></tr>';
+                container.innerHTML = '<tr><td colspan="6" class="text-center">No clues found matching your search.</td></tr>';
                 resultsDiv.style.display = 'block';
                 resultCount.textContent = '0';
                 return;
@@ -648,6 +607,8 @@
                     <tr class="clue-row">
                         <td>${formatDate(clue.date)}</td>
                         <td><span class="round-badge ${roundClass}">${clue.round}</span></td>
+                        <td>${escapeHtml(clue.category || '')}</td>
+                        <td>$${clue.value || '0'}</td>
                         <td class="clue-answer">${escapeHtml(clue.answer)}</td>
                         <td class="clue-question">${escapeHtml(clue.question)}</td>
                     </tr>
@@ -658,7 +619,7 @@
             resultCount.textContent = filteredClues.length;
             
             if (filteredClues.length > 500) {
-                container.innerHTML += `<tr><td colspan="4" class="text-center text-muted">Showing first 500 of ${filteredClues.length} results. Use filters to narrow down.</td></tr>`;
+                container.innerHTML += `<tr><td colspan="6" class="text-center text-muted">Showing first 500 of ${filteredClues.length} results. Use filters to narrow down.</td></tr>`;
             }
         }
         
