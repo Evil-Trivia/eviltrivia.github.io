@@ -429,19 +429,34 @@
         async function loadJeopardyData() {
             try {
                 showLoading();
-                console.log('Loading Jeopardy data from JSON files...');
+                console.log('Loading Jeopardy data from chunks...');
                 
-                // Load from the same JSON file as the games/jeopardy page
-                const response = await fetch('/games/jeopardy/data/jeopardy_clues_latest.json');
-                if (!response.ok) {
-                    throw new Error('Failed to load Jeopardy data file');
+                // Load metadata to know how many chunks we have
+                const metadataResponse = await fetch('/games/jeopardy/data/dataset-metadata.json');
+                if (!metadataResponse.ok) {
+                    throw new Error('Dataset metadata not found');
                 }
                 
-                const data = await response.json();
-                console.log(`Loaded ${data.clues.length} clues from dataset`);
+                const metadata = await metadataResponse.json();
+                console.log('Dataset metadata:', metadata);
+                
+                // Load all chunks
+                const allChunkClues = [];
+                for (let i = 0; i < metadata.totalChunks; i++) {
+                    console.log(`Loading chunk ${i + 1}/${metadata.totalChunks}...`);
+                    const chunkResponse = await fetch(`/games/jeopardy/data/chunks/chunk_${i.toString().padStart(3, '0')}.json`);
+                    if (!chunkResponse.ok) {
+                        throw new Error(`Failed to load chunk ${i}`);
+                    }
+                    const chunk = await chunkResponse.json();
+                    allChunkClues.push(...chunk.clues);
+                    console.log(`Loaded chunk ${i + 1}/${metadata.totalChunks} (${chunk.clues.length} clues)`);
+                }
+                
+                console.log(`Loaded ${allChunkClues.length} total clues from all chunks`);
                 
                 // Parse the clues into our format
-                allClues = data.clues.map(clue => {
+                allClues = allChunkClues.map(clue => {
                     // Map round numbers to round names
                     let roundName = 'Jeopardy!';
                     if (clue.round === '2') {
