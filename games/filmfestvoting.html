@@ -87,26 +87,6 @@
       color: #FFD700;
       text-shadow: 0 0 5px #FFD700;
     }
-    .team-vote-status {
-      font-size: 9px;
-      margin-top: 10px;
-      padding: 10px;
-      border: 2px solid;
-      display: none;
-      line-height: 1.8;
-    }
-    .team-vote-status.complete {
-      color: #0f0;
-      border-color: #0f0;
-      background: rgba(0, 255, 0, 0.1);
-      text-shadow: 0 0 5px #0f0;
-    }
-    .team-vote-status.incomplete {
-      color: #FFD700;
-      border-color: #FFD700;
-      background: rgba(255, 215, 0, 0.1);
-    }
-
     .vote-banner {
       text-align: center;
       padding: 15px;
@@ -251,11 +231,27 @@
     .hidden { display: none; }
 
     @media (max-width: 600px) {
-      h1 { font-size: 14px; }
-      .subtitle { font-size: 8px; }
-      .video-grid { grid-template-columns: 1fr; }
+      .container { padding: 12px; }
+      h1 { font-size: 13px; }
+      .subtitle { font-size: 7px; margin-bottom: 15px; }
+      .team-select-card { padding: 15px; margin-bottom: 15px; }
+      .team-select-card select { font-size: 9px; padding: 10px; }
+      .team-select-card label { font-size: 8px; }
+      .team-select-row { flex-direction: column; align-items: stretch; gap: 10px; }
+      .team-select-group { align-items: stretch; }
+      .team-select-group select { max-width: 100%; }
+      .incentive-msg { font-size: 7px; }
+      .vote-banner { font-size: 8px; padding: 12px; margin-bottom: 15px; }
+      .vote-banner .current-vote { font-size: 8px; }
+      .video-grid { grid-template-columns: 1fr; gap: 15px; }
+      .video-card-body { padding: 12px; }
+      .video-card-title { font-size: 9px; }
+      .video-card-team { font-size: 8px; }
+      .vote-count-display { font-size: 10px; }
       .vote-btn { font-size: 8px; padding: 8px 15px; }
-      .team-select-row { flex-direction: column; align-items: center; }
+      .closed-message { padding: 40px 20px; }
+      .closed-message h2 { font-size: 14px; }
+      .closed-message p { font-size: 8px; }
     }
   </style>
 </head>
@@ -290,7 +286,6 @@
         <div class="incentive-msg">
           <strong>BONUS POINT:</strong> If your entire team casts a vote, your team earns 1 point!
         </div>
-        <div class="team-vote-status" id="teamVoteStatus"></div>
       </div>
 
       <div class="vote-banner" id="voteBanner">
@@ -443,7 +438,6 @@
             if (teamSelect.value === savedTeam) {
               selectedTeamName = savedTeam;
               loadVideos();
-              updateTeamVoteStatus();
             }
           }
         } catch (err) {
@@ -456,59 +450,11 @@
         selectedTeamName = teamSelect.value;
         localStorage.setItem('filmfest_vote_team', selectedTeamName);
         loadVideos();
-        updateTeamVoteStatus();
       });
 
       if (savedBar) {
         barSelect.value = savedBar;
         barSelect.dispatchEvent(new Event('change'));
-      }
-    }
-
-    async function updateTeamVoteStatus() {
-      const statusEl = document.getElementById('teamVoteStatus');
-      if (!selectedTeamName || !selectedBarLocation) {
-        statusEl.style.display = 'none';
-        return;
-      }
-
-      const teamKey = sanitizeKey(selectedBarLocation) + '_' + sanitizeKey(selectedTeamName);
-      try {
-        const tvSnap = await get(ref(db, `games/filmfest/teamVotes/${teamKey}`));
-        const votesCast = tvSnap.exists() ? Object.keys(tvSnap.val()).length : 0;
-
-        const sessionsSnap = await get(ref(db, 'games/filmfest/activeSessions'));
-        let teamSize = '?';
-        if (sessionsSnap.exists()) {
-          const sessions = sessionsSnap.val();
-          for (const key in sessions) {
-            if (sessions[key].location === selectedBarLocation && sessions[key].sessionId) {
-              try {
-                const teamsSnap = await get(ref(db, `grading/${sessions[key].sessionId}/teams`));
-                if (teamsSnap.exists()) {
-                  Object.values(teamsSnap.val()).forEach(t => {
-                    if (t.name === selectedTeamName) {
-                      teamSize = t.size || t.members || t.playerCount || '?';
-                    }
-                  });
-                }
-              } catch (e) { /* ignore */ }
-              break;
-            }
-          }
-        }
-
-        statusEl.style.display = 'block';
-        if (teamSize !== '?' && teamSize > 0 && votesCast >= teamSize) {
-          statusEl.className = 'team-vote-status complete';
-          statusEl.innerHTML = `&#x2713; Your whole team voted! (${votesCast}/${teamSize}) - POINT EARNED!`;
-        } else {
-          statusEl.className = 'team-vote-status incomplete';
-          statusEl.textContent = `Team votes: ${votesCast}/${teamSize} - Keep going!`;
-        }
-      } catch (e) {
-        console.error('Error checking team vote status:', e);
-        statusEl.style.display = 'none';
       }
     }
 
@@ -641,7 +587,6 @@
           currentVoteKey = null;
           refreshVoteUI();
           updateCurrentVoteDisplay();
-          updateTeamVoteStatus();
         } catch (error) {
           console.error('Error removing vote:', error);
           alert('Error removing vote. Try again.');
@@ -666,7 +611,6 @@
         currentVoteKey = videoKey;
         refreshVoteUI();
         updateCurrentVoteDisplay();
-        updateTeamVoteStatus();
       } catch (error) {
         console.error('Error casting vote:', error);
         alert('Error voting. Please try again.');
