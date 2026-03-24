@@ -186,13 +186,9 @@
     .vote-section {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       padding-top: 10px;
       border-top: 2px solid rgba(255, 215, 0, 0.2);
-    }
-    .vote-count-display {
-      font-size: 12px;
-      color: #FFD700;
     }
     .vote-btn {
       padding: 10px 20px;
@@ -245,7 +241,6 @@
       .video-card-body { padding: 12px; }
       .video-card-title { font-size: 9px; }
       .video-card-team { font-size: 8px; }
-      .vote-count-display { font-size: 10px; }
       .vote-btn { font-size: 8px; padding: 8px 15px; }
       .closed-message { padding: 40px 20px; }
       .closed-message h2 { font-size: 14px; }
@@ -302,7 +297,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
-    import { getDatabase, ref, get, set, remove, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getDatabase, ref, get, set, remove } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -462,7 +457,6 @@
 
       await loadCurrentVote();
       await loadVideos();
-      listenForVoteUpdates();
     }
 
     async function loadCurrentVote() {
@@ -506,6 +500,7 @@
         }));
 
         videoList = videoList.filter(v =>
+          v.barLocation === selectedBarLocation &&
           !(v.teamName === selectedTeamName && v.barLocation === selectedBarLocation)
         );
 
@@ -531,7 +526,6 @@
               <div class="video-card-team">${escapeHtml(v.teamName)}</div>
               <div class="video-card-location">${escapeHtml(v.barLocation)}</div>
               <div class="vote-section">
-                <span class="vote-count-display" id="votes-${v.key}">${v.voteCount} votes</span>
                 <button class="vote-btn${isVoted ? ' voted' : ''}" id="votebtn-${v.key}" data-key="${v.key}">
                   ${isVoted ? '&#x2713; VOTED' : 'VOTE'}
                 </button>
@@ -632,17 +626,6 @@
       } else {
         display.style.display = 'none';
       }
-    }
-
-    function listenForVoteUpdates() {
-      onValue(ref(db, 'games/filmfest/votes'), (snapshot) => {
-        const votes = snapshot.exists() ? snapshot.val() : {};
-        document.querySelectorAll('.vote-count-display').forEach(el => {
-          const key = el.id.replace('votes-', '');
-          const count = votes[key] ? Object.keys(votes[key]).length : 0;
-          el.textContent = count + ' vote' + (count !== 1 ? 's' : '');
-        });
-      });
     }
 
     window.castVote = castVote;
