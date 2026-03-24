@@ -224,7 +224,7 @@
     </style>
 </head>
 <body>
-    <h1>🎬 FILM FEST ADMIN 🎬</h1>
+    <h1>🎬 THE FIRST ANNUAL<br>EVIL TRIVIA FILM FESTIVAL<br>ADMIN 🎬</h1>
 
     <div id="authContainer" class="section">
         <h2>AUTHENTICATION REQUIRED</h2>
@@ -291,6 +291,21 @@
             </div>
         </div>
 
+        <!-- Team Voting Participation -->
+        <div class="section">
+            <h2>TEAM VOTING PARTICIPATION</h2>
+            <p style="color: #fff; font-size: 8px; line-height: 1.8; margin-bottom: 15px;">
+                Teams earn 1 point if every member votes. Tracks votes cast per team vs team size from grading.
+            </p>
+            <div class="controls">
+                <div class="control-group">
+                    <label>&nbsp;</label>
+                    <button onclick="loadTeamVotingStats()">REFRESH</button>
+                </div>
+            </div>
+            <div id="teamVotingGrid" style="margin-top: 10px;"></div>
+        </div>
+
         <!-- Videos Section -->
         <div class="section">
             <h2>UPLOADED VIDEOS</h2>
@@ -347,7 +362,13 @@
             measurementId: "G-2W6RK96Y34"
         };
 
-        const app = initializeApp(firebaseConfig);
+        let app;
+        try {
+            app = initializeApp(firebaseConfig);
+        } catch (e) {
+            const { getApp } = await import("https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js");
+            app = getApp();
+        }
         const db = getDatabase(app);
         const auth = getAuth(app);
         const storage = getStorage(app);
@@ -370,9 +391,9 @@
                     if (roleSnap.exists() && roleSnap.val() === 'admin') {
                         authContainer.style.display = 'none';
                         adminContainer.classList.remove('hidden');
-                        loadExistingSessions();
-                        loadVotingStatus();
-                        loadVideos();
+                        window.loadExistingSessions();
+                        window.loadVotingStatus();
+                        window.loadVideos();
                     } else {
                         authContainer.style.display = 'block';
                         adminContainer.classList.add('hidden');
@@ -662,6 +683,92 @@
             }
         }
 
+        async function loadTeamVotingStats() {
+            const grid = document.getElementById('teamVotingGrid');
+            grid.innerHTML = '<div style="color: #0ff; font-size: 9px;">Loading...</div>';
+
+            try {
+                const sessionsSnap = await window.dbGet(window.dbRef(window.db, 'games/filmfest/activeSessions'));
+                if (!sessionsSnap.exists()) {
+                    grid.innerHTML = '<div style="color: #999; font-size: 9px;">No active sessions.</div>';
+                    return;
+                }
+
+                const sessions = sessionsSnap.val();
+                const votesSnap = await window.dbGet(window.dbRef(window.db, 'games/filmfest/votes'));
+                const allVotes = votesSnap.exists() ? votesSnap.val() : {};
+                const teamVoteSnap = await window.dbGet(window.dbRef(window.db, 'games/filmfest/teamVotes'));
+                const teamVotes = teamVoteSnap.exists() ? teamVoteSnap.val() : {};
+
+                let allTeamStats = [];
+
+                for (const [locKey, sessionData] of Object.entries(sessions)) {
+                    if (!sessionData.teams) continue;
+                    const sessionId = sessionData.sessionId;
+
+                    let teamSizes = {};
+                    if (sessionId) {
+                        try {
+                            const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
+                            if (teamsSnap.exists()) {
+                                Object.values(teamsSnap.val()).forEach(t => {
+                                    if (t.name) {
+                                        teamSizes[t.name] = t.size || t.members || t.playerCount || 0;
+                                    }
+                                });
+                            }
+                        } catch (e) {
+                            console.warn('Could not load team sizes:', e);
+                        }
+                    }
+
+                    for (const teamName of sessionData.teams) {
+                        const teamKey = locKey + '_' + teamName.replace(/[.#$\[\]\/]/g, '_').replace(/'/g, '_');
+                        const votesForTeam = teamVotes[teamKey] ? Object.keys(teamVotes[teamKey]).length : 0;
+                        const teamSize = teamSizes[teamName] || '?';
+                        const allVoted = teamSize !== '?' && teamSize > 0 && votesForTeam >= teamSize;
+
+                        allTeamStats.push({
+                            teamName, location: sessionData.location,
+                            votesCast: votesForTeam, teamSize, allVoted
+                        });
+                    }
+                }
+
+                if (allTeamStats.length === 0) {
+                    grid.innerHTML = '<div style="color: #999; font-size: 9px;">No teams found.</div>';
+                    return;
+                }
+
+                let html = '<div style="overflow-x: auto;"><table style="width: 100%; border-collapse: collapse; background: #1a1a2e; border: 3px solid #0ff;">';
+                html += '<thead><tr><th style="padding: 10px 8px; text-align: left; border-bottom: 3px solid #0ff; font-size: 8px; color: #0ff; background: #0f3460;">TEAM</th>';
+                html += '<th style="padding: 10px 8px; text-align: left; border-bottom: 3px solid #0ff; font-size: 8px; color: #0ff; background: #0f3460;">LOCATION</th>';
+                html += '<th style="padding: 10px 8px; text-align: center; border-bottom: 3px solid #0ff; font-size: 8px; color: #0ff; background: #0f3460;">VOTES CAST</th>';
+                html += '<th style="padding: 10px 8px; text-align: center; border-bottom: 3px solid #0ff; font-size: 8px; color: #0ff; background: #0f3460;">TEAM SIZE</th>';
+                html += '<th style="padding: 10px 8px; text-align: center; border-bottom: 3px solid #0ff; font-size: 8px; color: #0ff; background: #0f3460;">POINT?</th></tr></thead><tbody>';
+
+                allTeamStats.sort((a, b) => a.teamName.localeCompare(b.teamName));
+                allTeamStats.forEach(t => {
+                    const pointStyle = t.allVoted
+                        ? 'color: #0f0; text-shadow: 0 0 10px #0f0; font-size: 10px;'
+                        : 'color: #f00; font-size: 10px;';
+                    html += `<tr style="border-bottom: 1px solid rgba(0,255,255,0.2);">
+                        <td style="padding: 8px; font-size: 8px; color: #fff;"><strong>${escapeHtml(t.teamName)}</strong></td>
+                        <td style="padding: 8px; font-size: 8px; color: #fff;">${escapeHtml(t.location)}</td>
+                        <td style="padding: 8px; font-size: 10px; text-align: center; color: #f0f; text-shadow: 0 0 5px #f0f;">${t.votesCast}</td>
+                        <td style="padding: 8px; font-size: 10px; text-align: center; color: #0ff;">${t.teamSize}</td>
+                        <td style="padding: 8px; text-align: center; ${pointStyle}">${t.allVoted ? '✓ YES' : '✗ NO'}</td>
+                    </tr>`;
+                });
+
+                html += '</tbody></table></div>';
+                grid.innerHTML = html;
+            } catch (error) {
+                console.error("Error loading team voting stats:", error);
+                grid.innerHTML = '<div style="color: #f00; font-size: 9px;">Error: ' + error.message + '</div>';
+            }
+        }
+
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text || '';
@@ -680,8 +787,10 @@
         window.clearAllSessions = clearAllSessions;
         window.toggleVoting = toggleVoting;
         window.resetAllVotes = resetAllVotes;
+        window.loadVotingStatus = loadVotingStatus;
         window.loadVideos = loadVideos;
         window.deleteVideo = deleteVideo;
+        window.loadTeamVotingStats = loadTeamVotingStats;
 
         setTimeout(() => {
             if (!document.getElementById('adminContainer').classList.contains('hidden')) {
