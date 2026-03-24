@@ -302,7 +302,6 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
     import { getDatabase, ref, get, set, remove, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
-    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -317,7 +316,6 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
-    const auth = getAuth(app);
 
     let voterId = null;
     let currentVoteKey = null;
@@ -325,6 +323,17 @@
     let selectedTeamName = '';
     let selectedBarLocation = '';
     let gridListenerAttached = false;
+
+    function getStableVoterId() {
+      let id = localStorage.getItem('filmfest_voter_id');
+      if (!id) {
+        const arr = new Uint8Array(16);
+        crypto.getRandomValues(arr);
+        id = 'v_' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+        localStorage.setItem('filmfest_voter_id', id);
+      }
+      return id;
+    }
 
     function sanitizeKey(str) {
       return str.replace(/[.#$\[\]\/]/g, '_').replace(/'/g, '_');
@@ -346,46 +355,29 @@
     }
 
     async function init() {
+      voterId = getStableVoterId();
+
       try {
-        await signInAnonymously(auth);
-      } catch (e) {
-        console.warn('Anonymous auth failed:', e);
+        const votingSnap = await get(ref(db, 'games/filmfest/settings/votingOpen'));
+        const isOpen = votingSnap.exists() && votingSnap.val() === true;
+
+        if (!isOpen) {
+          document.getElementById('closedMessage').classList.remove('hidden');
+          document.getElementById('votingArea').classList.add('hidden');
+          return;
+        }
+
+        document.getElementById('closedMessage').classList.add('hidden');
+        document.getElementById('votingArea').classList.remove('hidden');
+
+        setupTeamSelectors();
+        await loadCurrentVote();
+        await loadVideos();
+        listenForVoteUpdates();
+      } catch (error) {
+        console.error('Init error:', error);
+        document.getElementById('loadingMessage').textContent = 'Error loading. Please refresh the page.';
       }
-
-      onAuthStateChanged(auth, async (user) => {
-        if (user) {
-          voterId = user.uid;
-        } else {
-          let fallback = localStorage.getItem('filmfest_voter_id');
-          if (!fallback) {
-            fallback = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('filmfest_voter_id', fallback);
-          }
-          voterId = 'fallback_' + fallback;
-        }
-
-        try {
-          const votingSnap = await get(ref(db, 'games/filmfest/settings/votingOpen'));
-          const isOpen = votingSnap.exists() && votingSnap.val() === true;
-
-          if (!isOpen) {
-            document.getElementById('closedMessage').classList.remove('hidden');
-            document.getElementById('votingArea').classList.add('hidden');
-            return;
-          }
-
-          document.getElementById('closedMessage').classList.add('hidden');
-          document.getElementById('votingArea').classList.remove('hidden');
-
-          setupTeamSelectors();
-          await loadCurrentVote();
-          await loadVideos();
-          listenForVoteUpdates();
-        } catch (error) {
-          console.error('Init error:', error);
-          document.getElementById('loadingMessage').textContent = 'Error loading. Please refresh the page.';
-        }
-      });
     }
 
     function setupTeamSelectors() {
