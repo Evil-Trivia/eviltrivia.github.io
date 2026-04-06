@@ -1900,45 +1900,80 @@
             return -2 * (teamSize - 5); // This formula gives us: 7->-4, 8->-6, 9->-8, etc.
         }
 
-        /** Normalize Round Sub-Type labels from trivia metadata (case/spacing insensitive). */
+        const CHALLENGE_SUB_TYPE_KEYS = [
+            'Round Sub-Type', 'Round Sub Type', 'Round_Sub-Type', 'Round_Sub_Type',
+            'RoundSub-Type', 'Round SubType'
+        ];
+
+        /** Normalize Round Sub-Type labels from trivia (handles sheets/import variants). */
         function normalizeChallengeSubTypeLabel(raw) {
-            if (!raw || typeof raw !== 'string') return null;
-            const n = raw.trim().toLowerCase().replace(/\s+/g, ' ');
-            if (n === 'graded in round 3') return 'gradedInRound3';
-            if (n === 'manual in rubric') return 'manualInRubric';
+            if (raw == null) return null;
+            const n = String(raw).trim().toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ');
+            if (!n) return null;
+            if (n === 'graded in round 3' || n === 'graded in round three') return 'gradedInRound3';
+            if (/(^|\s)graded\s+in\s+round\s*(3|three)(\s|$)/.test(n)) return 'gradedInRound3';
+            if (n === 'manual in rubric' || (n.includes('manual') && n.includes('rubric'))) return 'manualInRubric';
             return null;
         }
 
-        function getChallengeSubTypeFromRoundData(roundData) {
-            if (!roundData || typeof roundData !== 'object') return '';
-            const meta = roundData.metadata || {};
-            let sub = meta['Round Sub-Type'] || meta['Round Sub Type'] || '';
-            if (roundData.Challenge && typeof roundData.Challenge === 'object') {
-                const ch = roundData.Challenge;
-                const subCh = ch['Round Sub-Type'] || ch['Round Sub Type'];
-                if (subCh) sub = subCh;
-            }
-            return typeof sub === 'string' ? sub : '';
+        function getChallengeFormatNodes(roundData) {
+            const out = [];
+            if (!roundData || typeof roundData !== 'object') return out;
+            if (roundData.Challenge && typeof roundData.Challenge === 'object') out.push(roundData.Challenge);
+            if (roundData.challenge && typeof roundData.challenge === 'object') out.push(roundData.challenge);
+            return out;
         }
 
-        function isChallengeFormatRound(roundData) {
-            if (!roundData || typeof roundData !== 'object') return false;
-            if (normalizeChallengeSubTypeLabel(getChallengeSubTypeFromRoundData(roundData))) return true;
-            const meta = roundData.metadata || {};
-            const rf = (meta['Round Format'] || meta['Round Type'] || '').trim().toLowerCase();
-            if (rf === 'challenge') return true;
-            if (roundData.Challenge && typeof roundData.Challenge === 'object') {
-                return Object.keys(roundData.Challenge).some(k => {
+        function firstSubTypeFromObject(obj) {
+            if (!obj || typeof obj !== 'object') return '';
+            for (const k of CHALLENGE_SUB_TYPE_KEYS) {
+                if (obj[k] != null && String(obj[k]).trim()) return String(obj[k]);
+            }
+            return '';
+        }
+
+        /** Sub-Type may live on round metadata, on the Challenge node, or on each question (like other columns). */
+        function collectChallengeSubTypeFromRound(roundData) {
+            if (!roundData || typeof roundData !== 'object') return '';
+            let found = firstSubTypeFromObject(roundData.metadata || {});
+            if (found) return found;
+            for (const ch of getChallengeFormatNodes(roundData)) {
+                found = firstSubTypeFromObject(ch);
+                if (found) return found;
+                for (const [k, v] of Object.entries(ch)) {
+                    if (typeof v !== 'object' || v === null) continue;
+                    found = firstSubTypeFromObject(v);
+                    if (found) return found;
+                }
+            }
+            return '';
+        }
+
+        function hasChallengeQuestionObjects(roundData) {
+            for (const ch of getChallengeFormatNodes(roundData)) {
+                const has = Object.keys(ch).some(k => {
                     if (k === 'metadata') return false;
-                    return !isNaN(parseInt(k, 10)) && typeof roundData.Challenge[k] === 'object';
+                    if (isNaN(parseInt(k, 10))) return false;
+                    return typeof ch[k] === 'object' && ch[k] !== null;
                 });
+                if (has) return true;
             }
             return false;
         }
 
+        function isChallengeFormatRound(roundData) {
+            if (!roundData || typeof roundData !== 'object') return false;
+            if (normalizeChallengeSubTypeLabel(collectChallengeSubTypeFromRound(roundData))) return true;
+            const meta = roundData.metadata || {};
+            const rf = (meta['Round Format'] || meta['Round Type'] || '').trim().toLowerCase();
+            if (rf === 'challenge') return true;
+            return hasChallengeQuestionObjects(roundData);
+        }
+
         /**
-         * Reads Challenge round behavior from trivia-archive round metadata (Round Sub-Type).
-         * Does not use session/admin finalChallenge — trivia metadata is the source of truth.
+         * Reads Challenge behavior from trivia-archive (Round Sub-Type anywhere on round / Challenge / questions).
+         * Does not use session/admin finalChallenge.
+         * If Sub-Type is missing but round 3 has Challenge questions, defaults to graded in round 3.
          * @returns {{ explicit: 'gradedInRound3'|'manualInRubric'|null, challengeRoundNum: number|null }}
          */
         function getChallengeGradingBehaviorFromTrivia(triviaData) {
@@ -1952,14 +1987,32 @@
                 if (isNaN(parseInt(roundKey, 10))) continue;
                 const roundData = triviaData[roundKey];
                 if (typeof roundData !== 'object' || !isChallengeFormatRound(roundData)) continue;
-                const sub = normalizeChallengeSubTypeLabel(getChallengeSubTypeFromRoundData(roundData));
+                const sub = normalizeChallengeSubTypeLabel(collectChallengeSubTypeFromRound(roundData));
                 if (sub) {
                     explicit = sub;
                     challengeRoundNum = parseInt(roundKey, 10);
                     break;
                 }
             }
+            if (explicit == null) {
+                const r3 = triviaData['3'];
+                if (r3 && typeof r3 === 'object' && hasChallengeQuestionObjects(r3)) {
+                    const rawSub = collectChallengeSubTypeFromRound(r3);
+                    if (!String(rawSub || '').trim()) {
+                        explicit = 'gradedInRound3';
+                        challengeRoundNum = 3;
+                    }
+                }
+            }
             return { explicit, challengeRoundNum };
+        }
+
+        async function getArchiveFormatSnapshot(triviaNumber, roundNum, format) {
+            let snap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia/${roundNum}/${format}`));
+            if (!snap.exists() && format === 'Challenge') {
+                snap = await get(child(ref(db), `trivia-archive/archive/${triviaNumber}/trivia/${roundNum}/challenge`));
+            }
+            return snap;
         }
 
         // Update loadRubricScores function
@@ -2273,9 +2326,11 @@
                     const allQuestions = [];
 
                     for (const format of roundFormats) {
-                        const formatSnap = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia/${roundNum}/${format}`));
+                        const formatSnap = await getArchiveFormatSnapshot(session.triviaNumber, roundNum, format);
                         if (formatSnap.exists()) {
                             Object.entries(formatSnap.val()).forEach(([num, data]) => {
+                                if (typeof data !== 'object' || data === null) return;
+                                if (isNaN(parseInt(num, 10))) return;
                                 // Use the Question_Number if it exists, otherwise use the key
                                 const questionNum = data.Question_Number || parseInt(num);
                                 // Store the full path including the key
