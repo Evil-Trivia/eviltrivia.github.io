@@ -1903,6 +1903,68 @@
             return -2 * (teamSize - 5); // This formula gives us: 7->-4, 8->-6, 9->-8, etc.
         }
 
+        /** Normalize Round Sub-Type labels from trivia metadata (case/spacing insensitive). */
+        function normalizeChallengeSubTypeLabel(raw) {
+            if (!raw || typeof raw !== 'string') return null;
+            const n = raw.trim().toLowerCase().replace(/\s+/g, ' ');
+            if (n === 'graded in round 3') return 'gradedInRound3';
+            if (n === 'manual in rubric') return 'manualInRubric';
+            return null;
+        }
+
+        function getChallengeSubTypeFromRoundData(roundData) {
+            if (!roundData || typeof roundData !== 'object') return '';
+            const meta = roundData.metadata || {};
+            let sub = meta['Round Sub-Type'] || meta['Round Sub Type'] || '';
+            if (roundData.Challenge && typeof roundData.Challenge === 'object') {
+                const ch = roundData.Challenge;
+                const subCh = ch['Round Sub-Type'] || ch['Round Sub Type'];
+                if (subCh) sub = subCh;
+            }
+            return typeof sub === 'string' ? sub : '';
+        }
+
+        function isChallengeFormatRound(roundData) {
+            if (!roundData || typeof roundData !== 'object') return false;
+            if (normalizeChallengeSubTypeLabel(getChallengeSubTypeFromRoundData(roundData))) return true;
+            const meta = roundData.metadata || {};
+            const rf = (meta['Round Format'] || meta['Round Type'] || '').trim().toLowerCase();
+            if (rf === 'challenge') return true;
+            if (roundData.Challenge && typeof roundData.Challenge === 'object') {
+                return Object.keys(roundData.Challenge).some(k => {
+                    if (k === 'metadata') return false;
+                    return !isNaN(parseInt(k, 10)) && typeof roundData.Challenge[k] === 'object';
+                });
+            }
+            return false;
+        }
+
+        /**
+         * Reads Challenge round behavior from trivia-archive round metadata.
+         * When absent, callers should fall back to session.availability.finalChallenge.
+         * @returns {{ explicit: 'gradedInRound3'|'manualInRubric'|null, challengeRoundNum: number|null }}
+         */
+        function getChallengeGradingBehaviorFromTrivia(triviaData) {
+            let explicit = null;
+            let challengeRoundNum = null;
+            if (!triviaData || typeof triviaData !== 'object') {
+                return { explicit, challengeRoundNum };
+            }
+            const roundKeys = Object.keys(triviaData).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+            for (const roundKey of roundKeys) {
+                if (isNaN(parseInt(roundKey, 10))) continue;
+                const roundData = triviaData[roundKey];
+                if (typeof roundData !== 'object' || !isChallengeFormatRound(roundData)) continue;
+                const sub = normalizeChallengeSubTypeLabel(getChallengeSubTypeFromRoundData(roundData));
+                if (sub) {
+                    explicit = sub;
+                    challengeRoundNum = parseInt(roundKey, 10);
+                    break;
+                }
+            }
+            return { explicit, challengeRoundNum };
+        }
+
         // Update loadRubricScores function
         async function loadRubricScores(doSort = false) {
             const sessionId = localStorage.getItem('currentGradingSession');
@@ -1912,8 +1974,6 @@
                 const sessionSnap = await get(child(ref(db), `grading/${sessionId}`));
                 if (!sessionSnap.exists()) return;
                 const session = sessionSnap.val();
-                
-                const showFinalChallenge = session.availability?.finalChallenge === 'manual' || session.availability?.finalChallenge === 'graded';
                 
                 const teamsSnap = await get(child(ref(db), `grading/${sessionId}/teams`));
                 if (!teamsSnap.exists()) return;
@@ -1927,6 +1987,15 @@
                 }
                 
                 const triviaData = triviaSnap.val();
+                const challengeBehavior = getChallengeGradingBehaviorFromTrivia(triviaData);
+                const fcAvail = session.availability?.finalChallenge;
+                // Challenge + "Graded In Round 3": no Final Challenge rubric column (scores live in that round's total).
+                // Challenge + "Manual In Rubric": dedicated rubric column. Otherwise use session finalChallenge.
+                const showFinalChallenge =
+                    challengeBehavior.explicit === 'gradedInRound3' ? false
+                    : challengeBehavior.explicit === 'manualInRubric' ? true
+                    : (fcAvail === 'manual' || fcAvail === 'graded');
+
                 const roundNumbers = Object.keys(triviaData).sort((a, b) => parseInt(a) - parseInt(b));
                 console.log("Available rounds:", roundNumbers);
 
@@ -2195,11 +2264,25 @@
                         return;
                     }
 
+                    const triviaSnapAll = await get(child(ref(db), `trivia-archive/archive/${session.triviaNumber}/trivia`));
+                    const triviaForChallenge = triviaSnapAll.exists() ? triviaSnapAll.val() : {};
+                    const chBehavior = getChallengeGradingBehaviorFromTrivia(triviaForChallenge);
+                    const gradingRoundNum = parseInt(roundNum, 10);
+                    let includeChallengeFormat = false;
+                    if (chBehavior.explicit === 'manualInRubric') {
+                        includeChallengeFormat = false;
+                    } else if (chBehavior.explicit === 'gradedInRound3') {
+                        includeChallengeFormat = chBehavior.challengeRoundNum != null && gradingRoundNum === chBehavior.challengeRoundNum;
+                    } else {
+                        includeChallengeFormat = session.availability?.finalChallenge === 'graded';
+                    }
+
                     // Get questions from trivia archive
-                    // Include Challenge format if final challenge is set to 'graded'
+                    // Challenge + "Graded In Round 3": show Challenge questions only when grading that archive round (e.g. round 3).
+                    // "Manual In Rubric": Challenge is entered on the rubric, not per-question here.
                     // Note: FDQ (Free Drink Questions) are not graded, so excluded from grading
                     let roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
-                    if (session.availability?.finalChallenge === 'graded') {
+                    if (includeChallengeFormat) {
                         roundFormats.push('Challenge');
                     }
                     const allQuestions = [];
@@ -2304,7 +2387,7 @@
                                         <tr style="background-color: #e3f2fd; border-top: 3px solid #2196f3;">
                                             <td colspan="5" style="text-align: center; font-weight: bold; padding: 8px; color: #1976d2;">
                                                 ${q.format === 'FDQ' ? 'Free Drink Questions' : 
-                                                  q.format === 'Challenge' ? 'Final Challenge' : q.format}
+                                                  q.format === 'Challenge' ? (chBehavior.explicit === 'gradedInRound3' ? 'Challenge' : 'Final Challenge') : q.format}
                                             </td>
                                         </tr>
                                     ` : '';
