@@ -1513,9 +1513,6 @@
                 availableRounds.forEach(round => {
                     availability[round] = true;
                 });
-                // Set default final challenge to manual
-                availability.finalChallenge = 'manual';
-
                 console.log("Setting all rounds available:", availability);
 
                 // Create session data object
@@ -1940,8 +1937,8 @@
         }
 
         /**
-         * Reads Challenge round behavior from trivia-archive round metadata.
-         * When absent, callers should fall back to session.availability.finalChallenge.
+         * Reads Challenge round behavior from trivia-archive round metadata (Round Sub-Type).
+         * Does not use session/admin finalChallenge — trivia metadata is the source of truth.
          * @returns {{ explicit: 'gradedInRound3'|'manualInRubric'|null, challengeRoundNum: number|null }}
          */
         function getChallengeGradingBehaviorFromTrivia(triviaData) {
@@ -1988,13 +1985,8 @@
                 
                 const triviaData = triviaSnap.val();
                 const challengeBehavior = getChallengeGradingBehaviorFromTrivia(triviaData);
-                const fcAvail = session.availability?.finalChallenge;
-                // Challenge + "Graded In Round 3": no Final Challenge rubric column (scores live in that round's total).
-                // Challenge + "Manual In Rubric": dedicated rubric column. Otherwise use session finalChallenge.
-                const showFinalChallenge =
-                    challengeBehavior.explicit === 'gradedInRound3' ? false
-                    : challengeBehavior.explicit === 'manualInRubric' ? true
-                    : (fcAvail === 'manual' || fcAvail === 'graded');
+                // "Manual In Rubric" → Final Challenge column only. "Graded In Round 3" → no rubric column (points in round 3).
+                const showFinalChallenge = challengeBehavior.explicit === 'manualInRubric';
 
                 const roundNumbers = Object.keys(triviaData).sort((a, b) => parseInt(a) - parseInt(b));
                 console.log("Available rounds:", roundNumbers);
@@ -2268,18 +2260,11 @@
                     const triviaForChallenge = triviaSnapAll.exists() ? triviaSnapAll.val() : {};
                     const chBehavior = getChallengeGradingBehaviorFromTrivia(triviaForChallenge);
                     const gradingRoundNum = parseInt(roundNum, 10);
-                    let includeChallengeFormat = false;
-                    if (chBehavior.explicit === 'manualInRubric') {
-                        includeChallengeFormat = false;
-                    } else if (chBehavior.explicit === 'gradedInRound3') {
-                        includeChallengeFormat = chBehavior.challengeRoundNum != null && gradingRoundNum === chBehavior.challengeRoundNum;
-                    } else {
-                        includeChallengeFormat = session.availability?.finalChallenge === 'graded';
-                    }
+                    // "Graded In Round 3": Challenge questions appear at end of Round 3 grading only (like extra questions).
+                    // "Manual In Rubric": never in per-round grading — use rubric column.
+                    const includeChallengeFormat = chBehavior.explicit === 'gradedInRound3' && gradingRoundNum === 3;
 
                     // Get questions from trivia archive
-                    // Challenge + "Graded In Round 3": show Challenge questions only when grading that archive round (e.g. round 3).
-                    // "Manual In Rubric": Challenge is entered on the rubric, not per-question here.
                     // Note: FDQ (Free Drink Questions) are not graded, so excluded from grading
                     let roundFormats = ['Written', 'Visual', 'Music', 'Fill-In', 'Puzzle'];
                     if (includeChallengeFormat) {
