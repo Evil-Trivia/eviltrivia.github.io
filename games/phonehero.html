@@ -125,9 +125,6 @@
       background: #00ffcc;
       color: #000;
     }
-    .keypad .keypad-zero {
-      grid-column: 2;
-    }
     .results {
       display: none;
       text-align: center;
@@ -150,7 +147,7 @@
 <body>
   <div class="container">
     <h1>📱 PHONE HERO 📱</h1>
-    <div class="subtitle">Tap the number when it hits the glowing line.<br>Speed ramps up as your score grows. Use the keypad or keyboard 0–9.</div>
+    <div class="subtitle">Tap the number when it hits the glowing line.<br>Speed ramps up as your score grows. Use the keypad or keyboard 1–9.</div>
 
     <div class="game-card">
       <div id="setupForm" class="setup-form">
@@ -178,7 +175,7 @@
         </div>
         <canvas id="gameCanvas" width="400" height="420"></canvas>
         <div class="keypad" id="keypad" aria-label="Number pad"></div>
-        <p class="hint">Keyboard: 0–9 &nbsp;|&nbsp; One miss or wrong tap in the hit zone ends the run.</p>
+        <p class="hint">Keyboard: 1–9 &nbsp;|&nbsp; One miss or wrong tap in the hit zone ends the run.</p>
       </div>
 
       <div id="results" class="results">
@@ -243,14 +240,30 @@
     let hitLineY = 360;
     let fallSpeed = 220;
     let spawnInterval = 1.85;
+    let spawnCount = 0;
+    /** Spawns 4–10 use this string (0 is not used in play; see eggDigit). */
+    const SPAWN_EGG = '6969420';
 
-    const layout = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+    let playSessionTeam = '';
+    let playSessionBar = '';
+
+    function randomDigit19() {
+      return 1 + Math.floor(Math.random() * 9);
+    }
+
+    function eggDigit(spawnIndex) {
+      const ch = SPAWN_EGG[spawnIndex - 4];
+      let d = parseInt(ch, 10);
+      if (d === 0) d = 9;
+      return d;
+    }
+
+    const layout = [1, 2, 3, 4, 5, 6, 7, 8, 9];
     layout.forEach(d => {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = String(d);
       b.dataset.digit = String(d);
-      if (d === 0) b.classList.add('keypad-zero');
       b.addEventListener('pointerdown', e => {
         e.preventDefault();
         onDigitPress(String(d), b);
@@ -325,6 +338,8 @@
         alert('Please select team name and bar location.');
         return;
       }
+      playSessionTeam = teamName;
+      playSessionBar = barLocation;
       setupForm.style.display = 'none';
       gameArea.classList.add('active');
       results.classList.remove('active');
@@ -336,6 +351,7 @@
       notes = [];
       score = 0;
       combo = 0;
+      spawnCount = 0;
       spawnAcc = 0;
       fallSpeed = 200;
       spawnInterval = 1.85;
@@ -347,8 +363,17 @@
     }
 
     function spawnNote() {
+      spawnCount += 1;
+      let digit;
+      if (spawnCount <= 3) {
+        digit = randomDigit19();
+      } else if (spawnCount <= 10) {
+        digit = eggDigit(spawnCount);
+      } else {
+        digit = randomDigit19();
+      }
       notes.push({
-        digit: Math.floor(Math.random() * 10),
+        digit,
         y: -24,
         id: Math.random()
       });
@@ -462,7 +487,7 @@
     window.addEventListener('keydown', e => {
       if (!gameActive) return;
       const k = e.key;
-      if (/^[0-9]$/.test(k)) {
+      if (/^[1-9]$/.test(k)) {
         e.preventDefault();
         onDigitPress(k, null);
       }
@@ -477,12 +502,12 @@
       finalScoreEl.textContent = String(score);
       document.getElementById('submissionMessage').style.display = 'none';
       submitScore().then(() => {
-        setTimeout(() => loadScoreStats(), 400);
+        setTimeout(() => loadScoreStats(playSessionTeam), 400);
       });
     }
 
-    async function loadScoreStats() {
-      const currentTeam = document.getElementById('teamSelect').value;
+    async function loadScoreStats(teamForStats) {
+      const currentTeam = teamForStats || playSessionTeam;
       const bestEl = document.getElementById('bestScoreDisplay');
       bestEl.textContent = 'Loading...';
       const scores = [];
@@ -519,8 +544,8 @@
     }
 
     async function submitScore() {
-      const teamName = document.getElementById('teamSelect').value;
-      const barLocation = document.getElementById('barLocation').value;
+      const teamName = playSessionTeam;
+      const barLocation = playSessionBar;
       if (!teamName || !barLocation) return;
       const scoreData = {
         teamName,
