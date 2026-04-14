@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Evil Trivia - Phone Hero</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; min-height: 100%; }
+    body {
+      font-family: 'Press Start 2P', cursive;
+      background: linear-gradient(180deg, #1a0a2e 0%, #2d1b4e 40%, #16213e 100%);
+      touch-action: manipulation;
+      user-select: none;
+      color: #fff;
+    }
+    .container {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 12px;
+      padding-bottom: 24px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 20px;
+      color: #00ffcc;
+      text-shadow: 3px 3px 0 #000;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 8px;
+      color: #a78bfa;
+      line-height: 1.8;
+      margin-bottom: 12px;
+    }
+    .game-card {
+      background: #2d1b4e;
+      border: 4px solid #000;
+      padding: 16px;
+      box-shadow: 8px 8px 0 rgba(0,0,0,0.5);
+    }
+    .setup-form {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 9px;
+      color: #FFD700;
+      text-shadow: 2px 2px 0 #000;
+    }
+    .form-group select {
+      width: 100%;
+      padding: 12px;
+      font-size: 10px;
+      font-family: 'Press Start 2P', cursive;
+      border: 3px solid #000;
+      background: #F5DEB3;
+    }
+    .btn {
+      padding: 14px 20px;
+      background: #228B22;
+      color: #fff;
+      border: 3px solid #000;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: 'Press Start 2P', cursive;
+      box-shadow: 4px 4px 0 #000;
+    }
+    .btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 #000; }
+    .btn-secondary { background: #4169E1; }
+    .game-area { display: none; flex-direction: column; gap: 8px; }
+    .game-area.active { display: flex; }
+    .hud {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      background: rgba(0,0,0,0.75);
+      border: 3px solid #000;
+      padding: 10px;
+      font-size: 9px;
+    }
+    .hud span { color: #00ffcc; }
+    #gameCanvas {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      border: 4px solid #000;
+      background: linear-gradient(180deg, #0f0f23 0%, #1a1a3e 50%, #0d1f0d 100%);
+      image-rendering: pixelated;
+    }
+    .keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 4px;
+      max-width: 320px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .keypad button {
+      aspect-ratio: 1;
+      max-height: 64px;
+      font-family: 'Press Start 2P', cursive;
+      font-size: 16px;
+      border: 3px solid #000;
+      background: linear-gradient(180deg, #4a5568 0%, #2d3748 100%);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 3px 3px 0 #000;
+      touch-action: manipulation;
+    }
+    .keypad button:active, .keypad button.pressed {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0 #000;
+      background: #00ffcc;
+      color: #000;
+    }
+    .keypad .keypad-zero {
+      grid-column: 2;
+    }
+    .results {
+      display: none;
+      text-align: center;
+      padding: 20px 10px;
+    }
+    .results.active { display: block; }
+    .game-over-title { font-size: 20px; color: #ff4466; margin-bottom: 16px; text-shadow: 2px 2px 0 #000; }
+    .final-score { font-size: 16px; color: #FFD700; margin: 12px 0; line-height: 1.8; }
+    .button-group { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 16px; }
+    .hidden { display: none !important; }
+    .hint {
+      text-align: center;
+      font-size: 7px;
+      color: #94a3b8;
+      margin-top: 8px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📱 PHONE HERO 📱</h1>
+    <div class="subtitle">Tap the number when it hits the glowing line.<br>Speed ramps up as your score grows. Use the keypad or keyboard 0–9.</div>
+
+    <div class="game-card">
+      <div id="setupForm" class="setup-form">
+        <div class="form-group">
+          <label for="barLocation">BAR LOCATION:</label>
+          <select id="barLocation" onchange="onLocationChange()">
+            <option value="">Select location...</option>
+            <option value="St. Dymphna's">St. Dymphna's</option>
+            <option value="Radegast Hall">Radegast Hall</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="teamSelect">SELECT TEAM:</label>
+          <select id="teamSelect">
+            <option value="">Loading teams...</option>
+          </select>
+        </div>
+        <button type="button" class="btn" onclick="startGame()">PLAY GAME</button>
+      </div>
+
+      <div id="gameArea" class="game-area">
+        <div class="hud">
+          <div>SCORE: <span id="scoreValue">0</span></div>
+          <div>COMBO: <span id="comboValue">0</span></div>
+          <div>LIVES: <span id="livesValue">3</span></div>
+        </div>
+        <canvas id="gameCanvas" width="400" height="420"></canvas>
+        <div class="keypad" id="keypad" aria-label="Number pad"></div>
+        <p class="hint">Keyboard: 0–9 &nbsp;|&nbsp; Wrong tap in the hit zone costs a life.</p>
+      </div>
+
+      <div id="results" class="results">
+        <div class="game-over-title">GAME OVER</div>
+        <div class="final-score">FINAL SCORE: <span id="finalScore">0</span></div>
+        <div id="submissionMessage" style="margin: 12px 0; font-size: 10px; color: #32CD32; display: none;">✓ Score saved successfully!</div>
+        <div id="scoreStats" style="margin: 16px 0; font-size: 9px; line-height: 2; color: #FFD700;">
+          <div>YOUR TEAM'S BEST: <span id="bestScoreDisplay">Loading...</span></div>
+        </div>
+        <div class="button-group">
+          <button type="button" class="btn" onclick="resetGame()">PLAY AGAIN</button>
+          <button type="button" class="btn btn-secondary" onclick="backToMenu()">MAIN MENU</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.firebaseapp.com",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    window.db = db;
+    window.dbRef = ref;
+    window.dbPush = push;
+    window.dbSet = set;
+    window.dbGet = get;
+  </script>
+
+  <script>
+    const ACTIVE_SESSIONS_PATH = 'games/lemondrop/activeSessions';
+
+    const setupForm = document.getElementById('setupForm');
+    const gameArea = document.getElementById('gameArea');
+    const results = document.getElementById('results');
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreValue = document.getElementById('scoreValue');
+    const comboValue = document.getElementById('comboValue');
+    const livesValue = document.getElementById('livesValue');
+    const finalScoreEl = document.getElementById('finalScore');
+    const keypadEl = document.getElementById('keypad');
+
+    let gameActive = false;
+    let notes = [];
+    let score = 0;
+    let combo = 0;
+    let lives = 3;
+    let lastTs = 0;
+    let rafId = 0;
+    let spawnAcc = 0;
+    let hitLineY = 360;
+    let fallSpeed = 220;
+    let spawnInterval = 1.85;
+
+    const layout = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+    layout.forEach(d => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = String(d);
+      b.dataset.digit = String(d);
+      if (d === 0) b.classList.add('keypad-zero');
+      b.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        onDigitPress(String(d), b);
+      });
+      keypadEl.appendChild(b);
+    });
+
+    function resizeCanvas() {
+      const maxW = Math.min(400, window.innerWidth - 40);
+      const ratio = 420 / 400;
+      canvas.style.width = maxW + 'px';
+      canvas.style.height = Math.round(maxW * ratio) + 'px';
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(maxW * dpr);
+      canvas.height = Math.floor(maxW * ratio * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      hitLineY = maxW * ratio * 0.86;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', () => {
+      if (!gameActive) resizeCanvas();
+    });
+
+    async function onLocationChange() {
+      const location = document.getElementById('barLocation').value;
+      const teamSelect = document.getElementById('teamSelect');
+      if (!location) {
+        teamSelect.innerHTML = '<option value="">Select location first</option>';
+        return;
+      }
+      await loadTeamsForLocation(location);
+    }
+
+    async function loadTeamsForLocation(location) {
+      const teamSelect = document.getElementById('teamSelect');
+      try {
+        teamSelect.innerHTML = '<option value="">Loading...</option>';
+        const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, ACTIVE_SESSIONS_PATH));
+        if (!activeSessionsSnap.exists()) {
+          teamSelect.innerHTML = '<option value="">No active sessions - contact admin</option>';
+          return;
+        }
+        const activeSessions = activeSessionsSnap.val();
+        let sessionData = null;
+        for (const key in activeSessions) {
+          if (activeSessions[key].location === location) {
+            sessionData = activeSessions[key];
+            break;
+          }
+        }
+        if (!sessionData || !sessionData.teams || sessionData.teams.length === 0) {
+          teamSelect.innerHTML = '<option value="">No active session for this location</option>';
+          return;
+        }
+        teamSelect.innerHTML = '<option value="">Select your team...</option>';
+        sessionData.teams.sort().forEach(teamName => {
+          const option = document.createElement('option');
+          option.value = teamName;
+          option.textContent = teamName;
+          teamSelect.appendChild(option);
+        });
+      } catch (err) {
+        console.error(err);
+        teamSelect.innerHTML = '<option value="">Error loading teams</option>';
+      }
+    }
+
+    function startGame() {
+      const teamName = document.getElementById('teamSelect').value;
+      const barLocation = document.getElementById('barLocation').value;
+      if (!teamName || !barLocation) {
+        alert('Please select team name and bar location.');
+        return;
+      }
+      setupForm.style.display = 'none';
+      gameArea.classList.add('active');
+      results.classList.remove('active');
+      beginGameplay();
+    }
+
+    function beginGameplay() {
+      gameActive = true;
+      notes = [];
+      score = 0;
+      combo = 0;
+      lives = 3;
+      spawnAcc = 0;
+      fallSpeed = 200;
+      spawnInterval = 1.85;
+      lastTs = performance.now();
+      scoreValue.textContent = '0';
+      comboValue.textContent = '0';
+      livesValue.textContent = '3';
+      resizeCanvas();
+      rafId = requestAnimationFrame(gameLoop);
+    }
+
+    function spawnNote() {
+      notes.push({
+        digit: Math.floor(Math.random() * 10),
+        y: -24,
+        id: Math.random()
+      });
+    }
+
+    function difficultyFromScore() {
+      fallSpeed = Math.min(520, 200 + score * 2.2);
+      spawnInterval = Math.max(0.42, 1.85 - score * 0.018);
+    }
+
+    function gameLoop(ts) {
+      if (!gameActive) return;
+      const dt = Math.min(0.045, (ts - lastTs) / 1000);
+      lastTs = ts;
+      difficultyFromScore();
+
+      spawnAcc += dt;
+      while (spawnAcc >= spawnInterval) {
+        spawnAcc -= spawnInterval;
+        spawnNote();
+      }
+
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      for (let i = notes.length - 1; i >= 0; i--) {
+        notes[i].y += fallSpeed * dt;
+        if (notes[i].y > hitLineY + 48) {
+          notes.splice(i, 1);
+          combo = 0;
+          comboValue.textContent = '0';
+          lives -= 1;
+          livesValue.textContent = String(lives);
+          if (lives <= 0) {
+            endGame();
+            return;
+          }
+        }
+      }
+
+      draw(w, h);
+      rafId = requestAnimationFrame(gameLoop);
+    }
+
+    function draw(w, h) {
+      ctx.fillStyle = '#0f0f23';
+      ctx.fillRect(0, 0, w, h);
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#1a1a3e');
+      grad.addColorStop(1, '#0d1520');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = 'rgba(0,255,204,0.25)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < w; x += 24) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = '#00ffcc';
+      ctx.lineWidth = 4;
+      ctx.shadowColor = '#00ffcc';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(0, hitLineY);
+      ctx.lineTo(w, hitLineY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      ctx.font = 'bold 22px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      notes.forEach(n => {
+        const dist = Math.abs(n.y - hitLineY);
+        const glow = dist < 40 ? '#ffff88' : '#ffffff';
+        ctx.fillStyle = glow;
+        ctx.shadowColor = '#00ffcc';
+        ctx.shadowBlur = dist < 50 ? 8 : 0;
+        ctx.fillText(String(n.digit), w / 2, n.y);
+        ctx.shadowBlur = 0;
+      });
+    }
+
+    function hitWindow(note) {
+      return Math.abs(note.y - hitLineY) < 44;
+    }
+
+    function onDigitPress(digit, btnEl) {
+      if (!gameActive) return;
+      if (btnEl) {
+        btnEl.classList.add('pressed');
+        setTimeout(() => btnEl.classList.remove('pressed'), 80);
+      }
+
+      const inWindow = notes.filter(n => hitWindow(n));
+      const match = inWindow.find(n => n.digit === parseInt(digit, 10));
+      if (match) {
+        notes = notes.filter(n => n !== match);
+        score += 1 + Math.floor(combo / 5);
+        combo += 1;
+        scoreValue.textContent = String(score);
+        comboValue.textContent = String(combo);
+        return;
+      }
+
+      if (inWindow.length > 0) {
+        lives -= 1;
+        combo = 0;
+        comboValue.textContent = '0';
+        livesValue.textContent = String(lives);
+        if (lives <= 0) endGame();
+      }
+    }
+
+    window.addEventListener('keydown', e => {
+      if (!gameActive) return;
+      const k = e.key;
+      if (/^[0-9]$/.test(k)) {
+        e.preventDefault();
+        onDigitPress(k, null);
+      }
+    });
+
+    function endGame() {
+      if (!gameActive) return;
+      gameActive = false;
+      cancelAnimationFrame(rafId);
+      gameArea.classList.remove('active');
+      results.classList.add('active');
+      finalScoreEl.textContent = String(score);
+      document.getElementById('submissionMessage').style.display = 'none';
+      submitScore().then(() => {
+        setTimeout(() => loadScoreStats(), 400);
+      });
+    }
+
+    async function loadScoreStats() {
+      const currentTeam = document.getElementById('teamSelect').value;
+      document.getElementById('bestScoreDisplay').textContent = 'Loading...';
+      try {
+        const scores = [];
+        const mainSnap = await window.dbGet(window.dbRef(window.db, 'games/phonehero/answers'));
+        if (mainSnap.exists()) Object.values(mainSnap.val()).forEach(s => scores.push(s));
+        const pubSnap = await window.dbGet(window.dbRef(window.db, 'publicAnswers/phonehero'));
+        if (pubSnap.exists()) Object.values(pubSnap.val()).forEach(s => scores.push(s));
+        if (scores.length === 0) {
+          document.getElementById('bestScoreDisplay').textContent = 'No scores yet';
+          return;
+        }
+        const teamScores = scores.filter(s => s.teamName === currentTeam);
+        if (teamScores.length === 0) {
+          document.getElementById('bestScoreDisplay').textContent = 'First score for your team!';
+        } else {
+          const best = Math.max(...teamScores.map(s => s.score || 0));
+          document.getElementById('bestScoreDisplay').textContent = String(best);
+        }
+      } catch (e) {
+        console.error(e);
+        document.getElementById('bestScoreDisplay').textContent = 'Error';
+      }
+    }
+
+    async function submitScore() {
+      const teamName = document.getElementById('teamSelect').value;
+      const barLocation = document.getElementById('barLocation').value;
+      if (!teamName || !barLocation) return;
+      const scoreData = {
+        teamName,
+        barLocation,
+        score,
+        timestamp: Date.now(),
+        date: new Date().toISOString().split('T')[0]
+      };
+      try {
+        const answersRef = window.dbRef(window.db, 'games/phonehero/answers');
+        const newRef = window.dbPush(answersRef);
+        await window.dbSet(newRef, scoreData);
+        document.getElementById('submissionMessage').style.display = 'block';
+      } catch (e) {
+        console.error(e);
+        try {
+          const pubRef = window.dbRef(window.db, 'publicAnswers/phonehero');
+          const newRef = window.dbPush(pubRef);
+          await window.dbSet(newRef, scoreData);
+          document.getElementById('submissionMessage').style.display = 'block';
+        } catch (e2) {
+          console.error(e2);
+        }
+      }
+    }
+
+    function resetGame() {
+      results.classList.remove('active');
+      gameArea.classList.add('active');
+      beginGameplay();
+    }
+
+    function backToMenu() {
+      results.classList.remove('active');
+      gameArea.classList.remove('active');
+      setupForm.style.display = 'flex';
+      gameActive = false;
+      cancelAnimationFrame(rafId);
+    }
+
+    window.startGame = startGame;
+    window.resetGame = resetGame;
+    window.backToMenu = backToMenu;
+    window.onLocationChange = onLocationChange;
+  </script>
+</body>
+</html>

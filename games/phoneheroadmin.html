@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Evil Trivia - Phone Hero Admin</title>
+    <script src="/js/components/autoload-banner.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            margin: 0;
+            padding: 30px;
+            background: linear-gradient(180deg, #1a0a2e 0%, #2d1b4e 100%);
+            margin-top: 60px;
+            min-height: 100vh;
+        }
+        .hidden { display: none; }
+        .section {
+            border: 4px solid #000;
+            padding: 20px;
+            margin-top: 15px;
+            background-color: #2d1b4e;
+            box-shadow: 8px 8px 0px rgba(0,0,0,0.5);
+            max-width: 1200px;
+        }
+        h1, h2 {
+            margin-top: 0;
+            color: #00ffcc;
+            text-shadow: 3px 3px 0px #000;
+        }
+        h1 { text-align: center; margin-bottom: 30px; font-size: 22px; line-height: 1.5; }
+        h2 { font-size: 14px; }
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .control-group label {
+            font-size: 10px;
+            color: #FFD700;
+            text-shadow: 2px 2px 0px #000;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 10px;
+            font-family: 'Press Start 2P', cursive;
+            background-color: #228B22;
+            color: white;
+            border: 3px solid #000;
+            cursor: pointer;
+            box-shadow: 4px 4px 0px #000;
+        }
+        button:hover { background-color: #32CD32; }
+        input[type="text"], input[type="date"], select {
+            padding: 10px;
+            border: 3px solid #000;
+            font-size: 10px;
+            font-family: 'Press Start 2P', cursive;
+            background: #F5DEB3;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: #1a1a3e;
+            padding: 15px;
+            border: 3px solid #000;
+            text-align: center;
+            box-shadow: 4px 4px 0px #000;
+        }
+        .stat-value { font-size: 20px; color: #00ffcc; text-shadow: 2px 2px 0px #000; }
+        .stat-label { font-size: 8px; color: #fff; margin-top: 8px; line-height: 1.5; }
+        .table-container {
+            margin-top: 20px;
+            overflow-x: auto;
+            background: #F5DEB3;
+            border: 3px solid #000;
+            box-shadow: 4px 4px 0px #000;
+        }
+        table { width: 100%; border-collapse: collapse; background: #F5DEB3; }
+        th, td {
+            padding: 12px 8px;
+            text-align: left;
+            border-bottom: 2px solid #000;
+            font-size: 8px;
+            line-height: 1.5;
+        }
+        th {
+            background-color: #2d1b4e;
+            color: #00ffcc;
+            text-shadow: 2px 2px 0px #000;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .score-cell { font-weight: bold; text-align: center; font-size: 10px; }
+        .score-good { color: #32CD32; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 12px;
+            color: #00ffcc;
+            line-height: 1.8;
+        }
+        .error {
+            background: #DC143C;
+            color: #fff;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 3px solid #000;
+            font-size: 10px;
+        }
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #FFD700;
+            font-size: 12px;
+        }
+        a { color: #00ffcc; text-decoration: none; }
+        a:hover { color: #fff; }
+        #activeSessionsInfo { margin-top: 15px; padding: 15px; background: rgba(0,255,204,0.12); border: 2px solid #00ffcc; }
+    </style>
+</head>
+<body>
+    <h1>📱 PHONE HERO ADMIN 📱</h1>
+
+    <div id="authContainer" class="section">
+        <h2>AUTHENTICATION REQUIRED</h2>
+        <p style="color: #fff; font-size: 10px; line-height: 1.8;">Please log in with your admin account to access this page.</p>
+        <p style="margin-top: 15px;"><a href="/pages/account.html">Go to Account Page</a></p>
+    </div>
+
+    <div id="adminContainer" class="hidden">
+        <div class="section">
+            <h2>SESSION MANAGEMENT</h2>
+            <p style="color: #fff; font-size: 9px; line-height: 1.6; margin-bottom: 15px;">
+                Same workflow as Lemon Drop: load sessions from grading, activate one session per location. Teams listed here apply to Phone Hero and other bar games that share this list.
+            </p>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="sessionLocationFilter">LOCATION:</label>
+                    <select id="sessionLocationFilter" onchange="filterSessionsByLocation()">
+                        <option value="">All Locations</option>
+                        <option value="St. Dymphna's">St. Dymphna's</option>
+                        <option value="Radegast Hall">Radegast Hall</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="existingSessionSelect">SELECT SESSION:</label>
+                    <select id="existingSessionSelect">
+                        <option value="">Select a session...</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>&nbsp;</label>
+                    <button type="button" onclick="activateSession()">ACTIVATE SESSION</button>
+                </div>
+                <div class="control-group">
+                    <label>&nbsp;</label>
+                    <button type="button" onclick="loadExistingSessions()">REFRESH SESSIONS</button>
+                </div>
+                <div class="control-group">
+                    <label>&nbsp;</label>
+                    <button type="button" onclick="clearAllSessions()" style="background-color: #DC143C;">CLEAR ALL</button>
+                </div>
+            </div>
+            <div id="activeSessionsInfo">
+                <strong style="color: #00ffcc;">ACTIVE SESSIONS:</strong>
+                <div id="activeSessionsList" style="color: #fff; margin-top: 10px; font-size: 9px; line-height: 1.8;">None</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="controls">
+                <div class="control-group">
+                    <label for="barFilter">FILTER BY BAR:</label>
+                    <select id="barFilter">
+                        <option value="">All Locations</option>
+                        <option value="St. Dymphna's">St. Dymphna's</option>
+                        <option value="Radegast Hall">Radegast Hall</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="dateFilter">FILTER BY DATE:</label>
+                    <input type="date" id="dateFilter">
+                </div>
+                <div class="control-group">
+                    <label for="teamFilter">SEARCH TEAM:</label>
+                    <input type="text" id="teamFilter" placeholder="Team name...">
+                </div>
+                <div class="control-group">
+                    <label for="sortBy">SORT BY:</label>
+                    <select id="sortBy">
+                        <option value="high-desc">High Score (Best First)</option>
+                        <option value="high-asc">High Score (Worst First)</option>
+                        <option value="recent-desc">Most Recent Play</option>
+                        <option value="teamName-asc">Team Name A-Z</option>
+                        <option value="location-asc">Location A-Z</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>&nbsp;</label>
+                    <button type="button" onclick="loadScores()">REFRESH DATA</button>
+                </div>
+            </div>
+
+            <div id="statsSection" class="stats hidden">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalScores">0</div>
+                    <div class="stat-label">TOTAL GAMES</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="averageScore">0</div>
+                    <div class="stat-label">AVERAGE SCORE</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="highScore">0</div>
+                    <div class="stat-label">BEST SCORE</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="todayScores">0</div>
+                    <div class="stat-label">TODAY'S GAMES</div>
+                </div>
+            </div>
+
+            <div id="errorMessage" class="error hidden"></div>
+            <div id="loadingMessage" class="loading">Click "REFRESH DATA" to load scores...</div>
+            <div id="noDataMessage" class="no-data hidden">No scores found matching the current filters.</div>
+
+            <div class="table-container">
+                <table id="scoresTable" class="hidden">
+                    <thead>
+                        <tr>
+                            <th>TEAM NAME</th>
+                            <th>LOCATION</th>
+                            <th>RECENT</th>
+                            <th>HIGH</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scoresTableBody"></tbody>
+                </table>
+            </div>
+            <p style="font-size: 8px; color: #94a3b8; margin-top: 12px;">LAST UPDATED: <span id="lastUpdate">Never</span></p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+        import { getDatabase, ref, get, remove, set } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+            authDomain: "eviltrivia-47664.firebaseapp.com",
+            databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+            projectId: "eviltrivia-47664",
+            storageBucket: "eviltrivia-47664.firebaseapp.com",
+            messagingSenderId: "401826818140",
+            appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+            measurementId: "G-2W6RK96Y34"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const auth = getAuth(app);
+        window.db = db;
+        window.dbRef = ref;
+        window.dbGet = get;
+        window.dbRemove = remove;
+        window.dbSet = set;
+
+        onAuthStateChanged(auth, async (user) => {
+            const authContainer = document.getElementById('authContainer');
+            const adminContainer = document.getElementById('adminContainer');
+            if (user) {
+                try {
+                    const userRoleRef = ref(db, `users/${user.uid}/role`);
+                    const roleSnapshot = await get(userRoleRef);
+                    if (roleSnapshot.exists() && roleSnapshot.val() === 'admin') {
+                        authContainer.style.display = 'none';
+                        adminContainer.classList.remove('hidden');
+                        window.loadScores();
+                    } else {
+                        authContainer.style.display = 'block';
+                        adminContainer.classList.add('hidden');
+                    }
+                } catch (error) {
+                    console.error(error);
+                    authContainer.style.display = 'block';
+                    adminContainer.classList.add('hidden');
+                }
+            } else {
+                authContainer.style.display = 'block';
+                adminContainer.classList.add('hidden');
+            }
+        });
+    </script>
+
+    <script>
+        const ACTIVE_SESSIONS_PATH = 'games/lemondrop/activeSessions';
+
+        let allScores = [];
+        let filteredScores = [];
+
+        const barFilter = document.getElementById('barFilter');
+        const dateFilter = document.getElementById('dateFilter');
+        const teamFilter = document.getElementById('teamFilter');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        const noDataMessage = document.getElementById('noDataMessage');
+        const scoresTable = document.getElementById('scoresTable');
+        const scoresTableBody = document.getElementById('scoresTableBody');
+        const statsSection = document.getElementById('statsSection');
+        const lastUpdate = document.getElementById('lastUpdate');
+
+        barFilter.addEventListener('change', applyFilters);
+        dateFilter.addEventListener('change', applyFilters);
+        teamFilter.addEventListener('input', applyFilters);
+        document.getElementById('sortBy').addEventListener('change', applySorting);
+
+        window.loadScores = loadScores;
+
+        async function loadScores() {
+            loadingMessage.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+            try {
+                allScores = [];
+                const mainRef = window.dbRef(window.db, 'games/phonehero/answers');
+                const mainSnap = await window.dbGet(mainRef);
+                if (mainSnap.exists()) {
+                    const data = mainSnap.val();
+                    Object.keys(data).forEach(key => {
+                        const score = data[key];
+                        score.id = key;
+                        score.source = 'main';
+                        score.game = 'phonehero';
+                        allScores.push(score);
+                    });
+                }
+                const pubRef = window.dbRef(window.db, 'publicAnswers/phonehero');
+                const pubSnap = await window.dbGet(pubRef);
+                if (pubSnap.exists()) {
+                    const data = pubSnap.val();
+                    Object.keys(data).forEach(key => {
+                        const score = data[key];
+                        score.id = key;
+                        score.source = 'public';
+                        score.game = 'phonehero';
+                        allScores.push(score);
+                    });
+                }
+                loadingMessage.classList.add('hidden');
+                applyFilters();
+                lastUpdate.textContent = new Date().toLocaleString();
+            } catch (error) {
+                console.error(error);
+                errorMessage.textContent = 'Failed to load scores: ' + error.message;
+                errorMessage.classList.remove('hidden');
+                loadingMessage.classList.add('hidden');
+            }
+        }
+
+        async function applyFilters() {
+            const barValue = barFilter.value;
+            const dateValue = dateFilter.value;
+            const teamValue = teamFilter.value.toLowerCase().trim();
+
+            let activeTeamNames = new Set();
+            try {
+                const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, ACTIVE_SESSIONS_PATH));
+                if (activeSessionsSnap.exists()) {
+                    const activeSessions = activeSessionsSnap.val();
+                    for (const locationKey in activeSessions) {
+                        const sessionData = activeSessions[locationKey];
+                        if (sessionData.teams && Array.isArray(sessionData.teams)) {
+                            sessionData.teams.forEach(team => activeTeamNames.add(team));
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+            }
+
+            filteredScores = allScores.filter(score => {
+                if (activeTeamNames.size > 0 && !activeTeamNames.has(score.teamName)) return false;
+                if (barValue && score.barLocation !== barValue) return false;
+                if (dateValue && score.date !== dateValue) return false;
+                if (teamValue && !score.teamName.toLowerCase().includes(teamValue)) return false;
+                return true;
+            });
+            applySorting();
+        }
+
+        function applySorting() {
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            if (filteredScores.length === 0) {
+                noDataMessage.classList.remove('hidden');
+                scoresTable.classList.add('hidden');
+                statsSection.classList.add('hidden');
+            } else {
+                noDataMessage.classList.add('hidden');
+                scoresTable.classList.remove('hidden');
+                statsSection.classList.remove('hidden');
+                populateTable();
+                updateStats();
+            }
+        }
+
+        function populateTable() {
+            scoresTableBody.innerHTML = '';
+            const grouped = {};
+            filteredScores.forEach(score => {
+                const key = `${score.teamName}|${score.barLocation}`;
+                if (!grouped[key]) {
+                    grouped[key] = {
+                        teamName: score.teamName || 'Unknown',
+                        location: score.barLocation || 'Unknown',
+                        scores: []
+                    };
+                }
+                grouped[key].scores.push(score);
+            });
+
+            const sortBy = document.getElementById('sortBy').value;
+            const [field, direction] = sortBy.split('-');
+            const entries = Object.values(grouped).sort((a, b) => {
+                let aVal, bVal;
+                const aHigh = a.scores.length ? Math.max(...a.scores.map(s => s.score || 0)) : -1;
+                const bHigh = b.scores.length ? Math.max(...b.scores.map(s => s.score || 0)) : -1;
+                const aRecent = a.scores.length ? Math.max(...a.scores.map(s => s.timestamp || 0)) : 0;
+                const bRecent = b.scores.length ? Math.max(...b.scores.map(s => s.timestamp || 0)) : 0;
+                switch (field) {
+                    case 'teamName':
+                        aVal = a.teamName.toLowerCase();
+                        bVal = b.teamName.toLowerCase();
+                        break;
+                    case 'location':
+                        aVal = a.location.toLowerCase();
+                        bVal = b.location.toLowerCase();
+                        break;
+                    case 'high':
+                        aVal = aHigh;
+                        bVal = bHigh;
+                        break;
+                    case 'recent':
+                        aVal = aRecent;
+                        bVal = bRecent;
+                        break;
+                    default:
+                        return 0;
+                }
+                if (direction === 'asc') {
+                    return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+                }
+                return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+            });
+
+            entries.forEach(entry => {
+                const row = document.createElement('tr');
+                const sortedByTime = [...entry.scores].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                const recent = sortedByTime.length ? sortedByTime[0].score : '-';
+                const high = Math.max(...entry.scores.map(s => s.score || 0));
+                row.innerHTML = `
+                    <td><strong>${escapeHtml(entry.teamName)}</strong></td>
+                    <td>${escapeHtml(entry.location)}</td>
+                    <td class="score-cell">${recent}</td>
+                    <td class="score-cell score-good">${high}</td>
+                `;
+                scoresTableBody.appendChild(row);
+            });
+        }
+
+        function updateStats() {
+            const total = filteredScores.length;
+            const nums = filteredScores.map(s => s.score || 0);
+            const average = nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0;
+            const high = nums.length ? Math.max(...nums) : 0;
+            const today = new Date().toISOString().split('T')[0];
+            const todayCount = filteredScores.filter(s => s.date === today).length;
+            document.getElementById('totalScores').textContent = total;
+            document.getElementById('averageScore').textContent = average;
+            document.getElementById('highScore').textContent = high;
+            document.getElementById('todayScores').textContent = todayCount;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        let allSessions = [];
+        let filteredSessions = [];
+
+        async function loadExistingSessions() {
+            try {
+                const sessionsSnap = await window.dbGet(window.dbRef(window.db, 'grading'));
+                allSessions = [];
+                if (sessionsSnap.exists()) {
+                    const sessions = sessionsSnap.val();
+                    allSessions = Object.entries(sessions)
+                        .map(([id, data]) => ({
+                            id,
+                            location: data.location || 'Unknown',
+                            date: data.date || '',
+                            triviaNumber: data.triviaNumber || '',
+                            triviaName: data.triviaName || ''
+                        }))
+                        .sort((a, b) => new Date(b.date) - new Date(a.date));
+                }
+                filterSessionsByLocation();
+                await displayActiveSessions();
+            } catch (error) {
+                console.error(error);
+                alert('Error loading sessions: ' + error.message);
+            }
+        }
+
+        function filterSessionsByLocation() {
+            const locationFilter = document.getElementById('sessionLocationFilter').value;
+            const sessionSelect = document.getElementById('existingSessionSelect');
+            sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+            filteredSessions = locationFilter
+                ? allSessions.filter(s => s.location === locationFilter)
+                : allSessions;
+            filteredSessions.forEach(session => {
+                const option = document.createElement('option');
+                option.value = session.id;
+                option.textContent = `${session.date} - ${session.location}${session.triviaName ? ' - ' + session.triviaName : ''}`;
+                sessionSelect.appendChild(option);
+            });
+        }
+
+        function encodeLocationKey(location) {
+            return location.replace(/[.#$\[\]']/g, '_');
+        }
+
+        async function activateSession() {
+            const sessionSelect = document.getElementById('existingSessionSelect');
+            const sessionId = sessionSelect.value;
+            if (!sessionId) {
+                alert('Please select a session');
+                return;
+            }
+            try {
+                const sessionSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}`));
+                if (!sessionSnap.exists()) {
+                    alert('Session not found');
+                    return;
+                }
+                const sessionData = sessionSnap.val();
+                const location = sessionData.location;
+                const locationKey = encodeLocationKey(location);
+                const teamsSnap = await window.dbGet(window.dbRef(window.db, `grading/${sessionId}/teams`));
+                const teamNames = [];
+                if (teamsSnap.exists()) {
+                    const teams = teamsSnap.val();
+                    Object.values(teams).forEach(team => {
+                        if (team.name) teamNames.push(team.name);
+                    });
+                }
+                const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, ACTIVE_SESSIONS_PATH));
+                const activeSessions = activeSessionsSnap.exists() ? activeSessionsSnap.val() : {};
+                activeSessions[locationKey] = {
+                    sessionId,
+                    date: sessionData.date,
+                    location,
+                    teams: teamNames
+                };
+                await window.dbSet(window.dbRef(window.db, ACTIVE_SESSIONS_PATH), activeSessions);
+                alert(`Session activated for ${location} with ${teamNames.length} teams!`);
+                await displayActiveSessions();
+            } catch (error) {
+                console.error(error);
+                alert('Error activating session: ' + error.message);
+            }
+        }
+
+        async function displayActiveSessions() {
+            try {
+                const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, ACTIVE_SESSIONS_PATH));
+                const activeSessionsList = document.getElementById('activeSessionsList');
+                if (!activeSessionsSnap.exists() || Object.keys(activeSessionsSnap.val()).length === 0) {
+                    activeSessionsList.innerHTML = 'None';
+                    return;
+                }
+                const activeSessions = activeSessionsSnap.val();
+                let html = '';
+                for (const [locationKey, sessionData] of Object.entries(activeSessions)) {
+                    const displayLocation = sessionData.location || locationKey;
+                    const teamCount = sessionData.teams ? sessionData.teams.length : 0;
+                    html += `<div style="margin-bottom: 8px;">
+                        <strong>${displayLocation}:</strong> ${sessionData.date} (${teamCount} teams)
+                        <button type="button" onclick="removeSessionForLocation('${locationKey}')" style="margin-left: 10px; padding: 4px 8px; font-size: 7px; background: #DC143C;">REMOVE</button>
+                    </div>`;
+                }
+                activeSessionsList.innerHTML = html || 'None';
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        async function removeSessionForLocation(locationKey) {
+            try {
+                const activeSessionsSnap = await window.dbGet(window.dbRef(window.db, ACTIVE_SESSIONS_PATH));
+                if (!activeSessionsSnap.exists()) return;
+                const activeSessions = activeSessionsSnap.val();
+                const displayLocation = activeSessions[locationKey]?.location || locationKey;
+                delete activeSessions[locationKey];
+                if (Object.keys(activeSessions).length === 0) {
+                    await window.dbRemove(window.dbRef(window.db, ACTIVE_SESSIONS_PATH));
+                } else {
+                    await window.dbSet(window.dbRef(window.db, ACTIVE_SESSIONS_PATH), activeSessions);
+                }
+                alert(`Session removed for ${displayLocation}`);
+                await displayActiveSessions();
+            } catch (error) {
+                console.error(error);
+                alert('Error removing session: ' + error.message);
+            }
+        }
+
+        async function clearAllSessions() {
+            if (!confirm('Clear all active sessions?')) return;
+            try {
+                await window.dbRemove(window.dbRef(window.db, ACTIVE_SESSIONS_PATH));
+                alert('All sessions cleared');
+                await displayActiveSessions();
+            } catch (error) {
+                console.error(error);
+                alert('Error clearing sessions: ' + error.message);
+            }
+        }
+
+        window.loadExistingSessions = loadExistingSessions;
+        window.activateSession = activateSession;
+        window.filterSessionsByLocation = filterSessionsByLocation;
+        window.removeSessionForLocation = removeSessionForLocation;
+        window.clearAllSessions = clearAllSessions;
+
+        setTimeout(() => {
+            if (!document.getElementById('adminContainer').classList.contains('hidden')) {
+                loadExistingSessions();
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
