@@ -175,11 +175,10 @@
         <div class="hud">
           <div>SCORE: <span id="scoreValue">0</span></div>
           <div>COMBO: <span id="comboValue">0</span></div>
-          <div>LIVES: <span id="livesValue">3</span></div>
         </div>
         <canvas id="gameCanvas" width="400" height="420"></canvas>
         <div class="keypad" id="keypad" aria-label="Number pad"></div>
-        <p class="hint">Keyboard: 0–9 &nbsp;|&nbsp; Wrong tap in the hit zone costs a life.</p>
+        <p class="hint">Keyboard: 0–9 &nbsp;|&nbsp; One miss or wrong tap in the hit zone ends the run.</p>
       </div>
 
       <div id="results" class="results">
@@ -231,7 +230,6 @@
     const ctx = canvas.getContext('2d');
     const scoreValue = document.getElementById('scoreValue');
     const comboValue = document.getElementById('comboValue');
-    const livesValue = document.getElementById('livesValue');
     const finalScoreEl = document.getElementById('finalScore');
     const keypadEl = document.getElementById('keypad');
 
@@ -239,7 +237,6 @@
     let notes = [];
     let score = 0;
     let combo = 0;
-    let lives = 3;
     let lastTs = 0;
     let rafId = 0;
     let spawnAcc = 0;
@@ -339,14 +336,12 @@
       notes = [];
       score = 0;
       combo = 0;
-      lives = 3;
       spawnAcc = 0;
       fallSpeed = 200;
       spawnInterval = 1.85;
       lastTs = performance.now();
       scoreValue.textContent = '0';
       comboValue.textContent = '0';
-      livesValue.textContent = '3';
       resizeCanvas();
       rafId = requestAnimationFrame(gameLoop);
     }
@@ -360,8 +355,8 @@
     }
 
     function difficultyFromScore() {
-      fallSpeed = Math.min(520, 200 + score * 2.2);
-      spawnInterval = Math.max(0.42, 1.85 - score * 0.018);
+      fallSpeed = Math.min(640, 175 + score * 3.8);
+      spawnInterval = Math.max(0.28, 1.55 - score * 0.032);
     }
 
     function gameLoop(ts) {
@@ -384,12 +379,8 @@
           notes.splice(i, 1);
           combo = 0;
           comboValue.textContent = '0';
-          lives -= 1;
-          livesValue.textContent = String(lives);
-          if (lives <= 0) {
-            endGame();
-            return;
-          }
+          endGame();
+          return;
         }
       }
 
@@ -462,11 +453,9 @@
       }
 
       if (inWindow.length > 0) {
-        lives -= 1;
         combo = 0;
         comboValue.textContent = '0';
-        livesValue.textContent = String(lives);
-        if (lives <= 0) endGame();
+        endGame();
       }
     }
 
@@ -494,27 +483,38 @@
 
     async function loadScoreStats() {
       const currentTeam = document.getElementById('teamSelect').value;
-      document.getElementById('bestScoreDisplay').textContent = 'Loading...';
+      const bestEl = document.getElementById('bestScoreDisplay');
+      bestEl.textContent = 'Loading...';
+      const scores = [];
       try {
-        const scores = [];
-        const mainSnap = await window.dbGet(window.dbRef(window.db, 'games/phonehero/answers'));
-        if (mainSnap.exists()) Object.values(mainSnap.val()).forEach(s => scores.push(s));
         const pubSnap = await window.dbGet(window.dbRef(window.db, 'publicAnswers/phonehero'));
         if (pubSnap.exists()) Object.values(pubSnap.val()).forEach(s => scores.push(s));
-        if (scores.length === 0) {
-          document.getElementById('bestScoreDisplay').textContent = 'No scores yet';
-          return;
-        }
-        const teamScores = scores.filter(s => s.teamName === currentTeam);
-        if (teamScores.length === 0) {
-          document.getElementById('bestScoreDisplay').textContent = 'First score for your team!';
-        } else {
-          const best = Math.max(...teamScores.map(s => s.score || 0));
-          document.getElementById('bestScoreDisplay').textContent = String(best);
-        }
       } catch (e) {
-        console.error(e);
-        document.getElementById('bestScoreDisplay').textContent = 'Error';
+        console.warn('phonehero publicAnswers read', e);
+      }
+      try {
+        const mainSnap = await window.dbGet(window.dbRef(window.db, 'games/phonehero/answers'));
+        if (mainSnap.exists()) Object.values(mainSnap.val()).forEach(s => scores.push(s));
+      } catch (e) {
+        console.warn('phonehero answers read', e);
+      }
+      const seen = new Set();
+      const merged = [];
+      for (const s of scores) {
+        const k = `${s.teamName}|${s.score}|${s.timestamp}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        merged.push(s);
+      }
+      if (merged.length === 0) {
+        bestEl.textContent = 'No scores yet';
+        return;
+      }
+      const teamScores = merged.filter(s => s.teamName === currentTeam);
+      if (teamScores.length === 0) {
+        bestEl.textContent = 'First score for your team!';
+      } else {
+        bestEl.textContent = String(Math.max(...teamScores.map(s => s.score || 0)));
       }
     }
 
@@ -529,18 +529,29 @@
         timestamp: Date.now(),
         date: new Date().toISOString().split('T')[0]
       };
+      const showSaved = () => {
+        document.getElementById('submissionMessage').style.display = 'block';
+      };
       try {
         const answersRef = window.dbRef(window.db, 'games/phonehero/answers');
         const newRef = window.dbPush(answersRef);
         await window.dbSet(newRef, scoreData);
-        document.getElementById('submissionMessage').style.display = 'block';
+        showSaved();
+        try {
+          await window.dbSet(
+            window.dbRef(window.db, 'publicAnswers/phonehero/' + newRef.key),
+            scoreData
+          );
+        } catch (mirrorErr) {
+          console.warn('phonehero public mirror', mirrorErr);
+        }
       } catch (e) {
         console.error(e);
         try {
           const pubRef = window.dbRef(window.db, 'publicAnswers/phonehero');
           const newRef = window.dbPush(pubRef);
           await window.dbSet(newRef, scoreData);
-          document.getElementById('submissionMessage').style.display = 'block';
+          showSaved();
         } catch (e2) {
           console.error(e2);
         }
