@@ -101,23 +101,39 @@
     .keypad {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
+      gap: 10px;
       margin-top: 4px;
-      max-width: 320px;
+      width: 100%;
+      max-width: 400px;
       margin-left: auto;
       margin-right: auto;
     }
     .keypad button {
       aspect-ratio: 1;
-      max-height: 64px;
+      min-height: 56px;
+      max-height: 72px;
       font-family: 'Press Start 2P', cursive;
-      font-size: 16px;
+      font-size: 17px;
       border: 3px solid #000;
       background: linear-gradient(180deg, #4a5568 0%, #2d3748 100%);
       color: #fff;
       cursor: pointer;
       box-shadow: 3px 3px 0 #000;
       touch-action: manipulation;
+    }
+    @media (max-width: 600px) {
+      .keypad {
+        max-width: none;
+        gap: 14px;
+        padding: 0 2px;
+      }
+      .keypad button {
+        min-height: 92px;
+        max-height: none;
+        font-size: clamp(22px, 7.5vw, 30px);
+        border-width: 4px;
+        box-shadow: 4px 4px 0 #000;
+      }
     }
     .keypad button:active, .keypad button.pressed {
       transform: translate(2px, 2px);
@@ -147,7 +163,7 @@
 <body>
   <div class="container">
     <h1>📱 PHONE HERO 📱</h1>
-    <div class="subtitle">Tap the number when it hits the glowing line.<br>Speed ramps up as your score grows. Use the keypad or keyboard 1–9.</div>
+    <div class="subtitle">Tap when the number turns green in the hit zone.<br>Speed ramps up as your score grows. Use the keypad or keyboard 1–9.</div>
 
     <div class="game-card">
       <div id="setupForm" class="setup-form">
@@ -237,7 +253,6 @@
     let lastTs = 0;
     let rafId = 0;
     let spawnAcc = 0;
-    let hitLineY = 360;
     let fallSpeed = 220;
     let spawnInterval = 1.85;
     let spawnCount = 0;
@@ -268,6 +283,13 @@
       keypadEl.appendChild(b);
     });
 
+    function hitZoneBounds(h) {
+      const zoneH = Math.max(80, h * 0.26);
+      const bottom = h * 0.93;
+      const top = bottom - zoneH;
+      return { top, bottom };
+    }
+
     function resizeCanvas() {
       const maxW = Math.min(400, window.innerWidth - 40);
       const ratio = 420 / 400;
@@ -277,11 +299,10 @@
       canvas.width = Math.floor(maxW * dpr);
       canvas.height = Math.floor(maxW * ratio * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      hitLineY = maxW * ratio * 0.86;
     }
     resizeCanvas();
     window.addEventListener('resize', () => {
-      if (!gameActive) resizeCanvas();
+      resizeCanvas();
     });
 
     async function onLocationChange() {
@@ -395,9 +416,10 @@
 
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
+      const { bottom: zoneBottom } = hitZoneBounds(h);
       for (let i = notes.length - 1; i >= 0; i--) {
         notes[i].y += fallSpeed * dt;
-        if (notes[i].y > hitLineY + 48) {
+        if (notes[i].y > zoneBottom + 28) {
           notes.splice(i, 1);
           combo = 0;
           comboValue.textContent = '0';
@@ -419,7 +441,7 @@
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
 
-      ctx.strokeStyle = 'rgba(0,255,204,0.25)';
+      ctx.strokeStyle = 'rgba(0,255,204,0.2)';
       ctx.lineWidth = 1;
       for (let x = 0; x < w; x += 24) {
         ctx.beginPath();
@@ -428,32 +450,44 @@
         ctx.stroke();
       }
 
-      ctx.strokeStyle = '#00ffcc';
-      ctx.lineWidth = 4;
-      ctx.shadowColor = '#00ffcc';
-      ctx.shadowBlur = 12;
+      const { top: zTop, bottom: zBottom } = hitZoneBounds(h);
+      ctx.fillStyle = 'rgba(0, 220, 120, 0.18)';
+      ctx.fillRect(0, zTop, w, zBottom - zTop);
+      ctx.strokeStyle = 'rgba(0, 255, 150, 0.6)';
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(0, hitLineY);
-      ctx.lineTo(w, hitLineY);
+      ctx.moveTo(0, zTop);
+      ctx.lineTo(w, zTop);
+      ctx.moveTo(0, zBottom);
+      ctx.lineTo(w, zBottom);
       ctx.stroke();
-      ctx.shadowBlur = 0;
 
       ctx.font = 'bold 22px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       notes.forEach(n => {
-        const dist = Math.abs(n.y - hitLineY);
-        const glow = dist < 40 ? '#ffff88' : '#ffffff';
-        ctx.fillStyle = glow;
-        ctx.shadowColor = '#00ffcc';
-        ctx.shadowBlur = dist < 50 ? 8 : 0;
+        const inZone = inHitZone(n, h);
+        if (inZone) {
+          ctx.fillStyle = '#39ff14';
+          ctx.shadowColor = '#00ff88';
+          ctx.shadowBlur = 14;
+        } else {
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = '#00ffcc';
+          ctx.shadowBlur = 6;
+        }
         ctx.fillText(String(n.digit), w / 2, n.y);
         ctx.shadowBlur = 0;
       });
     }
 
+    function inHitZone(note, h) {
+      const { top, bottom } = hitZoneBounds(h);
+      return note.y >= top && note.y <= bottom;
+    }
+
     function hitWindow(note) {
-      return Math.abs(note.y - hitLineY) < 44;
+      return inHitZone(note, canvas.clientHeight);
     }
 
     function onDigitPress(digit, btnEl) {
