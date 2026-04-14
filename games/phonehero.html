@@ -18,11 +18,36 @@
       user-select: none;
       color: #fff;
     }
+    html.phone-hero-playing,
+    html.phone-hero-playing body {
+      height: 100%;
+      max-height: 100%;
+      overflow: hidden;
+    }
     .container {
       max-width: 520px;
       margin: 0 auto;
       padding: 12px;
       padding-bottom: 24px;
+    }
+    html.phone-hero-playing .container {
+      padding: 6px 8px 8px;
+      max-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+    }
+    html.phone-hero-playing .game-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 8px;
+    }
+    html.phone-hero-playing h1 {
+      font-size: 16px;
+      margin-bottom: 4px;
+      flex-shrink: 0;
     }
     h1 {
       text-align: center;
@@ -70,8 +95,13 @@
     }
     .btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 #000; }
     .btn-secondary { background: #4169E1; }
-    .game-area { display: none; flex-direction: column; gap: 8px; }
-    .game-area.active { display: flex; }
+    .game-area { display: none; flex-direction: column; gap: 6px; min-height: 0; }
+    .game-area.active {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
     .hud {
       display: flex;
       flex-wrap: wrap;
@@ -79,27 +109,34 @@
       gap: 8px;
       background: rgba(0,0,0,0.75);
       border: 3px solid #000;
-      padding: 10px;
+      padding: 8px;
       font-size: 9px;
+      flex-shrink: 0;
     }
     .hud span { color: #00ffcc; }
     #gameCanvas {
       display: block;
       width: 100%;
       max-width: 100%;
+      flex: 1 1 auto;
+      min-height: 100px;
+      max-height: 100%;
       border: 4px solid #000;
       background: linear-gradient(180deg, #0f0f23 0%, #1a1a3e 50%, #0d1f0d 100%);
       image-rendering: pixelated;
+      touch-action: none;
     }
     .keypad {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 10px;
-      margin-top: 4px;
+      margin-top: 2px;
       width: 100%;
       max-width: 400px;
       margin-left: auto;
       margin-right: auto;
+      flex-shrink: 0;
+      touch-action: manipulation;
     }
     .keypad button {
       aspect-ratio: 1;
@@ -117,15 +154,16 @@
     @media (max-width: 600px) {
       .keypad {
         max-width: none;
-        gap: 14px;
+        gap: 8px;
         padding: 0 2px;
       }
       .keypad button {
-        min-height: 92px;
-        max-height: none;
-        font-size: clamp(22px, 7.5vw, 30px);
-        border-width: 4px;
-        box-shadow: 4px 4px 0 #000;
+        min-height: 56px;
+        max-height: min(22vw, 88px);
+        aspect-ratio: 1;
+        font-size: clamp(18px, 6.5vw, 26px);
+        border-width: 3px;
+        box-shadow: 3px 3px 0 #000;
       }
     }
     .keypad button:active, .keypad button.pressed {
@@ -286,27 +324,63 @@
       keypadEl.appendChild(b);
     });
 
-    function hitZoneBounds(h) {
+    const NUM_LANES = 5;
+    /** Extra px below strict zone where a tap still counts (reaction / frame timing). */
+    const HIT_ZONE_EXTEND_BELOW = 18;
+
+    function laneCenterX(w, lane) {
+      const L = Math.max(0, Math.min(NUM_LANES - 1, lane | 0));
+      const margin = w * 0.07;
+      const usable = w - 2 * margin;
+      return margin + (usable / (NUM_LANES - 1)) * L;
+    }
+
+    function hitZoneBoundsStrict(h) {
       const zoneH = Math.max(80, h * 0.26);
       const bottom = h * 0.93;
       const top = bottom - zoneH;
       return { top, bottom };
     }
 
+    function hitZoneBoundsPlay(h) {
+      const s = hitZoneBoundsStrict(h);
+      return { top: s.top, bottom: s.bottom + HIT_ZONE_EXTEND_BELOW };
+    }
+
     function resizeCanvas() {
-      const maxW = Math.min(400, window.innerWidth - 40);
-      const ratio = 420 / 400;
+      const maxW = Math.min(400, window.innerWidth - 32);
+      let cssH;
+      if (gameArea.classList.contains('active')) {
+        const vv = window.visualViewport;
+        const vh = vv && vv.height ? vv.height : window.innerHeight;
+        const hud = gameArea.querySelector('.hud');
+        const keypad = document.getElementById('keypad');
+        const rect = gameArea.getBoundingClientRect();
+        const gapBetween = 14;
+        const hudH = hud ? hud.offsetHeight : 0;
+        const keypadH = keypad ? keypad.offsetHeight : 220;
+        const availCssH = vh - rect.top - hudH - keypadH - gapBetween;
+        const maxByRatio = maxW * (420 / 400);
+        cssH = Math.max(110, Math.min(maxByRatio, availCssH));
+      } else {
+        cssH = Math.round(maxW * (420 / 400));
+      }
       canvas.style.width = maxW + 'px';
-      canvas.style.height = Math.round(maxW * ratio) + 'px';
+      canvas.style.height = Math.round(cssH) + 'px';
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.floor(maxW * dpr);
-      canvas.height = Math.floor(maxW * ratio * dpr);
+      canvas.height = Math.floor(cssH * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     resizeCanvas();
-    window.addEventListener('resize', () => {
+    function onViewportResize() {
       resizeCanvas();
-    });
+    }
+    window.addEventListener('resize', onViewportResize);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', onViewportResize);
+      window.visualViewport.addEventListener('scroll', onViewportResize);
+    }
 
     async function onLocationChange() {
       const location = document.getElementById('barLocation').value;
@@ -364,6 +438,7 @@
       setupForm.style.display = 'none';
       gameArea.classList.add('active');
       results.classList.remove('active');
+      document.documentElement.classList.add('phone-hero-playing');
       beginGameplay();
     }
 
@@ -380,7 +455,10 @@
       scoreValue.textContent = '0';
       comboValue.textContent = '0';
       resizeCanvas();
-      rafId = requestAnimationFrame(gameLoop);
+      requestAnimationFrame(() => {
+        resizeCanvas();
+        rafId = requestAnimationFrame(gameLoop);
+      });
     }
 
     function spawnNote() {
@@ -395,6 +473,7 @@
       }
       notes.push({
         digit,
+        lane: Math.floor(Math.random() * NUM_LANES),
         y: -24,
         id: Math.random()
       });
@@ -419,10 +498,10 @@
 
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
-      const { bottom: zoneBottom } = hitZoneBounds(h);
+      const { bottom: playBottom } = hitZoneBoundsPlay(h);
       for (let i = notes.length - 1; i >= 0; i--) {
         notes[i].y += fallSpeed * dt;
-        if (notes[i].y > zoneBottom + 28) {
+        if (notes[i].y > playBottom + 24) {
           notes.splice(i, 1);
           combo = 0;
           comboValue.textContent = '0';
@@ -453,7 +532,7 @@
         ctx.stroke();
       }
 
-      const { top: zTop, bottom: zBottom } = hitZoneBounds(h);
+      const { top: zTop, bottom: zBottom } = hitZoneBoundsStrict(h);
       ctx.fillStyle = 'rgba(0, 220, 120, 0.18)';
       ctx.fillRect(0, zTop, w, zBottom - zTop);
       ctx.strokeStyle = 'rgba(0, 255, 150, 0.6)';
@@ -469,7 +548,8 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       notes.forEach(n => {
-        const inZone = inHitZone(n, h);
+        const inZone = inHitZoneStrict(n, h);
+        const x = laneCenterX(w, n.lane);
         if (inZone) {
           ctx.fillStyle = '#39ff14';
           ctx.shadowColor = '#00ff88';
@@ -479,18 +559,23 @@
           ctx.shadowColor = '#00ffcc';
           ctx.shadowBlur = 6;
         }
-        ctx.fillText(String(n.digit), w / 2, n.y);
+        ctx.fillText(String(n.digit), x, n.y);
         ctx.shadowBlur = 0;
       });
     }
 
-    function inHitZone(note, h) {
-      const { top, bottom } = hitZoneBounds(h);
+    function inHitZoneStrict(note, h) {
+      const { top, bottom } = hitZoneBoundsStrict(h);
+      return note.y >= top && note.y <= bottom;
+    }
+
+    function inHitZonePlay(note, h) {
+      const { top, bottom } = hitZoneBoundsPlay(h);
       return note.y >= top && note.y <= bottom;
     }
 
     function hitWindow(note) {
-      return inHitZone(note, canvas.clientHeight);
+      return inHitZonePlay(note, canvas.clientHeight);
     }
 
     function onDigitPress(digit, btnEl) {
@@ -532,6 +617,7 @@
       gameActive = false;
       cancelAnimationFrame(rafId);
       gameArea.classList.remove('active');
+      document.documentElement.classList.remove('phone-hero-playing');
       results.classList.add('active');
       finalScoreEl.textContent = String(score);
       document.getElementById('submissionMessage').style.display = 'none';
@@ -620,15 +706,18 @@
     function resetGame() {
       results.classList.remove('active');
       gameArea.classList.add('active');
+      document.documentElement.classList.add('phone-hero-playing');
       beginGameplay();
     }
 
     function backToMenu() {
       results.classList.remove('active');
       gameArea.classList.remove('active');
+      document.documentElement.classList.remove('phone-hero-playing');
       setupForm.style.display = 'flex';
       gameActive = false;
       cancelAnimationFrame(rafId);
+      resizeCanvas();
     }
 
     window.startGame = startGame;
