@@ -602,7 +602,7 @@ class StaticSearchEngine {
             
             // 2. If we need more results, search relevant chunks
             let chunkResults = [];
-            if (options.searchChunks !== false && coreResults.length < 1000) {
+            if (options.searchChunks !== false && (coreResults.length < 1000 || options.alwaysSearchChunks)) {
                 try {
                     const relevantChunks = this.getRelevantChunks(searchTerm, options);
                     if (Array.isArray(relevantChunks) && relevantChunks.length > 0) {

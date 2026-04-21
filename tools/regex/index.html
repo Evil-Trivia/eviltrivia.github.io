@@ -816,6 +816,16 @@
             <div class="options-grid">
                 <div class="option-group">
                     <h3>🎯 Search Modes</h3>
+                    <div class="checkbox-group" style="flex-wrap: wrap; align-items: center;">
+                        <input type="checkbox" id="anagramMode">
+                        <label for="anagramMode">Anagram mode (match letter multiset from search)</label>
+                        <span style="margin-left: 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-color);">
+                            <label for="anagramUnused" style="cursor: pointer; margin: 0;">Unused letters</label>
+                            <input type="number" id="anagramUnused" min="0" max="10" value="0" disabled
+                                style="width: 3.5em; padding: 6px 8px; border: 2px solid var(--border-color); border-radius: 6px; font-size: 14px; box-sizing: border-box;"
+                                title="Letters left over from the search letters (0 = perfect anagram)">
+                        </span>
+                    </div>
                     <div class="checkbox-group">
                         <input type="checkbox" id="simpleMode">
                         <label for="simpleMode">Simple Mode (boundary matching)</label>
@@ -968,11 +978,60 @@
                 }
                 
                 if (searchButton) searchButton.disabled = false;
+
+                const anagramModeEl = document.getElementById('anagramMode');
+                if (anagramModeEl) {
+                    anagramModeEl.addEventListener('change', toggleAnagramModeUI);
+                    toggleAnagramModeUI();
+                }
                 
             } catch (error) {
                 console.error('Failed to initialize search engine:', error);
                 alert('Failed to initialize search engine. Please refresh the page.');
             }
+        }
+
+        function toggleAnagramModeUI() {
+            const am = document.getElementById('anagramMode');
+            const unused = document.getElementById('anagramUnused');
+            const simple = document.getElementById('simpleMode');
+            const variable = document.getElementById('variableMode');
+            const crossword = document.getElementById('crosswordMode');
+            const on = am && am.checked;
+            if (unused) unused.disabled = !on;
+            if (simple) simple.disabled = !!on;
+            if (variable) variable.disabled = !!on;
+            if (crossword) crossword.disabled = !!on;
+        }
+
+        function letterCountsFromString(str) {
+            const m = new Map();
+            for (const ch of str.toLowerCase()) {
+                if (/[a-z]/.test(ch)) {
+                    m.set(ch, (m.get(ch) || 0) + 1);
+                }
+            }
+            return m;
+        }
+
+        function matchesAnagramMultiset(lettersFromSearch, resultTerm, unusedTarget) {
+            const s = letterCountsFromString(lettersFromSearch);
+            const r = letterCountsFromString(resultTerm);
+            for (const [c, n] of r) {
+                if ((s.get(c) || 0) < n) return false;
+            }
+            let leftover = 0;
+            for (const [c, sc] of s) {
+                leftover += sc - (r.get(c) || 0);
+            }
+            return leftover === unusedTarget;
+        }
+
+        function filterAnagramResults(results, lettersFromSearch, unusedTarget) {
+            return results.filter(r => {
+                const term = r[0] || r.term || '';
+                return matchesAnagramMultiset(lettersFromSearch, term, unusedTarget);
+            });
         }
 
         // Apply exclusion filters to search results
@@ -1052,6 +1111,11 @@
             const searchTerm = document.getElementById('searchInput').value.trim();
             if (!searchTerm || !searchEngine) return;
 
+            const anagramMode = document.getElementById('anagramMode')?.checked || false;
+            let unusedRaw = parseInt(document.getElementById('anagramUnused')?.value, 10);
+            if (Number.isNaN(unusedRaw)) unusedRaw = 0;
+            const anagramUnused = Math.max(0, Math.min(10, unusedRaw));
+
             // Reset state
             currentResults = [];
             displayedCount = 0;
@@ -1083,11 +1147,37 @@
                     }
                 }
 
+                const lettersOnlyFromSearch = searchTerm.replace(/[^a-zA-Z]/g, '');
+
+                let effectiveSearchTerm = searchTerm;
+                let anagramLetters = '';
+                let anagramUnusedUsed = 0;
+
+                if (anagramMode) {
+                    anagramLetters = lettersOnlyFromSearch;
+                    anagramUnusedUsed = anagramUnused;
+                    if (!anagramLetters.length) {
+                        if (resultsGrid) {
+                            resultsGrid.innerHTML = '<div class="no-results">Anagram mode needs at least one letter in the search box.</div>';
+                        }
+                        return;
+                    }
+                    const targetLen = anagramLetters.length - anagramUnusedUsed;
+                    if (targetLen < 1) {
+                        if (resultsGrid) {
+                            resultsGrid.innerHTML = '<div class="no-results">Unused letters must be less than the number of letters in the search (need at least one letter in the result).</div>';
+                        }
+                        return;
+                    }
+                    effectiveSearchTerm = '?'.repeat(targetLen);
+                }
+
                 // Get search options
                 currentOptions = {
-                    simpleMode: document.getElementById('simpleMode')?.checked || false,
-                    variableMode: document.getElementById('variableMode')?.checked || false,
-                    crosswordMode: document.getElementById('crosswordMode')?.checked || false,
+                    simpleMode: anagramMode ? false : (document.getElementById('simpleMode')?.checked || false),
+                    variableMode: anagramMode ? false : (document.getElementById('variableMode')?.checked || false),
+                    crosswordMode: anagramMode ? true : (document.getElementById('crosswordMode')?.checked || false),
+                    alwaysSearchChunks: anagramMode || false,
                     sources: getSelectedSources(),
                     maxResults: 10000,
                     dedupe: true,
@@ -1099,17 +1189,23 @@
                 };
 
                 // Perform search
-                const result = await searchEngine.search(searchTerm, currentOptions);
+                const result = await searchEngine.search(effectiveSearchTerm, currentOptions);
                 
                 if (result && result.results && Array.isArray(result.results)) {
+                    let workingResults = result.results;
+
+                    if (anagramMode) {
+                        workingResults = filterAnagramResults(workingResults, anagramLetters, anagramUnusedUsed);
+                    }
+
                     // Apply exclusion filters only if any are enabled
                     const hasExclusionFilters = currentOptions.excludeSpaces || currentOptions.excludeNumbers || 
                                               currentOptions.excludeSpecialChars || currentOptions.lettersOnly;
                     
                     if (hasExclusionFilters) {
-                        currentResults = applyExclusionFilters(result.results, searchTerm, currentOptions);
+                        currentResults = applyExclusionFilters(workingResults, searchTerm, currentOptions);
                     } else {
-                        currentResults = result.results; // Use results directly without filtering
+                        currentResults = workingResults;
                     }
                     
                     // Display first page
