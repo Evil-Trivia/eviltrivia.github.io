@@ -574,6 +574,133 @@ class StaticSearchEngine {
     }
 
     /**
+     * True if entry's letters-only form uses a sub-multiset of searchCounts with exactly unusedTarget letters left over.
+     * workBuf must be Int32Array(26); reused for allocations.
+     */
+    matchAnagramEntry(entry, searchCounts, nSearch, unusedTarget, workBuf) {
+        let testText = Array.isArray(entry) ? entry[0] : (entry ? entry.term : '');
+        if (!testText) return false;
+
+        const targetLen = nSearch - unusedTarget;
+        if (targetLen < 0) return false;
+
+        let letterLen = 0;
+        for (let i = 0; i < testText.length; i++) {
+            const c = testText.charCodeAt(i);
+            if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) letterLen++;
+        }
+        if (letterLen !== targetLen) return false;
+
+        workBuf.set(searchCounts);
+        for (let i = 0; i < testText.length; i++) {
+            const c = testText.charCodeAt(i);
+            let idx;
+            if (c >= 97 && c <= 122) idx = c - 97;
+            else if (c >= 65 && c <= 90) idx = c - 65;
+            else continue;
+            if (workBuf[idx] <= 0) return false;
+            workBuf[idx]--;
+        }
+        let leftover = 0;
+        for (let i = 0; i < 26; i++) leftover += workBuf[i];
+        return leftover === unusedTarget;
+    }
+
+    /**
+     * Single-pass anagram search: one linear scan of core + all chunks (no wildcard explosion, no N× search()).
+     */
+    async searchAnagram(lettersStr, unusedCount, options = {}) {
+        const startTime = performance.now();
+
+        if (!this.manifest || !this.coreIndex) {
+            return {
+                results: [],
+                stats: {
+                    searchTime: Math.round(performance.now() - startTime),
+                    source: 'not-initialized',
+                    error: 'Search engine not initialized'
+                }
+            };
+        }
+
+        const letters = lettersStr.replace(/[^a-zA-Z]/g, '').toLowerCase();
+        if (!letters.length) {
+            return { results: [], stats: { searchTime: 0, source: 'anagram-empty' } };
+        }
+
+        const nSearch = letters.length;
+        const u = Math.max(0, Math.min(10, unusedCount | 0));
+        if (u > nSearch - 1) {
+            return { results: [], stats: { searchTime: Math.round(performance.now() - startTime), source: 'anagram-invalid' } };
+        }
+
+        const searchCounts = new Int32Array(26);
+        for (let i = 0; i < letters.length; i++) {
+            const idx = letters.charCodeAt(i) - 97;
+            if (idx >= 0 && idx < 26) searchCounts[idx]++;
+        }
+
+        const workBuf = new Int32Array(26);
+        const results = [];
+        const yieldEvery = 200000;
+
+        const entries = this.coreIndex.entries;
+        for (let i = 0; i < entries.length; i++) {
+            if (i > 0 && i % yieldEvery === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+            const entry = entries[i];
+            if (entry && this.matchAnagramEntry(entry, searchCounts, nSearch, u, workBuf)) {
+                results.push(entry);
+            }
+        }
+
+        const chunkIds = this.manifest.chunks.map(c => c.id);
+        for (let ci = 0; ci < chunkIds.length; ci++) {
+            try {
+                const chunkData = await this.loadChunk(chunkIds[ci]);
+                for (let j = 0; j < chunkData.length; j++) {
+                    if (j > 0 && j % yieldEvery === 0) {
+                        await new Promise(r => setTimeout(r, 0));
+                    }
+                    const entry = chunkData[j];
+                    if (entry && this.matchAnagramEntry(entry, searchCounts, nSearch, u, workBuf)) {
+                        results.push(entry);
+                    }
+                }
+            } catch (e) {
+                console.warn('Anagram chunk search failed:', e);
+            }
+            await new Promise(r => setTimeout(r, 0));
+        }
+
+        const filterOpts = { ...options };
+        delete filterOpts.anagramMultisetFilter;
+        delete filterOpts.alwaysSearchChunks;
+
+        let filteredResults = [];
+        try {
+            filteredResults = this.applyFilters(results, filterOpts);
+            if (!Array.isArray(filteredResults)) {
+                filteredResults = results.slice(0, 10000);
+            }
+        } catch (e) {
+            filteredResults = results.slice(0, 10000);
+        }
+
+        const searchTime = performance.now() - startTime;
+        return {
+            results: filteredResults,
+            stats: {
+                searchTime: Math.round(searchTime),
+                matchCount: results.length,
+                totalResults: filteredResults.length,
+                source: 'anagram-scan'
+            }
+        };
+    }
+
+    /**
      * Main search function
      */
     async search(searchTerm, options = {}) {
