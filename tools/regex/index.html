@@ -1027,11 +1027,107 @@
             return leftover === unusedTarget;
         }
 
-        function filterAnagramResults(results, lettersFromSearch, unusedTarget) {
-            return results.filter(r => {
-                const term = r[0] || r.term || '';
-                return matchesAnagramMultiset(lettersFromSearch, term, unusedTarget);
-            });
+        const MAX_ANAGRAM_PERMUTATIONS = 50000;
+
+        function sumMap(m) {
+            let s = 0;
+            for (const v of m.values()) s += v;
+            return s;
+        }
+
+        function* allSubMultisetsOfSize(counts, size) {
+            const keys = [...counts.keys()].sort();
+            function* dfs(i, acc) {
+                const used = sumMap(acc);
+                if (used === size) {
+                    yield new Map(acc);
+                    return;
+                }
+                if (i >= keys.length) return;
+                const ch = keys[i];
+                const maxTake = Math.min(counts.get(ch), size - used);
+                for (let take = 0; take <= maxTake; take++) {
+                    const next = new Map(acc);
+                    if (take > 0) next.set(ch, take);
+                    yield* dfs(i + 1, next);
+                }
+            }
+            yield* dfs(0, new Map());
+        }
+
+        function* multisetPermutations(counts) {
+            const total = sumMap(counts);
+            function* recur(rem, path) {
+                if (path.length === total) {
+                    yield path;
+                    return;
+                }
+                const entries = [...rem.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+                for (const [ch, c] of entries) {
+                    if (c <= 0) continue;
+                    const next = new Map(rem);
+                    next.set(ch, c - 1);
+                    if (next.get(ch) === 0) next.delete(ch);
+                    yield* recur(next, path + ch);
+                }
+            }
+            yield* recur(counts, '');
+        }
+
+        /**
+         * All distinct strings of length (letters.length - unused) that use a sub-multiset of `letters`.
+         * Returns { strings, overflow } where overflow is true if distinct permutations exceed MAX_ANAGRAM_PERMUTATIONS.
+         */
+        function generateAnagramCandidateStrings(letters, unused) {
+            const counts = letterCountsFromString(letters);
+            const n = sumMap(counts);
+            const targetLen = n - unused;
+            if (targetLen < 1) return { strings: [], overflow: false };
+            const out = new Set();
+            for (const sub of allSubMultisetsOfSize(counts, targetLen)) {
+                for (const s of multisetPermutations(sub)) {
+                    out.add(s);
+                    if (out.size > MAX_ANAGRAM_PERMUTATIONS) {
+                        return { strings: null, overflow: true };
+                    }
+                }
+            }
+            return { strings: [...out], overflow: false };
+        }
+
+        async function runAnagramExactLookups(anagramLetters, anagramUnused, baseOptions) {
+            const { strings, overflow } = generateAnagramCandidateStrings(anagramLetters, anagramUnused);
+            if (overflow || !strings) {
+                return null;
+            }
+            const exactOpts = {
+                ...baseOptions,
+                simpleMode: false,
+                variableMode: false,
+                crosswordMode: false,
+                alwaysSearchChunks: false
+            };
+            delete exactOpts.anagramMultisetFilter;
+
+            const merged = [];
+            const seen = new Set();
+            const BATCH = 120;
+            const t0 = performance.now();
+            for (let i = 0; i < strings.length; i += BATCH) {
+                const batch = strings.slice(i, i + BATCH);
+                const batchResults = await Promise.all(batch.map(c => searchEngine.search(c, exactOpts)));
+                for (const res of batchResults) {
+                    if (!res || !res.results) continue;
+                    for (const r of res.results) {
+                        const term = (r[0] || r.term || '').toLowerCase();
+                        if (!seen.has(term)) {
+                            seen.add(term);
+                            merged.push(r);
+                        }
+                    }
+                }
+            }
+            return { results: merged, searchTime: Math.round(performance.now() - t0) };
         }
 
         // Apply exclusion filters to search results
@@ -1149,7 +1245,6 @@
 
                 const lettersOnlyFromSearch = searchTerm.replace(/[^a-zA-Z]/g, '');
 
-                let effectiveSearchTerm = searchTerm;
                 let anagramLetters = '';
                 let anagramUnusedUsed = 0;
 
@@ -1169,7 +1264,6 @@
                         }
                         return;
                     }
-                    effectiveSearchTerm = '?'.repeat(targetLen);
                 }
 
                 // Get search options
@@ -1188,15 +1282,34 @@
                     lettersOnly: document.getElementById('lettersOnly')?.checked || false
                 };
 
-                // Perform search
-                const result = await searchEngine.search(effectiveSearchTerm, currentOptions);
+                let result = null;
+
+                if (anagramMode) {
+                    const exactPack = await runAnagramExactLookups(anagramLetters, anagramUnusedUsed, currentOptions);
+                    if (exactPack) {
+                        result = {
+                            results: exactPack.results,
+                            stats: { searchTime: exactPack.searchTime, source: 'anagram-exact' }
+                        };
+                    } else {
+                        const targetLen = anagramLetters.length - anagramUnusedUsed;
+                        const wildcardOpts = {
+                            ...currentOptions,
+                            crosswordMode: true,
+                            alwaysSearchChunks: true,
+                            anagramMultisetFilter: (r) => {
+                                const term = r[0] || r.term || '';
+                                return matchesAnagramMultiset(anagramLetters, term, anagramUnusedUsed);
+                            }
+                        };
+                        result = await searchEngine.search('?'.repeat(targetLen), wildcardOpts);
+                    }
+                } else {
+                    result = await searchEngine.search(searchTerm, currentOptions);
+                }
                 
                 if (result && result.results && Array.isArray(result.results)) {
                     let workingResults = result.results;
-
-                    if (anagramMode) {
-                        workingResults = filterAnagramResults(workingResults, anagramLetters, anagramUnusedUsed);
-                    }
 
                     // Apply exclusion filters only if any are enabled
                     const hasExclusionFilters = currentOptions.excludeSpaces || currentOptions.excludeNumbers || 

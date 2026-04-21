@@ -534,6 +534,18 @@ class StaticSearchEngine {
                 return true; // Keep this result
             });
         }
+
+        // Anagram / multiset filter before score sort and maxResults slice (so low-score matches are kept)
+        if (typeof options.anagramMultisetFilter === 'function') {
+            filtered = filtered.filter(r => {
+                if (!r) return false;
+                try {
+                    return options.anagramMultisetFilter(r);
+                } catch (e) {
+                    return false;
+                }
+            });
+        }
         
         // Sort by score descending, then alphabetically
         filtered.sort((a, b) => {
