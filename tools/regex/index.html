@@ -917,7 +917,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
     
-    <script src="../../static-search-engine.js"></script>
+    <script src="../../static-search-engine.js?v=anagram-20260420"></script>
     <script>
         // Firebase configuration
         const firebaseConfig = {
@@ -946,11 +946,35 @@
         let isFirebaseReady = false;
         let currentUser = null;
 
+        function loadStaticSearchEngineScriptBustCache() {
+            return new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = '../../static-search-engine.js?t=' + Date.now();
+                s.async = true;
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('Could not reload static-search-engine.js'));
+                document.head.appendChild(s);
+            });
+        }
+
         // Initialize search engine
         async function initSearchEngine() {
             try {
                 searchEngine = new StaticSearchEngine('../../search-data-optimized/');
                 await searchEngine.init();
+
+                if (typeof searchEngine.searchAnagram !== 'function') {
+                    console.warn('StaticSearchEngine missing searchAnagram (likely cached old JS). Reloading script…');
+                    await loadStaticSearchEngineScriptBustCache();
+                    if (typeof StaticSearchEngine === 'undefined') {
+                        throw new Error('StaticSearchEngine not defined after script reload');
+                    }
+                    searchEngine = new StaticSearchEngine('../../search-data-optimized/');
+                    await searchEngine.init();
+                }
+                if (typeof searchEngine.searchAnagram !== 'function') {
+                    throw new Error('searchAnagram is still missing. Hard-refresh the page (Cmd+Shift+R / Ctrl+Shift+R) or confirm static-search-engine.js on the server includes searchAnagram.');
+                }
                 
                 // Enable search interface
                 const searchInput = document.getElementById('searchInput');
