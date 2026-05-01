@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Evil Trivia - Off Key</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    body {
+      font-family: 'Press Start 2P', cursive;
+      background: linear-gradient(180deg, #1a1528 0%, #2d1a2e 100%);
+      color: #fff;
+      touch-action: manipulation;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+    }
+    .container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 15px;
+      position: relative;
+      overflow-y: auto;
+    }
+    h1 {
+      text-align: center;
+      color: #e040fb;
+      margin-bottom: 10px;
+      font-size: 22px;
+      line-height: 1.5;
+      text-shadow: 0 0 10px #e040fb, 0 0 20px #b388ff;
+    }
+    .subtitle {
+      text-align: center;
+      color: #b388ff;
+      margin-bottom: 15px;
+      font-size: 9px;
+      line-height: 1.8;
+    }
+    .game-card {
+      background: #2d1a2e;
+      border: 4px solid #e040fb;
+      padding: 20px;
+      padding-bottom: 30px;
+      box-shadow: 0 0 20px rgba(224, 64, 251, 0.4);
+      margin-top: 15px;
+      margin-bottom: 20px;
+    }
+    .setup-form { display: flex; flex-direction: column; align-items: center; gap: 15px; margin-bottom: 20px; }
+    .form-group { width: 100%; max-width: 400px; }
+    .form-group label {
+      display: block; margin-bottom: 8px; font-size: 10px; color: #e040fb;
+    }
+    .form-group input, .form-group select {
+      width: 100%; padding: 12px; font-size: 12px; font-family: 'Press Start 2P', cursive;
+      border: 3px solid #e040fb; background: #1a1528; color: #fff; box-sizing: border-box;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: 3px solid #b388ff; box-shadow: 0 0 15px #e040fb;
+    }
+    .button-group { display: flex; gap: 15px; margin-top: 15px; flex-wrap: wrap; justify-content: center; }
+    .btn {
+      padding: 15px 25px; background-color: #e040fb; color: #1a1528; border: 3px solid #b388ff;
+      cursor: pointer; font-size: 11px; font-family: 'Press Start 2P', cursive;
+      box-shadow: 0 0 15px rgba(224, 64, 251, 0.5); transition: all 0.1s; font-weight: bold;
+    }
+    .btn:hover { background-color: #ea80fc; transform: scale(1.05); }
+    .btn:active { transform: scale(0.95); }
+    .btn:disabled { background-color: #666; cursor: not-allowed; box-shadow: none; }
+    .btn-secondary { background-color: #6a4a7a; color: #fff; }
+    .game-area { display: none; }
+    .game-area.active { display: block; }
+    body.game-active { position: fixed; width: 100%; overflow: hidden; }
+    .rules-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.95);
+      display: none; justify-content: center; align-items: center; z-index: 2000; padding: 20px;
+    }
+    .rules-overlay.active { display: flex; }
+    .rules-content {
+      background: #2d1a2e; border: 4px solid #e040fb; padding: 30px; max-width: 600px;
+      box-shadow: 0 0 30px rgba(224, 64, 251, 0.4);
+    }
+    .rules-title { font-size: 22px; color: #e040fb; text-align: center; margin-bottom: 20px; }
+    .rules-list { color: #fff; font-size: 11px; line-height: 2; margin-bottom: 20px; padding-left: 40px; }
+    .rules-list li { margin-bottom: 12px; }
+    .rules-continue { text-align: center; font-size: 9px; color: #e040fb; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .game-hud {
+      text-align: center; margin-bottom: 15px; padding: 15px;
+      background: rgba(0,0,0,0.7); border: 3px solid #e040fb;
+    }
+    .timer-display { font-size: 18px; color: #e040fb; margin-bottom: 10px; }
+    .stats-display { display: flex; justify-content: space-around; margin-top: 10px; font-size: 9px; flex-wrap: wrap; gap: 8px; }
+    .stat-item { color: #b388ff; }
+    .stat-value { color: #fff; font-size: 12px; margin-top: 5px; }
+    .target-note {
+      font-size: 42px; text-align: center; padding: 24px; margin: 16px 0;
+      background: rgba(0,0,0,0.5); border: 3px solid #e040fb; color: #fff;
+      text-shadow: 0 0 15px #e040fb; line-height: 1.4;
+    }
+    .target-note .sub { font-size: 10px; color: #b388ff; margin-top: 12px; display: block; }
+    .pitch-meter-wrap {
+      margin: 20px 0; padding: 16px; background: rgba(0,0,0,0.45); border: 3px solid #b388ff;
+    }
+    .pitch-meter-label { font-size: 8px; color: #b388ff; text-align: center; margin-bottom: 10px; }
+    .pitch-track {
+      position: relative; height: 28px; background: #1a1528; border: 2px solid #6a4a7a;
+      border-radius: 4px; overflow: hidden;
+    }
+    .pitch-zone {
+      position: absolute; left: 50%; top: 0; bottom: 0; width: 24%;
+      transform: translateX(-50%); background: rgba(0, 255, 100, 0.25); border-left: 2px solid #0f0; border-right: 2px solid #0f0;
+    }
+    .pitch-needle {
+      position: absolute; top: 0; bottom: 0; width: 4px; background: #e040fb;
+      transform: translateX(-50%); left: 50%; box-shadow: 0 0 10px #e040fb;
+      transition: left 0.05s linear;
+    }
+    .detected-row { text-align: center; font-size: 10px; margin-top: 12px; color: #fff; }
+    .hold-bar-outer { height: 12px; background: #1a1528; border: 2px solid #6a4a7a; margin-top: 16px; }
+    .hold-bar-fill {
+      height: 100%; width: 0%; background: linear-gradient(90deg, #76ff03, #b388ff);
+      transition: width 0.08s linear;
+    }
+    .instructions { font-size: 8px; color: #b388ff; text-align: center; line-height: 1.8; margin-top: 12px; }
+    .mic-error { color: #ff5252; font-size: 9px; text-align: center; margin-top: 10px; display: none; }
+    .results {
+      display: none; text-align: center; background: rgba(0,0,0,0.85); padding: 30px;
+      border: 4px solid #e040fb; margin-top: 20px;
+    }
+    .game-over-title { font-size: 22px; color: #e040fb; margin-bottom: 20px; }
+    .final-score { font-size: 14px; color: #ea80fc; margin: 15px 0; line-height: 1.8; }
+    .hidden { display: none; }
+    @media (max-width: 600px) {
+      h1 { font-size: 14px; }
+      .subtitle { font-size: 7px; }
+      .target-note { font-size: 28px; padding: 16px; }
+      .game-area.active {
+        position: fixed; inset: 0; overflow-y: auto; z-index: 1000;
+        background: linear-gradient(180deg, #1a1528 0%, #2d1a2e 100%); padding-top: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎤 OFF KEY 🎤</h1>
+    <div class="subtitle">Hum or sing each note on pitch. Lower time wins.</div>
+
+    <div class="game-card">
+      <div id="setupForm" class="setup-form">
+        <div class="form-group">
+          <label for="barLocation">BAR LOCATION:</label>
+          <select id="barLocation" onchange="onLocationChange()">
+            <option value="">Select location...</option>
+            <option value="St. Dymphna's">St. Dymphna's</option>
+            <option value="Radegast Hall">Radegast Hall</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="teamSelect">SELECT TEAM:</label>
+          <select id="teamSelect">
+            <option value="">Loading teams...</option>
+          </select>
+        </div>
+        <div class="button-group">
+          <button class="btn" type="button" onclick="startGame()">START (MIC REQUIRED)</button>
+        </div>
+      </div>
+
+      <div id="gameArea" class="game-area">
+        <div class="game-hud">
+          <div class="timer-display">TIME: <span id="timerValue">0</span>s <span id="startHint" style="font-size: 7px; color: #b388ff;">(Timer starts when you first lock the first note)</span></div>
+          <div class="stats-display">
+            <div class="stat-item">NOTE<br><span class="stat-value" id="noteProgress">1 / 1</span></div>
+            <div class="stat-item">CENTS<br><span class="stat-value" id="centsValue">—</span></div>
+            <div class="stat-item">DETECTED (HZ)<br><span class="stat-value" id="hzValue">—</span></div>
+          </div>
+        </div>
+
+        <div class="target-note" id="targetNoteDisplay">
+          <span id="targetNoteName">—</span>
+          <span class="sub" id="targetFreqSub"></span>
+        </div>
+
+        <div class="pitch-meter-wrap">
+          <div class="pitch-meter-label">CENTER THE NEEDLE IN THE GREEN ZONE</div>
+          <div class="pitch-track" id="pitchTrack">
+            <div class="pitch-zone"></div>
+            <div class="pitch-needle" id="pitchNeedle"></div>
+          </div>
+          <div class="detected-row" id="detectedRow">Waiting for pitch...</div>
+          <div class="hold-bar-outer"><div class="hold-bar-fill" id="holdBarFill"></div></div>
+        </div>
+
+        <div class="mic-error" id="micError"></div>
+        <div class="instructions">Allow microphone access. Hum steadily; background noise can confuse detection.</div>
+      </div>
+
+      <div id="results" class="results">
+        <div class="game-over-title">COMPLETE!</div>
+        <div class="final-score">YOUR TIME: <span id="finalTime">0</span>s</div>
+        <div id="submissionMessage" style="margin: 15px 0; font-size: 11px; color: #76ff03; display: none;">✓ Score saved successfully!</div>
+        <div id="scoreStats" style="margin: 20px 0; font-size: 14px; line-height: 2; color: #e040fb;">
+          <div>TEAM BEST: <span id="bestScoreDisplay" style="font-size: 18px;">Loading...</span>s</div>
+        </div>
+        <div class="button-group">
+          <button class="btn" type="button" onclick="resetGame()">PLAY AGAIN</button>
+          <button class="btn btn-secondary" type="button" onclick="backToMenu()">MAIN MENU</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="rulesOverlay" class="rules-overlay">
+    <div class="rules-content">
+      <div class="rules-title">RULES</div>
+      <ol class="rules-list">
+        <li>You will match a short sequence of notes by humming or singing.</li>
+        <li>Hold each note steady inside the green zone to advance.</li>
+        <li>Your timer starts when you first lock the first note.</li>
+        <li>Finish all notes for your score to submit. Good luck.</li>
+      </ol>
+      <div class="rules-continue">Tap to continue</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.firebaseapp.com",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    window.db = db;
+    window.dbRef = ref;
+    window.dbPush = push;
+    window.dbSet = set;
+    window.dbGet = get;
+  </script>
+
+  <script>
+    const GAME_ID = 'offkey';
+    const DEFAULT_NOTES = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'];
+    const MAX_CENTS_OFF = 80;
+    const HOLD_MS = 550;
+    const MIN_HZ = 80;
+    const MAX_HZ = 1200;
+
+    const NOTE_OFFSET = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+    function noteToMidi(noteStr) {
+      const s = noteStr.trim().replace(/\s+/g, '');
+      const m = s.match(/^([A-Ga-g])([#b]?)(\d+)$/);
+      if (!m) return null;
+      let pc = NOTE_OFFSET[m[1].toUpperCase()];
+      if (m[2] === '#') pc++;
+      else if (m[2] === 'b') pc--;
+      const oct = parseInt(m[3], 10);
+      return 12 * (oct + 1) + pc;
+    }
+
+    function midiToFreq(m) {
+      return 440 * Math.pow(2, (m - 69) / 12);
+    }
+
+    function parseNoteList(text) {
+      const defaultObjs = () => DEFAULT_NOTES.map(n => ({ name: n, midi: noteToMidi(n) }));
+      if (!text || !String(text).trim()) return defaultObjs();
+      const parts = String(text).split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
+      const out = [];
+      for (const p of parts) {
+        const midi = noteToMidi(p);
+        if (midi != null) out.push({ name: p.trim(), midi });
+      }
+      return out.length ? out : defaultObjs();
+    }
+
+    function centsBetween(freq, target) {
+      if (!freq || !target || freq <= 0 || target <= 0) return 9999;
+      return 1200 * Math.log2(freq / target);
+    }
+
+    function detectPitch(buf, sampleRate) {
+      const SIZE = buf.length;
+      let rms = 0;
+      for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+      rms = Math.sqrt(rms / SIZE);
+      if (rms < 0.012) return -1;
+
+      let r1 = 0, r2 = SIZE - 1;
+      const thres = 0.18;
+      for (let i = 0; i < SIZE / 2; i++) {
+        if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+      }
+      for (let i = 1; i < SIZE / 2; i++) {
+        if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+      }
+      if (r2 - r1 < 64) return -1;
+      const slice = buf.subarray(r1, r2);
+      const n = slice.length;
+      const c = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n - i; j++) c[i] += slice[j] * slice[j + i];
+      }
+      let d = 0;
+      while (d + 2 < c.length && c[d] > c[d + 1]) d++;
+      let maxPos = -1, maxVal = -1;
+      for (let i = d; i < c.length; i++) {
+        if (c[i] > maxVal) { maxVal = c[i]; maxPos = i; }
+      }
+      if (maxPos <= 0) return -1;
+      let f = sampleRate / maxPos;
+      while (f > MAX_HZ && f >= 2) f /= 2;
+      while (f < MIN_HZ && f > 0) f *= 2;
+      if (f < MIN_HZ || f > MAX_HZ) return -1;
+      return f;
+    }
+
+    let gameActive = false;
+    let timerStarted = false;
+    let noteSequence = [];
+    let noteIndex = 0;
+    let holdAccumMs = 0;
+    let lastFrameTime = 0;
+    let gameTimer = null;
+    let timeElapsed = 0;
+    let gameStartTime = 0;
+    let rafId = null;
+
+    let audioContext = null;
+    let mediaStream = null;
+    let analyser = null;
+    let timeDomainData = null;
+
+    const setupForm = document.getElementById('setupForm');
+    const gameArea = document.getElementById('gameArea');
+    const results = document.getElementById('results');
+    const rulesOverlay = document.getElementById('rulesOverlay');
+    const timerValue = document.getElementById('timerValue');
+    const micError = document.getElementById('micError');
+
+    async function onLocationChange() {
+      const location = document.getElementById('barLocation').value;
+      const teamSelect = document.getElementById('teamSelect');
+      if (!location) {
+        teamSelect.innerHTML = '<option value="">Select location first</option>';
+        return;
+      }
+      await loadTeamsForLocation(location);
+    }
+
+    async function loadTeamsForLocation(location) {
+      try {
+        const teamSelect = document.getElementById('teamSelect');
+        teamSelect.innerHTML = '<option value="">Loading...</option>';
+        const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/activeSessions`));
+        if (!snap.exists()) {
+          teamSelect.innerHTML = '<option value="">No active sessions - contact admin</option>';
+          return;
+        }
+        const activeSessions = snap.val();
+        let sessionData = null;
+        for (const key in activeSessions) {
+          if (activeSessions[key].location === location) {
+            sessionData = activeSessions[key];
+            break;
+          }
+        }
+        if (!sessionData || !sessionData.teams || sessionData.teams.length === 0) {
+          teamSelect.innerHTML = '<option value="">No active session for this location</option>';
+          return;
+        }
+        teamSelect.innerHTML = '<option value="">Select your team...</option>';
+        sessionData.teams.sort().forEach(teamName => {
+          const opt = document.createElement('option');
+          opt.value = teamName;
+          opt.textContent = teamName;
+          teamSelect.appendChild(opt);
+        });
+      } catch (e) {
+        console.error(e);
+        document.getElementById('teamSelect').innerHTML = '<option value="">Error loading teams</option>';
+      }
+    }
+
+    async function loadNoteSettings() {
+      try {
+        const ref = window.dbRef(window.db, `games/${GAME_ID}/settings/noteSequence`);
+        const snap = await window.dbGet(ref);
+        let text = '';
+        if (snap.exists()) {
+          const v = snap.val();
+          text = (v && v.text) ? v.text : '';
+        }
+        noteSequence = parseNoteList(text);
+      } catch (e) {
+        console.error(e);
+        noteSequence = parseNoteList('');
+      }
+    }
+
+    async function startGame() {
+      const teamName = document.getElementById('teamSelect').value;
+      const barLocation = document.getElementById('barLocation').value;
+      if (!teamName || !barLocation) {
+        alert('Please select team name and bar location.');
+        return;
+      }
+
+      micError.style.display = 'none';
+      micError.textContent = '';
+
+      await loadNoteSettings();
+
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        console.error(e);
+        micError.style.display = 'block';
+        micError.textContent = 'Microphone access denied or unavailable. Check browser settings and use HTTPS.';
+        return;
+      }
+
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(mediaStream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 4096;
+      analyser.smoothingTimeConstant = 0.65;
+      source.connect(analyser);
+      timeDomainData = new Float32Array(analyser.fftSize);
+
+      noteIndex = 0;
+      holdAccumMs = 0;
+      timerStarted = false;
+      timeElapsed = 0;
+      gameStartTime = 0;
+      gameActive = true;
+      lastFrameTime = performance.now();
+
+      setupForm.style.display = 'none';
+      gameArea.style.display = 'block';
+      gameArea.classList.add('active');
+      results.style.display = 'none';
+      document.body.classList.add('game-active');
+
+      document.getElementById('startHint').style.display = 'inline';
+      timerValue.textContent = '0';
+
+      updateTargetDisplay();
+      updateNoteProgress();
+      rulesOverlay.classList.add('active');
+
+      if (audioContext.state === 'suspended') await audioContext.resume();
+
+      gameTimer = setInterval(() => {
+        if (!gameActive || !timerStarted) return;
+        timeElapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+        timerValue.textContent = timeElapsed;
+      }, 100);
+
+      rafId = requestAnimationFrame(gameLoop);
+    }
+
+    function updateTargetDisplay() {
+      const cur = noteSequence[noteIndex];
+      const nameEl = document.getElementById('targetNoteName');
+      const sub = document.getElementById('targetFreqSub');
+      if (!cur) {
+        nameEl.textContent = '—';
+        sub.textContent = '';
+        return;
+      }
+      const freq = midiToFreq(cur.midi);
+      nameEl.textContent = cur.name;
+      sub.textContent = 'TARGET ~ ' + Math.round(freq) + ' HZ';
+    }
+
+    function updateNoteProgress() {
+      const n = noteSequence.length || 1;
+      document.getElementById('noteProgress').textContent = (noteIndex + 1) + ' / ' + n;
+    }
+
+    function startTimerIfNeeded() {
+      if (timerStarted) return;
+      timerStarted = true;
+      gameStartTime = Date.now();
+      document.getElementById('startHint').style.display = 'none';
+    }
+
+    function gameLoop(now) {
+      if (!gameActive) return;
+      if (!analyser || !timeDomainData || !audioContext) {
+        rafId = requestAnimationFrame(gameLoop);
+        return;
+      }
+      const dt = Math.min(80, now - lastFrameTime);
+      lastFrameTime = now;
+
+      analyser.getFloatTimeDomainData(timeDomainData);
+      const hz = detectPitch(timeDomainData, audioContext.sampleRate);
+
+      const cur = noteSequence[noteIndex];
+      let cents = 9999;
+      if (cur && hz > 0) {
+        cents = centsBetween(hz, midiToFreq(cur.midi));
+      }
+
+      const absCents = Math.abs(cents);
+      const inZone = hz > 0 && absCents <= MAX_CENTS_OFF;
+
+      if (inZone) {
+        startTimerIfNeeded();
+        holdAccumMs += dt;
+      } else {
+        holdAccumMs = 0;
+      }
+
+      const hzEl = document.getElementById('hzValue');
+      const centsEl = document.getElementById('centsValue');
+      const needle = document.getElementById('pitchNeedle');
+      const holdFill = document.getElementById('holdBarFill');
+      const detectedRow = document.getElementById('detectedRow');
+
+      if (hz > 0) {
+        hzEl.textContent = Math.round(hz);
+        centsEl.textContent = (cents > 0 ? '+' : '') + Math.round(cents);
+        detectedRow.textContent = 'Sing/hum steadily in the green band.';
+      } else {
+        hzEl.textContent = '—';
+        centsEl.textContent = '—';
+        detectedRow.textContent = 'Louder or clearer tone helps detection.';
+      }
+
+      const pct = Math.max(0, Math.min(100, 50 + (Math.abs(cents) <= 200 ? (cents / 200) * 50 : (cents > 0 ? 50 : -50))));
+      needle.style.left = pct + '%';
+
+      holdFill.style.width = Math.min(100, (holdAccumMs / HOLD_MS) * 100) + '%';
+
+      if (holdAccumMs >= HOLD_MS && cur) {
+        noteIndex++;
+        holdAccumMs = 0;
+        if (noteIndex >= noteSequence.length) {
+          endGame();
+          return;
+        }
+        updateTargetDisplay();
+        updateNoteProgress();
+      }
+
+      rafId = requestAnimationFrame(gameLoop);
+    }
+
+    function teardownAudio() {
+      if (rafId != null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      if (gameTimer) {
+        clearInterval(gameTimer);
+        gameTimer = null;
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+      if (audioContext) {
+        audioContext.close().catch(() => {});
+        audioContext = null;
+      }
+      analyser = null;
+      timeDomainData = null;
+    }
+
+    function endGame() {
+      gameActive = false;
+      teardownAudio();
+      document.body.classList.remove('game-active');
+
+      const finalSec = timerStarted ? Math.round((Date.now() - gameStartTime) / 1000) : 0;
+      document.getElementById('finalTime').textContent = finalSec;
+      gameArea.style.display = 'none';
+      gameArea.classList.remove('active');
+      results.style.display = 'block';
+
+      submitScore(finalSec).then(() => {
+        setTimeout(() => loadScoreStats(), 500);
+      });
+    }
+
+    async function submitScore(timeInSeconds) {
+      const teamName = document.getElementById('teamSelect').value;
+      const barLocation = document.getElementById('barLocation').value;
+      if (!teamName || !barLocation) return;
+
+      const scoreData = {
+        teamName,
+        barLocation,
+        timeSeconds: timeInSeconds,
+        timestamp: Date.now(),
+        date: new Date().toISOString().split('T')[0]
+      };
+
+      try {
+        const answersRef = window.dbRef(window.db, `games/${GAME_ID}/answers`);
+        const newRef = window.dbPush(answersRef);
+        await window.dbSet(newRef, scoreData);
+        document.getElementById('submissionMessage').style.display = 'block';
+      } catch (e) {
+        console.error(e);
+        try {
+          const pubRef = window.dbRef(window.db, `publicAnswers/${GAME_ID}`);
+          const newRef = window.dbPush(pubRef);
+          await window.dbSet(newRef, scoreData);
+          document.getElementById('submissionMessage').style.display = 'block';
+        } catch (e2) {
+          console.error(e2);
+        }
+      }
+    }
+
+    async function loadScoreStats() {
+      try {
+        const currentTeam = document.getElementById('teamSelect').value;
+        document.getElementById('bestScoreDisplay').textContent = 'Loading...';
+        const scores = [];
+        const mainSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/answers`));
+        if (mainSnap.exists()) Object.values(mainSnap.val()).forEach(s => scores.push(s));
+        const pubSnap = await window.dbGet(window.dbRef(window.db, `publicAnswers/${GAME_ID}`));
+        if (pubSnap.exists()) Object.values(pubSnap.val()).forEach(s => scores.push(s));
+
+        if (scores.length === 0) {
+          document.getElementById('bestScoreDisplay').textContent = 'No scores yet';
+          return;
+        }
+        const teamScores = scores.filter(s => s.teamName === currentTeam);
+        if (teamScores.length === 0) {
+          document.getElementById('bestScoreDisplay').textContent = 'First score for your team!';
+        } else {
+          const best = Math.min(...teamScores.map(s => s.timeSeconds ?? 999999));
+          document.getElementById('bestScoreDisplay').textContent = best;
+        }
+      } catch (e) {
+        console.error(e);
+        document.getElementById('bestScoreDisplay').textContent = 'Error';
+      }
+    }
+
+    async function resetGame() {
+      results.style.display = 'none';
+      rulesOverlay.classList.remove('active');
+      await startGame();
+    }
+
+    function backToMenu() {
+      gameActive = false;
+      teardownAudio();
+      results.style.display = 'none';
+      gameArea.style.display = 'none';
+      gameArea.classList.remove('active');
+      rulesOverlay.classList.remove('active');
+      setupForm.style.display = 'flex';
+      document.body.classList.remove('game-active');
+    }
+
+    rulesOverlay.addEventListener('click', () => {
+      rulesOverlay.classList.remove('active');
+      if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+    });
+    rulesOverlay.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      rulesOverlay.classList.remove('active');
+      if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+    });
+
+    window.startGame = startGame;
+    window.resetGame = resetGame;
+    window.backToMenu = backToMenu;
+    window.onLocationChange = onLocationChange;
+  </script>
+</body>
+</html>
