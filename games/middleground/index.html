@@ -51,14 +51,6 @@
     .hidden { display: none !important; }
 
     /* Puzzle row: left | middle | right */
-    .mg-phase-title {
-      font-family: 'Arial Black', Arial, sans-serif;
-      font-size: 0.72rem;
-      color: #888;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
     .mg-main-row {
       display: flex;
       align-items: stretch;
@@ -340,9 +332,8 @@
     const pageSubtitle = document.getElementById('pageSubtitle');
     const statBar = document.getElementById('statBar');
     const wrongCountEl = document.getElementById('wrongCount');
-    const phaseTitle = document.getElementById('phaseTitle');
+    const boardArea = document.getElementById('boardArea');
     const puzzleMount = document.getElementById('puzzleMount');
-    const commonalityMount = document.getElementById('commonalityMount');
     const finishMount = document.getElementById('finishMount');
     const keyboardWrap = document.getElementById('keyboardWrap');
     const keyboardRoot = document.getElementById('keyboardRoot');
@@ -352,14 +343,18 @@
     let activeGameTitle = '';
     let puzzles = [];
     let commonality = null;
-    /** 'puzzle' | 'commonality' | 'finish' */
-    let phase = 'puzzle';
-    let puzzleIndex = 0;
-    let answerBuffer = '';
-    let incorrectGuesses = 0;
-    let revealedLeft = 0;
-    let revealedRight = 0;
+    /** 'play' | 'finish' */
+    let phase = 'play';
+    let puzzleBuffers = [];
+    let puzzleSolved = [];
+    let revealedLeftArr = [];
+    let revealedRightArr = [];
+    let commonalityBuffer = '';
+    /** @type {'phrase' | 'commonality'} */
+    let focusKind = 'phrase';
+    let focusPuzzleIndex = 0;
     let revealedComHints = 0;
+    let incorrectGuesses = 0;
     let commonalitySolved = false;
 
     function coerceArr(raw) {
@@ -442,6 +437,270 @@
       quizCard.classList.remove('hidden');
     }
 
+    function esc(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    let boardDelegationBound = false;
+
+    function ensureBoardDelegation() {
+      if (boardDelegationBound) return;
+      boardDelegationBound = true;
+      puzzleMount.addEventListener('click', onBoardClick);
+    }
+
+    function onBoardClick(e) {
+      const t = e.target;
+      if (!(t instanceof HTMLElement)) return;
+      const id = t.id || '';
+      if (id.startsWith('strip-p-')) {
+        const i = Number(id.replace('strip-p-', ''));
+        if (!Number.isNaN(i) && puzzles[i] && !puzzleSolved[i]) {
+          focusKind = 'phrase';
+          focusPuzzleIndex = i;
+          updateFocusHighlight();
+        }
+        return;
+      }
+      if (id === 'strip-c') {
+        if (commonality && !commonalitySolved) {
+          focusKind = 'commonality';
+          updateFocusHighlight();
+        }
+        return;
+      }
+      if (id.startsWith('hintLeftBtn-')) {
+        const i = Number(id.replace('hintLeftBtn-', ''));
+        const p = puzzles[i];
+        if (p && revealedLeftArr[i] < p.leftHints.length) {
+          revealedLeftArr[i]++;
+          renderPuzzleHintRow(i, p);
+        }
+        return;
+      }
+      if (id.startsWith('hintRightBtn-')) {
+        const i = Number(id.replace('hintRightBtn-', ''));
+        const p = puzzles[i];
+        if (p && revealedRightArr[i] < p.rightHints.length) {
+          revealedRightArr[i]++;
+          renderPuzzleHintRow(i, p);
+        }
+        return;
+      }
+      if (id === 'comHintBtn' && commonality && !commonalitySolved) {
+        const c = commonality;
+        if (revealedComHints < c.hints.length) {
+          revealedComHints++;
+          renderComHintZone();
+        }
+      }
+    }
+
+    function renderPuzzleHintRow(i, p) {
+      const leftZone = document.getElementById(`hintLeftZone-${i}`);
+      const rightZone = document.getElementById(`hintRightZone-${i}`);
+      const leftBtn = document.getElementById(`hintLeftBtn-${i}`);
+      const rightBtn = document.getElementById(`hintRightBtn-${i}`);
+      const rl = revealedLeftArr[i];
+      const rr = revealedRightArr[i];
+      if (leftZone) {
+        leftZone.innerHTML = '';
+        for (let h = 0; h < rl; h++) {
+          if (p.leftHints[h]) {
+            const d = document.createElement('div');
+            d.className = 'hint-line';
+            d.textContent = p.leftHints[h];
+            leftZone.appendChild(d);
+          }
+        }
+      }
+      if (rightZone) {
+        rightZone.innerHTML = '';
+        for (let h = 0; h < rr; h++) {
+          if (p.rightHints[h]) {
+            const d = document.createElement('div');
+            d.className = 'hint-line';
+            d.textContent = p.rightHints[h];
+            rightZone.appendChild(d);
+          }
+        }
+      }
+      if (leftBtn) leftBtn.disabled = rl >= p.leftHints.length || p.leftHints.length === 0;
+      if (rightBtn) rightBtn.disabled = rr >= p.rightHints.length || p.rightHints.length === 0;
+    }
+
+    function renderComHintZone() {
+      const comZone = document.getElementById('comHintZone');
+      if (!comZone || !commonality) return;
+      comZone.innerHTML = '';
+      const c = commonality;
+      for (let h = 0; h < revealedComHints; h++) {
+        if (c.hints[h]) {
+          const line = document.createElement('div');
+          line.className = 'hint-line';
+          line.textContent = c.hints[h];
+          comZone.appendChild(line);
+        }
+      }
+      const comBtn = document.getElementById('comHintBtn');
+      if (comBtn) {
+        comBtn.disabled = commonalitySolved || c.hints.length === 0 || revealedComHints >= c.hints.length;
+      }
+    }
+
+    function renderBoard() {
+      finishMount.classList.add('hidden');
+      boardArea.classList.remove('hidden');
+      puzzleMount.classList.remove('hidden');
+
+      let html = '';
+      for (let i = 0; i < puzzles.length; i++) {
+        const p = puzzles[i];
+        const solved = puzzleSolved[i];
+        let stripClasses;
+        let stripText;
+        if (solved) {
+          stripClasses = 'mg-answer-strip solved';
+          stripText = p.answer;
+        } else {
+          const t = normGuess(puzzleBuffers[i]);
+          puzzleBuffers[i] = t;
+          const empty = !t;
+          stripClasses = empty ? 'mg-answer-strip empty' : 'mg-answer-strip';
+          stripText = empty ? 'Tap keys — your guess appears here' : t;
+        }
+        html += `
+      <div class="mg-phrase-block">
+        <div class="mg-main-row">
+          <div class="mg-side">
+            <div class="mg-words">${esc(p.leftWords)}</div>
+            <button type="button" class="hint-btn" id="hintLeftBtn-${i}" title="Hint">💡</button>
+            <div class="hint-zone" id="hintLeftZone-${i}"></div>
+          </div>
+          <div class="mg-center">
+            <div class="${stripClasses}" id="strip-p-${i}">${esc(stripText)}</div>
+          </div>
+          <div class="mg-side">
+            <div class="mg-words">${esc(p.rightWords)}</div>
+            <button type="button" class="hint-btn" id="hintRightBtn-${i}" title="Hint">💡</button>
+            <div class="hint-zone" id="hintRightZone-${i}"></div>
+          </div>
+        </div>
+      </div>`;
+      }
+
+      if (commonality) {
+        const cs = commonalitySolved;
+        let comStripClass;
+        let comText;
+        if (cs) {
+          comStripClass = 'mg-answer-strip solved';
+          comText = commonality.answer;
+        } else {
+          const t = normGuess(commonalityBuffer);
+          commonalityBuffer = t;
+          const empty = !t;
+          comStripClass = empty ? 'mg-answer-strip empty' : 'mg-answer-strip';
+          comText = empty ? 'Your answer' : t;
+        }
+        html += `
+      <div class="com-section">
+        <div class="com-prompt">${esc(commonality.prompt)}</div>
+        <div class="mg-main-row" style="justify-content:center">
+          <div class="mg-center" style="max-width:100%">
+            <div class="${comStripClass}" id="strip-c">${esc(comText)}</div>
+          </div>
+        </div>
+        <div style="text-align:center;margin-top:10px">
+          <button type="button" class="hint-btn" id="comHintBtn"${cs ? ' disabled' : ''}>💡 Hint</button>
+        </div>
+        <div class="hint-zone" id="comHintZone" style="max-width:400px;margin:8px auto 0"></div>
+      </div>`;
+      }
+
+      puzzleMount.innerHTML = html;
+
+      for (let i = 0; i < puzzles.length; i++) {
+        renderPuzzleHintRow(i, puzzles[i]);
+      }
+      if (commonality) renderComHintZone();
+
+      pageSubtitle.textContent = 'Solve in any order — tap a box to focus; Enter or GUESS submits';
+      keyboardWrap.classList.remove('hidden-kb');
+      updateFocusHighlight();
+    }
+
+    function updateFocusHighlight() {
+      document.querySelectorAll('.mg-answer-strip.focused').forEach(el => el.classList.remove('focused'));
+      if (phase === 'finish') return;
+      if (focusKind === 'phrase') {
+        const el = document.getElementById(`strip-p-${focusPuzzleIndex}`);
+        if (el && !puzzleSolved[focusPuzzleIndex]) el.classList.add('focused');
+      } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
+        document.getElementById('strip-c')?.classList.add('focused');
+      }
+    }
+
+    function cycleFocus(delta) {
+      const slots = [];
+      for (let i = 0; i < puzzles.length; i++) {
+        if (!puzzleSolved[i]) slots.push({ kind: 'phrase', i });
+      }
+      if (commonality && !commonalitySolved) slots.push({ kind: 'commonality', i: -1 });
+      if (!slots.length) return;
+      let cur = slots.findIndex(s =>
+        (s.kind === 'commonality' && focusKind === 'commonality') ||
+        (s.kind === 'phrase' && focusKind === 'phrase' && s.i === focusPuzzleIndex)
+      );
+      if (cur < 0) cur = 0;
+      const next = (cur + delta + slots.length * 10) % slots.length;
+      const s = slots[next];
+      focusKind = s.kind;
+      if (s.kind === 'phrase') focusPuzzleIndex = s.i;
+      updateFocusHighlight();
+    }
+
+    function focusNextSlot() {
+      for (let j = focusPuzzleIndex + 1; j < puzzles.length; j++) {
+        if (!puzzleSolved[j]) {
+          focusPuzzleIndex = j;
+          focusKind = 'phrase';
+          return;
+        }
+      }
+      for (let j = 0; j < focusPuzzleIndex; j++) {
+        if (!puzzleSolved[j]) {
+          focusPuzzleIndex = j;
+          focusKind = 'phrase';
+          return;
+        }
+      }
+      if (commonality && !commonalitySolved) focusKind = 'commonality';
+    }
+
+    function checkAllComplete() {
+      const phrasesDone = puzzleSolved.length > 0 && puzzleSolved.every(Boolean);
+      const comOk = !commonality || commonalitySolved;
+      if (phrasesDone && comOk) {
+        phase = 'finish';
+        showFinish();
+        return true;
+      }
+      return false;
+    }
+
+    function shakeStrip(id) {
+      const strip = document.getElementById(id);
+      if (strip) {
+        strip.classList.add('nope');
+        setTimeout(() => strip.classList.remove('nope'), 400);
+      }
+    }
+
     function buildKeyboard() {
       keyboardRoot.innerHTML = '';
       function row(keys, extra) {
@@ -498,219 +757,106 @@
       keyboardRoot.appendChild(row4);
     }
 
-    function onKeyTap(ch) {
-      if (phase === 'finish') return;
-      if (ch === 'BACK') {
-        answerBuffer = answerBuffer.slice(0, -1);
-      } else {
-        answerBuffer = (answerBuffer + ch).toUpperCase();
+    function syncFocusedStripDisplay() {
+      if (focusKind === 'phrase') {
+        const i = focusPuzzleIndex;
+        const el = document.getElementById(`strip-p-${i}`);
+        if (!el || puzzleSolved[i]) return;
+        const t = normGuess(puzzleBuffers[i]);
+        puzzleBuffers[i] = t;
+        if (!t) {
+          el.textContent = 'Tap keys — your guess appears here';
+          el.classList.add('empty');
+          el.classList.remove('solved');
+        } else {
+          el.textContent = t;
+          el.classList.remove('empty');
+        }
+      } else if (focusKind === 'commonality' && commonality) {
+        const el = document.getElementById('strip-c');
+        if (!el || commonalitySolved) return;
+        const t = normGuess(commonalityBuffer);
+        commonalityBuffer = t;
+        if (!t) {
+          el.textContent = 'Your answer';
+          el.classList.add('empty');
+        } else {
+          el.textContent = t;
+          el.classList.remove('empty');
+        }
       }
-      updateAnswerStripDisplay();
     }
 
-    function updateAnswerStripDisplay() {
-      const el = document.getElementById('liveAnswerStrip');
-      if (!el) return;
-      const t = normGuess(answerBuffer);
-      answerBuffer = t;
-      if (!t) {
-        el.textContent = 'Tap keys — your guess appears here';
-        el.classList.add('empty');
-      } else {
-        el.textContent = t;
-        el.classList.remove('empty');
-      }
+    function onKeyTap(ch) {
+      if (phase === 'finish') return;
+      if (focusKind === 'phrase') {
+        const i = focusPuzzleIndex;
+        if (puzzleSolved[i]) return;
+        if (ch === 'BACK') puzzleBuffers[i] = normGuess(puzzleBuffers[i].slice(0, -1));
+        else puzzleBuffers[i] = normGuess(puzzleBuffers[i] + ch);
+      } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
+        if (ch === 'BACK') commonalityBuffer = normGuess(commonalityBuffer.slice(0, -1));
+        else commonalityBuffer = normGuess(commonalityBuffer + ch);
+      } else return;
+      syncFocusedStripDisplay();
+      updateFocusHighlight();
     }
 
     function onGuess() {
       if (phase === 'finish') return;
-      const guess = normGuess(answerBuffer);
+      let guess = '';
+
+      if (focusKind === 'phrase') {
+        const i = focusPuzzleIndex;
+        if (puzzleSolved[i]) return;
+        guess = normGuess(puzzleBuffers[i]);
+      } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
+        guess = normGuess(commonalityBuffer);
+      } else return;
+
       if (!guess) {
         toastEl.textContent = 'Type something before GUESS.';
         setTimeout(() => { toastEl.textContent = ''; }, 1600);
         return;
       }
 
-      if (phase === 'puzzle') {
-        const p = puzzles[puzzleIndex];
+      if (focusKind === 'phrase') {
+        const i = focusPuzzleIndex;
+        const p = puzzles[i];
         if (!p.accept.has(guess)) {
           incorrectGuesses++;
           wrongCountEl.textContent = String(incorrectGuesses);
-          const strip = document.getElementById('liveAnswerStrip');
-          if (strip) {
-            strip.classList.add('nope');
-            setTimeout(() => strip.classList.remove('nope'), 400);
-          }
-          answerBuffer = '';
-          updateAnswerStripDisplay();
+          shakeStrip(`strip-p-${i}`);
           return;
         }
-        if (puzzleIndex < puzzles.length - 1) {
-          puzzleIndex++;
-          answerBuffer = '';
-          revealedLeft = 0;
-          revealedRight = 0;
-          renderPuzzlePhase();
-        } else {
-          answerBuffer = '';
-          phase = 'commonality';
-          if (!commonality) {
-            phase = 'finish';
-            showFinish();
-          } else {
-            revealedComHints = 0;
-            renderCommonalityPhase();
-          }
-        }
+        puzzleSolved[i] = true;
+        puzzleBuffers[i] = normGuess(p.answer);
+        if (checkAllComplete()) return;
         toastEl.textContent = 'Nice — keep going!';
         setTimeout(() => { toastEl.textContent = ''; }, 1200);
+        focusNextSlot();
+        renderBoard();
         return;
       }
 
-      if (phase === 'commonality' && commonality) {
-        if (!commonality.accept.has(guess)) {
-          incorrectGuesses++;
-          wrongCountEl.textContent = String(incorrectGuesses);
-          const strip = document.getElementById('liveAnswerStrip');
-          if (strip) {
-            strip.classList.add('nope');
-            setTimeout(() => strip.classList.remove('nope'), 400);
-          }
-          answerBuffer = '';
-          updateAnswerStripDisplay();
-          return;
-        }
-        commonalitySolved = true;
-        phase = 'finish';
-        showFinish();
+      if (focusKind !== 'commonality' || !commonality) return;
+
+      if (!commonality.accept.has(guess)) {
+        incorrectGuesses++;
+        wrongCountEl.textContent = String(incorrectGuesses);
+        shakeStrip('strip-c');
+        return;
       }
-    }
-
-    function renderHintZones(leftHints, rightHints) {
-      const leftZone = document.getElementById('hintLeftZone');
-      const rightZone = document.getElementById('hintRightZone');
-      const leftBtn = document.getElementById('hintLeftBtn');
-      const rightBtn = document.getElementById('hintRightBtn');
-      if (leftZone) {
-        leftZone.innerHTML = '';
-        for (let i = 0; i < revealedLeft; i++) {
-          if (leftHints[i]) {
-            const d = document.createElement('div');
-            d.className = 'hint-line';
-            d.textContent = leftHints[i];
-            leftZone.appendChild(d);
-          }
-        }
-      }
-      if (rightZone) {
-        rightZone.innerHTML = '';
-        for (let i = 0; i < revealedRight; i++) {
-          if (rightHints[i]) {
-            const d = document.createElement('div');
-            d.className = 'hint-line';
-            d.textContent = rightHints[i];
-            rightZone.appendChild(d);
-          }
-        }
-      }
-      if (leftBtn) leftBtn.disabled = revealedLeft >= leftHints.length || leftHints.length === 0;
-      if (rightBtn) rightBtn.disabled = revealedRight >= rightHints.length || rightHints.length === 0;
-    }
-
-    function setupPuzzleHintHandlers(p) {
-      document.getElementById('hintLeftBtn')?.addEventListener('click', () => {
-        if (revealedLeft < p.leftHints.length) {
-          revealedLeft++;
-          renderHintZones(p.leftHints, p.rightHints);
-        }
-      });
-      document.getElementById('hintRightBtn')?.addEventListener('click', () => {
-        if (revealedRight < p.rightHints.length) {
-          revealedRight++;
-          renderHintZones(p.leftHints, p.rightHints);
-        }
-      });
-    }
-
-    function renderPuzzlePhase() {
-      commonalityMount.classList.add('hidden');
-      finishMount.classList.add('hidden');
-      puzzleMount.classList.remove('hidden');
-      phaseTitle.textContent = `Phrase ${puzzleIndex + 1} of ${puzzles.length}`;
-      pageSubtitle.textContent = 'Type the middle, then tap GUESS';
-
-      const p = puzzles[puzzleIndex];
-      puzzleMount.innerHTML = `
-        <div class="mg-main-row">
-          <div class="mg-side">
-            <div class="mg-words" id="leftWords"></div>
-            <button type="button" class="hint-btn" id="hintLeftBtn" title="Hint">💡</button>
-            <div class="hint-zone" id="hintLeftZone"></div>
-          </div>
-          <div class="mg-center">
-            <div class="mg-answer-strip empty" id="liveAnswerStrip">Tap keys — your guess appears here</div>
-          </div>
-          <div class="mg-side">
-            <div class="mg-words" id="rightWords"></div>
-            <button type="button" class="hint-btn" id="hintRightBtn" title="Hint">💡</button>
-            <div class="hint-zone" id="hintRightZone"></div>
-          </div>
-        </div>`;
-      document.getElementById('leftWords').textContent = p.leftWords;
-      document.getElementById('rightWords').textContent = p.rightWords;
-      answerBuffer = '';
-      updateAnswerStripDisplay();
-      renderHintZones(p.leftHints, p.rightHints);
-      setupPuzzleHintHandlers(p);
-      keyboardWrap.classList.remove('hidden-kb');
-    }
-
-    function renderCommonalityPhase() {
-      puzzleMount.classList.add('hidden');
-      commonalityMount.classList.remove('hidden');
-      finishMount.classList.add('hidden');
-      phaseTitle.textContent = 'Commonality';
-      pageSubtitle.textContent = 'What ties them together?';
-
-      const c = commonality;
-      commonalityMount.innerHTML = `
-        <div class="com-prompt" id="comPromptText"></div>
-        <div class="mg-main-row" style="justify-content:center">
-          <div class="mg-center" style="max-width:100%">
-            <div class="mg-answer-strip empty" id="liveAnswerStrip">Your answer</div>
-          </div>
-        </div>
-        <div style="text-align:center;margin-top:10px">
-          <button type="button" class="hint-btn" id="comHintBtn">💡 Hint</button>
-        </div>
-        <div class="hint-zone" id="comHintZone" style="max-width:400px;margin:8px auto 0"></div>`;
-      document.getElementById('comPromptText').textContent = c.prompt;
-      answerBuffer = '';
-      updateAnswerStripDisplay();
-
-      const comBtn = document.getElementById('comHintBtn');
-      const comZone = document.getElementById('comHintZone');
-      comBtn.disabled = c.hints.length === 0;
-      comZone.innerHTML = '';
-      comBtn.onclick = () => {
-        if (revealedComHints < c.hints.length) {
-          const line = document.createElement('div');
-          line.className = 'hint-line';
-          line.textContent = c.hints[revealedComHints];
-          comZone.appendChild(line);
-          revealedComHints++;
-          comBtn.disabled = revealedComHints >= c.hints.length;
-        }
-      };
-      keyboardWrap.classList.remove('hidden-kb');
+      commonalitySolved = true;
+      commonalityBuffer = normGuess(commonality.answer);
+      if (checkAllComplete()) return;
+      renderBoard();
     }
 
     function showFinish() {
-      puzzleMount.classList.add('hidden');
-      commonalityMount.classList.add('hidden');
+      boardArea.classList.add('hidden');
       finishMount.classList.remove('hidden');
       keyboardWrap.classList.add('hidden-kb');
-      phaseTitle.textContent = 'Done!';
       pageSubtitle.textContent = 'Save your result';
 
       const total = puzzles.length + (commonality ? 1 : 0);
@@ -774,21 +920,66 @@
       }
     }
 
+    function isTypingInFormField(target) {
+      return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+    }
+
+    function onPhysicalKeydown(e) {
+      if (phase === 'finish') return;
+      if (isTypingInFormField(e.target)) return;
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onGuess();
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        cycleFocus(e.shiftKey ? -1 : 1);
+        return;
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        onKeyTap('BACK');
+        return;
+      }
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const ch = e.key;
+        if (/^[a-zA-Z]$/.test(ch)) {
+          e.preventDefault();
+          onKeyTap(ch.toUpperCase());
+          return;
+        }
+        if (ch === ' ') {
+          e.preventDefault();
+          onKeyTap(' ');
+          return;
+        }
+        if (ch === "'" || ch === '-') {
+          e.preventDefault();
+          onKeyTap(ch);
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onPhysicalKeydown);
+
     async function loadQuiz() {
       loadingState.classList.remove('hidden');
       errorState.classList.add('hidden');
       quizCard.classList.add('hidden');
 
-      phase = 'puzzle';
-      puzzleIndex = 0;
-      answerBuffer = '';
+      phase = 'play';
       incorrectGuesses = 0;
-      revealedLeft = 0;
-      revealedRight = 0;
       revealedComHints = 0;
       commonalitySolved = false;
+      commonalityBuffer = '';
+      focusKind = 'phrase';
+      focusPuzzleIndex = 0;
       wrongCountEl.textContent = '0';
       toastEl.textContent = '';
+      finishMount.classList.add('hidden');
+      boardArea.classList.remove('hidden');
 
       try {
         const settingsSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/activeGameId`));
@@ -822,9 +1013,15 @@
           return;
         }
 
+        puzzleBuffers = puzzles.map(() => '');
+        puzzleSolved = puzzles.map(() => false);
+        revealedLeftArr = puzzles.map(() => 0);
+        revealedRightArr = puzzles.map(() => 0);
+
+        ensureBoardDelegation();
         buildKeyboard();
         statBar.classList.remove('hidden');
-        renderPuzzlePhase();
+        renderBoard();
         showQuizShell();
       } catch (e) {
         console.error(e);
