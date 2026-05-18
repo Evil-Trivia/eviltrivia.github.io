@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Evil Trivia — Middle Ground</title>
+  <script src="/js/components/autoload-banner.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Press Start 2P', cursive;
+      background: linear-gradient(180deg, #1a2332 0%, #243330 100%);
+      color: #eeeedd;
+      min-height: 100vh;
+      margin-top: 60px;
+      padding: 20px 16px 40px;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      color: #7cb342;
+      font-size: 18px;
+      line-height: 1.6;
+      text-shadow: 0 0 12px rgba(124, 179, 66, 0.6);
+      margin-bottom: 8px;
+    }
+    .tag {
+      text-align: center;
+      font-size: 8px;
+      color: #9ccc65;
+      line-height: 1.9;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: rgba(0,0,0,0.35);
+      border: 4px solid #7cb342;
+      padding: 20px;
+      box-shadow: 0 0 24px rgba(124, 179, 66, 0.25);
+      margin-bottom: 20px;
+    }
+    label.lbl {
+      display: block;
+      font-size: 9px;
+      color: #9ccc65;
+      margin-bottom: 10px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px;
+      font-size: 10px;
+      font-family: inherit;
+      border: 3px solid #558b2f;
+      background: #1a2332;
+      color: #fff;
+      margin-bottom: 20px;
+    }
+    input:focus { outline: 2px solid #dce775; }
+    .q-text {
+      font-size: 11px;
+      line-height: 2;
+      color: #fff;
+      margin-bottom: 18px;
+    }
+    .choices {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .choice {
+      text-align: left;
+      padding: 14px 16px;
+      font-size: 9px;
+      font-family: inherit;
+      border: 3px solid #558b2f;
+      background: #2e3d35;
+      color: #eeeedd;
+      cursor: pointer;
+      transition: transform 0.08s, border-color 0.08s;
+    }
+    .choice:hover { border-color: #dce775; transform: scale(1.01); }
+    .choice:active { transform: scale(0.98); }
+    .choice.selected {
+      border-color: #dce775;
+      box-shadow: 0 0 12px rgba(220, 231, 117, 0.4);
+      background: #3d4f42;
+    }
+    .choice:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    button.primary {
+      padding: 14px 22px;
+      font-size: 9px;
+      font-family: inherit;
+      background: #7cb342;
+      color: #1a2332;
+      border: 3px solid #dce775;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button.primary:disabled {
+      background: #555;
+      border-color: #777;
+      cursor: not-allowed;
+      color: #aaa;
+    }
+    button.secondary {
+      padding: 14px 22px;
+      font-size: 9px;
+      font-family: inherit;
+      background: #455a64;
+      color: #fff;
+      border: 3px solid #78909c;
+      cursor: pointer;
+    }
+    .result {
+      display: none;
+      text-align: center;
+      font-size: 11px;
+      line-height: 2;
+      padding: 16px;
+      margin-top: 16px;
+      border: 3px solid #558b2f;
+      background: rgba(0,0,0,0.4);
+    }
+    .result.show { display: block; }
+    .result.ok { color: #9ccc65; }
+    .result.bad { color: #ffab91; }
+    .toast {
+      font-size: 8px;
+      color: #9ccc65;
+      text-align: center;
+      margin-top: 12px;
+      min-height: 1.2em;
+    }
+    .board h2 {
+      font-size: 12px;
+      color: #7cb342;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+    .board table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8px;
+    }
+    .board th, .board td {
+      border-bottom: 2px solid #558b2f;
+      padding: 10px 6px;
+      text-align: left;
+    }
+    .board th { color: #dce775; }
+    .board td.rank { color: #9ccc65; width: 2.5em; }
+    .board td.pts { text-align: right; color: #fff; }
+    .muted {
+      font-size: 7px;
+      color: #8d9e8a;
+      text-align: center;
+      margin-top: 16px;
+      line-height: 1.8;
+    }
+    @media (max-width: 500px) {
+      h1 { font-size: 12px; }
+      .q-text { font-size: 9px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>MIDDLE GROUND</h1>
+    <div class="tag">Placeholder round · one question · no sign-in</div>
+
+    <div class="card">
+      <label class="lbl" for="displayName">NAME FOR LEADERBOARD (OPTIONAL)</label>
+      <input type="text" id="displayName" maxlength="40" placeholder="Anonymous" autocomplete="nickname">
+
+      <div class="q-text" id="questionText"></div>
+      <div class="choices" id="choices"></div>
+
+      <div class="btn-row">
+        <button type="button" class="primary" id="submitBtn" disabled>SUBMIT ANSWER</button>
+        <button type="button" class="secondary" id="playAgainBtn" style="display:none">PLAY AGAIN</button>
+      </div>
+
+      <div id="result" class="result"></div>
+      <div class="toast" id="toast"></div>
+    </div>
+
+    <div class="card board">
+      <h2>LEADERBOARD</h2>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>NAME</th>
+              <th style="text-align:right">PTS</th>
+            </tr>
+          </thead>
+          <tbody id="boardBody"></tbody>
+        </table>
+      </div>
+      <p class="muted">Scores save to Evil Trivia. Best score per name is shown first; ties favor earlier runs.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
+    import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
+      authDomain: "eviltrivia-47664.firebaseapp.com",
+      databaseURL: "https://eviltrivia-47664-default-rtdb.firebaseio.com",
+      projectId: "eviltrivia-47664",
+      storageBucket: "eviltrivia-47664.firebaseapp.com",
+      messagingSenderId: "401826818140",
+      appId: "1:401826818140:web:c1df0bf4c602cc48231e99",
+      measurementId: "G-2W6RK96Y34"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    window.db = db;
+    window.dbRef = ref;
+    window.dbPush = push;
+    window.dbSet = set;
+    window.dbGet = get;
+  </script>
+
+  <script>
+    const GAME_ID = 'middleground';
+
+    const PLACEHOLDER = {
+      question: 'Which is the middle color when these three are sorted by wavelength: Red, Green, Violet?',
+      choices: ['Red', 'Green', 'Violet', 'Trick question — it depends how you sort'],
+      correctIndex: 1
+    };
+
+    let selectedIndex = null;
+    let locked = false;
+
+    const questionText = document.getElementById('questionText');
+    const choicesEl = document.getElementById('choices');
+    const submitBtn = document.getElementById('submitBtn');
+    const playAgainBtn = document.getElementById('playAgainBtn');
+    const resultEl = document.getElementById('result');
+    const toastEl = document.getElementById('toast');
+    const boardBody = document.getElementById('boardBody');
+
+    function renderQuestion() {
+      questionText.textContent = PLACEHOLDER.question;
+      choicesEl.innerHTML = '';
+      PLACEHOLDER.choices.forEach((text, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'choice';
+        b.textContent = text;
+        b.addEventListener('click', () => selectChoice(i));
+        choicesEl.appendChild(b);
+      });
+    }
+
+    function selectChoice(i) {
+      if (locked) return;
+      selectedIndex = i;
+      const nodes = choicesEl.querySelectorAll('.choice');
+      nodes.forEach((n, j) => n.classList.toggle('selected', j === i));
+      submitBtn.disabled = false;
+    }
+
+    function displayName() {
+      const raw = document.getElementById('displayName').value.trim();
+      return raw || 'Anonymous';
+    }
+
+    async function submitScore(payload) {
+      try {
+        const answersRef = window.dbRef(window.db, `games/${GAME_ID}/answers`);
+        const newRef = window.dbPush(answersRef);
+        await window.dbSet(newRef, payload);
+        return true;
+      } catch (e) {
+        console.error(e);
+        try {
+          const pubRef = window.dbRef(window.db, `publicAnswers/${GAME_ID}`);
+          const newRef = window.dbPush(pubRef);
+          await window.dbSet(newRef, payload);
+          return true;
+        } catch (e2) {
+          console.error(e2);
+          return false;
+        }
+      }
+    }
+
+    function onSubmit() {
+      if (locked || selectedIndex == null) return;
+      locked = true;
+      submitBtn.disabled = true;
+      choicesEl.querySelectorAll('.choice').forEach(c => c.disabled = true);
+
+      const correct = selectedIndex === PLACEHOLDER.correctIndex;
+      const points = correct ? 1 : 0;
+      const payload = {
+        displayName: displayName(),
+        points,
+        correct,
+        selectedIndex,
+        correctIndex: PLACEHOLDER.correctIndex,
+        placeholderVersion: 1,
+        timestamp: Date.now(),
+        date: new Date().toISOString().split('T')[0]
+      };
+
+      resultEl.classList.add('show');
+      resultEl.classList.toggle('ok', correct);
+      resultEl.classList.toggle('bad', !correct);
+      resultEl.textContent = correct
+        ? 'Correct! +1 point logged.'
+        : 'Not quite — 0 points this time.';
+
+      submitScore(payload).then((ok) => {
+        toastEl.textContent = ok ? 'Score saved.' : 'Could not save score (check connection).';
+        loadLeaderboard();
+      });
+
+      playAgainBtn.style.display = 'inline-block';
+    }
+
+    function onPlayAgain() {
+      locked = false;
+      selectedIndex = null;
+      resultEl.classList.remove('show', 'ok', 'bad');
+      toastEl.textContent = '';
+      submitBtn.disabled = true;
+      playAgainBtn.style.display = 'none';
+      choicesEl.querySelectorAll('.choice').forEach(c => {
+        c.disabled = false;
+        c.classList.remove('selected');
+      });
+    }
+
+    async function loadLeaderboard() {
+      const rows = [];
+      const addFromSnap = (snap) => {
+        if (!snap.exists()) return;
+        Object.values(snap.val()).forEach(s => rows.push(s));
+      };
+      try {
+        const mainSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/answers`));
+        addFromSnap(mainSnap);
+        const pubSnap = await window.dbGet(window.dbRef(window.db, `publicAnswers/${GAME_ID}`));
+        addFromSnap(pubSnap);
+      } catch (e) {
+        console.error(e);
+        boardBody.innerHTML = '<tr><td colspan="3">Could not load scores.</td></tr>';
+        return;
+      }
+
+      const byName = new Map();
+      for (const s of rows) {
+        const name = (s.displayName || 'Anonymous').trim() || 'Anonymous';
+        const pts = typeof s.points === 'number' ? s.points : (s.correct ? 1 : 0);
+        const ts = s.timestamp || 0;
+        const prev = byName.get(name);
+        if (!prev || pts > prev.points || (pts === prev.points && ts < prev.timestamp)) {
+          byName.set(name, { name, points: pts, timestamp: ts });
+        }
+      }
+      const sorted = [...byName.values()].sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        return a.timestamp - b.timestamp;
+      }).slice(0, 25);
+
+      boardBody.innerHTML = '';
+      if (sorted.length === 0) {
+        boardBody.innerHTML = '<tr><td colspan="3">No scores yet — be the first.</td></tr>';
+        return;
+      }
+      sorted.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="rank">${i + 1}</td><td>${escapeHtml(r.name)}</td><td class="pts">${r.points}</td>`;
+        boardBody.appendChild(tr);
+      });
+    }
+
+    function escapeHtml(t) {
+      const d = document.createElement('div');
+      d.textContent = t;
+      return d.innerHTML;
+    }
+
+    submitBtn.addEventListener('click', onSubmit);
+    playAgainBtn.addEventListener('click', onPlayAgain);
+
+    renderQuestion();
+    loadLeaderboard();
+  </script>
+</body>
+</html>
