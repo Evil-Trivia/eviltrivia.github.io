@@ -15,7 +15,7 @@
       line-height: 1.35;
       padding-bottom: env(safe-area-inset-bottom, 12px);
     }
-    .wrap { max-width: 720px; margin: 0 auto; }
+    .wrap { max-width: 720px; margin: 0 auto; overflow-x: visible; }
     h1.mg-game-title {
       font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
       font-weight: 900;
@@ -59,6 +59,7 @@
       padding: 8px 8px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.06);
       margin-bottom: 6px;
+      overflow: visible;
     }
     .msg-loading, .msg-error {
       text-align: center;
@@ -68,6 +69,10 @@
     }
     .msg-error { color: #a44; }
     .hidden { display: none !important; }
+    #playCard,
+    #boardArea {
+      overflow: visible;
+    }
 
     /* Title row: icons align with first line of titles */
     .mg-title-row {
@@ -217,6 +222,11 @@
       gap: 3px;
       flex-wrap: nowrap;
       margin-bottom: 2px;
+      overflow: visible;
+    }
+    .mg-phrase-block {
+      overflow: visible;
+      position: relative;
     }
     .mg-side {
       flex: 1 1 0;
@@ -225,6 +235,7 @@
       display: flex;
       align-items: stretch;
       gap: 2px;
+      overflow: visible;
     }
     .mg-side-left { flex-direction: row; }
     .mg-side-right { flex-direction: row; }
@@ -250,9 +261,12 @@
     .mg-words-text {
       max-width: 100%;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+    .mg-words-text::-webkit-scrollbar { display: none; height: 0; }
     .mg-hint-area { width: 100%; min-height: 0; }
     .mg-hint-area:not(:empty) { margin-top: 3px; }
     .mg-hint-lines {
@@ -262,10 +276,13 @@
       text-align: center;
       line-height: 1.15;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow-x: auto;
+      overflow-y: hidden;
       max-width: 100%;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+    .mg-hint-lines::-webkit-scrollbar { display: none; height: 0; }
     .mg-center {
       flex: 0 1 22%;
       min-width: 56px;
@@ -340,9 +357,15 @@
       text-align: center;
       hyphens: none;
       overflow: visible;
-      padding: 1px 2px;
-      font-size: clamp(0.34rem, 2.6vw, 0.5rem);
-      letter-spacing: -0.03em;
+      width: auto;
+      min-width: 1.65rem;
+      max-width: none;
+      padding: 2px 6px;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 3;
+      font-size: clamp(0.52rem, 3.2vw, 0.72rem);
+      letter-spacing: -0.02em;
     }
     .hint-btn:hover { background: #fff3c4; }
     .hint-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -362,6 +385,7 @@
       margin-top: 8px;
       padding-top: 8px;
       border-top: 2px solid #e0e0d8;
+      overflow: visible;
     }
     .com-prompt {
       font-size: 0.85rem;
@@ -631,6 +655,43 @@
     let hintsButtonTaps = 0;
     /** Pending two-tap confirm: keys "L-0", "R-1", "C" */
     const hintPending = new Set();
+    /** key -> timeout id for auto-revert of confirm UI */
+    const hintTimers = new Map();
+    const HINT_CONFIRM_MS = 3000;
+    const HINT_REVEAL_LABEL = 'Reveal?';
+
+    function clearHintTimer(key) {
+      if (hintTimers.has(key)) {
+        clearTimeout(hintTimers.get(key));
+        hintTimers.delete(key);
+      }
+    }
+
+    function clearAllHintTimers() {
+      hintTimers.forEach(t => clearTimeout(t));
+      hintTimers.clear();
+    }
+
+    function hintButtonForKey(key) {
+      if (key === 'C') return document.getElementById('comHintBtn');
+      if (key.startsWith('L-')) return document.getElementById(`hintLeftBtn-${key.slice(2)}`);
+      if (key.startsWith('R-')) return document.getElementById(`hintRightBtn-${key.slice(2)}`);
+      return null;
+    }
+
+    function scheduleHintPendingRevert(key) {
+      clearHintTimer(key);
+      hintTimers.set(key, setTimeout(() => {
+        hintTimers.delete(key);
+        if (!hintPending.has(key)) return;
+        hintPending.delete(key);
+        const b = hintButtonForKey(key);
+        if (b) {
+          b.classList.remove('hint-pending');
+          b.textContent = '💡';
+        }
+      }, HINT_CONFIRM_MS));
+    }
 
     function totalHintsUsed() {
       return hintsButtonTaps;
@@ -803,6 +864,7 @@
       commonalitySolved = false;
       revealedComHints = 0;
       hintPending.clear();
+      clearAllHintTimers();
       focusKind = 'phrase';
       focusPuzzleIndex = 0;
       updateHeaderTitles();
@@ -926,6 +988,7 @@
         if (!p || !btn || revealedLeftArr[i] >= p.leftHints.length || p.leftHints.length === 0) return;
         const key = `L-${i}`;
         if (hintPending.has(key)) {
+          clearHintTimer(key);
           hintPending.delete(key);
           btn.classList.remove('hint-pending');
           btn.textContent = '💡';
@@ -935,7 +998,8 @@
         } else {
           hintPending.add(key);
           btn.classList.add('hint-pending');
-          btn.textContent = 'Reveal hint?';
+          btn.textContent = HINT_REVEAL_LABEL;
+          scheduleHintPendingRevert(key);
         }
         return;
       }
@@ -945,6 +1009,7 @@
         if (!p || !btn || revealedRightArr[i] >= p.rightHints.length || p.rightHints.length === 0) return;
         const key = `R-${i}`;
         if (hintPending.has(key)) {
+          clearHintTimer(key);
           hintPending.delete(key);
           btn.classList.remove('hint-pending');
           btn.textContent = '💡';
@@ -954,7 +1019,8 @@
         } else {
           hintPending.add(key);
           btn.classList.add('hint-pending');
-          btn.textContent = 'Reveal hint?';
+          btn.textContent = HINT_REVEAL_LABEL;
+          scheduleHintPendingRevert(key);
         }
         return;
       }
@@ -963,6 +1029,7 @@
         const btn = document.getElementById('comHintBtn');
         if (!btn || revealedComHints >= c.hints.length || c.hints.length === 0) return;
         if (hintPending.has('C')) {
+          clearHintTimer('C');
           hintPending.delete('C');
           btn.classList.remove('hint-pending');
           btn.textContent = '💡';
@@ -972,7 +1039,8 @@
         } else {
           hintPending.add('C');
           btn.classList.add('hint-pending');
-          btn.textContent = 'Reveal hint?';
+          btn.textContent = HINT_REVEAL_LABEL;
+          scheduleHintPendingRevert('C');
         }
       }
     }
@@ -991,11 +1059,12 @@
         leftBtn.disabled = rl >= p.leftHints.length || p.leftHints.length === 0;
         if (leftBtn.disabled) {
           hintPending.delete(`L-${i}`);
+          clearHintTimer(`L-${i}`);
           leftBtn.classList.remove('hint-pending');
           leftBtn.textContent = '💡';
         } else if (hintPending.has(`L-${i}`)) {
           leftBtn.classList.add('hint-pending');
-          leftBtn.textContent = 'Reveal hint?';
+          leftBtn.textContent = HINT_REVEAL_LABEL;
         } else {
           leftBtn.classList.remove('hint-pending');
           leftBtn.textContent = '💡';
@@ -1005,11 +1074,12 @@
         rightBtn.disabled = rr >= p.rightHints.length || p.rightHints.length === 0;
         if (rightBtn.disabled) {
           hintPending.delete(`R-${i}`);
+          clearHintTimer(`R-${i}`);
           rightBtn.classList.remove('hint-pending');
           rightBtn.textContent = '💡';
         } else if (hintPending.has(`R-${i}`)) {
           rightBtn.classList.add('hint-pending');
-          rightBtn.textContent = 'Reveal hint?';
+          rightBtn.textContent = HINT_REVEAL_LABEL;
         } else {
           rightBtn.classList.remove('hint-pending');
           rightBtn.textContent = '💡';
@@ -1028,11 +1098,12 @@
         comBtn.disabled = commonalitySolved || c.hints.length === 0 || revealedComHints >= c.hints.length;
         if (comBtn.disabled) {
           hintPending.delete('C');
+          clearHintTimer('C');
           comBtn.classList.remove('hint-pending');
           comBtn.textContent = '💡';
         } else if (hintPending.has('C')) {
           comBtn.classList.add('hint-pending');
-          comBtn.textContent = 'Reveal hint?';
+          comBtn.textContent = HINT_REVEAL_LABEL;
         } else {
           comBtn.classList.remove('hint-pending');
           comBtn.textContent = '💡';
@@ -1346,6 +1417,8 @@
         puzzleBuffers[i] = normGuess(p.answer);
         hintPending.delete(`L-${i}`);
         hintPending.delete(`R-${i}`);
+        clearHintTimer(`L-${i}`);
+        clearHintTimer(`R-${i}`);
         revealedLeftArr[i] = p.leftHints.length;
         revealedRightArr[i] = p.rightHints.length;
         if (checkAllComplete()) return;
@@ -1524,6 +1597,7 @@
         revealedComHints = 0;
         hintsButtonTaps = 0;
         hintPending.clear();
+        clearAllHintTimers();
         commonalitySolved = false;
         commonalityBuffer = '';
         focusKind = 'phrase';
