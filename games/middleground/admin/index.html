@@ -153,9 +153,10 @@
       <div id="gamesMsg"></div>
     </div>
 
-    <!-- Question editor -->
+    <!-- Puzzle + commonality editor -->
     <div class="section">
-      <h2>Edit questions</h2>
+      <h2>Edit puzzles &amp; commonality</h2>
+      <p class="hint">Each phrase: text on the left and right of the middle answer players type. Hints: one per line. Commonality is the final “what ties them together?” round (optional if you leave prompt blank).</p>
       <div class="row">
         <div class="field">
           <label for="editGamePick">Game</label>
@@ -168,9 +169,29 @@
       </div>
       <div id="questionsMount"></div>
       <div class="row">
-        <button type="button" onclick="addQuestionBlock()">Add question</button>
+        <button type="button" onclick="addQuestionBlock()">Add phrase</button>
         <button type="button" class="primary" onclick="saveCurrentGame()">Save game</button>
         <button type="button" class="danger" onclick="deleteCurrentGame()">Delete selected game</button>
+      </div>
+
+      <div class="q-editor" style="margin-top:20px">
+        <h3>Commonality (final)</h3>
+        <div class="field">
+          <label for="comPrompt">Prompt</label>
+          <textarea id="comPrompt" rows="2" style="width:100%;max-width:640px"></textarea>
+        </div>
+        <div class="field">
+          <label for="comAnswer">Answer</label>
+          <input type="text" id="comAnswer" style="width:100%;max-width:480px" />
+        </div>
+        <div class="field">
+          <label for="comAlt">Alternate answers (comma-separated)</label>
+          <input type="text" id="comAlt" style="width:100%;max-width:480px" />
+        </div>
+        <div class="field">
+          <label for="comHints">Hints (one per line)</label>
+          <textarea id="comHints" rows="3" style="width:100%;max-width:640px"></textarea>
+        </div>
       </div>
       <div id="editorMsg"></div>
     </div>
@@ -217,6 +238,7 @@
               <th>Name</th>
               <th>Points</th>
               <th>Date</th>
+              <th>Wrong</th>
               <th>Src</th>
               <th></th>
             </tr>
@@ -291,11 +313,35 @@
     let allScores = [];
     let filteredScores = [];
 
-    const defaultQuestion = () => ({
-      question: '',
-      choices: ['', '', '', ''],
-      correctIndex: 0
+    const defaultPuzzle = () => ({
+      leftWords: 'UP ',
+      rightWords: ' CREEK',
+      answer: 'THE',
+      altAnswers: '',
+      leftHints: 'Often paired with “without a paddle”',
+      rightHints: 'Small stream'
     });
+
+    const defaultCommonalityForm = () => ({
+      prompt: 'What theme ties these phrases together?',
+      answer: 'BOATING',
+      altAnswers: '',
+      hints: 'Think water\nThink vessels'
+    });
+
+    function coerceArr(raw) {
+      if (!raw) return [];
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'object') {
+        return Object.keys(raw).sort((a, b) => Number(a) - Number(b)).map(k => raw[k]);
+      }
+      return [];
+    }
+
+    function hintsToLines(val) {
+      if (Array.isArray(val)) return val.map(String).join('\n');
+      return String(val || '');
+    }
 
     function flash(el, html, isError) {
       if (!el) return;
@@ -367,7 +413,13 @@
         const id = newRef.key;
         const body = {
           title: 'New quiz',
-          questions: [defaultQuestion()],
+          puzzles: [defaultPuzzle()],
+          commonality: {
+            prompt: defaultCommonalityForm().prompt,
+            answer: defaultCommonalityForm().answer,
+            altAnswers: [],
+            hints: defaultCommonalityForm().hints.split('\n').map(s => s.trim()).filter(Boolean)
+          },
           updatedAt: Date.now()
         };
         await window.dbSet(newRef, body);
@@ -380,7 +432,7 @@
         await refreshAll();
         document.getElementById('editGamePick').value = id;
         onEditGameChange();
-        flash(document.getElementById('gamesMsg'), 'Game created. Set its title and questions, then Make active.', false);
+        flash(document.getElementById('gamesMsg'), 'Game created. Add phrases and optional commonality, Save, then Make active.', false);
       } catch (e) {
         flash(document.getElementById('gamesMsg'), e.message, true);
       }
@@ -414,80 +466,83 @@
       const id = document.getElementById('editGamePick').value;
       const g = id && library[id] ? library[id] : null;
       document.getElementById('gameTitleInput').value = g && g.title ? g.title : '';
-      const qs = g && Array.isArray(g.questions) && g.questions.length
-        ? g.questions.map(q => ({
-            question: String(q.question || q.text || ''),
-            choices: padChoices(q.choices),
-            correctIndex: Math.min(Math.max(0, Number(q.correctIndex) || 0), 3)
-          }))
-        : [defaultQuestion()];
-      renderQuestionEditors(qs);
+
+      let puzz = [];
+      if (g && g.puzzles) {
+        puzz = coerceArr(g.puzzles).map(p => ({
+          leftWords: String(p.leftWords || p.left || ''),
+          rightWords: String(p.rightWords || p.right || ''),
+          answer: String(p.answer || ''),
+          altAnswers: Array.isArray(p.altAnswers) ? p.altAnswers.join(', ') : String(p.altAnswers || ''),
+          leftHints: hintsToLines(p.leftHints),
+          rightHints: hintsToLines(p.rightHints)
+        }));
+      }
+      if (!puzz.length) puzz = [defaultPuzzle()];
+      renderPuzzleEditors(puzz);
+
+      const com = g && g.commonality && typeof g.commonality === 'object' ? g.commonality : null;
+      document.getElementById('comPrompt').value = com && com.prompt ? String(com.prompt) : '';
+      document.getElementById('comAnswer').value = com && com.answer ? String(com.answer) : '';
+      let altStr = '';
+      if (com && com.altAnswers) {
+        altStr = Array.isArray(com.altAnswers) ? com.altAnswers.join(', ') : String(com.altAnswers);
+      }
+      document.getElementById('comAlt').value = altStr;
+      document.getElementById('comHints').value = com ? hintsToLines(com.hints) : '';
     }
 
-    function padChoices(arr) {
-      const a = Array.isArray(arr) ? arr.map(c => String(c ?? '')) : [];
-      while (a.length < 4) a.push('');
-      return a.slice(0, 4);
-    }
-
-    function renderQuestionEditors(questions) {
+    function renderPuzzleEditors(puzzles) {
       const mount = document.getElementById('questionsMount');
       mount.innerHTML = '';
-      questions.forEach((q, i) => {
+      puzzles.forEach((p, i) => {
         const div = document.createElement('div');
         div.className = 'q-editor';
-        div.dataset.qindex = String(i);
         div.innerHTML = `
-          <h3>Question ${i + 1} <button type="button" class="small danger" style="float:right">Remove</button></h3>
-          <input type="text" class="q-prompt" placeholder="Question text" value="" />
-          <div class="choice-rows"></div>
-          <div class="field" style="margin-top:8px">
-            <label>Correct answer</label>
-            <select class="correct-pick">
-              <option value="0">Choice 1</option>
-              <option value="1">Choice 2</option>
-              <option value="2">Choice 3</option>
-              <option value="3">Choice 4</option>
-            </select>
-          </div>`;
-        div.querySelector('.q-prompt').value = q.question;
-        div.querySelector('.correct-pick').value = String(Math.min(3, Math.max(0, q.correctIndex)));
-        const rows = div.querySelector('.choice-rows');
-        for (let c = 0; c < 4; c++) {
-          const r = document.createElement('div');
-          r.className = 'choice-row';
-          r.innerHTML = `<span style="font-size:0.8rem;color:#666;width:72px">Choice ${c + 1}</span><input type="text" class="c-in" data-ci="${c}" placeholder="Answer text" />`;
-          r.querySelector('.c-in').value = q.choices[c] || '';
-          rows.appendChild(r);
-        }
+          <h3>Phrase ${i + 1} <button type="button" class="small danger" style="float:right">Remove</button></h3>
+          <div class="field"><label>Left (before middle)</label><input type="text" class="in-left" style="width:100%;max-width:560px" /></div>
+          <div class="field"><label>Right (after middle)</label><input type="text" class="in-right" style="width:100%;max-width:560px" /></div>
+          <div class="field"><label>Middle answer (matching is case-insensitive)</label><input type="text" class="in-ans" style="width:100%;max-width:400px" /></div>
+          <div class="field"><label>Alternate answers (comma-separated)</label><input type="text" class="in-alt" style="width:100%;max-width:480px" /></div>
+          <div class="field"><label>Left hints (one per line)</label><textarea class="ta-lh" rows="2" style="width:100%;max-width:560px"></textarea></div>
+          <div class="field"><label>Right hints (one per line)</label><textarea class="ta-rh" rows="2" style="width:100%;max-width:560px"></textarea></div>`;
+        div.querySelector('.in-left').value = p.leftWords;
+        div.querySelector('.in-right').value = p.rightWords;
+        div.querySelector('.in-ans').value = p.answer;
+        div.querySelector('.in-alt').value = p.altAnswers;
+        div.querySelector('.ta-lh').value = p.leftHints;
+        div.querySelector('.ta-rh').value = p.rightHints;
         div.querySelector('.danger').addEventListener('click', () => {
           div.remove();
-          renumberQuestions();
+          renumberPuzzles();
         });
         mount.appendChild(div);
       });
     }
 
-    function renumberQuestions() {
+    function renumberPuzzles() {
       document.querySelectorAll('#questionsMount .q-editor').forEach((el, i) => {
-        el.querySelector('h3').firstChild.textContent = 'Question ' + (i + 1) + ' ';
+        el.querySelector('h3').childNodes[0].textContent = 'Phrase ' + (i + 1) + ' ';
       });
     }
 
     function addQuestionBlock() {
-      const mount = document.getElementById('questionsMount');
-      const cur = collectQuestionsFromDom();
-      cur.push(defaultQuestion());
-      renderQuestionEditors(cur);
+      const cur = collectPuzzlesFromDom();
+      cur.push(defaultPuzzle());
+      renderPuzzleEditors(cur);
     }
 
-    function collectQuestionsFromDom() {
+    function collectPuzzlesFromDom() {
       const out = [];
       document.querySelectorAll('#questionsMount .q-editor').forEach(el => {
-        const question = el.querySelector('.q-prompt').value.trim();
-        const choices = [0, 1, 2, 3].map(ci => el.querySelector(`.c-in[data-ci="${ci}"]`).value.trim());
-        const correctIndex = Number(el.querySelector('.correct-pick').value) || 0;
-        out.push({ question, choices, correctIndex });
+        out.push({
+          leftWords: el.querySelector('.in-left').value.trim(),
+          rightWords: el.querySelector('.in-right').value.trim(),
+          answer: el.querySelector('.in-ans').value.trim(),
+          altAnswers: el.querySelector('.in-alt').value.trim(),
+          leftHints: el.querySelector('.ta-lh').value,
+          rightHints: el.querySelector('.ta-rh').value
+        });
       });
       return out;
     }
@@ -499,23 +554,46 @@
         return;
       }
       const title = document.getElementById('gameTitleInput').value.trim() || 'Untitled quiz';
-      let questions = collectQuestionsFromDom();
-      questions = questions
-        .map(q => {
-          const choices = q.choices.map(c => (c || '').trim()).filter(c => c);
-          let ci = Math.min(Math.max(0, Number(q.correctIndex) || 0), 3);
-          ci = Math.min(ci, Math.max(0, choices.length - 1));
-          return { question: q.question.trim(), choices, correctIndex: ci };
-        })
-        .filter(q => q.question && q.choices.length >= 2);
 
-      if (questions.length === 0) {
-        flash(document.getElementById('editorMsg'), 'Need at least one question with text and two answers.', true);
+      let puzzRows = collectPuzzlesFromDom();
+      const puzzles = puzzRows
+        .map(row => {
+          const leftHints = String(row.leftHints || '').split('\n').map(s => s.trim()).filter(Boolean);
+          const rightHints = String(row.rightHints || '').split('\n').map(s => s.trim()).filter(Boolean);
+          let alt = String(row.altAnswers || '').split(',').map(s => s.trim()).filter(Boolean);
+          return {
+            leftWords: row.leftWords,
+            rightWords: row.rightWords,
+            answer: row.answer,
+            altAnswers: alt,
+            leftHints,
+            rightHints
+          };
+        })
+        .filter(p => p.leftWords && p.rightWords && p.answer);
+
+      if (puzzles.length === 0) {
+        flash(document.getElementById('editorMsg'), 'Need at least one phrase with left text, right text, and middle answer.', true);
         return;
       }
 
+      const comPrompt = document.getElementById('comPrompt').value.trim();
+      const comAnswer = document.getElementById('comAnswer').value.trim();
+      const comAltStr = document.getElementById('comAlt').value.trim();
+      const comHintsRaw = document.getElementById('comHints').value;
+
+      const body = { title, puzzles, updatedAt: Date.now() };
+
+      if (comPrompt && comAnswer) {
+        body.commonality = {
+          prompt: comPrompt,
+          answer: comAnswer,
+          altAnswers: comAltStr ? comAltStr.split(',').map(s => s.trim()).filter(Boolean) : [],
+          hints: String(comHintsRaw || '').split('\n').map(s => s.trim()).filter(Boolean)
+        };
+      }
+
       try {
-        const body = { title, questions, updatedAt: Date.now() };
         await window.dbSet(window.dbRef(window.db, `${LIBRARY_PATH}/${id}`), body);
         library[id] = body;
         populateGameSelects();
@@ -617,11 +695,13 @@
       filteredScores.forEach(s => {
         const tr = document.createElement('tr');
         const title = s.gameTitle || library[s.gameId] && library[s.gameId].title || s.gameId || '—';
+        const wrongN = typeof s.incorrectGuesses === 'number' ? s.incorrectGuesses : '—';
         tr.innerHTML = `
           <td>${escapeHtml(String(title))}</td>
           <td><input type="text" data-k="nm" value="${escapeAttr(s.displayName || '')}" /></td>
           <td><input type="number" data-k="pt" step="1" value="${pointsOf(s)}" /></td>
           <td>${escapeHtml(s.date || '—')}</td>
+          <td>${wrongN}</td>
           <td>${escapeHtml(s.source)}</td>
           <td>
             <button type="button" class="small primary" data-act="save">Save</button>
