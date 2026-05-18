@@ -33,6 +33,7 @@
       margin-bottom: 14px;
     }
     .stat-bar span { font-weight: bold; color: #c45c5c; }
+    .stat-bar span.stat-hints { color: #6a7a8c; }
     .card {
       background: #fff;
       border: 1px solid #d8d8d0;
@@ -64,10 +65,12 @@
       min-width: 100px;
       max-width: 220px;
       display: flex;
-      flex-direction: column;
-      align-items: center;
+      align-items: stretch;
       gap: 6px;
     }
+    .mg-side-left { flex-direction: row; }
+    .mg-side-right { flex-direction: row; }
+    .mg-side .hint-btn { align-self: center; flex-shrink: 0; }
     .mg-words {
       font-size: clamp(0.85rem, 3vw, 1rem);
       font-weight: bold;
@@ -79,11 +82,33 @@
       border-radius: 6px;
       border: 1px solid #ddd;
       width: 100%;
+      min-width: 0;
       min-height: 3.2em;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
     }
+    .mg-words-text { max-width: 100%; }
+    .mg-hint-area:not(:empty) { margin-top: 8px; }
+    .mg-hint-label {
+      font-size: 0.72rem;
+      font-style: italic;
+      font-weight: normal;
+      color: #666;
+      text-align: center;
+    }
+    .mg-hint-lines {
+      font-size: 0.78rem;
+      font-weight: normal;
+      font-style: normal;
+      color: #445;
+      text-align: center;
+      line-height: 1.35;
+      margin-top: 2px;
+    }
+    .mg-hint-lines .hint-line { margin-top: 4px; }
+    .mg-hint-lines .hint-line:first-child { margin-top: 0; }
     .mg-center {
       flex: 0 1 auto;
       min-width: 140px;
@@ -95,14 +120,14 @@
     .mg-answer-strip {
       min-width: 120px;
       max-width: 240px;
-      min-height: 48px;
-      padding: 10px 14px;
+      min-height: 3.2em;
+      padding: 10px 8px;
       font-family: 'Arial Black', Arial, sans-serif;
       font-size: 1.05rem;
       letter-spacing: 0.08em;
       text-align: center;
       border: 2px dashed #4a90c2;
-      border-radius: 8px;
+      border-radius: 6px;
       background: #f7fbfd;
       color: #2c3e50;
       word-break: break-word;
@@ -111,6 +136,7 @@
       justify-content: center;
       cursor: pointer;
       transition: box-shadow 0.15s, background 0.15s;
+      box-sizing: border-box;
     }
     .mg-answer-strip.focused {
       box-shadow: 0 0 0 3px #ffcc00;
@@ -123,7 +149,7 @@
       cursor: default;
       font-family: 'Arial Black', Arial, sans-serif;
     }
-    .mg-answer-strip.empty { color: #aab; font-weight: normal; font-family: Arial, sans-serif; font-size: 0.85rem; letter-spacing: normal; }
+    .mg-answer-strip.empty { letter-spacing: normal; }
 
     .hint-btn {
       border: 1px solid #ccc;
@@ -137,15 +163,11 @@
     }
     .hint-btn:hover { background: #fff3c4; }
     .hint-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .hint-zone {
-      font-size: 0.78rem;
-      color: #666;
-      text-align: center;
-      min-height: 1.2em;
-      width: 100%;
-      line-height: 1.4;
+    .com-prompt .com-hint-inline:not(:empty) {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #e5e5e0;
     }
-    .hint-zone .hint-line { margin-top: 4px; color: #445; }
 
     .mg-phrase-block {
       margin-bottom: 18px;
@@ -275,7 +297,7 @@
   <div class="wrap">
     <h1 id="pageTitle">Middle Ground</h1>
     <div class="subtitle" id="pageSubtitle">Fill in the middle</div>
-    <div class="stat-bar" id="statBar">Wrong guesses: <span id="wrongCount">0</span></div>
+    <div class="stat-bar" id="statBar">Wrong guesses: <span id="wrongCount">0</span> &middot; Hints used: <span id="hintCount" class="stat-hints">0</span></div>
 
     <div id="loadingState" class="card msg-loading">Loading…</div>
     <div id="errorState" class="card msg-error hidden"></div>
@@ -338,6 +360,7 @@
     const pageSubtitle = document.getElementById('pageSubtitle');
     const statBar = document.getElementById('statBar');
     const wrongCountEl = document.getElementById('wrongCount');
+    const hintCountEl = document.getElementById('hintCount');
     const boardArea = document.getElementById('boardArea');
     const puzzleMount = document.getElementById('puzzleMount');
     const finishMount = document.getElementById('finishMount');
@@ -363,8 +386,40 @@
     let incorrectGuesses = 0;
     let commonalitySolved = false;
 
+    function totalHintsUsed() {
+      let n = revealedComHints;
+      for (let i = 0; i < revealedLeftArr.length; i++) {
+        n += (revealedLeftArr[i] || 0) + (revealedRightArr[i] || 0);
+      }
+      return n;
+    }
+
+    function updateHintsStat() {
+      if (hintCountEl) hintCountEl.textContent = String(totalHintsUsed());
+    }
+
+    function fillHintArea(zoneEl, revealedCount, hintStrings) {
+      if (!zoneEl) return;
+      zoneEl.innerHTML = '';
+      if (revealedCount <= 0) return;
+      const label = document.createElement('div');
+      label.className = 'mg-hint-label';
+      label.textContent = 'Hint:';
+      zoneEl.appendChild(label);
+      const linesWrap = document.createElement('div');
+      linesWrap.className = 'mg-hint-lines';
+      for (let h = 0; h < revealedCount; h++) {
+        if (hintStrings[h]) {
+          const d = document.createElement('div');
+          d.className = 'hint-line';
+          d.textContent = hintStrings[h];
+          linesWrap.appendChild(d);
+        }
+      }
+      zoneEl.appendChild(linesWrap);
+    }
+
     function coerceArr(raw) {
-      if (!raw) return [];
       if (Array.isArray(raw)) return raw;
       if (typeof raw === 'object') {
         return Object.keys(raw).sort((a, b) => Number(a) - Number(b)).map(k => raw[k]);
@@ -507,55 +562,30 @@
     }
 
     function renderPuzzleHintRow(i, p) {
+      if (!p) return;
       const leftZone = document.getElementById(`hintLeftZone-${i}`);
       const rightZone = document.getElementById(`hintRightZone-${i}`);
       const leftBtn = document.getElementById(`hintLeftBtn-${i}`);
       const rightBtn = document.getElementById(`hintRightBtn-${i}`);
       const rl = revealedLeftArr[i];
       const rr = revealedRightArr[i];
-      if (leftZone) {
-        leftZone.innerHTML = '';
-        for (let h = 0; h < rl; h++) {
-          if (p.leftHints[h]) {
-            const d = document.createElement('div');
-            d.className = 'hint-line';
-            d.textContent = p.leftHints[h];
-            leftZone.appendChild(d);
-          }
-        }
-      }
-      if (rightZone) {
-        rightZone.innerHTML = '';
-        for (let h = 0; h < rr; h++) {
-          if (p.rightHints[h]) {
-            const d = document.createElement('div');
-            d.className = 'hint-line';
-            d.textContent = p.rightHints[h];
-            rightZone.appendChild(d);
-          }
-        }
-      }
+      fillHintArea(leftZone, rl, p.leftHints);
+      fillHintArea(rightZone, rr, p.rightHints);
       if (leftBtn) leftBtn.disabled = rl >= p.leftHints.length || p.leftHints.length === 0;
       if (rightBtn) rightBtn.disabled = rr >= p.rightHints.length || p.rightHints.length === 0;
+      updateHintsStat();
     }
 
     function renderComHintZone() {
       const comZone = document.getElementById('comHintZone');
       if (!comZone || !commonality) return;
-      comZone.innerHTML = '';
       const c = commonality;
-      for (let h = 0; h < revealedComHints; h++) {
-        if (c.hints[h]) {
-          const line = document.createElement('div');
-          line.className = 'hint-line';
-          line.textContent = c.hints[h];
-          comZone.appendChild(line);
-        }
-      }
+      fillHintArea(comZone, revealedComHints, c.hints);
       const comBtn = document.getElementById('comHintBtn');
       if (comBtn) {
         comBtn.disabled = commonalitySolved || c.hints.length === 0 || revealedComHints >= c.hints.length;
       }
+      updateHintsStat();
     }
 
     function renderBoard() {
@@ -569,32 +599,36 @@
         if (!p) continue;
         const solved = puzzleSolved[i];
         let stripClasses;
-        let stripText;
+        let stripDisplay;
         if (solved) {
           stripClasses = 'mg-answer-strip solved';
-          stripText = p.answer;
+          stripDisplay = esc(p.answer);
         } else {
           const t = normGuess(puzzleBuffers[i]);
           puzzleBuffers[i] = t;
           const empty = !t;
           stripClasses = empty ? 'mg-answer-strip empty' : 'mg-answer-strip';
-          stripText = empty ? 'Tap keys — your guess appears here' : t;
+          stripDisplay = empty ? '\u00A0' : esc(t);
         }
         html += `
       <div class="mg-phrase-block">
         <div class="mg-main-row">
-          <div class="mg-side">
-            <div class="mg-words">${esc(p.leftWords)}</div>
+          <div class="mg-side mg-side-left">
             <button type="button" class="hint-btn" id="hintLeftBtn-${i}" title="Hint">💡</button>
-            <div class="hint-zone" id="hintLeftZone-${i}"></div>
+            <div class="mg-words">
+              <div class="mg-words-text">${esc(p.leftWords)}</div>
+              <div class="mg-hint-area" id="hintLeftZone-${i}"></div>
+            </div>
           </div>
           <div class="mg-center">
-            <div class="${stripClasses}" id="strip-p-${i}">${esc(stripText)}</div>
+            <div class="${stripClasses}" id="strip-p-${i}">${stripDisplay}</div>
           </div>
-          <div class="mg-side">
-            <div class="mg-words">${esc(p.rightWords)}</div>
+          <div class="mg-side mg-side-right">
+            <div class="mg-words">
+              <div class="mg-words-text">${esc(p.rightWords)}</div>
+              <div class="mg-hint-area" id="hintRightZone-${i}"></div>
+            </div>
             <button type="button" class="hint-btn" id="hintRightBtn-${i}" title="Hint">💡</button>
-            <div class="hint-zone" id="hintRightZone-${i}"></div>
           </div>
         </div>
       </div>`;
@@ -603,29 +637,31 @@
       if (commonality) {
         const cs = commonalitySolved;
         let comStripClass;
-        let comText;
+        let comDisplay;
         if (cs) {
           comStripClass = 'mg-answer-strip solved';
-          comText = commonality.answer;
+          comDisplay = esc(commonality.answer);
         } else {
           const t = normGuess(commonalityBuffer);
           commonalityBuffer = t;
           const empty = !t;
           comStripClass = empty ? 'mg-answer-strip empty' : 'mg-answer-strip';
-          comText = empty ? 'Your answer' : t;
+          comDisplay = empty ? '\u00A0' : esc(t);
         }
         html += `
       <div class="com-section">
-        <div class="com-prompt">${esc(commonality.prompt)}</div>
+        <div class="com-prompt">
+          <div>${esc(commonality.prompt)}</div>
+          <div class="com-hint-inline" id="comHintZone"></div>
+        </div>
         <div class="mg-main-row" style="justify-content:center">
           <div class="mg-center" style="max-width:100%">
-            <div class="${comStripClass}" id="strip-c">${esc(comText)}</div>
+            <div class="${comStripClass}" id="strip-c">${comDisplay}</div>
           </div>
         </div>
         <div style="text-align:center;margin-top:10px">
           <button type="button" class="hint-btn" id="comHintBtn"${cs ? ' disabled' : ''}>💡 Hint</button>
         </div>
-        <div class="hint-zone" id="comHintZone" style="max-width:400px;margin:8px auto 0"></div>
       </div>`;
       }
 
@@ -774,7 +810,7 @@
         const t = normGuess(puzzleBuffers[i]);
         puzzleBuffers[i] = t;
         if (!t) {
-          el.textContent = 'Tap keys — your guess appears here';
+          el.textContent = '\u00A0';
           el.classList.add('empty');
           el.classList.remove('solved');
         } else {
@@ -787,7 +823,7 @@
         const t = normGuess(commonalityBuffer);
         commonalityBuffer = t;
         if (!t) {
-          el.textContent = 'Your answer';
+          el.textContent = '\u00A0';
           el.classList.add('empty');
         } else {
           el.textContent = t;
@@ -875,7 +911,8 @@
         <div class="summary">
           Phrases solved: ${puzzles.length} / ${puzzles.length}<br>
           ${commonality ? `Commonality: ${commonalitySolved ? 'Yes' : '—'}<br>` : ''}
-          Wrong guesses (total): <strong>${incorrectGuesses}</strong>
+          Wrong guesses (total): <strong>${incorrectGuesses}</strong><br>
+          Hints used (total): <strong>${totalHintsUsed()}</strong>
         </div>
         <label class="lbl" for="displayName">Name for the leaderboard (optional)</label>
         <input type="text" id="displayName" maxlength="40" placeholder="Anonymous" autocomplete="nickname" />
@@ -900,6 +937,7 @@
         points: correct,
         totalRounds: total,
         incorrectGuesses,
+        hintsUsed: totalHintsUsed(),
         commonalitySolved: !!commonalitySolved,
         phraseCount: puzzles.length,
         timestamp: Date.now(),
@@ -988,6 +1026,7 @@
         focusKind = 'phrase';
         focusPuzzleIndex = 0;
         wrongCountEl.textContent = '0';
+        if (hintCountEl) hintCountEl.textContent = '0';
         toastEl.textContent = '';
 
         if (!boardArea || !puzzleMount || !finishMount || !keyboardWrap || !keyboardRoot) {
