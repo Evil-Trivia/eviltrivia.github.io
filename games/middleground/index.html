@@ -262,88 +262,29 @@
       align-items: center;
       justify-content: center;
     }
-    /* Scrollable clue / hint line: subtle fade + thin scrollbar when overflow */
-    .mg-scroll-clip {
-      position: relative;
-      max-width: 100%;
-      width: 100%;
-      --mg-scroll-fade: #f4f4ef;
-    }
-    .mg-scroll-clip::after {
-      content: '';
-      position: absolute;
-      right: 0;
-      top: 0;
-      bottom: 0;
-      width: 20px;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s;
-      background: linear-gradient(90deg, transparent, var(--mg-scroll-fade));
-    }
-    .mg-scroll-clip.mg-scroll-clip--fade-right::after {
-      opacity: 1;
-    }
-    .mg-scroll-clip::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 14px;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s;
-      z-index: 1;
-      background: linear-gradient(270deg, transparent, var(--mg-scroll-fade));
-    }
-    .mg-scroll-clip.mg-scroll-clip--fade-left::before {
-      opacity: 1;
-    }
+    /* Clue + hint lines: JS shrinks font to fit (no horizontal scroll) */
     .mg-words-text {
+      display: block;
+      width: 100%;
       max-width: 100%;
+      min-width: 0;
       white-space: nowrap;
-      overflow-x: auto;
-      overflow-y: hidden;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(80, 80, 70, 0.45) transparent;
-    }
-    .mg-words-text::-webkit-scrollbar {
-      height: 5px;
-    }
-    .mg-words-text::-webkit-scrollbar-thumb {
-      background: rgba(80, 80, 70, 0.4);
-      border-radius: 3px;
-    }
-    .mg-words-text::-webkit-scrollbar-track {
-      background: transparent;
+      overflow: hidden;
     }
     .mg-hint-area { width: 100%; min-height: 0; }
     .mg-hint-area:not(:empty) { margin-top: 3px; }
     .mg-hint-lines {
+      display: block;
       font-size: 0.65rem;
       font-weight: normal;
       color: #555;
       text-align: center;
       line-height: 1.15;
       white-space: nowrap;
-      overflow-x: auto;
-      overflow-y: hidden;
+      overflow: hidden;
+      width: 100%;
       max-width: 100%;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(80, 80, 70, 0.45) transparent;
-    }
-    .mg-hint-lines::-webkit-scrollbar {
-      height: 5px;
-    }
-    .mg-hint-lines::-webkit-scrollbar-thumb {
-      background: rgba(80, 80, 70, 0.4);
-      border-radius: 3px;
-    }
-    .mg-hint-lines::-webkit-scrollbar-track {
-      background: transparent;
+      min-width: 0;
     }
     .mg-center {
       flex: 0 1 22%;
@@ -785,42 +726,47 @@
         if (hintStrings[h]) parts.push(hintStrings[h]);
       }
       if (!parts.length) return;
-      const clip = document.createElement('div');
-      clip.className = 'mg-scroll-clip mg-scroll-clip--hint';
       const linesWrap = document.createElement('div');
       linesWrap.className = 'mg-hint-lines';
       linesWrap.textContent = parts.join(' · ');
-      clip.appendChild(linesWrap);
-      zoneEl.appendChild(clip);
-      requestAnimationFrame(() => updateScrollClipFades(clip, linesWrap));
+      zoneEl.appendChild(linesWrap);
+      requestAnimationFrame(() => requestAnimationFrame(() => fitSingleLineText(linesWrap)));
     }
 
-    function updateScrollClipFades(clip, scroller) {
-      const ow = scroller.scrollWidth > scroller.clientWidth + 1;
-      if (!ow) {
-        clip.classList.remove('mg-scroll-clip--fade-left', 'mg-scroll-clip--fade-right');
+    const MG_FIT_MIN_PX = 7.5;
+
+    function fitSingleLineText(el) {
+      if (!el) return;
+      const t = el.textContent;
+      if (!t || !t.trim()) {
+        el.style.fontSize = '';
         return;
       }
-      const sl = scroller.scrollLeft;
-      const cw = scroller.clientWidth;
-      const sw = scroller.scrollWidth;
-      clip.classList.toggle('mg-scroll-clip--fade-left', sl > 2);
-      clip.classList.toggle('mg-scroll-clip--fade-right', sl + cw < sw - 2);
+      el.style.fontSize = '';
+      el.style.whiteSpace = 'nowrap';
+      el.style.overflow = 'hidden';
+      el.style.width = '100%';
+      el.style.maxWidth = '100%';
+      let px = parseFloat(getComputedStyle(el).fontSize);
+      if (!Number.isFinite(px) || px <= 0) px = 12;
+      let guard = 0;
+      while (el.scrollWidth > el.clientWidth + 1 && px > MG_FIT_MIN_PX && guard < 60) {
+        px -= 0.5;
+        el.style.fontSize = px + 'px';
+        guard++;
+      }
     }
 
-    function refreshAllScrollClips() {
-      puzzleMount.querySelectorAll('.mg-scroll-clip').forEach(clip => {
-        const scroller = clip.querySelector('.mg-words-text, .mg-hint-lines');
-        if (scroller) updateScrollClipFades(clip, scroller);
-      });
+    function refreshClueHintTextFit() {
+      puzzleMount.querySelectorAll('.mg-words-text, .mg-hint-lines').forEach(fitSingleLineText);
     }
 
-    let scrollClipResizeBound = false;
-    function ensureScrollClipResizeRefresh() {
-      if (scrollClipResizeBound) return;
-      scrollClipResizeBound = true;
+    let textFitResizeBound = false;
+    function ensureTextFitResizeRefresh() {
+      if (textFitResizeBound) return;
+      textFitResizeBound = true;
       window.addEventListener('resize', () => {
-        requestAnimationFrame(refreshAllScrollClips);
+        requestAnimationFrame(refreshClueHintTextFit);
       });
     }
 
@@ -1064,13 +1010,6 @@
       if (boardDelegationBound) return;
       boardDelegationBound = true;
       puzzleMount.addEventListener('click', onBoardClick);
-      puzzleMount.addEventListener('scroll', e => {
-        const t = e.target;
-        if (!(t instanceof Element)) return;
-        if (!t.classList.contains('mg-words-text') && !t.classList.contains('mg-hint-lines')) return;
-        const clip = t.closest('.mg-scroll-clip');
-        if (clip) updateScrollClipFades(clip, t);
-      }, true);
     }
 
     function onBoardClick(e) {
@@ -1254,9 +1193,7 @@
           <div class="mg-side mg-side-left">
             <button type="button" class="hint-btn" id="hintLeftBtn-${i}" title="Hint">💡</button>
             <div class="mg-words">
-              <div class="mg-scroll-clip mg-scroll-clip--words">
-                <div class="mg-words-text">${esc(p.leftWords)}</div>
-              </div>
+              <div class="mg-words-text">${esc(p.leftWords)}</div>
               <div class="mg-hint-area" id="hintLeftZone-${i}"></div>
             </div>
           </div>
@@ -1265,9 +1202,7 @@
           </div>
           <div class="mg-side mg-side-right">
             <div class="mg-words">
-              <div class="mg-scroll-clip mg-scroll-clip--words">
-                <div class="mg-words-text">${esc(p.rightWords)}</div>
-              </div>
+              <div class="mg-words-text">${esc(p.rightWords)}</div>
               <div class="mg-hint-area" id="hintRightZone-${i}"></div>
             </div>
             <button type="button" class="hint-btn" id="hintRightBtn-${i}" title="Hint">💡</button>
@@ -1322,7 +1257,7 @@
         keyboardWrap.classList.remove('hidden-kb');
       }
       updateFocusHighlight();
-      requestAnimationFrame(() => requestAnimationFrame(refreshAllScrollClips));
+      requestAnimationFrame(() => requestAnimationFrame(refreshClueHintTextFit));
     }
 
     function updateFocusHighlight() {
@@ -1780,7 +1715,7 @@
     }
 
     bindModalUi();
-    ensureScrollClipResizeRefresh();
+    ensureTextFitResizeRefresh();
     loadQuiz();
   </script>
 </body>
