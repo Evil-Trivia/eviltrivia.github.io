@@ -321,6 +321,12 @@
 
     const GAME_ID = 'middleground';
 
+    function snapExists(snap) {
+      if (!snap) return false;
+      if (typeof snap.exists === 'function') return snap.exists();
+      return !!snap.exists;
+    }
+
     const KB_TOP = ['Q','W','E','R','T','Y','U','I','O','P'];
     const KB_MID = ['A','S','D','F','G','H','J','K','L'];
     const KB_BOT = ['Z','X','C','V','B','N','M'];
@@ -560,6 +566,7 @@
       let html = '';
       for (let i = 0; i < puzzles.length; i++) {
         const p = puzzles[i];
+        if (!p) continue;
         const solved = puzzleSolved[i];
         let stripClasses;
         let stripText;
@@ -635,13 +642,15 @@
     }
 
     function updateFocusHighlight() {
-      document.querySelectorAll('.mg-answer-strip.focused').forEach(el => el.classList.remove('focused'));
+      const prevFocused = document.querySelectorAll('.mg-answer-strip.focused');
+      for (let fi = 0; fi < prevFocused.length; fi++) prevFocused[fi].classList.remove('focused');
       if (phase === 'finish') return;
       if (focusKind === 'phrase') {
         const el = document.getElementById(`strip-p-${focusPuzzleIndex}`);
         if (el && !puzzleSolved[focusPuzzleIndex]) el.classList.add('focused');
       } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
-        document.getElementById('strip-c')?.classList.add('focused');
+        const comStrip = document.getElementById('strip-c');
+        if (comStrip) comStrip.classList.add('focused');
       }
     }
 
@@ -927,6 +936,7 @@
     function onPhysicalKeydown(e) {
       if (phase === 'finish') return;
       if (isTypingInFormField(e.target)) return;
+      if (typeof e.key !== 'string') return;
 
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -965,32 +975,38 @@
     window.addEventListener('keydown', onPhysicalKeydown);
 
     async function loadQuiz() {
-      loadingState.classList.remove('hidden');
-      errorState.classList.add('hidden');
-      quizCard.classList.add('hidden');
-
-      phase = 'play';
-      incorrectGuesses = 0;
-      revealedComHints = 0;
-      commonalitySolved = false;
-      commonalityBuffer = '';
-      focusKind = 'phrase';
-      focusPuzzleIndex = 0;
-      wrongCountEl.textContent = '0';
-      toastEl.textContent = '';
-      finishMount.classList.add('hidden');
-      boardArea.classList.remove('hidden');
-
       try {
+        loadingState.classList.remove('hidden');
+        errorState.classList.add('hidden');
+        quizCard.classList.add('hidden');
+
+        phase = 'play';
+        incorrectGuesses = 0;
+        revealedComHints = 0;
+        commonalitySolved = false;
+        commonalityBuffer = '';
+        focusKind = 'phrase';
+        focusPuzzleIndex = 0;
+        wrongCountEl.textContent = '0';
+        toastEl.textContent = '';
+
+        if (!boardArea || !puzzleMount || !finishMount || !keyboardWrap || !keyboardRoot) {
+          showError('Quiz page layout is incomplete. Try a hard refresh (Shift+Reload).');
+          return;
+        }
+
+        finishMount.classList.add('hidden');
+        boardArea.classList.remove('hidden');
+
         const settingsSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/activeGameId`));
-        const gameId = settingsSnap.exists() && settingsSnap.val() ? String(settingsSnap.val()).trim() : '';
+        const gameId = snapExists(settingsSnap) && settingsSnap.val() ? String(settingsSnap.val()).trim() : '';
         if (!gameId) {
           showError('No quiz is live yet. Check back soon.');
           return;
         }
 
         const gameSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/library/${gameId}`));
-        if (!gameSnap.exists()) {
+        if (!snapExists(gameSnap)) {
           showError('This quiz is no longer available.');
           return;
         }
@@ -1024,7 +1040,7 @@
         renderBoard();
         showQuizShell();
       } catch (e) {
-        console.error(e);
+        console.error('Middle Ground loadQuiz:', e && e.message, e);
         showError('Could not load the quiz. Please try again later.');
       }
     }
