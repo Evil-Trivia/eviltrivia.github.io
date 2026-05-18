@@ -79,11 +79,44 @@
     .q-editor {
       border: 1px solid #e0e0e0;
       border-radius: 8px;
-      padding: 14px;
-      margin-bottom: 12px;
+      padding: 12px;
+      margin-bottom: 10px;
       background: #fafafa;
     }
-    .q-editor h3 { margin: 0 0 10px; font-size: 0.95rem; color: #555; }
+    .q-editor h3 { margin: 0 0 10px; font-size: 0.9rem; color: #555; }
+    .phrase-grid .field { margin-bottom: 0; }
+      grid-template-columns: 1fr minmax(120px, 22%) 1fr;
+      gap: 10px 12px;
+      align-items: start;
+    }
+    @media (max-width: 768px) {
+      .phrase-grid { grid-template-columns: 1fr; }
+      .phrase-grid .col-mid { order: 2; }
+      .phrase-grid .col-left { order: 1; }
+      .phrase-grid .col-right { order: 3; }
+    }
+    .phrase-grid .col label {
+      font-size: 0.7rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .phrase-grid .col textarea { width: 100%; min-height: 56px; resize: vertical; }
+    .phrase-grid .col input[type="text"] { width: 100%; }
+    .phrase-grid .in-ans {
+      font-weight: bold;
+      text-align: center;
+    }
+    .com-block {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #e0e0e0;
+    }
+    .com-block h3 { margin: 0 0 8px; font-size: 0.88rem; color: #555; }
+    .com-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+    .com-row .field.flex2 { flex: 2 1 220px; min-width: 180px; }
+    .com-row .field.flex1 { flex: 1 1 140px; min-width: 120px; }
+    .com-row textarea, .com-block .field textarea { width: 100%; }
     .q-editor input.q-prompt { width: 100%; margin-bottom: 8px; }
     .q-editor .choice-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
     .q-editor .choice-row input { flex: 1; min-width: 120px; }
@@ -156,7 +189,7 @@
     <!-- Puzzle + commonality editor -->
     <div class="section">
       <h2>Edit puzzles &amp; commonality</h2>
-      <p class="hint">Each phrase: text on the left and right of the middle answer players type. Hints: one per line. Commonality is the final “what ties them together?” round (optional if you leave prompt blank).</p>
+      <p class="hint">Layout matches the public page: left clue + hint lines, middle answer, right clue + hints. Optional commonality at bottom.</p>
       <div class="row">
         <div class="field">
           <label for="editGamePick">Game</label>
@@ -174,23 +207,21 @@
         <button type="button" class="danger" onclick="deleteCurrentGame()">Delete selected game</button>
       </div>
 
-      <div class="q-editor" style="margin-top:20px">
-        <h3>Commonality (final)</h3>
-        <div class="field">
-          <label for="comPrompt">Prompt</label>
-          <textarea id="comPrompt" rows="2" style="width:100%;max-width:640px"></textarea>
+      <div class="com-block">
+        <h3>Commonality</h3>
+        <div class="com-row">
+          <div class="field flex2">
+            <label for="comPrompt">Prompt</label>
+            <textarea id="comPrompt" rows="2"></textarea>
+          </div>
+          <div class="field flex1">
+            <label for="comAnswer">Answer</label>
+            <input type="text" id="comAnswer" />
+          </div>
         </div>
-        <div class="field">
-          <label for="comAnswer">Answer</label>
-          <input type="text" id="comAnswer" style="width:100%;max-width:480px" />
-        </div>
-        <div class="field">
-          <label for="comAlt">Alternate answers (comma-separated)</label>
-          <input type="text" id="comAlt" style="width:100%;max-width:480px" />
-        </div>
-        <div class="field">
+        <div class="field" style="margin-top:8px">
           <label for="comHints">Hints (one per line)</label>
-          <textarea id="comHints" rows="3" style="width:100%;max-width:640px"></textarea>
+          <textarea id="comHints" rows="2"></textarea>
         </div>
       </div>
       <div id="editorMsg"></div>
@@ -317,7 +348,6 @@
       leftWords: 'UP ',
       rightWords: ' CREEK',
       answer: 'THE',
-      altAnswers: '',
       leftHints: 'Often paired with “without a paddle”',
       rightHints: 'Small stream'
     });
@@ -325,7 +355,6 @@
     const defaultCommonalityForm = () => ({
       prompt: 'What theme ties these phrases together?',
       answer: 'BOATING',
-      altAnswers: '',
       hints: 'Think water\nThink vessels'
     });
 
@@ -417,7 +446,6 @@
           commonality: {
             prompt: defaultCommonalityForm().prompt,
             answer: defaultCommonalityForm().answer,
-            altAnswers: [],
             hints: defaultCommonalityForm().hints.split('\n').map(s => s.trim()).filter(Boolean)
           },
           updatedAt: Date.now()
@@ -473,7 +501,6 @@
           leftWords: String(p.leftWords || p.left || ''),
           rightWords: String(p.rightWords || p.right || ''),
           answer: String(p.answer || ''),
-          altAnswers: Array.isArray(p.altAnswers) ? p.altAnswers.join(', ') : String(p.altAnswers || ''),
           leftHints: hintsToLines(p.leftHints),
           rightHints: hintsToLines(p.rightHints)
         }));
@@ -484,11 +511,6 @@
       const com = g && g.commonality && typeof g.commonality === 'object' ? g.commonality : null;
       document.getElementById('comPrompt').value = com && com.prompt ? String(com.prompt) : '';
       document.getElementById('comAnswer').value = com && com.answer ? String(com.answer) : '';
-      let altStr = '';
-      if (com && com.altAnswers) {
-        altStr = Array.isArray(com.altAnswers) ? com.altAnswers.join(', ') : String(com.altAnswers);
-      }
-      document.getElementById('comAlt').value = altStr;
       document.getElementById('comHints').value = com ? hintsToLines(com.hints) : '';
     }
 
@@ -500,16 +522,27 @@
         div.className = 'q-editor';
         div.innerHTML = `
           <h3>Phrase ${i + 1} <button type="button" class="small danger" style="float:right">Remove</button></h3>
-          <div class="field"><label>Left (before middle)</label><input type="text" class="in-left" style="width:100%;max-width:560px" /></div>
-          <div class="field"><label>Right (after middle)</label><input type="text" class="in-right" style="width:100%;max-width:560px" /></div>
-          <div class="field"><label>Middle answer (matching is case-insensitive)</label><input type="text" class="in-ans" style="width:100%;max-width:400px" /></div>
-          <div class="field"><label>Alternate answers (comma-separated)</label><input type="text" class="in-alt" style="width:100%;max-width:480px" /></div>
-          <div class="field"><label>Left hints (one per line)</label><textarea class="ta-lh" rows="2" style="width:100%;max-width:560px"></textarea></div>
-          <div class="field"><label>Right hints (one per line)</label><textarea class="ta-rh" rows="2" style="width:100%;max-width:560px"></textarea></div>`;
+          <div class="phrase-grid">
+            <div class="col col-left field">
+              <label>Left clue</label>
+              <input type="text" class="in-left" />
+              <label style="margin-top:8px">Left hints (one per line)</label>
+              <textarea class="ta-lh" rows="2" placeholder="Hint line…"></textarea>
+            </div>
+            <div class="col col-mid field">
+              <label>Middle answer</label>
+              <input type="text" class="in-ans" placeholder="THE" />
+            </div>
+            <div class="col col-right field">
+              <label>Right clue</label>
+              <input type="text" class="in-right" />
+              <label style="margin-top:8px">Right hints (one per line)</label>
+              <textarea class="ta-rh" rows="2" placeholder="Hint line…"></textarea>
+            </div>
+          </div>`;
         div.querySelector('.in-left').value = p.leftWords;
         div.querySelector('.in-right').value = p.rightWords;
         div.querySelector('.in-ans').value = p.answer;
-        div.querySelector('.in-alt').value = p.altAnswers;
         div.querySelector('.ta-lh').value = p.leftHints;
         div.querySelector('.ta-rh').value = p.rightHints;
         div.querySelector('.danger').addEventListener('click', () => {
@@ -539,7 +572,6 @@
           leftWords: el.querySelector('.in-left').value.trim(),
           rightWords: el.querySelector('.in-right').value.trim(),
           answer: el.querySelector('.in-ans').value.trim(),
-          altAnswers: el.querySelector('.in-alt').value.trim(),
           leftHints: el.querySelector('.ta-lh').value,
           rightHints: el.querySelector('.ta-rh').value
         });
@@ -560,12 +592,10 @@
         .map(row => {
           const leftHints = String(row.leftHints || '').split('\n').map(s => s.trim()).filter(Boolean);
           const rightHints = String(row.rightHints || '').split('\n').map(s => s.trim()).filter(Boolean);
-          let alt = String(row.altAnswers || '').split(',').map(s => s.trim()).filter(Boolean);
           return {
             leftWords: row.leftWords,
             rightWords: row.rightWords,
             answer: row.answer,
-            altAnswers: alt,
             leftHints,
             rightHints
           };
@@ -579,7 +609,6 @@
 
       const comPrompt = document.getElementById('comPrompt').value.trim();
       const comAnswer = document.getElementById('comAnswer').value.trim();
-      const comAltStr = document.getElementById('comAlt').value.trim();
       const comHintsRaw = document.getElementById('comHints').value;
 
       const body = { title, puzzles, updatedAt: Date.now() };
@@ -588,7 +617,6 @@
         body.commonality = {
           prompt: comPrompt,
           answer: comAnswer,
-          altAnswers: comAltStr ? comAltStr.split(',').map(s => s.trim()).filter(Boolean) : [],
           hints: String(comHintsRaw || '').split('\n').map(s => s.trim()).filter(Boolean)
         };
       }
