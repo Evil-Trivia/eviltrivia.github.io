@@ -236,11 +236,52 @@
     .mg-phrase-block {
       overflow: visible;
       position: relative;
-      margin-bottom: 3px;
-      padding-bottom: 3px;
-      border-bottom: 1px solid #eee;
+      margin-bottom: 2px;
     }
-    .mg-phrase-block:last-of-type { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .mg-main-row-wrap {
+      position: relative;
+      isolation: isolate;
+    }
+    .mg-phrase-sq-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 4;
+      overflow: visible;
+    }
+    .mg-phrase-sq-path {
+      fill: none;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: var(--path-len, 1200);
+      stroke-dashoffset: var(--path-len, 1200);
+      visibility: hidden;
+    }
+    .mg-phrase-sq-a { stroke: #12b80e; }
+    .mg-phrase-sq-b { stroke: #0033ff; }
+    .mg-phrase-sq-c { stroke: #e02020; }
+    .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-a,
+    .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-b {
+      visibility: visible;
+    }
+    .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-a {
+      animation: invSquircleDraw 0.75s cubic-bezier(0.45, 0, 0.25, 1) forwards;
+    }
+    .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-b {
+      animation: invSquircleDraw 0.75s cubic-bezier(0.45, 0, 0.25, 1) 0.75s forwards;
+    }
+    .mg-phrase-block.mg-phrase-sq-venn .mg-phrase-sq-c {
+      visibility: visible;
+      animation: invSquircleDraw 0.56s cubic-bezier(0.45, 0, 0.25, 1) forwards;
+    }
+    .mg-phrase-block.mg-phrase-sq-done .mg-phrase-sq-path {
+      stroke-dashoffset: 0;
+      animation: none;
+      visibility: visible;
+    }
     .mg-side {
       flex: 1 1 0;
       min-width: 0;
@@ -302,13 +343,13 @@
       text-align: center;
       line-height: 1.2;
       color: #2c3e50;
-      padding: 5px 4px;
+      padding: 6px 4px;
       background: #f4f4ef;
       border-radius: 4px;
       border: 1px solid #ddd;
       width: 100%;
       min-width: 0;
-      min-height: 2.25em;
+      min-height: 3.75em;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -323,8 +364,7 @@
       white-space: nowrap;
       overflow: hidden;
     }
-    .mg-hint-area { width: 100%; min-height: 0; }
-    .mg-hint-area:not(:empty) { margin-top: 3px; }
+    .mg-hint-area { width: 100%; min-height: 1.35em; margin-top: 3px; }
     .mg-hint-lines {
       display: block;
       font-size: 0.65rem;
@@ -549,11 +589,19 @@
     .kb-key.back { font-size: 0.95rem; min-width: 48px; }
 
     /* Title screen (local assets; no Firebase for layout) */
-    body.inv-title-active { overflow: hidden; }
+    body.inv-title-active {
+      overflow: hidden;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
     .inv-title-screen {
       position: fixed;
       inset: 0;
       z-index: 20000;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+      font-family: Arial, Helvetica, sans-serif !important;
+      font-synthesis: none;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -581,6 +629,25 @@
       vertical-align: super;
     }
     .inv-title-screen.hidden { display: none !important; }
+    .inv-title-screen :where(
+      .inv-piece-ph,
+      .inv-title-tagline,
+      .inv-menu-btn,
+      .inv-archive-heading,
+      .inv-archive-date-label
+    ) {
+      font-family: 'Arial Black', Arial, Helvetica, sans-serif !important;
+      font-weight: 900 !important;
+    }
+    .inv-title-screen :where(
+      .inv-title-footer,
+      .inv-title-status,
+      .inv-title-error,
+      .inv-archive-date-label button
+    ) {
+      font-family: Arial, Helvetica, sans-serif !important;
+      font-weight: 600 !important;
+    }
     .inv-title-inner {
       position: relative;
       z-index: 1;
@@ -735,7 +802,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: 'Arial Black', Arial, sans-serif;
+      font-family: 'Arial Black', Arial, Helvetica, sans-serif !important;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
       font-size: clamp(1rem, 5.2vw, 1.65rem);
       line-height: 1;
       color: #2c3e50;
@@ -1653,6 +1722,79 @@
       return true;
     }
 
+    function layoutPhraseSquirclePaths(block) {
+      const stage = block.querySelector('.mg-main-row-wrap');
+      const pathA = block.querySelector('.mg-phrase-sq-a');
+      const pathB = block.querySelector('.mg-phrase-sq-b');
+      const pathC = block.querySelector('.mg-phrase-sq-c');
+      const left = block.querySelector('.mg-side-left');
+      const center = block.querySelector('.mg-center');
+      const right = block.querySelector('.mg-side-right');
+      const svg = block.querySelector('.mg-phrase-sq-svg');
+      if (!stage || !pathA || !pathB || !pathC || !left || !center || !right || !svg) return false;
+
+      const stageRect = stage.getBoundingClientRect();
+      const pad = 4;
+      const corner = Math.max(8, Math.min(12, stageRect.width * 0.024));
+
+      function boundsForEl(el) {
+        const b = el.getBoundingClientRect();
+        if (!b.width && !b.height) return null;
+        return {
+          x: b.left - stageRect.left - pad,
+          y: b.top - stageRect.top - pad,
+          w: b.width + pad * 2,
+          h: b.height + pad * 2
+        };
+      }
+
+      const sw = Math.max(stage.offsetWidth, 1);
+      const sh = Math.max(stage.offsetHeight, 1);
+      const viewBox = `0 0 ${sw} ${sh}`;
+      svg.setAttribute('viewBox', viewBox);
+
+      const invenn = boundsForEl(left);
+      const venntion = boundsForEl(right);
+      const venn = boundsForEl(center);
+      if (!invenn || !venntion || !venn) return false;
+
+      pathA.setAttribute('d', roundedRectPath(invenn.x, invenn.y, invenn.w, invenn.h, corner));
+      pathB.setAttribute('d', roundedRectPath(venntion.x, venntion.y, venntion.w, venntion.h, corner));
+      pathC.setAttribute('d', roundedRectPath(venn.x, venn.y, venn.w, venn.h, corner));
+      pathA.style.setProperty('--path-len', String(pathA.getTotalLength()));
+      pathB.style.setProperty('--path-len', String(pathB.getTotalLength()));
+      pathC.style.setProperty('--path-len', String(pathC.getTotalLength()));
+      return true;
+    }
+
+    function playPhraseSolveSquircle(phraseIndex, done) {
+      const block = puzzleMount.querySelector(`.mg-phrase-block[data-phrase-i="${phraseIndex}"]`);
+      if (!block) {
+        done();
+        return;
+      }
+      block.classList.remove('mg-phrase-sq-armed', 'mg-phrase-sq-venn', 'mg-phrase-sq-done');
+      function tryArm(attempt) {
+        requestAnimationFrame(() => {
+          if (!layoutPhraseSquirclePaths(block)) {
+            if (attempt < 8) tryArm(attempt + 1);
+            else done();
+            return;
+          }
+          block.classList.add('mg-phrase-sq-armed');
+          setTimeout(() => {
+            layoutPhraseSquirclePaths(block);
+            block.classList.add('mg-phrase-sq-venn');
+            setTimeout(() => {
+              block.classList.add('mg-phrase-sq-done');
+              done();
+            }, SQUIRCLE_VENN_MS);
+          }, SQUIRCLE_PAIR_MS);
+        });
+      }
+      tryArm(0);
+    }
+
     function bindSquircleLayout() {
       if (squircleLayoutBound) return;
       squircleLayoutBound = true;
@@ -2211,7 +2353,13 @@
         }
         html += `
       <div class="mg-phrase-block" data-phrase-i="${i}">
-        <div class="mg-main-row">
+        <div class="mg-main-row-wrap">
+          <svg class="mg-phrase-sq-svg" aria-hidden="true">
+            <path class="mg-phrase-sq-path mg-phrase-sq-a" />
+            <path class="mg-phrase-sq-path mg-phrase-sq-b" />
+            <path class="mg-phrase-sq-path mg-phrase-sq-c" />
+          </svg>
+          <div class="mg-main-row">
           <div class="mg-side mg-side-left">
             <div class="mg-words" id="clueWordsL-${i}" data-clue-side="L" data-phrase-i="${i}">
               <div class="mg-words-text">${esc(p.leftWords)}</div>
@@ -2228,6 +2376,7 @@
               <div class="mg-hint-tap-msg" style="display:none" aria-live="polite"></div>
               <div class="mg-hint-area" id="hintRightZone-${i}"></div>
             </div>
+          </div>
           </div>
         </div>
       </div>`;
@@ -2500,12 +2649,14 @@
         clearHintTimer(`L-${i}`);
         clearHintTimer(`R-${i}`);
         revealedLeftArr[i] = p.leftHints.length;
-        revealedRightArr[i] = p.rightHints.length;
-        if (checkAllComplete()) return;
-        toastEl.textContent = 'Nice — keep going!';
-        setTimeout(() => { toastEl.textContent = ''; }, 1200);
-        focusNextSlot();
         renderBoard();
+        playPhraseSolveSquircle(i, () => {
+          if (checkAllComplete()) return;
+          toastEl.textContent = 'Nice — keep going!';
+          setTimeout(() => { toastEl.textContent = ''; }, 1200);
+          focusNextSlot();
+          updateFocusHighlight();
+        });
         return;
       }
 
