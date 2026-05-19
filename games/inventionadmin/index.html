@@ -175,6 +175,81 @@
     }
     .round-editor-header h3 { margin: 0; font-size: 0.95rem; color: #444; }
     .round-move-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .live-order-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .live-order-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #e8f5e9;
+      border: 1px solid #a5d6a7;
+      border-radius: 8px;
+    }
+    .live-order-item .live-num {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: 0.85rem;
+      color: #2e7d32;
+      min-width: 1.5rem;
+    }
+    .live-order-item .live-label { flex: 1; font-weight: bold; }
+    .archive-board {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .archive-card {
+      border: 2px solid #d8d8d0;
+      border-radius: 10px;
+      padding: 12px;
+      background: #fcfcfa;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .archive-card.is-live { border-color: #81c784; background: #f1f8f2; }
+    .archive-card.is-hidden { opacity: 0.55; border-style: dashed; }
+    .archive-card.is-editing { border-color: #4a90c2; box-shadow: 0 0 0 2px rgba(74,144,194,0.25); }
+    .archive-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .archive-card-head strong { font-size: 0.95rem; color: #333; }
+    .archive-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+    .badge {
+      font-size: 0.68rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 7px;
+      border-radius: 10px;
+    }
+    .badge-live { background: #c8e6c9; color: #2e7d32; }
+    .badge-hidden { background: #eee; color: #666; }
+    .archive-meta { font-size: 0.8rem; color: #666; margin: 0; }
+    .archive-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: auto;
+    }
+    .archive-actions button { flex: 1 1 auto; min-width: 72px; }
+    #roundEditPanel {
+      border: 2px solid #4a90c2;
+      border-radius: 10px;
+      padding: 16px;
+      margin-top: 12px;
+      background: #f8fbff;
+    }
+    #roundEditPanel h3 { margin: 0 0 12px; font-size: 1rem; color: #2c3e50; }
+    .toolbar-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
   </style>
 </head>
 <body>
@@ -187,84 +262,43 @@
   </div>
 
   <div id="adminContainer" class="hidden">
-    <!-- Active quiz -->
     <div class="section">
-      <h2>Active quiz (public site)</h2>
-      <p class="hint">Visitors only see the quiz you set here. Give each game a title when you edit it below.</p>
-      <div id="activePill" class="active-pill">Loading…</div>
-      <div class="row">
-        <div class="field">
-          <label for="activePick">Switch active game</label>
-          <select id="activePick" style="min-width:240px"></select>
-        </div>
-        <button type="button" class="primary" onclick="applyActiveGame()">Make active</button>
-      </div>
-      <div id="activeMsg"></div>
+      <h2>Live on site</h2>
+      <p class="hint">Rounds marked <strong>Live</strong> play in this order when visitors tap Play.</p>
+      <div id="livePill" class="active-pill">Loading…</div>
+      <div id="liveOrderMount" class="live-order-list"></div>
+      <div id="liveMsg"></div>
     </div>
 
-    <!-- Game list -->
     <div class="section">
-      <h2>Games</h2>
-      <p class="hint">Create multiple games; only one is live at a time.</p>
-      <div class="row">
-        <button type="button" class="primary" onclick="createNewGame()">New game</button>
-        <button type="button" onclick="refreshAll()">Refresh all</button>
+      <h2>Round archive</h2>
+      <p class="hint">Toggle <strong>Live</strong> for the current game, <strong>Hide</strong> for archive-only, or <strong>Edit</strong> for phrases.</p>
+      <div class="toolbar-row">
+        <button type="button" class="primary" onclick="createNewRound()">New round</button>
+        <button type="button" onclick="refreshAll()">Refresh</button>
+        <label style="font-size:0.88rem;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="showHiddenRounds" onchange="renderArchiveBoard()" />
+          Show hidden
+        </label>
       </div>
-      <div id="gamesMsg"></div>
-    </div>
-
-    <!-- Puzzle + commonality editor -->
-    <div class="section">
-      <h2>Edit rounds, phrases &amp; commonality</h2>
-      <p class="hint">Each <strong>round</strong> has its own title and subtitle on the public page (under the fixed game title). Phrases and optional commonality belong to that round.</p>
-      <div class="row">
-        <div class="field">
-          <label for="editGamePick">Game</label>
-          <select id="editGamePick" onchange="onEditGameChange()" style="min-width:240px"></select>
+      <div id="archiveBoard" class="archive-board"></div>
+      <div id="roundEditPanel" class="hidden">
+        <h3 id="roundEditTitle">Edit round</h3>
+        <div id="singleRoundMount"></div>
+        <div class="row" style="margin-top:12px">
+          <button type="button" class="primary" onclick="saveEditingRound()">Save round</button>
+          <button type="button" onclick="cancelEditRound()">Cancel</button>
+          <button type="button" class="danger" onclick="deleteEditingRound()">Delete round</button>
         </div>
       </div>
-      <div class="field" style="margin-bottom:12px">
-        <label for="gameTitleInput">Game title (fixed on play page — same every round)</label>
-        <input type="text" id="gameTitleInput" style="width:100%;max-width:480px" placeholder="e.g. Evil Trivia — Invenntion" />
-      </div>
-      <div class="field" style="margin-bottom:12px">
-        <label for="playerHelpHtml">How to play / rules (public pop-up)</label>
-        <p class="hint" style="margin:0 0 6px">HTML allowed: headings, lists, links, bold, etc. Shown when players tap <strong>?</strong> on the quiz page.</p>
-        <textarea id="playerHelpHtml" rows="8" style="width:100%;max-width:720px;font-family:ui-monospace,monospace;font-size:0.85rem" placeholder="e.g. &lt;p&gt;Fill in the middle…&lt;/p&gt;"></textarea>
-      </div>
-      <div class="field" style="margin-bottom:12px">
-        <label for="infoHtml">Info (title screen button)</label>
-        <p class="hint" style="margin:0 0 6px">HTML allowed. Shown when players tap <strong>Info</strong> on the opening title screen.</p>
-        <textarea id="infoHtml" rows="6" style="width:100%;max-width:720px;font-family:ui-monospace,monospace;font-size:0.85rem" placeholder="e.g. &lt;p&gt;What is Invenntion?&lt;/p&gt;"></textarea>
-      </div>
-      <div class="field" style="margin-bottom:12px">
-        <label for="aboutEvilTriviaHtml">About Evil Trivia (public pop-up)</label>
-        <p class="hint" style="margin:0 0 6px">HTML allowed. Shown when players tap the Evil Trivia logo on the quiz page.</p>
-        <textarea id="aboutEvilTriviaHtml" rows="6" style="width:100%;max-width:720px;font-family:ui-monospace,monospace;font-size:0.85rem"></textarea>
-      </div>
-      <div id="roundsMount"></div>
-      <div class="row" style="margin-bottom:12px">
-        <button type="button" onclick="addRoundEditor()">Add round</button>
-      </div>
-      <div class="row">
-        <button type="button" class="primary" onclick="saveCurrentGame()">Save game</button>
-        <button type="button" class="danger" onclick="deleteCurrentGame()">Delete selected game</button>
-      </div>
-
-      <div id="editorMsg"></div>
+      <div id="archiveMsg"></div>
     </div>
 
-    <!-- Scores -->
+        <!-- Scores -->
     <div class="section">
       <h2>Scores & leaderboard rows</h2>
       <p class="hint">Edit name or points and click Save. Delete removes that play only.</p>
       <div class="row">
-        <div class="field">
-          <label for="gameScoreFilter">Game</label>
-          <select id="gameScoreFilter">
-            <option value="">All games</option>
-          </select>
-        </div>
         <div class="field">
           <label for="dateFilter">Date</label>
           <input type="date" id="dateFilter" />
@@ -307,6 +341,30 @@
       </div>
       <p class="hint" style="margin-top:12px">Updated <span id="lastUpdate">—</span></p>
     </div>
+
+    <div class="section">
+      <h2>Site content</h2>
+      <p class="hint">Same for every play session. HTML allowed in rich-text fields.</p>
+      <div class="field" style="margin-bottom:12px">
+        <label for="gameTitleInput">Game title</label>
+        <input type="text" id="gameTitleInput" style="width:100%;max-width:480px" placeholder="e.g. Invenntion" />
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label for="infoHtml">Info (title screen)</label>
+        <textarea id="infoHtml" rows="6" style="width:100%;max-width:720px;font-family:ui-monospace,monospace;font-size:0.85rem"></textarea>
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label for="playerHelpHtml">How to play (quiz ? button)</label>
+        <textarea id="playerHelpHtml" rows="8" style="width:100%;max-width:720px;font-family:ui-monospace,monospace;font-size:0.85rem"></textarea>
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label for="aboutEvilTriviaHtml">About Evil Trivia (logo)</label>
+        <textarea id="aboutEvilTriviaHtml" rows="6" style="width:100%;max-width:720px;font-family:ui-monospace,monospace;font-size:0.85rem"></textarea>
+      </div>
+      <button type="button" class="primary" onclick="saveSiteContent()">Save site content</button>
+      <div id="siteMsg"></div>
+    </div>
+
   </div>
 
   <script type="module">
@@ -363,12 +421,18 @@
   </script>
 
   <script>
+
     const GAME_ID = 'middleground';
     const LIBRARY_PATH = `games/${GAME_ID}/library`;
-    const SETTINGS_ACTIVE = `games/${GAME_ID}/settings/activeGameId`;
+    const ARCHIVE_PATH = `games/${GAME_ID}/archive`;
+    const SETTINGS_SITE = `games/${GAME_ID}/settings/site`;
+    const SETTINGS_LIVE = `games/${GAME_ID}/settings/live`;
+    const SETTINGS_ACTIVE_LEGACY = `games/${GAME_ID}/settings/activeGameId`;
 
-    let library = {};
-    let activeGameId = '';
+    let archive = {};
+    let liveRoundIds = [];
+    let siteSettings = { gameTitle: '', infoHtml: '', playerHelpHtml: '', aboutEvilTriviaHtml: '' };
+    let editingRoundId = null;
     let allScores = [];
     let filteredScores = [];
 
@@ -410,121 +474,299 @@
       }
     }
 
-    function populateGameSelects() {
-      const ids = Object.keys(library).sort();
-      const opts = ids.map(id => {
-        const row = library[id];
-        const t = row && (row.gameTitle || row.title) ? (row.gameTitle || row.title) : id;
-        return `<option value="${escapeAttr(id)}">${escapeHtml(t)}</option>`;
-      }).join('');
+    function isLiveRound(id) {
+      return liveRoundIds.indexOf(id) >= 0;
+    }
 
-      ['activePick', 'editGamePick', 'gameScoreFilter'].forEach(selId => {
-        const sel = document.getElementById(selId);
-        if (!sel) return;
-        const first = selId === 'gameScoreFilter' ? '<option value="">All games</option>' : '';
-        sel.innerHTML = first + opts;
-        if (selId !== 'gameScoreFilter' && activeGameId && library[activeGameId]) {
-          sel.value = activeGameId;
-        }
+    function loadSiteFields() {
+      document.getElementById('gameTitleInput').value = siteSettings.gameTitle || '';
+      document.getElementById('infoHtml').value = siteSettings.infoHtml || '';
+      document.getElementById('playerHelpHtml').value = siteSettings.playerHelpHtml || '';
+      document.getElementById('aboutEvilTriviaHtml').value = siteSettings.aboutEvilTriviaHtml || '';
+    }
+
+    async function saveSiteContent() {
+      const body = {
+        gameTitle: document.getElementById('gameTitleInput').value.trim() || 'Invenntion',
+        infoHtml: document.getElementById('infoHtml').value,
+        playerHelpHtml: document.getElementById('playerHelpHtml').value,
+        aboutEvilTriviaHtml: document.getElementById('aboutEvilTriviaHtml').value,
+        updatedAt: Date.now()
+      };
+      try {
+        await window.dbSet(window.dbRef(window.db, SETTINGS_SITE), body);
+        siteSettings = body;
+        flash(document.getElementById('siteMsg'), 'Site content saved.', false);
+        renderLivePill();
+      } catch (e) {
+        flash(document.getElementById('siteMsg'), e.message, true);
+      }
+    }
+
+    async function saveLiveRoundIds() {
+      await window.dbSet(window.dbRef(window.db, SETTINGS_LIVE), {
+        roundIds: liveRoundIds,
+        updatedAt: Date.now()
       });
     }
 
-    async function refreshAll() {
-      const snap = await window.dbGet(window.dbRef(window.db, LIBRARY_PATH));
-      library = snap.exists() && typeof snap.val() === 'object' ? snap.val() : {};
-      const activeSnap = await window.dbGet(window.dbRef(window.db, SETTINGS_ACTIVE));
-      activeGameId = activeSnap.exists() && activeSnap.val() ? String(activeSnap.val()) : '';
-
-      const pill = document.getElementById('activePill');
-      if (!activeGameId) {
-        pill.textContent = 'No active quiz — choose a game below.';
-      } else if (library[activeGameId]) {
-        const row = library[activeGameId];
-        const t = row.gameTitle || row.title || activeGameId;
-        pill.textContent = 'Live now: ' + t;
-      } else {
-        pill.textContent = 'Active id points to missing game — pick another.';
-      }
-
-      populateGameSelects();
-      onEditGameChange();
+    function renderLivePill() {
+      const pill = document.getElementById('livePill');
+      const title = siteSettings.gameTitle || 'Invenntion';
+      const n = liveRoundIds.filter(id => archive[id] && !archive[id].hidden).length;
+      if (!n) pill.textContent = title + ' — no live rounds yet';
+      else pill.textContent = title + ' — ' + n + ' live round' + (n === 1 ? '' : 's');
     }
 
-    async function applyActiveGame() {
-      const id = document.getElementById('activePick').value;
-      if (!id) {
-        flash(document.getElementById('activeMsg'), 'Select a game first.', true);
+    function renderLiveOrder() {
+      const mount = document.getElementById('liveOrderMount');
+      mount.innerHTML = '';
+      const ids = liveRoundIds.filter(id => archive[id]);
+      if (!ids.length) {
+        mount.innerHTML = '<p class="hint" style="margin:0">No live rounds. Mark rounds as Live in the archive below.</p>';
         return;
       }
-      try {
-        await window.dbSet(window.dbRef(window.db, SETTINGS_ACTIVE), id);
-        activeGameId = id;
-        await refreshAll();
-        flash(document.getElementById('activeMsg'), 'Active quiz updated.', false);
-      } catch (e) {
-        flash(document.getElementById('activeMsg'), e.message, true);
+      ids.forEach((id, i) => {
+        const r = archive[id];
+        const row = document.createElement('div');
+        row.className = 'live-order-item';
+        row.innerHTML = `
+          <span class="live-num">${i + 1}.</span>
+          <span class="live-label">${escapeHtml(roundLabel(r, id))}</span>
+          <button type="button" class="small" data-act="up">↑</button>
+          <button type="button" class="small" data-act="down">↓</button>
+          <button type="button" class="small" data-act="off">Remove live</button>`;
+        row.querySelector('[data-act="up"]').addEventListener('click', () => moveLiveRound(id, -1));
+        row.querySelector('[data-act="down"]').addEventListener('click', () => moveLiveRound(id, 1));
+        row.querySelector('[data-act="off"]').addEventListener('click', () => setRoundLive(id, false));
+        mount.appendChild(row);
+      });
+    }
+
+    async function moveLiveRound(id, delta) {
+      const i = liveRoundIds.indexOf(id);
+      if (i < 0) return;
+      const j = i + delta;
+      if (j < 0 || j >= liveRoundIds.length) return;
+      const next = liveRoundIds.slice();
+      const t = next[i];
+      next[i] = next[j];
+      next[j] = t;
+      liveRoundIds = next;
+      await saveLiveRoundIds();
+      renderLiveOrder();
+      renderArchiveBoard();
+    }
+
+    function roundLabel(r, id) {
+      if (!r) return id;
+      const l = r.label != null ? String(r.label).trim() : '';
+      if (l) return l;
+      const rt = r.roundTitle != null ? String(r.roundTitle).trim() : '';
+      if (rt) return rt;
+      return 'Round ' + id.slice(0, 6);
+    }
+
+    function roundMeta(r) {
+      const n = r && r.puzzles ? (Array.isArray(r.puzzles) ? r.puzzles.length : Object.keys(r.puzzles).length) : 0;
+      const sub = r && r.subtitle ? String(r.subtitle).trim() : '';
+      return (n ? n + ' phrase' + (n === 1 ? '' : 's') : 'No phrases') + (sub ? ' · ' + sub : '');
+    }
+
+    function renderArchiveBoard() {
+      const board = document.getElementById('archiveBoard');
+      const showHidden = document.getElementById('showHiddenRounds').checked;
+      board.innerHTML = '';
+      const ids = Object.keys(archive).sort((a, b) => {
+        const la = roundLabel(archive[a], a).toLowerCase();
+        const lb = roundLabel(archive[b], b).toLowerCase();
+        return la.localeCompare(lb);
+      });
+      ids.forEach(id => {
+        const r = archive[id];
+        if (!r) return;
+        if (r.hidden && !showHidden) return;
+        const card = document.createElement('div');
+        card.className = 'archive-card';
+        if (isLiveRound(id)) card.classList.add('is-live');
+        if (r.hidden) card.classList.add('is-hidden');
+        if (editingRoundId === id) card.classList.add('is-editing');
+        const badges = [];
+        if (isLiveRound(id)) badges.push('<span class="badge badge-live">Live</span>');
+        if (r.hidden) badges.push('<span class="badge badge-hidden">Hidden</span>');
+        card.innerHTML = `
+          <div class="archive-card-head">
+            <strong>${escapeHtml(roundLabel(r, id))}</strong>
+            <div class="archive-badges">${badges.join('')}</div>
+          </div>
+          <p class="archive-meta">${escapeHtml(roundMeta(r))}</p>
+          <div class="archive-actions">
+            <button type="button" class="small primary" data-act="edit">Edit</button>
+            <button type="button" class="small" data-act="live">${isLiveRound(id) ? 'Live ✓' : 'Set live'}</button>
+            <button type="button" class="small" data-act="hide">${r.hidden ? 'Unhide' : 'Hide'}</button>
+          </div>`;
+        card.querySelector('[data-act="edit"]').addEventListener('click', () => openEditRound(id));
+        card.querySelector('[data-act="live"]').addEventListener('click', () => setRoundLive(id, !isLiveRound(id)));
+        card.querySelector('[data-act="hide"]').addEventListener('click', () => setRoundHidden(id, !r.hidden));
+        board.appendChild(card);
+      });
+      if (!board.children.length) {
+        board.innerHTML = '<p class="hint" style="grid-column:1/-1">No rounds yet. Click <strong>New round</strong>.</p>';
       }
     }
 
-    async function createNewGame() {
+    async function setRoundLive(id, live) {
+      if (!archive[id]) return;
+      if (live && archive[id].hidden) {
+        archive[id].hidden = false;
+        await window.dbSet(window.dbRef(window.db, `${ARCHIVE_PATH}/${id}/hidden`), false);
+      }
+      if (live) {
+        if (liveRoundIds.indexOf(id) < 0) liveRoundIds.push(id);
+      } else {
+        liveRoundIds = liveRoundIds.filter(x => x !== id);
+      }
+      await saveLiveRoundIds();
+      renderLivePill();
+      renderLiveOrder();
+      renderArchiveBoard();
+    }
+
+    async function setRoundHidden(id, hidden) {
+      if (!archive[id]) return;
+      archive[id].hidden = hidden;
+      if (hidden) liveRoundIds = liveRoundIds.filter(x => x !== id);
       try {
-        const newRef = window.dbPush(window.dbRef(window.db, LIBRARY_PATH));
-        const id = newRef.key;
-        const body = {
-          gameTitle: '',
-          title: '',
-          rounds: [{
-            roundTitle: '',
-            subtitle: '',
-            puzzles: [{
-              leftWords: '', rightWords: '', answer: '',
-              leftHints: [], rightHints: []
-            }],
-            commonality: null
-          }],
-          playerHelpHtml: '',
-          infoHtml: '',
-          aboutEvilTriviaHtml: '',
-          updatedAt: Date.now()
+        await window.dbSet(window.dbRef(window.db, `${ARCHIVE_PATH}/${id}/hidden`), hidden);
+        if (hidden) await saveLiveRoundIds();
+        renderLivePill();
+        renderLiveOrder();
+        renderArchiveBoard();
+      } catch (e) {
+        flash(document.getElementById('archiveMsg'), e.message, true);
+      }
+    }
+
+    async function migrateLegacyIfNeeded() {
+      const archSnap = await window.dbGet(window.dbRef(window.db, ARCHIVE_PATH));
+      if (archSnap.exists() && archSnap.val() && Object.keys(archSnap.val()).length) return;
+
+      const libSnap = await window.dbGet(window.dbRef(window.db, LIBRARY_PATH));
+      if (!libSnap.exists()) return;
+      const lib = libSnap.val();
+      if (!lib || typeof lib !== 'object') return;
+
+      const activeSnap = await window.dbGet(window.dbRef(window.db, SETTINGS_ACTIVE_LEGACY));
+      const activeId = activeSnap.exists() && activeSnap.val() ? String(activeSnap.val()) : '';
+
+      const siteSnap = await window.dbGet(window.dbRef(window.db, SETTINGS_SITE));
+      if (siteSnap.exists() && siteSnap.val()) {
+        siteSettings = { ...siteSettings, ...siteSnap.val() };
+      }
+
+      const newArchive = {};
+      const newLive = [];
+
+      for (const gameId of Object.keys(lib).sort()) {
+        const g = lib[gameId];
+        if (!g || typeof g !== 'object') continue;
+        if (!siteSettings.gameTitle && (g.gameTitle || g.title)) {
+          siteSettings = {
+            gameTitle: g.gameTitle || g.title || '',
+            infoHtml: g.infoHtml || siteSettings.infoHtml || '',
+            playerHelpHtml: g.playerHelpHtml || siteSettings.playerHelpHtml || '',
+            aboutEvilTriviaHtml: g.aboutEvilTriviaHtml || siteSettings.aboutEvilTriviaHtml || ''
+          };
+        }
+        const rounds = legacyGameToRoundModels(g);
+        rounds.forEach((rm, idx) => {
+          const ref = window.dbPush(window.dbRef(window.db, ARCHIVE_PATH));
+          const rid = ref.key;
+          const body = roundModelToArchiveBody(rm);
+          body.hidden = gameId !== activeId;
+          newArchive[rid] = body;
+          if (gameId === activeId) newLive.push(rid);
+        });
+      }
+
+      for (const [rid, body] of Object.entries(newArchive)) {
+        await window.dbSet(window.dbRef(window.db, `${ARCHIVE_PATH}/${rid}`), body);
+      }
+      if (newLive.length) {
+        await window.dbSet(window.dbRef(window.db, SETTINGS_LIVE), { roundIds: newLive, updatedAt: Date.now() });
+      }
+      if (siteSettings.gameTitle || siteSettings.infoHtml) {
+        await window.dbSet(window.dbRef(window.db, SETTINGS_SITE), { ...siteSettings, updatedAt: Date.now() });
+      }
+    }
+
+    function legacyGameToRoundModels(g) {
+      if (!g) return [{ label: '', subtitle: '', puzzles: [defaultPuzzle()], commonality: null }];
+      if (Array.isArray(g.rounds) && g.rounds.length > 0) {
+        return g.rounds.map(r => ({
+          label: r && r.roundTitle != null ? String(r.roundTitle) : (r && r.label ? String(r.label) : ''),
+          subtitle: r && r.subtitle != null ? String(r.subtitle) : '',
+          puzzles: coercePuzzlesFromBlock(r && r.puzzles),
+          commonality: r && r.commonality && typeof r.commonality === 'object' ? r.commonality : null
+        }));
+      }
+      return [{
+        label: g.roundTitle != null ? String(g.roundTitle) : '',
+        subtitle: g.subtitle != null ? String(g.subtitle) : '',
+        puzzles: coercePuzzlesFromBlock(g.puzzles),
+        commonality: g.commonality && typeof g.commonality === 'object' ? g.commonality : null
+      }];
+    }
+
+    function archiveEntryToEditorModel(r) {
+      if (!r) return { label: '', subtitle: '', puzzles: [defaultPuzzle()], commonality: null };
+      return {
+        label: r.label != null ? String(r.label) : (r.roundTitle != null ? String(r.roundTitle) : ''),
+        subtitle: r.subtitle != null ? String(r.subtitle) : '',
+        puzzles: coercePuzzlesFromBlock(r.puzzles),
+        commonality: r.commonality && typeof r.commonality === 'object' ? r.commonality : null
+      };
+    }
+
+    function roundModelToArchiveBody(rm) {
+      const puzzles = (rm.puzzles || []).map(row => {
+        const leftHints = String(row.leftHints || '').split('\n').map(s => s.trim()).filter(Boolean);
+        const rightHints = String(row.rightHints || '').split('\n').map(s => s.trim()).filter(Boolean);
+        return {
+          leftWords: row.leftWords,
+          rightWords: row.rightWords,
+          answer: row.answer,
+          leftHints,
+          rightHints
         };
-        await window.dbSet(newRef, body);
-        library[id] = body;
-        const activeSnap = await window.dbGet(window.dbRef(window.db, SETTINGS_ACTIVE));
-        const curActive = activeSnap.exists() && activeSnap.val() ? String(activeSnap.val()) : '';
-        if (!curActive) {
-          await window.dbSet(window.dbRef(window.db, SETTINGS_ACTIVE), id);
-        }
-        await refreshAll();
-        document.getElementById('editGamePick').value = id;
-        onEditGameChange();
-        flash(document.getElementById('gamesMsg'), 'Game created. Add phrases and optional commonality, Save, then Make active.', false);
-      } catch (e) {
-        flash(document.getElementById('gamesMsg'), e.message, true);
-      }
+      }).filter(p => p.leftWords && p.rightWords && p.answer);
+      const out = {
+        label: rm.label || '',
+        subtitle: rm.subtitle || '',
+        puzzles,
+        hidden: false,
+        updatedAt: Date.now()
+      };
+      if (rm.commonality) out.commonality = rm.commonality;
+      return out;
     }
 
-    async function deleteCurrentGame() {
-      const id = document.getElementById('editGamePick').value;
-      if (!id || !library[id]) return;
-      if (!confirm('Delete this game and all its question data? (Scores are kept.)')) return;
-      try {
-        await window.dbRemove(window.dbRef(window.db, `${LIBRARY_PATH}/${id}`));
-        delete library[id];
-        if (activeGameId === id) {
-          const remaining = Object.keys(library).sort();
-          const next = remaining[0] || '';
-          if (next) {
-            await window.dbSet(window.dbRef(window.db, SETTINGS_ACTIVE), next);
-          } else {
-            await window.dbRemove(window.dbRef(window.db, SETTINGS_ACTIVE));
-          }
-          activeGameId = next;
-        }
-        await refreshAll();
-        flash(document.getElementById('editorMsg'), 'Game deleted.', false);
-      } catch (e) {
-        flash(document.getElementById('editorMsg'), e.message, true);
+    async function refreshAll() {
+      await migrateLegacyIfNeeded();
+      const archSnap = await window.dbGet(window.dbRef(window.db, ARCHIVE_PATH));
+      archive = archSnap.exists() && typeof archSnap.val() === 'object' ? archSnap.val() : {};
+      const liveSnap = await window.dbGet(window.dbRef(window.db, SETTINGS_LIVE));
+      liveRoundIds = liveSnap.exists() && liveSnap.val() && Array.isArray(liveSnap.val().roundIds)
+        ? liveSnap.val().roundIds.map(String)
+        : [];
+      const siteSnap = await window.dbGet(window.dbRef(window.db, SETTINGS_SITE));
+      if (siteSnap.exists() && siteSnap.val()) {
+        siteSettings = { ...siteSettings, ...siteSnap.val() };
       }
+      loadSiteFields();
+      renderLivePill();
+      renderLiveOrder();
+      renderArchiveBoard();
     }
 
     function coercePuzzlesFromBlock(src) {
@@ -542,37 +784,9 @@
       return puzz;
     }
 
-    /** @returns {{ roundTitle: string, subtitle: string, puzzles: object[], commonality: object|null }[]} */
-    function gameToRoundModels(g) {
-      if (!g) {
-        return [{ roundTitle: '', subtitle: '', puzzles: [defaultPuzzle()], commonality: null }];
-      }
-      if (Array.isArray(g.rounds) && g.rounds.length > 0) {
-        return g.rounds.map(r => ({
-          roundTitle: r && r.roundTitle != null ? String(r.roundTitle) : '',
-          subtitle: r && r.subtitle != null ? String(r.subtitle) : '',
-          puzzles: coercePuzzlesFromBlock(r && r.puzzles),
-          commonality: r && r.commonality && typeof r.commonality === 'object' ? r.commonality : null
-        }));
-      }
-      return [{
-        roundTitle: g.roundTitle != null ? String(g.roundTitle) : '',
-        subtitle: g.subtitle != null ? String(g.subtitle) : '',
-        puzzles: coercePuzzlesFromBlock(g.puzzles),
-        commonality: g.commonality && typeof g.commonality === 'object' ? g.commonality : null
-      }];
-    }
-
     function renumberPuzzlesIn(mountEl) {
       mountEl.querySelectorAll('.q-editor').forEach((el, i) => {
         el.querySelector('h3').childNodes[0].textContent = 'Phrase ' + (i + 1) + ' ';
-      });
-    }
-
-    function renumberRoundEditors() {
-      document.querySelectorAll('#roundsMount .round-editor').forEach((el, i) => {
-        const n = el.querySelector('.round-label-num');
-        if (n) n.textContent = String(i + 1);
       });
     }
 
@@ -601,6 +815,7 @@
               <textarea class="ta-rh" rows="2" placeholder="Hint line…"></textarea>
             </div>
           </div>`;
+        div.innerHTML = div.innerHTML.replace('<div class="col col-mid field">', '<div class="col col-mid field">');
         div.querySelector('.in-left').value = p.leftWords;
         div.querySelector('.in-right').value = p.rightWords;
         div.querySelector('.in-ans').value = p.answer;
@@ -615,35 +830,24 @@
       });
     }
 
-    function renderRoundEditors(roundModels) {
-      const mount = document.getElementById('roundsMount');
-      mount.innerHTML = '';
-      roundModels.forEach(rm => {
-        const wrap = document.createElement('div');
-        wrap.className = 'round-editor';
-        wrap.innerHTML = `
-          <div class="round-editor-header">
-            <h3>Round <span class="round-label-num">1</span></h3>
-            <div class="round-move-btns">
-              <button type="button" class="small" data-act="up">Move up</button>
-              <button type="button" class="small" data-act="down">Move down</button>
-              <button type="button" class="small danger" data-act="del-round">Remove round</button>
-            </div>
+    function renderSingleRoundEditor(rm) {
+      const mount = document.getElementById('singleRoundMount');
+      mount.innerHTML = `
+        <div class="round-editor" id="editingRoundWrap">
+          <div class="field" style="margin-bottom:10px">
+            <label>Round label (admin only)</label>
+            <input type="text" class="in-round-label" style="width:100%;max-width:520px" placeholder="e.g. Warm-up" />
           </div>
           <div class="field" style="margin-bottom:10px">
-            <label>Round title (play page — under game title)</label>
-            <input type="text" class="in-round-title" style="width:100%;max-width:520px" placeholder="e.g. Warm-up" />
-          </div>
-          <div class="field" style="margin-bottom:10px">
-            <label>Round subtitle (play page tagline)</label>
+            <label>Tagline (play page subtitle)</label>
             <input type="text" class="in-round-subtitle" style="width:100%;max-width:520px" placeholder="e.g. Fill in the middle word" />
           </div>
           <div class="phrases-mount"></div>
           <div class="row" style="margin-top:8px">
-            <button type="button" class="small" data-act="add-phrase">Add phrase</button>
+            <button type="button" class="small" id="btnAddPhrase">Add phrase</button>
           </div>
           <div class="com-block" style="margin-top:14px">
-            <h3>Commonality (this round, optional)</h3>
+            <h3>Commonality (optional)</h3>
             <div class="com-row">
               <div class="field flex2">
                 <label>Prompt</label>
@@ -658,65 +862,22 @@
               <label>Hints (one per line)</label>
               <textarea class="in-com-hints" rows="2"></textarea>
             </div>
-          </div>`;
-
-        wrap.querySelector('.in-round-title').value = rm.roundTitle || '';
-        wrap.querySelector('.in-round-subtitle').value = rm.subtitle || '';
-        const pm = wrap.querySelector('.phrases-mount');
-        renderPuzzleEditorsInto(pm, rm.puzzles || [defaultPuzzle()]);
-        const com = rm.commonality;
-        wrap.querySelector('.in-com-prompt').value = com && com.prompt ? String(com.prompt) : '';
-        wrap.querySelector('.in-com-answer').value = com && com.answer ? String(com.answer) : '';
-        wrap.querySelector('.in-com-hints').value = com ? hintsToLines(com.hints) : '';
-
-        wrap.querySelector('[data-act="add-phrase"]').addEventListener('click', () => {
-          const cur = collectPuzzlesFromMount(pm);
-          cur.push(defaultPuzzle());
-          renderPuzzleEditorsInto(pm, cur);
-        });
-
-        wrap.querySelector('[data-act="del-round"]').addEventListener('click', () => {
-          if (document.querySelectorAll('#roundsMount .round-editor').length <= 1) {
-            alert('Keep at least one round.');
-            return;
-          }
-          wrap.remove();
-          renumberRoundEditors();
-        });
-
-        wrap.querySelector('[data-act="up"]').addEventListener('click', () => {
-          const prev = wrap.previousElementSibling;
-          if (prev && prev.classList.contains('round-editor')) {
-            prev.before(wrap);
-            renumberRoundEditors();
-          }
-        });
-        wrap.querySelector('[data-act="down"]').addEventListener('click', () => {
-          const next = wrap.nextElementSibling;
-          if (next && next.classList.contains('round-editor')) {
-            next.after(wrap);
-            renumberRoundEditors();
-          }
-        });
-
-        mount.appendChild(wrap);
+          </div>
+        </div>`;
+      const wrap = mount.querySelector('#editingRoundWrap');
+      wrap.querySelector('.in-round-label').value = rm.label || '';
+      wrap.querySelector('.in-round-subtitle').value = rm.subtitle || '';
+      const pm = wrap.querySelector('.phrases-mount');
+      renderPuzzleEditorsInto(pm, rm.puzzles || [defaultPuzzle()]);
+      const com = rm.commonality;
+      wrap.querySelector('.in-com-prompt').value = com && com.prompt ? String(com.prompt) : '';
+      wrap.querySelector('.in-com-answer').value = com && com.answer ? String(com.answer) : '';
+      wrap.querySelector('.in-com-hints').value = com ? hintsToLines(com.hints) : '';
+      wrap.querySelector('#btnAddPhrase').addEventListener('click', () => {
+        const cur = collectPuzzlesFromMount(pm);
+        cur.push(defaultPuzzle());
+        renderPuzzleEditorsInto(pm, cur);
       });
-      renumberRoundEditors();
-    }
-
-    function onEditGameChange() {
-      const id = document.getElementById('editGamePick').value;
-      const g = id && library[id] ? library[id] : null;
-      const gt = g && (g.gameTitle != null && String(g.gameTitle).trim()) ? String(g.gameTitle).trim() : '';
-      document.getElementById('gameTitleInput').value = gt || (g && g.title ? g.title : '');
-      document.getElementById('playerHelpHtml').value =
-        g && g.playerHelpHtml != null ? String(g.playerHelpHtml) : '';
-      document.getElementById('infoHtml').value =
-        g && g.infoHtml != null ? String(g.infoHtml) : '';
-      document.getElementById('aboutEvilTriviaHtml').value =
-        g && g.aboutEvilTriviaHtml != null ? String(g.aboutEvilTriviaHtml) : '';
-
-      renderRoundEditors(gameToRoundModels(g));
     }
 
     function collectPuzzlesFromMount(mountEl) {
@@ -733,21 +894,14 @@
       return out;
     }
 
-    function addRoundEditor() {
-      const cur = [];
-      document.querySelectorAll('#roundsMount .round-editor').forEach(re => {
-        cur.push(roundEditorToModel(re));
-      });
-      cur.push({ roundTitle: '', subtitle: '', puzzles: [defaultPuzzle()], commonality: null });
-      renderRoundEditors(cur);
-    }
-
-    function roundEditorToModel(re) {
-      const pm = re.querySelector('.phrases-mount');
+    function editingRoundToModel() {
+      const wrap = document.querySelector('#editingRoundWrap');
+      if (!wrap) return null;
+      const pm = wrap.querySelector('.phrases-mount');
       const puzzRows = collectPuzzlesFromMount(pm);
-      const comPrompt = re.querySelector('.in-com-prompt').value.trim();
-      const comAnswer = re.querySelector('.in-com-answer').value.trim();
-      const comHintsRaw = re.querySelector('.in-com-hints').value;
+      const comPrompt = wrap.querySelector('.in-com-prompt').value.trim();
+      const comAnswer = wrap.querySelector('.in-com-answer').value.trim();
+      const comHintsRaw = wrap.querySelector('.in-com-hints').value;
       let commonality = null;
       if (comPrompt && comAnswer) {
         commonality = {
@@ -757,83 +911,91 @@
         };
       }
       return {
-        roundTitle: re.querySelector('.in-round-title').value,
-        subtitle: re.querySelector('.in-round-subtitle').value,
+        label: wrap.querySelector('.in-round-label').value.trim(),
+        subtitle: wrap.querySelector('.in-round-subtitle').value.trim(),
         puzzles: puzzRows,
         commonality
       };
     }
 
-    async function saveCurrentGame() {
-      const id = document.getElementById('editGamePick').value;
-      if (!id) {
-        flash(document.getElementById('editorMsg'), 'Pick a game to save.', true);
-        return;
-      }
-      const gameTitle = document.getElementById('gameTitleInput').value.trim() || 'Untitled quiz';
+    function openEditRound(id) {
+      editingRoundId = id;
+      const r = archive[id];
+      document.getElementById('roundEditTitle').textContent = 'Edit: ' + roundLabel(r, id);
+      document.getElementById('roundEditPanel').classList.remove('hidden');
+      renderSingleRoundEditor(archiveEntryToEditorModel(r));
+      renderArchiveBoard();
+      document.getElementById('roundEditPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 
-      const roundEditors = document.querySelectorAll('#roundsMount .round-editor');
-      if (!roundEditors.length) {
-        flash(document.getElementById('editorMsg'), 'Add at least one round.', true);
-        return;
-      }
+    function cancelEditRound() {
+      editingRoundId = null;
+      document.getElementById('roundEditPanel').classList.add('hidden');
+      document.getElementById('singleRoundMount').innerHTML = '';
+      renderArchiveBoard();
+    }
 
-      const roundsOut = [];
-      for (let i = 0; i < roundEditors.length; i++) {
-        const re = roundEditors[i];
-        const raw = roundEditorToModel(re);
-        const puzzles = raw.puzzles
-          .map(row => {
-            const leftHints = String(row.leftHints || '').split('\n').map(s => s.trim()).filter(Boolean);
-            const rightHints = String(row.rightHints || '').split('\n').map(s => s.trim()).filter(Boolean);
-            return {
-              leftWords: row.leftWords,
-              rightWords: row.rightWords,
-              answer: row.answer,
-              leftHints,
-              rightHints
-            };
-          })
-          .filter(p => p.leftWords && p.rightWords && p.answer);
-
-        if (puzzles.length === 0) {
-          flash(document.getElementById('editorMsg'), `Round ${i + 1}: need at least one full phrase (left, right, middle answer).`, true);
-          return;
-        }
-
-        const r = {
-          roundTitle: raw.roundTitle,
-          subtitle: raw.subtitle,
-          puzzles
-        };
-        if (raw.commonality) r.commonality = raw.commonality;
-        roundsOut.push(r);
-      }
-
-      const body = {
-        gameTitle,
-        title: gameTitle,
-        rounds: roundsOut,
-        playerHelpHtml: document.getElementById('playerHelpHtml').value,
-        infoHtml: document.getElementById('infoHtml').value,
-        aboutEvilTriviaHtml: document.getElementById('aboutEvilTriviaHtml').value,
-        updatedAt: Date.now()
-      };
-
+    async function createNewRound() {
       try {
-        await window.dbSet(window.dbRef(window.db, `${LIBRARY_PATH}/${id}`), body);
-        library[id] = body;
-        populateGameSelects();
-        flash(document.getElementById('editorMsg'), 'Saved.', false);
+        const ref = window.dbPush(window.dbRef(window.db, ARCHIVE_PATH));
+        const id = ref.key;
+        const body = roundModelToArchiveBody({
+          label: 'New round',
+          subtitle: '',
+          puzzles: [defaultPuzzle()],
+          commonality: null
+        });
+        await window.dbSet(ref, body);
+        archive[id] = body;
+        openEditRound(id);
+        renderArchiveBoard();
+        flash(document.getElementById('archiveMsg'), 'Round created — add phrases and Save.', false);
       } catch (e) {
-        flash(document.getElementById('editorMsg'), e.message, true);
+        flash(document.getElementById('archiveMsg'), e.message, true);
       }
     }
 
+    async function saveEditingRound() {
+      if (!editingRoundId) return;
+      const raw = editingRoundToModel();
+      if (!raw) return;
+      const body = roundModelToArchiveBody(raw);
+      if (!body.puzzles.length) {
+        flash(document.getElementById('archiveMsg'), 'Need at least one full phrase (left, right, middle answer).', true);
+        return;
+      }
+      try {
+        await window.dbSet(window.dbRef(window.db, `${ARCHIVE_PATH}/${editingRoundId}`), body);
+        archive[editingRoundId] = body;
+        flash(document.getElementById('archiveMsg'), 'Round saved.', false);
+        renderArchiveBoard();
+        renderLiveOrder();
+      } catch (e) {
+        flash(document.getElementById('archiveMsg'), e.message, true);
+      }
+    }
+
+    async function deleteEditingRound() {
+      if (!editingRoundId) return;
+      if (!confirm('Delete this round permanently?')) return;
+      const id = editingRoundId;
+      try {
+        await window.dbRemove(window.dbRef(window.db, `${ARCHIVE_PATH}/${id}`));
+        delete archive[id];
+        liveRoundIds = liveRoundIds.filter(x => x !== id);
+        await saveLiveRoundIds();
+        cancelEditRound();
+        renderLivePill();
+        renderLiveOrder();
+        renderArchiveBoard();
+        flash(document.getElementById('archiveMsg'), 'Round deleted.', false);
+      } catch (e) {
+        flash(document.getElementById('archiveMsg'), e.message, true);
+      }
+    }
     /* ---- Scores ---- */
     document.getElementById('dateFilter').addEventListener('change', applyScoreFilters);
     document.getElementById('nameFilter').addEventListener('input', applyScoreFilters);
-    document.getElementById('gameScoreFilter').addEventListener('change', applyScoreFilters);
     document.getElementById('sortBy').addEventListener('change', applyScoreSort);
 
     window.loadScores = async function loadScores() {
@@ -862,12 +1024,10 @@
     };
 
     function applyScoreFilters() {
-      const gid = document.getElementById('gameScoreFilter').value;
       const d = document.getElementById('dateFilter').value;
       const q = document.getElementById('nameFilter').value.toLowerCase().trim();
 
       filteredScores = allScores.filter(s => {
-        if (gid && String(s.gameId || '') !== gid) return false;
         if (d && s.date !== d) return false;
         const n = (s.displayName || '').toLowerCase();
         if (q && !n.includes(q)) return false;
@@ -921,8 +1081,7 @@
 
       filteredScores.forEach(s => {
         const tr = document.createElement('tr');
-        const lib = library[s.gameId];
-        const title = s.gameTitle || (lib && (lib.gameTitle || lib.title)) || s.gameId || '—';
+        const title = s.gameTitle || siteSettings.gameTitle || '—';
         const wrongN = typeof s.incorrectGuesses === 'number' ? s.incorrectGuesses : '—';
         const hintsN = typeof s.hintsUsed === 'number' ? s.hintsUsed : '—';
         tr.innerHTML = `
@@ -1001,12 +1160,12 @@
     }
 
     window.refreshAll = refreshAll;
-    window.applyActiveGame = applyActiveGame;
-    window.createNewGame = createNewGame;
-    window.deleteCurrentGame = deleteCurrentGame;
-    window.onEditGameChange = onEditGameChange;
-    window.addRoundEditor = addRoundEditor;
-    window.saveCurrentGame = saveCurrentGame;
+    window.saveSiteContent = saveSiteContent;
+    window.createNewRound = createNewRound;
+    window.saveEditingRound = saveEditingRound;
+    window.cancelEditRound = cancelEditRound;
+    window.deleteEditingRound = deleteEditingRound;
+    window.renderArchiveBoard = renderArchiveBoard;
   </script>
 </body>
 </html>

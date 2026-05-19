@@ -734,7 +734,6 @@
         </div>
         <div class="mg-title-stack">
           <h1 class="mg-game-title" id="pageGameTitle">Invenntion</h1>
-          <h2 class="mg-round-title mg-empty" id="pageRoundTitle"></h2>
           <div class="subtitle" id="pageSubtitle"></div>
         </div>
         <div class="mg-title-side mg-title-side-right">
@@ -827,7 +826,6 @@
     const errorState = document.getElementById('errorState');
     const quizCard = document.getElementById('quizCard');
     const pageGameTitle = document.getElementById('pageGameTitle');
-    const pageRoundTitle = document.getElementById('pageRoundTitle');
     const pageSubtitle = document.getElementById('pageSubtitle');
     const statBar = document.getElementById('statBar');
     const wrongCountEl = document.getElementById('wrongCount');
@@ -850,7 +848,6 @@
     /** Normalized rounds from Firebase (each has roundTitle, subtitle, puzzles, commonality). */
     let gameRounds = [];
     let roundIndex = 0;
-    let activeRoundTitle = '';
     let activeRoundSubtitle = '';
     /** Cumulative score across rounds (filled as each round completes). */
     let finishTotalCorrect = 0;
@@ -1203,10 +1200,8 @@
 
     function updateHeaderTitles() {
       pageGameTitle.textContent = activeGameTitle;
-      const rt = activeRoundTitle.trim();
-      pageRoundTitle.textContent = rt;
-      if (rt) pageRoundTitle.classList.remove('mg-empty');
-      else pageRoundTitle.classList.add('mg-empty');
+      const sub = activeRoundSubtitle.trim() || DEFAULT_PLAY_SUBTITLE;
+      pageSubtitle.textContent = sub;
     }
 
     function initRoundState(i) {
@@ -1214,7 +1209,6 @@
       if (!r) return;
       puzzles = r.puzzles;
       commonality = r.commonality;
-      activeRoundTitle = r.roundTitle;
       activeRoundSubtitle = r.subtitle;
       puzzleBuffers = puzzles.map(() => '');
       puzzleSolved = puzzles.map(() => false);
@@ -1872,8 +1866,6 @@
 
     function showFinish() {
       keyboardWrap.classList.add('hidden-kb');
-      pageRoundTitle.textContent = '';
-      pageRoundTitle.classList.add('mg-empty');
       pageSubtitle.textContent = 'All done!';
 
       const total = finishTotalPossible;
@@ -2040,6 +2032,73 @@
       if (toastEl) toastEl.textContent = '';
     }
 
+    function archiveBlockToPlayRound(block) {
+      if (!block || block.hidden) return null;
+      const puzz = normalizePuzzles(block.puzzles);
+      if (!puzz.length) return null;
+      return {
+        roundTitle: '',
+        subtitle: block.subtitle != null ? String(block.subtitle) : '',
+        puzzles: puzz,
+        commonality: normalizeCommonality(block.commonality)
+      };
+    }
+
+    async function loadSiteSettings() {
+      const siteSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/site`));
+      const site = snapExists(siteSnap) && siteSnap.val() ? siteSnap.val() : {};
+      activeGameTitle = site.gameTitle != null ? String(site.gameTitle).trim() : '';
+      if (!activeGameTitle) activeGameTitle = 'Invenntion';
+      playerHelpHtml = site.playerHelpHtml != null ? String(site.playerHelpHtml) : '';
+      aboutEvilTriviaHtml = site.aboutEvilTriviaHtml != null ? String(site.aboutEvilTriviaHtml) : '';
+      infoHtml = site.infoHtml != null ? String(site.infoHtml) : '';
+      document.title = `${activeGameTitle} — Evil Trivia`;
+    }
+
+    async function loadLiveRoundsFromArchive() {
+      const liveSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/live`));
+      let roundIds = [];
+      if (snapExists(liveSnap) && liveSnap.val() && Array.isArray(liveSnap.val().roundIds)) {
+        roundIds = liveSnap.val().roundIds.map(String);
+      }
+      if (roundIds.length) {
+        const out = [];
+        for (let i = 0; i < roundIds.length; i++) {
+          const rid = roundIds[i];
+          const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
+          if (!snapExists(snap)) continue;
+          const row = archiveBlockToPlayRound(snap.val());
+          if (row) out.push(row);
+        }
+        if (out.length) {
+          activeGameId = 'live';
+          gameRounds = out;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    async function loadLegacyLibraryGame() {
+      const settingsSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/activeGameId`));
+      const gameId = snapExists(settingsSnap) && settingsSnap.val() ? String(settingsSnap.val()).trim() : '';
+      if (!gameId) return false;
+
+      const gameSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/library/${gameId}`));
+      if (!snapExists(gameSnap)) return false;
+
+      const data = gameSnap.val();
+      activeGameId = gameId;
+      if (!playerHelpHtml && data.playerHelpHtml) playerHelpHtml = String(data.playerHelpHtml);
+      if (!infoHtml && data.infoHtml) infoHtml = String(data.infoHtml);
+      if (!aboutEvilTriviaHtml && data.aboutEvilTriviaHtml) aboutEvilTriviaHtml = String(data.aboutEvilTriviaHtml);
+      const gt = data && data.gameTitle != null ? String(data.gameTitle).trim() : '';
+      if (gt) activeGameTitle = gt;
+
+      gameRounds = normalizeGameRounds(data);
+      return gameRounds.length > 0;
+    }
+
     async function fetchQuizData() {
       resetPlaySession();
 
@@ -2047,34 +2106,26 @@
         throw new Error('Quiz page layout is incomplete. Try a hard refresh (Shift+Reload).');
       }
 
-      const settingsSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/activeGameId`));
-      const gameId = snapExists(settingsSnap) && settingsSnap.val() ? String(settingsSnap.val()).trim() : '';
-      if (!gameId) {
-        throw new Error('No quiz is live yet. Check back soon.');
-      }
+      await loadSiteSettings();
 
-      const gameSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/library/${gameId}`));
-      if (!snapExists(gameSnap)) {
-        throw new Error('This quiz is no longer available.');
-      }
-
-      const data = gameSnap.val();
-      activeGameId = gameId;
-      const gt = data && data.gameTitle != null ? String(data.gameTitle).trim() : '';
-      activeGameTitle = gt || ((data && data.title) ? String(data.title).trim() : '') || 'Invenntion';
-      playerHelpHtml = (data && data.playerHelpHtml != null) ? String(data.playerHelpHtml) : '';
-      aboutEvilTriviaHtml = (data && data.aboutEvilTriviaHtml != null) ? String(data.aboutEvilTriviaHtml) : '';
-      infoHtml = (data && data.infoHtml != null) ? String(data.infoHtml) : '';
-      document.title = activeGameTitle ? `${activeGameTitle} — Evil Trivia` : 'Evil Trivia — Invenntion';
-
-      gameRounds = normalizeGameRounds(data);
-
-      if (!gameRounds.length && data && data.questions && coerceArr(data.questions).length) {
-        throw new Error('This quiz still uses the old multiple-choice format. Open admin and convert it to Invenntion phrases + commonality.');
+      const loadedLive = await loadLiveRoundsFromArchive();
+      if (!loadedLive) {
+        const loadedLegacy = await loadLegacyLibraryGame();
+        if (!loadedLegacy) {
+          throw new Error('No quiz is live yet. Mark rounds as Live in admin.');
+        }
+        if (gameRounds.length === 0) {
+          const gameSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/library/${activeGameId}`));
+          const data = snapExists(gameSnap) ? gameSnap.val() : null;
+          if (data && data.questions && coerceArr(data.questions).length) {
+            throw new Error('This quiz still uses the old multiple-choice format. Open admin and convert it.');
+          }
+          throw new Error('This quiz has no phrases yet.');
+        }
       }
 
       if (!gameRounds.length) {
-        throw new Error('This quiz has no phrases yet.');
+        throw new Error('No playable rounds. Add phrases in admin and mark rounds Live.');
       }
     }
 
