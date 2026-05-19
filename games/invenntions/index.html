@@ -75,7 +75,7 @@
       overflow: visible;
     }
     #puzzleMount {
-      padding: 6px 2px 8px;
+      padding: 2px 0 3px;
     }
 
     /* Title row: center title on page; equal side columns balance asymmetric buttons */
@@ -240,13 +240,13 @@
     .mg-phrase-block {
       overflow: visible;
       position: relative;
-      margin-bottom: 10px;
-      padding: 5px 0;
+      margin-bottom: 3px;
+      padding: 2px 0;
     }
     .mg-main-row-wrap {
       position: relative;
       isolation: isolate;
-      padding: 5px 2px;
+      padding: 2px 1px;
     }
     .mg-phrase-sq-svg {
       position: absolute;
@@ -277,7 +277,7 @@
       animation: invSquircleDraw 0.75s cubic-bezier(0.45, 0, 0.25, 1) forwards;
     }
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-b {
-      animation: invSquircleDraw 0.75s cubic-bezier(0.45, 0, 0.25, 1) 0.75s forwards;
+      animation: invSquircleDraw 0.75s cubic-bezier(0.45, 0, 0.25, 1) forwards;
     }
     .mg-phrase-block.mg-phrase-sq-venn .mg-phrase-sq-c {
       visibility: visible;
@@ -1180,6 +1180,7 @@
     const SQUIRCLE_PAIR_MS = 1500;
     const SQUIRCLE_VENN_MS = 563;
     const SQUIRCLE_VENN_FILL_MS = 413;
+    const PHRASE_SQUIRCLE_PAIR_MS = 780;
     let squircleIntroPlayed = false;
     let squircleLayoutBound = false;
     let squircleArmed = false;
@@ -1742,17 +1743,20 @@
       if (!stage || !pathA || !pathB || !pathC || !left || !center || !right || !svg) return false;
 
       const stageRect = stage.getBoundingClientRect();
-      const pad = 4;
+      const sidePad = 4;
       const corner = Math.max(8, Math.min(12, stageRect.width * 0.024));
 
-      function boundsForEl(el) {
+      function boundsForEl(el, extraPad) {
+        const p = extraPad || 0;
         const b = el.getBoundingClientRect();
         if (!b.width && !b.height) return null;
         return {
-          x: b.left - stageRect.left - pad,
-          y: b.top - stageRect.top - pad,
-          w: b.width + pad * 2,
-          h: b.height + pad * 2
+          x: b.left - stageRect.left - p,
+          y: b.top - stageRect.top - p,
+          w: b.width + p * 2,
+          h: b.height + p * 2,
+          right: b.right - stageRect.left + p,
+          bottom: b.bottom - stageRect.top + p
         };
       }
 
@@ -1761,45 +1765,43 @@
       const viewBox = `0 0 ${sw} ${sh}`;
       svg.setAttribute('viewBox', viewBox);
 
-      const leftB = boundsForEl(left);
-      const rightB = boundsForEl(right);
       const answerStrip = center.querySelector('.mg-answer-strip');
-      const answerB = boundsForEl(answerStrip);
-      if (!leftB || !rightB || !answerB) return false;
+      const answerPx = boundsForEl(answerStrip, 0);
+      if (!answerPx) return false;
 
-      const strokePad = 5;
-      const unionY = (a, b) => {
-        const top = Math.min(a.y, b.y) - strokePad;
-        const bottom = Math.max(a.y + a.h, b.y + b.h) + strokePad;
-        return { top, h: bottom - top };
+      const leftB = boundsForEl(left, sidePad);
+      const rightB = boundsForEl(right, sidePad);
+      if (!leftB || !rightB) return false;
+
+      const strokePad = 3;
+      const rowTop = Math.min(leftB.y, rightB.y, answerPx.y) - strokePad;
+      const rowBottom = Math.max(leftB.bottom, rightB.bottom, answerPx.bottom) + strokePad;
+      const rowH = rowBottom - rowTop;
+
+      // Red on answer strip pixels; green/blue edges derived from answer width.
+      const venn = {
+        x: answerPx.x - strokePad,
+        y: answerPx.y - strokePad,
+        w: answerPx.w + strokePad * 2,
+        h: answerPx.h + strokePad * 2
       };
 
-      // Wrap the answer strip; extend green/blue past each other for a Venn overlap.
-      const overlapAcrossAnswer = answerB.w * 0.42;
-      const greenRight = answerB.x + answerB.w + overlapAcrossAnswer * 0.55;
-      const blueLeft = answerB.x - overlapAcrossAnswer * 0.55;
+      const overlapPx = Math.max(12, answerPx.w * 0.44);
+      const greenRight = answerPx.x + answerPx.w + overlapPx * 0.5;
+      const blueLeft = answerPx.x - overlapPx * 0.5;
 
-      const invennY = unionY(leftB, answerB);
       const invenn = {
         x: leftB.x,
-        y: invennY.top,
+        y: rowTop,
         w: greenRight - leftB.x,
-        h: invennY.h
+        h: rowH
       };
 
-      const venntionY = unionY(rightB, answerB);
       const venntion = {
         x: blueLeft,
-        y: venntionY.top,
-        w: (rightB.x + rightB.w) - blueLeft,
-        h: venntionY.h
-      };
-
-      const venn = {
-        x: answerB.x - strokePad,
-        y: answerB.y - strokePad,
-        w: answerB.w + strokePad * 2,
-        h: answerB.h + strokePad * 2
+        y: rowTop,
+        w: rightB.right - blueLeft,
+        h: rowH
       };
 
       pathA.setAttribute('d', roundedRectPath(invenn.x, invenn.y, invenn.w, invenn.h, corner));
@@ -1833,7 +1835,7 @@
               block.classList.add('mg-phrase-sq-done');
               done();
             }, SQUIRCLE_VENN_MS);
-          }, SQUIRCLE_PAIR_MS);
+          }, PHRASE_SQUIRCLE_PAIR_MS);
         });
       }
       tryArm(0);
@@ -2696,8 +2698,6 @@
         renderBoard();
         playPhraseSolveSquircle(i, () => {
           if (checkAllComplete()) return;
-          toastEl.textContent = 'Nice — keep going!';
-          setTimeout(() => { toastEl.textContent = ''; }, 1200);
           focusNextSlot();
           updateFocusHighlight();
         });
