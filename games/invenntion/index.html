@@ -637,7 +637,7 @@
       transform: translateY(8px);
     }
     .inv-title-screen.inv-menu-ready .inv-title-tagline {
-      animation: invFadeUp 0.45s ease 0.75s forwards;
+      animation: invFadeUp 0.45s ease 0.1s forwards;
     }
     .inv-title-menu {
       display: flex;
@@ -649,7 +649,12 @@
       transform: translateY(12px);
     }
     .inv-title-screen.inv-menu-ready .inv-title-menu {
-      animation: invFadeUp 0.5s ease 0.85s forwards;
+      animation: invFadeUp 0.5s ease 0.2s forwards;
+    }
+    .inv-title-screen:not(.inv-menu-ready) .inv-title-menu,
+    .inv-title-screen:not(.inv-menu-ready) .inv-title-tagline {
+      visibility: hidden;
+      pointer-events: none;
     }
     @keyframes invFadeUp {
       to { opacity: 1; transform: translateY(0); }
@@ -813,7 +818,7 @@
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleArchive">Archive</button>
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleInfo">What am I doing here?</button>
       </div>
-      <p class="inv-title-status" id="titleStatus">Loading quiz…</p>
+      <p class="inv-title-status" id="titleStatus" aria-hidden="true"></p>
       <p class="inv-title-error hidden" id="titleError"></p>
     </div>
   </div>
@@ -950,6 +955,8 @@
     let infoHtml = '';
     let quizPrefetchOk = false;
     let quizPrefetchError = '';
+    let titleIntroComplete = false;
+    const TITLE_INTRO_MS = 1800;
     /** @type {{ id: string, label: string, playDate: string, phraseCount: number, isLive: boolean }[]} */
     let archiveCatalog = [];
     let activeGameId = null;
@@ -1363,10 +1370,21 @@
       if (screen) {
         screen.classList.remove('hidden');
         screen.setAttribute('aria-hidden', 'false');
+        if (titleIntroComplete) {
+          screen.classList.add('inv-animate', 'inv-menu-ready');
+        }
       }
       document.body.classList.add('inv-title-active');
       quizCard.classList.add('hidden');
       errorState.classList.add('hidden');
+      updateTitleMenuState();
+    }
+
+    function finishTitleIntro() {
+      const screen = document.getElementById('titleScreen');
+      if (screen) screen.classList.add('inv-menu-ready');
+      titleIntroComplete = true;
+      updateTitleMenuState();
     }
 
     function showArchiveScreen() {
@@ -1409,23 +1427,30 @@
       const status = document.getElementById('titleStatus');
       const errEl = document.getElementById('titleError');
       if (!playBtn || !status) return;
+      status.textContent = '';
+      if (!titleIntroComplete) {
+        playBtn.disabled = true;
+        if (archiveBtn) archiveBtn.disabled = true;
+        return;
+      }
       if (quizPrefetchOk) {
         playBtn.disabled = false;
-        status.textContent = '';
         if (errEl) {
           errEl.textContent = '';
           errEl.classList.add('hidden');
         }
       } else if (quizPrefetchError) {
         playBtn.disabled = true;
-        status.textContent = '';
         if (errEl) {
           errEl.textContent = quizPrefetchError;
           errEl.classList.remove('hidden');
         }
       } else {
         playBtn.disabled = true;
-        status.textContent = 'Loading quiz…';
+        if (errEl) {
+          errEl.textContent = '';
+          errEl.classList.add('hidden');
+        }
       }
       if (archiveBtn) {
         archiveBtn.disabled = archiveCatalog.length === 0;
@@ -1581,10 +1606,10 @@
       const screen = document.getElementById('titleScreen');
       initLogoPieces();
       if (screen) {
-        screen.classList.remove('hidden');
+        screen.classList.remove('hidden', 'inv-menu-ready');
         screen.setAttribute('aria-hidden', 'false');
         requestAnimationFrame(() => screen.classList.add('inv-animate'));
-        setTimeout(() => screen.classList.add('inv-menu-ready'), 50);
+        setTimeout(finishTitleIntro, TITLE_INTRO_MS);
       }
       document.body.classList.add('inv-title-active');
       document.getElementById('btnTitlePlay')?.addEventListener('click', onTitlePlay);
