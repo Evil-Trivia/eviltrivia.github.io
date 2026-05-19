@@ -70,8 +70,12 @@
     .msg-error { color: #a44; }
     .hidden { display: none !important; }
     #playCard,
-    #boardArea {
+    #boardArea,
+    #puzzleMount {
       overflow: visible;
+    }
+    #puzzleMount {
+      padding: 6px 2px 8px;
     }
 
     /* Title row: center title on page; equal side columns balance asymmetric buttons */
@@ -230,17 +234,19 @@
       justify-content: center;
       gap: 3px;
       flex-wrap: nowrap;
-      margin-bottom: 1px;
+      margin-bottom: 0;
       overflow: visible;
     }
     .mg-phrase-block {
       overflow: visible;
       position: relative;
-      margin-bottom: 2px;
+      margin-bottom: 10px;
+      padding: 5px 0;
     }
     .mg-main-row-wrap {
       position: relative;
       isolation: isolate;
+      padding: 5px 2px;
     }
     .mg-phrase-sq-svg {
       position: absolute;
@@ -1750,28 +1756,6 @@
         };
       }
 
-      function vennOverlapBounds(sideBounds, centerBounds, fromLeft) {
-        if (!sideBounds || !centerBounds) return sideBounds;
-        const overlapW = centerBounds.w * 0.58;
-        const top = Math.min(sideBounds.y, centerBounds.y);
-        const bottom = Math.max(sideBounds.y + sideBounds.h, centerBounds.y + centerBounds.h);
-        if (fromLeft) {
-          return {
-            x: sideBounds.x,
-            y: top,
-            w: (centerBounds.x - sideBounds.x) + overlapW,
-            h: bottom - top
-          };
-        }
-        const startX = centerBounds.x + centerBounds.w - overlapW;
-        return {
-          x: startX,
-          y: top,
-          w: (sideBounds.x + sideBounds.w) - startX,
-          h: bottom - top
-        };
-      }
-
       const sw = Math.max(stage.offsetWidth, 1);
       const sh = Math.max(stage.offsetHeight, 1);
       const viewBox = `0 0 ${sw} ${sh}`;
@@ -1779,10 +1763,44 @@
 
       const leftB = boundsForEl(left);
       const rightB = boundsForEl(right);
-      const venn = boundsForEl(center);
-      const invenn = vennOverlapBounds(leftB, venn, true);
-      const venntion = vennOverlapBounds(rightB, venn, false);
-      if (!invenn || !venntion || !venn) return false;
+      const answerStrip = center.querySelector('.mg-answer-strip');
+      const answerB = boundsForEl(answerStrip);
+      if (!leftB || !rightB || !answerB) return false;
+
+      const strokePad = 5;
+      const unionY = (a, b) => {
+        const top = Math.min(a.y, b.y) - strokePad;
+        const bottom = Math.max(a.y + a.h, b.y + b.h) + strokePad;
+        return { top, h: bottom - top };
+      };
+
+      // Wrap the answer strip; extend green/blue past each other for a Venn overlap.
+      const overlapAcrossAnswer = answerB.w * 0.42;
+      const greenRight = answerB.x + answerB.w + overlapAcrossAnswer * 0.55;
+      const blueLeft = answerB.x - overlapAcrossAnswer * 0.55;
+
+      const invennY = unionY(leftB, answerB);
+      const invenn = {
+        x: leftB.x,
+        y: invennY.top,
+        w: greenRight - leftB.x,
+        h: invennY.h
+      };
+
+      const venntionY = unionY(rightB, answerB);
+      const venntion = {
+        x: blueLeft,
+        y: venntionY.top,
+        w: (rightB.x + rightB.w) - blueLeft,
+        h: venntionY.h
+      };
+
+      const venn = {
+        x: answerB.x - strokePad,
+        y: answerB.y - strokePad,
+        w: answerB.w + strokePad * 2,
+        h: answerB.h + strokePad * 2
+      };
 
       pathA.setAttribute('d', roundedRectPath(invenn.x, invenn.y, invenn.w, invenn.h, corner));
       pathB.setAttribute('d', roundedRectPath(venntion.x, venntion.y, venntion.w, venntion.h, corner));
