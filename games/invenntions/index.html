@@ -1299,6 +1299,8 @@
       if (!p || puzzleSolved[i]) {
         leftEl.classList.add('mg-words--no-hint-action');
         rightEl.classList.add('mg-words--no-hint-action');
+        syncClueSoloLayout(leftEl);
+        syncClueSoloLayout(rightEl);
         return;
       }
       const leftCan = p.leftHints.length > 0 && revealedLeftArr[i] < p.leftHints.length;
@@ -1874,23 +1876,6 @@
       const sqStroke = 2.5;
       const hs = sqStroke / 2;
 
-      function stageBox(el) {
-        const b = el.getBoundingClientRect();
-        if (!b.width && !b.height) return null;
-        return {
-          left: b.left - stageRect.left,
-          right: b.right - stageRect.left,
-          top: b.top - stageRect.top,
-          bottom: b.bottom - stageRect.top,
-          width: b.width,
-          height: b.height
-        };
-      }
-
-      function pathCorner(w, h) {
-        return Math.max(4, Math.min(10, w / 4, h / 4));
-      }
-
       const sw = Math.max(stage.offsetWidth, 1);
       const sh = Math.max(stage.offsetHeight, 1);
       svg.setAttribute('viewBox', `0 0 ${sw} ${sh}`);
@@ -1898,48 +1883,29 @@
       const answerStrip = center.querySelector('.mg-answer-strip');
       const leftWords = left.querySelector('.mg-words');
       const rightWords = right.querySelector('.mg-words');
-      const answer = stageBox(answerStrip);
-      const lw = stageBox(leftWords);
-      const rw = stageBox(rightWords);
-      if (!answer || !lw || !rw) return false;
+      if (!answerStrip || !leftWords || !rightWords) return false;
 
-      // Answer border box in path coords (stroke centered on outline).
-      const answerPath = {
-        left: answer.left + hs,
-        top: answer.top + hs,
-        right: answer.right - hs,
-        bottom: answer.bottom - hs,
-        width: answer.width - sqStroke,
-        height: answer.height - sqStroke
-      };
+      function pathRectForEl(el) {
+        const b = el.getBoundingClientRect();
+        if (!b.width && !b.height) return null;
+        const style = getComputedStyle(el);
+        const br = parseFloat(style.borderTopLeftRadius) || 4;
+        const x = b.left - stageRect.left + hs;
+        const y = b.top - stageRect.top + hs;
+        const w = b.width - sqStroke;
+        const h = b.height - sqStroke;
+        if (w <= 0 || h <= 0) return null;
+        return { x, y, w, h, corner: Math.min(br, w / 2, h / 2) };
+      }
 
-      const venn = {
-        x: answerPath.left,
-        y: answerPath.top,
-        w: answerPath.width,
-        h: answerPath.height
-      };
+      const invenn = pathRectForEl(leftWords);
+      const venntion = pathRectForEl(rightWords);
+      const venn = pathRectForEl(answerStrip);
+      if (!invenn || !venntion || !venn) return false;
 
-      // Green → answer right edge; blue → answer left edge (shared with red outline).
-      const invenn = {
-        x: lw.left + hs,
-        y: Math.min(lw.top, answer.top) + hs,
-        w: answerPath.right - (lw.left + hs),
-        h: Math.max(lw.bottom, answer.bottom) - Math.min(lw.top, answer.top) - sqStroke
-      };
-
-      const venntion = {
-        x: answerPath.left,
-        y: Math.min(rw.top, answer.top) + hs,
-        w: (rw.right - hs) - answerPath.left,
-        h: Math.max(rw.bottom, answer.bottom) - Math.min(rw.top, answer.top) - sqStroke
-      };
-
-      if (invenn.w <= 0 || invenn.h <= 0 || venntion.w <= 0 || venntion.h <= 0) return false;
-
-      pathA.setAttribute('d', roundedRectPath(invenn.x, invenn.y, invenn.w, invenn.h, pathCorner(invenn.w, invenn.h)));
-      pathB.setAttribute('d', roundedRectPath(venntion.x, venntion.y, venntion.w, venntion.h, pathCorner(venntion.w, venntion.h)));
-      pathC.setAttribute('d', roundedRectPath(venn.x, venn.y, venn.w, venn.h, pathCorner(venn.w, venn.h)));
+      pathA.setAttribute('d', roundedRectPath(invenn.x, invenn.y, invenn.w, invenn.h, invenn.corner));
+      pathB.setAttribute('d', roundedRectPath(venntion.x, venntion.y, venntion.w, venntion.h, venntion.corner));
+      pathC.setAttribute('d', roundedRectPath(venn.x, venn.y, venn.w, venn.h, venn.corner));
       pathA.style.setProperty('--path-len', String(pathA.getTotalLength()));
       pathB.style.setProperty('--path-len', String(pathB.getTotalLength()));
       pathC.style.setProperty('--path-len', String(pathC.getTotalLength()));
@@ -2831,8 +2797,11 @@
         clearHintTimer(`L-${i}`);
         clearHintTimer(`R-${i}`);
         revealedLeftArr[i] = p.leftHints.length;
+        revealedRightArr[i] = p.rightHints.length;
         renderBoard();
         playPhraseSolveSquircle(i, () => {
+          renderPuzzleHintRow(i, p);
+          requestAnimationFrame(() => refreshClueHintTextFit());
           if (checkAllComplete()) return;
           focusNextSlot();
           updateFocusHighlight();
