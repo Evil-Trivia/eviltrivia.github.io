@@ -398,6 +398,28 @@
     .mg-words.mg-words--solo-clue .mg-hint-area:empty {
       display: none;
     }
+    .mg-words.mg-words--with-hint {
+      justify-content: flex-start;
+    }
+    .mg-words.mg-words--with-hint .mg-words-text {
+      font-size: clamp(0.72rem, 2.8vw, 0.9rem);
+      line-height: 1.18;
+      white-space: normal;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      text-overflow: ellipsis;
+      flex: 0 0 auto;
+      max-height: 2.35em;
+    }
+    .mg-words.mg-words--with-hint .mg-hint-area {
+      flex: 0 0 auto;
+      min-height: 1.15em;
+      margin-top: 2px;
+    }
     .mg-hint-lines {
       display: block;
       font-size: 0.65rem;
@@ -1373,7 +1395,15 @@
       linesWrap.className = 'mg-hint-lines';
       linesWrap.textContent = parts.join(' · ');
       zoneEl.appendChild(linesWrap);
-      requestAnimationFrame(() => requestAnimationFrame(() => fitSingleLineText(linesWrap)));
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const words = zoneEl.closest('.mg-words');
+        if (words) {
+          syncClueSoloLayout(words);
+          const clueText = words.querySelector('.mg-words-text');
+          if (clueText) fitClueWordsText(clueText);
+        }
+        fitSingleLineText(linesWrap);
+      }));
     }
 
     const MG_FIT_MIN_PX = 7.5;
@@ -1411,35 +1441,60 @@
 
     function syncClueSoloLayout(wordsEl) {
       if (!wordsEl) return;
-      wordsEl.classList.toggle('mg-words--solo-clue', !clueBoxHasHintContent(wordsEl));
+      const hasHint = clueBoxHasHintContent(wordsEl);
+      wordsEl.classList.toggle('mg-words--solo-clue', !hasHint);
+      wordsEl.classList.toggle('mg-words--with-hint', hasHint);
+    }
+
+    function clueTextOverflows(el) {
+      return el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 1;
     }
 
     function fitClueWordsText(el) {
       if (!el || !el.classList.contains('mg-words-text')) return;
       const words = el.closest('.mg-words');
+      if (!words) return;
+      const hasHint = clueBoxHasHintContent(words);
       syncClueSoloLayout(words);
-      if (!words || clueBoxHasHintContent(words)) {
-        fitSingleLineText(el);
-        return;
+
+      const hintArea = words.querySelector('.mg-hint-area');
+      const tapMsg = words.querySelector('.mg-hint-tap-msg');
+      let reservedBelow = 0;
+      if (hasHint && hintArea) reservedBelow += hintArea.offsetHeight;
+      if (tapMsg && tapMsg.offsetHeight > 0 && tapMsg.style.display !== 'none' && tapMsg.textContent.trim()) {
+        reservedBelow += tapMsg.offsetHeight + 4;
       }
+
+      const boxStyle = getComputedStyle(words);
+      const padY = parseFloat(boxStyle.paddingTop) + parseFloat(boxStyle.paddingBottom);
+      const innerH = Math.max(0, words.clientHeight - padY - reservedBelow);
+      const lineH = hasHint ? 1.18 : 1.22;
+      const maxLines = 2;
+      const maxClueH = hasHint
+        ? Math.min(innerH * 0.52, parseFloat(getComputedStyle(el).lineHeight || '0') * maxLines || innerH * 0.52)
+        : Math.min(innerH, 2.7 * parseFloat(getComputedStyle(el).fontSize || '14'));
+
       el.style.fontSize = '';
       el.style.whiteSpace = 'normal';
       el.style.display = '-webkit-box';
-      el.style.webkitLineClamp = '2';
+      el.style.webkitLineClamp = String(maxLines);
       el.style.webkitBoxOrient = 'vertical';
       el.style.overflow = 'hidden';
       el.style.width = '100%';
       el.style.maxWidth = '100%';
+      el.style.maxHeight = hasHint
+        ? Math.max(22, maxClueH) + 'px'
+        : Math.min(2.7 * parseFloat(getComputedStyle(el).fontSize || '14'), innerH) + 'px';
+
       let px = parseFloat(getComputedStyle(el).fontSize);
-      if (!Number.isFinite(px) || px <= 0) px = 14;
+      if (!Number.isFinite(px) || px <= 0) px = hasHint ? 12 : 14;
       let guard = 0;
-      while (
-        (el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 1)
-        && px > MG_FIT_MIN_PX
-        && guard < 70
-      ) {
+      while (clueTextOverflows(el) && px > MG_FIT_MIN_PX && guard < 80) {
         px -= 0.5;
         el.style.fontSize = px + 'px';
+        el.style.maxHeight = hasHint
+          ? Math.max(20, px * lineH * maxLines) + 'px'
+          : Math.min(px * lineH * maxLines, innerH) + 'px';
         guard++;
       }
     }
