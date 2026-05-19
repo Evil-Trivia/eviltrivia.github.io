@@ -567,10 +567,19 @@
       return 'Round ' + id.slice(0, 6);
     }
 
+    function todayISO() {
+      return new Date().toISOString().split('T')[0];
+    }
+
     function roundMeta(r) {
       const n = r && r.puzzles ? (Array.isArray(r.puzzles) ? r.puzzles.length : Object.keys(r.puzzles).length) : 0;
       const sub = r && r.subtitle ? String(r.subtitle).trim() : '';
-      return (n ? n + ' phrase' + (n === 1 ? '' : 's') : 'No phrases') + (sub ? ' · ' + sub : '');
+      const d = r && r.playDate ? String(r.playDate).trim() : '';
+      const parts = [];
+      if (d) parts.push(d);
+      parts.push(n ? n + ' phrase' + (n === 1 ? '' : 's') : 'No phrases');
+      if (sub) parts.push(sub);
+      return parts.join(' · ');
     }
 
     function renderArchiveBoard() {
@@ -683,6 +692,7 @@
           const ref = window.dbPush(window.dbRef(window.db, ARCHIVE_PATH));
           const rid = ref.key;
           const body = roundModelToArchiveBody(rm);
+          if (!body.playDate) body.playDate = todayISO();
           body.hidden = gameId !== activeId;
           newArchive[rid] = body;
           if (gameId === activeId) newLive.push(rid);
@@ -719,16 +729,22 @@
     }
 
     function archiveEntryToEditorModel(r) {
-      if (!r) return { label: '', subtitle: '', puzzles: [defaultPuzzle()], commonality: null };
+      if (!r) return { label: '', subtitle: '', playDate: todayISO(), puzzles: [defaultPuzzle()], commonality: null };
+      let playDate = r.playDate != null ? String(r.playDate).trim() : '';
+      if (!playDate && r.updatedAt) {
+        playDate = new Date(r.updatedAt).toISOString().split('T')[0];
+      }
+      if (!playDate) playDate = todayISO();
       return {
         label: r.label != null ? String(r.label) : (r.roundTitle != null ? String(r.roundTitle) : ''),
         subtitle: r.subtitle != null ? String(r.subtitle) : '',
+        playDate,
         puzzles: coercePuzzlesFromBlock(r.puzzles),
         commonality: r.commonality && typeof r.commonality === 'object' ? r.commonality : null
       };
     }
 
-    function roundModelToArchiveBody(rm) {
+    function roundModelToArchiveBody(rm, existing) {
       const puzzles = (rm.puzzles || []).map(row => {
         const leftHints = String(row.leftHints || '').split('\n').map(s => s.trim()).filter(Boolean);
         const rightHints = String(row.rightHints || '').split('\n').map(s => s.trim()).filter(Boolean);
@@ -743,8 +759,9 @@
       const out = {
         label: rm.label || '',
         subtitle: rm.subtitle || '',
+        playDate: rm.playDate || (existing && existing.playDate) || todayISO(),
         puzzles,
-        hidden: false,
+        hidden: existing ? !!existing.hidden : false,
         updatedAt: Date.now()
       };
       if (rm.commonality) out.commonality = rm.commonality;
@@ -839,6 +856,10 @@
             <input type="text" class="in-round-label" style="width:100%;max-width:520px" placeholder="e.g. Warm-up" />
           </div>
           <div class="field" style="margin-bottom:10px">
+            <label>Play date (archive — groups rounds by date)</label>
+            <input type="date" class="in-round-date" style="max-width:220px" />
+          </div>
+          <div class="field" style="margin-bottom:10px">
             <label>Tagline (play page subtitle)</label>
             <input type="text" class="in-round-subtitle" style="width:100%;max-width:520px" placeholder="e.g. Fill in the middle word" />
           </div>
@@ -866,6 +887,7 @@
         </div>`;
       const wrap = mount.querySelector('#editingRoundWrap');
       wrap.querySelector('.in-round-label').value = rm.label || '';
+      wrap.querySelector('.in-round-date').value = rm.playDate || todayISO();
       wrap.querySelector('.in-round-subtitle').value = rm.subtitle || '';
       const pm = wrap.querySelector('.phrases-mount');
       renderPuzzleEditorsInto(pm, rm.puzzles || [defaultPuzzle()]);
@@ -912,6 +934,7 @@
       }
       return {
         label: wrap.querySelector('.in-round-label').value.trim(),
+        playDate: wrap.querySelector('.in-round-date').value || todayISO(),
         subtitle: wrap.querySelector('.in-round-subtitle').value.trim(),
         puzzles: puzzRows,
         commonality
@@ -942,6 +965,7 @@
         const body = roundModelToArchiveBody({
           label: 'New round',
           subtitle: '',
+          playDate: todayISO(),
           puzzles: [defaultPuzzle()],
           commonality: null
         });
@@ -959,7 +983,7 @@
       if (!editingRoundId) return;
       const raw = editingRoundToModel();
       if (!raw) return;
-      const body = roundModelToArchiveBody(raw);
+      const body = roundModelToArchiveBody(raw, archive[editingRoundId]);
       if (!body.puzzles.length) {
         flash(document.getElementById('archiveMsg'), 'Need at least one full phrase (left, right, middle answer).', true);
         return;

@@ -692,6 +692,77 @@
       text-align: center;
       max-width: 320px;
     }
+    .inv-title-status:empty { display: none; }
+    .inv-archive-inner { max-width: 440px; }
+    .inv-archive-heading {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: 1.15rem;
+      color: #2c3e50;
+      text-align: center;
+      margin: 0;
+    }
+    .inv-archive-list {
+      width: 100%;
+      max-height: min(52vh, 420px);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .inv-archive-date-group { width: 100%; }
+    .inv-archive-date-label {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: 0.78rem;
+      color: #5a5040;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin: 0 0 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .inv-archive-date-label button {
+      font-family: Arial, sans-serif;
+      font-size: 0.7rem;
+      font-weight: normal;
+      text-transform: none;
+      letter-spacing: 0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #bbb;
+      background: #fff;
+      cursor: pointer;
+    }
+    .inv-archive-round-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      border: 1px solid #d0d0c8;
+      border-radius: 8px;
+      background: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 0.9rem;
+      color: #333;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .inv-archive-round-btn:active { background: #f0f4f8; }
+    .inv-archive-round-btn .sub {
+      display: block;
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: 2px;
+    }
+    .inv-archive-empty {
+      text-align: center;
+      color: #666;
+      font-size: 0.88rem;
+      padding: 12px 0;
+    }
   </style>
 </head>
 <body class="inv-title-active">
@@ -714,11 +785,21 @@
       <p class="inv-title-tagline">Evil Trivia word game</p>
       <div class="inv-title-menu" id="titleMenu">
         <button type="button" class="inv-menu-btn" id="btnTitlePlay" disabled>Play</button>
-        <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleArchive" disabled title="Coming soon">Archive</button>
+        <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleArchive">Archive</button>
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleInfo">Info</button>
       </div>
       <p class="inv-title-status" id="titleStatus">Loading quiz…</p>
       <p class="inv-title-error hidden" id="titleError"></p>
+    </div>
+  </div>
+
+  <div id="archiveScreen" class="inv-title-screen hidden" aria-hidden="true">
+    <div class="inv-title-inner inv-archive-inner">
+      <h2 class="inv-archive-heading">Archive</h2>
+      <p class="inv-title-tagline" style="opacity:1;transform:none;animation:none">Choose a past round by date</p>
+      <div id="archiveListMount" class="inv-archive-list"></div>
+      <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnArchiveBack">Back</button>
+      <p class="inv-title-error hidden" id="archivePickError"></p>
     </div>
   </div>
 
@@ -729,6 +810,7 @@
     <div id="quizCard" class="hidden">
       <div class="mg-title-row" id="mgTitleRow">
         <div class="mg-title-side mg-title-side-left">
+          <button type="button" class="mg-icon-btn" id="btnBackMenu" aria-label="Back to menu" title="Menu">←</button>
           <button type="button" class="mg-icon-btn" id="btnHelp" aria-label="How to play">?</button>
           <button type="button" class="mg-icon-btn mg-trophy hidden" id="btnScoreModal" aria-label="Your score" title="Your score">🏆</button>
         </div>
@@ -843,6 +925,8 @@
     let infoHtml = '';
     let quizPrefetchOk = false;
     let quizPrefetchError = '';
+    /** @type {{ id: string, label: string, playDate: string, phraseCount: number, isLive: boolean }[]} */
+    let archiveCatalog = [];
     let activeGameId = null;
     let activeGameTitle = '';
     /** Normalized rounds from Firebase (each has roundTitle, subtitle, puzzles, commonality). */
@@ -1224,6 +1308,17 @@
       updateHeaderTitles();
     }
 
+    function todayISO() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    function formatPlayDate(iso) {
+      if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 'Unknown date';
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
     function hideTitleScreen() {
       const screen = document.getElementById('titleScreen');
       if (screen) {
@@ -1231,6 +1326,41 @@
         screen.setAttribute('aria-hidden', 'true');
       }
       document.body.classList.remove('inv-title-active');
+    }
+
+    function showTitleScreen() {
+      const archiveScreen = document.getElementById('archiveScreen');
+      if (archiveScreen) {
+        archiveScreen.classList.add('hidden');
+        archiveScreen.setAttribute('aria-hidden', 'true');
+      }
+      const screen = document.getElementById('titleScreen');
+      if (screen) {
+        screen.classList.remove('hidden');
+        screen.setAttribute('aria-hidden', 'false');
+      }
+      document.body.classList.add('inv-title-active');
+      quizCard.classList.add('hidden');
+      errorState.classList.add('hidden');
+    }
+
+    function showArchiveScreen() {
+      hideTitleScreen();
+      const archiveScreen = document.getElementById('archiveScreen');
+      if (archiveScreen) {
+        archiveScreen.classList.remove('hidden');
+        archiveScreen.setAttribute('aria-hidden', 'false');
+      }
+      document.body.classList.add('inv-title-active');
+      renderArchiveList();
+    }
+
+    function hideArchiveScreen() {
+      const archiveScreen = document.getElementById('archiveScreen');
+      if (archiveScreen) {
+        archiveScreen.classList.add('hidden');
+        archiveScreen.setAttribute('aria-hidden', 'true');
+      }
     }
 
     function initLogoPieces() {
@@ -1250,12 +1380,13 @@
 
     function updateTitleMenuState() {
       const playBtn = document.getElementById('btnTitlePlay');
+      const archiveBtn = document.getElementById('btnTitleArchive');
       const status = document.getElementById('titleStatus');
       const errEl = document.getElementById('titleError');
       if (!playBtn || !status) return;
       if (quizPrefetchOk) {
         playBtn.disabled = false;
-        status.textContent = 'Ready to play';
+        status.textContent = '';
         if (errEl) {
           errEl.textContent = '';
           errEl.classList.add('hidden');
@@ -1271,6 +1402,124 @@
         playBtn.disabled = true;
         status.textContent = 'Loading quiz…';
       }
+      if (archiveBtn) {
+        const pastCount = archiveCatalog.filter(e => !e.isLive).length;
+        archiveBtn.disabled = pastCount === 0;
+      }
+    }
+
+    async function loadArchiveCatalog() {
+      archiveCatalog = [];
+      const liveSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/live`));
+      const liveSet = new Set();
+      if (snapExists(liveSnap) && liveSnap.val() && Array.isArray(liveSnap.val().roundIds)) {
+        liveSnap.val().roundIds.forEach(id => liveSet.add(String(id)));
+      }
+      const archSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive`));
+      if (!snapExists(archSnap) || !archSnap.val()) return;
+      const raw = archSnap.val();
+      Object.keys(raw).forEach(id => {
+        const r = raw[id];
+        if (!r || r.hidden) return;
+        const puzz = r.puzzles;
+        const phraseCount = puzz
+          ? (Array.isArray(puzz) ? puzz.length : Object.keys(puzz).length)
+          : 0;
+        if (!phraseCount) return;
+        let playDate = r.playDate != null ? String(r.playDate).trim() : '';
+        if (!playDate && r.updatedAt) {
+          playDate = new Date(r.updatedAt).toISOString().split('T')[0];
+        }
+        if (!playDate) playDate = todayISO();
+        const label = r.label != null && String(r.label).trim()
+          ? String(r.label).trim()
+          : (r.roundTitle != null ? String(r.roundTitle).trim() : 'Round');
+        archiveCatalog.push({
+          id,
+          label: label || 'Round',
+          playDate,
+          phraseCount,
+          isLive: liveSet.has(id)
+        });
+      });
+      archiveCatalog.sort((a, b) => {
+        if (a.playDate !== b.playDate) return b.playDate.localeCompare(a.playDate);
+        return a.label.localeCompare(b.label);
+      });
+    }
+
+    function renderArchiveList() {
+      const mount = document.getElementById('archiveListMount');
+      const errEl = document.getElementById('archivePickError');
+      if (!mount) return;
+      if (errEl) {
+        errEl.textContent = '';
+        errEl.classList.add('hidden');
+      }
+      const past = archiveCatalog.filter(e => !e.isLive);
+      if (!past.length) {
+        mount.innerHTML = '<p class="inv-archive-empty">No archived rounds yet. Play the live game, then come back after older rounds are saved with dates in admin.</p>';
+        return;
+      }
+      const byDate = new Map();
+      past.forEach(entry => {
+        if (!byDate.has(entry.playDate)) byDate.set(entry.playDate, []);
+        byDate.get(entry.playDate).push(entry);
+      });
+      const dates = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a));
+      mount.innerHTML = '';
+      dates.forEach(dateStr => {
+        const entries = byDate.get(dateStr);
+        const group = document.createElement('div');
+        group.className = 'inv-archive-date-group';
+        const header = document.createElement('div');
+        header.className = 'inv-archive-date-label';
+        const playAllBtn = entries.length > 1
+          ? `<button type="button" data-act="play-date" data-date="${escAttr(dateStr)}">Play all (${entries.length})</button>`
+          : '';
+        header.innerHTML = `<span>${esc(formatPlayDate(dateStr))}</span>${playAllBtn}`;
+        group.appendChild(header);
+        if (playAllBtn) {
+          header.querySelector('[data-act="play-date"]')?.addEventListener('click', () => {
+            playArchiveDate(dateStr);
+          });
+        }
+        entries.forEach(entry => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'inv-archive-round-btn';
+          btn.innerHTML = `${esc(entry.label)}<span class="sub">${entry.phraseCount} phrase${entry.phraseCount === 1 ? '' : 's'}</span>`;
+          btn.addEventListener('click', () => playArchiveRoundIds([entry.id]));
+          group.appendChild(btn);
+        });
+        mount.appendChild(group);
+      });
+    }
+
+    async function playArchiveRoundIds(ids) {
+      const errEl = document.getElementById('archivePickError');
+      try {
+        if (errEl) {
+          errEl.textContent = '';
+          errEl.classList.add('hidden');
+        }
+        await fetchQuizDataForRoundIds(ids);
+        hideArchiveScreen();
+        document.body.classList.remove('inv-title-active');
+        startQuizUi();
+      } catch (e) {
+        const msg = (e && e.message) ? e.message : 'Could not load that round.';
+        if (errEl) {
+          errEl.textContent = msg;
+          errEl.classList.remove('hidden');
+        }
+      }
+    }
+
+    function playArchiveDate(dateStr) {
+      const ids = archiveCatalog.filter(e => !e.isLive && e.playDate === dateStr).map(e => e.id);
+      if (!ids.length) return;
+      playArchiveRoundIds(ids);
     }
 
     async function prefetchQuiz() {
@@ -1278,6 +1527,7 @@
       quizPrefetchError = '';
       updateTitleMenuState();
       try {
+        await loadArchiveCatalog();
         await fetchQuizData();
         quizPrefetchOk = true;
       } catch (e) {
@@ -1307,10 +1557,25 @@
       document.getElementById('btnTitlePlay')?.addEventListener('click', onTitlePlay);
       document.getElementById('btnTitleInfo')?.addEventListener('click', openInfoModal);
       document.getElementById('btnTitleArchive')?.addEventListener('click', () => {
-        const status = document.getElementById('titleStatus');
-        if (status) status.textContent = 'Archive — coming soon';
+        if (archiveCatalog.filter(e => !e.isLive).length === 0) return;
+        showArchiveScreen();
+      });
+      document.getElementById('btnArchiveBack')?.addEventListener('click', () => {
+        hideArchiveScreen();
+        showTitleScreen();
       });
       prefetchQuiz();
+    }
+
+    function returnToMenu() {
+      closeAllModals();
+      phase = 'play';
+      roundIndex = 0;
+      quizCard.classList.add('hidden');
+      keyboardWrap.classList.add('hidden-kb');
+      const btnScore = document.getElementById('btnScoreModal');
+      if (btnScore) btnScore.classList.add('hidden');
+      showTitleScreen();
     }
 
     function closeAllModals() {
@@ -1373,6 +1638,7 @@
         document.getElementById('scoreModal').classList.add('hidden');
       });
 
+      document.getElementById('btnBackMenu')?.addEventListener('click', returnToMenu);
       document.getElementById('btnHelp')?.addEventListener('click', openHelpModal);
       document.getElementById('linkAbout')?.addEventListener('click', e => {
         e.preventDefault();
@@ -1405,6 +1671,14 @@
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+    }
+
+    function escAttr(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;');
     }
 
     let boardDelegationBound = false;
@@ -1946,6 +2220,15 @@
     }
 
     function onPhysicalKeydown(e) {
+      const archiveScreenEl = document.getElementById('archiveScreen');
+      if (archiveScreenEl && !archiveScreenEl.classList.contains('hidden')) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          hideArchiveScreen();
+          showTitleScreen();
+        }
+        return;
+      }
       const titleScreen = document.getElementById('titleScreen');
       if (titleScreen && !titleScreen.classList.contains('hidden')) {
         if (e.key === 'Escape') {
@@ -2097,6 +2380,30 @@
 
       gameRounds = normalizeGameRounds(data);
       return gameRounds.length > 0;
+    }
+
+    async function fetchQuizDataForRoundIds(roundIds) {
+      resetPlaySession();
+
+      if (!boardArea || !puzzleMount || !keyboardWrap || !keyboardRoot) {
+        throw new Error('Quiz page layout is incomplete. Try a hard refresh (Shift+Reload).');
+      }
+
+      await loadSiteSettings();
+      gameRounds = [];
+
+      for (let i = 0; i < roundIds.length; i++) {
+        const rid = String(roundIds[i]);
+        const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
+        if (!snapExists(snap)) continue;
+        const row = archiveBlockToPlayRound(snap.val());
+        if (row) gameRounds.push(row);
+      }
+
+      if (!gameRounds.length) {
+        throw new Error('That round could not be loaded.');
+      }
+      activeGameId = 'archive';
     }
 
     async function fetchQuizData() {
