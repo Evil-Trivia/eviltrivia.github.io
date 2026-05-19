@@ -243,7 +243,50 @@
     }
     .mg-side-left { flex-direction: row; }
     .mg-side-right { flex-direction: row; }
-    .mg-side .hint-btn { align-self: center; flex-shrink: 0; }
+    .mg-words[data-clue-side] {
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .mg-words.mg-words--no-hint-action {
+      cursor: default;
+    }
+    .mg-phrase-block--widen-left .mg-side-left { flex: 2.4 1 0; }
+    .mg-phrase-block--widen-left .mg-side-right { flex: 0.72 1 0; }
+    .mg-phrase-block--widen-left .mg-center {
+      flex: 0 1 15%;
+      min-width: 44px;
+      max-width: 76px;
+    }
+    .mg-phrase-block--widen-right .mg-side-right { flex: 2.4 1 0; }
+    .mg-phrase-block--widen-right .mg-side-left { flex: 0.72 1 0; }
+    .mg-phrase-block--widen-right .mg-center {
+      flex: 0 1 15%;
+      min-width: 44px;
+      max-width: 76px;
+    }
+    .mg-phrase-block--widen-both .mg-side-left,
+    .mg-phrase-block--widen-both .mg-side-right { flex: 1.5 1 0; }
+    .mg-phrase-block--widen-both .mg-center {
+      flex: 0 1 14%;
+      min-width: 44px;
+      max-width: 72px;
+    }
+    .mg-words.mg-words-hint-pending {
+      box-shadow: inset 0 0 0 1px rgba(74, 144, 194, 0.4);
+    }
+    .mg-hint-tap-msg {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      font-weight: 700;
+      color: #3a7aad;
+      margin-top: 4px;
+      text-align: center;
+      line-height: 1.15;
+      white-space: nowrap;
+      overflow: hidden;
+    }
     .mg-words {
       font-size: clamp(0.7rem, 2.6vw, 0.88rem);
       font-weight: bold;
@@ -313,13 +356,13 @@
       color: #2c3e50;
       white-space: nowrap;
       overflow: hidden;
-      text-overflow: ellipsis;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       transition: box-shadow 0.15s, background 0.15s;
       box-sizing: border-box;
+      text-overflow: clip;
     }
     .mg-answer-strip.focused {
       box-shadow: 0 0 0 3px #ffcc00;
@@ -353,44 +396,6 @@
       text-overflow: clip;
     }
 
-    .hint-btn {
-      border: 1px solid #ccc;
-      background: #fffbeb;
-      border-radius: 4px;
-      width: 1.12rem;
-      height: 1.12rem;
-      min-width: 1.12rem;
-      min-height: 1.12rem;
-      padding: 0;
-      font-size: 0.62rem;
-      cursor: pointer;
-      touch-action: manipulation;
-      line-height: 1;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-    .hint-btn.hint-pending {
-      font-family: Arial, Helvetica, sans-serif;
-      font-weight: 700;
-      line-height: 1;
-      white-space: nowrap;
-      text-align: center;
-      hyphens: none;
-      overflow: visible;
-      width: auto;
-      min-width: 1.05rem;
-      max-width: none;
-      padding: 2px 6px;
-      flex-shrink: 0;
-      position: relative;
-      z-index: 3;
-      font-size: clamp(0.52rem, 3.2vw, 0.72rem);
-      letter-spacing: -0.02em;
-    }
-    .hint-btn:hover { background: #fff3c4; }
-    .hint-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .com-prompt .com-hint-inline:not(:empty) {
       margin-top: 6px;
       padding-top: 5px;
@@ -411,6 +416,13 @@
       border-radius: 4px;
       border: 1px solid #e0e0d8;
       line-height: 1.25;
+    }
+    .com-prompt.com-prompt--hints-available {
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .com-prompt.com-prompt-hint-pending {
+      box-shadow: 0 0 0 2px rgba(74, 144, 194, 0.35);
     }
     .finish-panel label.lbl {
       display: block;
@@ -674,7 +686,7 @@
     /** key -> timeout id for auto-revert of confirm UI */
     const hintTimers = new Map();
     const HINT_CONFIRM_MS = 3000;
-    const HINT_REVEAL_LABEL = 'Reveal?';
+    const TAP_AGAIN_MSG = 'Tap again to reveal hint';
 
     function clearHintTimer(key) {
       if (hintTimers.has(key)) {
@@ -688,11 +700,86 @@
       hintTimers.clear();
     }
 
-    function hintButtonForKey(key) {
-      if (key === 'C') return document.getElementById('comHintBtn');
-      if (key.startsWith('L-')) return document.getElementById(`hintLeftBtn-${key.slice(2)}`);
-      if (key.startsWith('R-')) return document.getElementById(`hintRightBtn-${key.slice(2)}`);
-      return null;
+    function syncPhraseHintTapUi(i) {
+      const pb = document.querySelector(`.mg-phrase-block[data-phrase-i="${i}"]`);
+      const leftEl = document.getElementById(`clueWordsL-${i}`);
+      const rightEl = document.getElementById(`clueWordsR-${i}`);
+      if (!pb || !leftEl || !rightEl) return;
+      pb.classList.remove('mg-phrase-block--widen-left', 'mg-phrase-block--widen-right', 'mg-phrase-block--widen-both');
+      for (let w = 0; w < 2; w++) {
+        const el = w === 0 ? leftEl : rightEl;
+        el.classList.remove('mg-words-hint-pending');
+        const m = el.querySelector('.mg-hint-tap-msg');
+        if (m) {
+          m.textContent = '';
+          m.style.display = 'none';
+        }
+      }
+      const p = puzzles[i];
+      if (!p || puzzleSolved[i]) {
+        leftEl.classList.add('mg-words--no-hint-action');
+        rightEl.classList.add('mg-words--no-hint-action');
+        return;
+      }
+      const leftCan = p.leftHints.length > 0 && revealedLeftArr[i] < p.leftHints.length;
+      const rightCan = p.rightHints.length > 0 && revealedRightArr[i] < p.rightHints.length;
+      leftEl.classList.toggle('mg-words--no-hint-action', !leftCan);
+      rightEl.classList.toggle('mg-words--no-hint-action', !rightCan);
+      const pendL = leftCan && hintPending.has(`L-${i}`);
+      const pendR = rightCan && hintPending.has(`R-${i}`);
+      if (pendL && pendR) {
+        pb.classList.add('mg-phrase-block--widen-both');
+        leftEl.classList.add('mg-words-hint-pending');
+        rightEl.classList.add('mg-words-hint-pending');
+        const setMsg = el => {
+          const msg = el.querySelector('.mg-hint-tap-msg');
+          if (msg) {
+            msg.textContent = TAP_AGAIN_MSG;
+            msg.style.display = 'block';
+          }
+        };
+        setMsg(leftEl);
+        setMsg(rightEl);
+      } else if (pendL) {
+        pb.classList.add('mg-phrase-block--widen-left');
+        leftEl.classList.add('mg-words-hint-pending');
+        const msg = leftEl.querySelector('.mg-hint-tap-msg');
+        if (msg) {
+          msg.textContent = TAP_AGAIN_MSG;
+          msg.style.display = 'block';
+        }
+      } else if (pendR) {
+        pb.classList.add('mg-phrase-block--widen-right');
+        rightEl.classList.add('mg-words-hint-pending');
+        const msg = rightEl.querySelector('.mg-hint-tap-msg');
+        if (msg) {
+          msg.textContent = TAP_AGAIN_MSG;
+          msg.style.display = 'block';
+        }
+      }
+    }
+
+    function syncComHintTapUi() {
+      const block = document.getElementById('comPromptBlock');
+      const msg = document.getElementById('comHintTapMsg');
+      if (!block || !msg) return;
+      block.classList.remove('com-prompt-hint-pending', 'com-prompt--hints-available');
+      msg.textContent = '';
+      msg.style.display = 'none';
+      if (!commonality || commonalitySolved) return;
+      const c = commonality;
+      const canHint = c.hints.length > 0 && revealedComHints < c.hints.length;
+      if (canHint) block.classList.add('com-prompt--hints-available');
+      if (hintPending.has('C') && canHint) {
+        block.classList.add('com-prompt-hint-pending');
+        msg.textContent = TAP_AGAIN_MSG;
+        msg.style.display = 'block';
+      }
+    }
+
+    function syncAllHintTapUi() {
+      for (let i = 0; i < puzzles.length; i++) syncPhraseHintTapUi(i);
+      syncComHintTapUi();
     }
 
     function scheduleHintPendingRevert(key) {
@@ -701,11 +788,9 @@
         hintTimers.delete(key);
         if (!hintPending.has(key)) return;
         hintPending.delete(key);
-        const b = hintButtonForKey(key);
-        if (b) {
-          b.classList.remove('hint-pending');
-          b.textContent = '💡';
-        }
+        syncAllHintTapUi();
+        refreshClueHintTextFit();
+        refreshAnswerStripFit();
       }, HINT_CONFIRM_MS));
     }
 
@@ -758,7 +843,34 @@
     }
 
     function refreshClueHintTextFit() {
-      puzzleMount.querySelectorAll('.mg-words-text, .mg-hint-lines').forEach(fitSingleLineText);
+      puzzleMount.querySelectorAll('.mg-words-text, .mg-hint-lines, .mg-hint-tap-msg').forEach(fitSingleLineText);
+    }
+
+    function fitAnswerStripFont(el) {
+      if (!el) return;
+      el.style.fontSize = '';
+      const t = el.textContent;
+      if (!t || t === '\u00A0' || !t.trim()) {
+        el.style.overflow = '';
+        el.style.textOverflow = '';
+        el.style.whiteSpace = '';
+        return;
+      }
+      el.style.whiteSpace = 'nowrap';
+      el.style.overflow = 'hidden';
+      el.style.textOverflow = 'clip';
+      let px = parseFloat(getComputedStyle(el).fontSize);
+      if (!Number.isFinite(px) || px <= 0) px = 14;
+      let guard = 0;
+      while (el.scrollWidth > el.clientWidth + 1 && px > MG_FIT_MIN_PX && guard < 80) {
+        px -= 0.5;
+        el.style.fontSize = px + 'px';
+        guard++;
+      }
+    }
+
+    function refreshAnswerStripFit() {
+      puzzleMount.querySelectorAll('.mg-answer-strip[id]').forEach(fitAnswerStripFont);
     }
 
     let textFitResizeBound = false;
@@ -766,7 +878,10 @@
       if (textFitResizeBound) return;
       textFitResizeBound = true;
       window.addEventListener('resize', () => {
-        requestAnimationFrame(refreshClueHintTextFit);
+        requestAnimationFrame(() => {
+          refreshClueHintTextFit();
+          refreshAnswerStripFit();
+        });
       });
     }
 
@@ -1034,68 +1149,62 @@
         }
         return;
       }
-      const btn = t.closest('button');
-      const id = (btn && btn.id) || '';
-      if (id.startsWith('hintLeftBtn-')) {
-        const i = Number(id.replace('hintLeftBtn-', ''));
+      if (phase === 'finish') return;
+
+      const clueWords = t.closest('.mg-words[data-clue-side]');
+      if (clueWords) {
+        const side = clueWords.getAttribute('data-clue-side');
+        const i = Number(clueWords.getAttribute('data-phrase-i'));
+        if (Number.isNaN(i) || !puzzles[i] || (side !== 'L' && side !== 'R')) return;
         const p = puzzles[i];
-        if (!p || !btn || revealedLeftArr[i] >= p.leftHints.length || p.leftHints.length === 0) return;
-        const key = `L-${i}`;
+        if (puzzleSolved[i]) return;
+        const isLeft = side === 'L';
+        const key = `${side}-${i}`;
+        const hasHints = isLeft ? p.leftHints.length > 0 : p.rightHints.length > 0;
+        const revealed = isLeft ? revealedLeftArr[i] : revealedRightArr[i];
+        const maxH = isLeft ? p.leftHints.length : p.rightHints.length;
+        if (!hasHints || revealed >= maxH) return;
         if (hintPending.has(key)) {
           clearHintTimer(key);
           hintPending.delete(key);
-          btn.classList.remove('hint-pending');
-          btn.textContent = '💡';
-          revealedLeftArr[i]++;
+          if (isLeft) {
+            revealedLeftArr[i]++;
+          } else {
+            revealedRightArr[i]++;
+          }
           hintsButtonTaps++;
           renderPuzzleHintRow(i, p);
         } else {
           hintPending.add(key);
-          btn.classList.add('hint-pending');
-          btn.textContent = HINT_REVEAL_LABEL;
+          syncPhraseHintTapUi(i);
           scheduleHintPendingRevert(key);
         }
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          refreshClueHintTextFit();
+          refreshAnswerStripFit();
+        }));
         return;
       }
-      if (id.startsWith('hintRightBtn-')) {
-        const i = Number(id.replace('hintRightBtn-', ''));
-        const p = puzzles[i];
-        if (!p || !btn || revealedRightArr[i] >= p.rightHints.length || p.rightHints.length === 0) return;
-        const key = `R-${i}`;
-        if (hintPending.has(key)) {
-          clearHintTimer(key);
-          hintPending.delete(key);
-          btn.classList.remove('hint-pending');
-          btn.textContent = '💡';
-          revealedRightArr[i]++;
-          hintsButtonTaps++;
-          renderPuzzleHintRow(i, p);
-        } else {
-          hintPending.add(key);
-          btn.classList.add('hint-pending');
-          btn.textContent = HINT_REVEAL_LABEL;
-          scheduleHintPendingRevert(key);
-        }
-        return;
-      }
-      if (id === 'comHintBtn' && commonality && !commonalitySolved) {
+
+      const comBlock = t.closest('#comPromptBlock');
+      if (comBlock && commonality && !commonalitySolved) {
         const c = commonality;
-        const btn = document.getElementById('comHintBtn');
-        if (!btn || revealedComHints >= c.hints.length || c.hints.length === 0) return;
+        if (c.hints.length === 0 || revealedComHints >= c.hints.length) return;
         if (hintPending.has('C')) {
           clearHintTimer('C');
           hintPending.delete('C');
-          btn.classList.remove('hint-pending');
-          btn.textContent = '💡';
           revealedComHints++;
           hintsButtonTaps++;
           renderComHintZone();
         } else {
           hintPending.add('C');
-          btn.classList.add('hint-pending');
-          btn.textContent = HINT_REVEAL_LABEL;
+          syncComHintTapUi();
           scheduleHintPendingRevert('C');
         }
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          refreshClueHintTextFit();
+          refreshAnswerStripFit();
+        }));
       }
     }
 
@@ -1103,42 +1212,19 @@
       if (!p) return;
       const leftZone = document.getElementById(`hintLeftZone-${i}`);
       const rightZone = document.getElementById(`hintRightZone-${i}`);
-      const leftBtn = document.getElementById(`hintLeftBtn-${i}`);
-      const rightBtn = document.getElementById(`hintRightBtn-${i}`);
       const rl = revealedLeftArr[i];
       const rr = revealedRightArr[i];
+      if (rl >= p.leftHints.length || p.leftHints.length === 0) {
+        hintPending.delete(`L-${i}`);
+        clearHintTimer(`L-${i}`);
+      }
+      if (rr >= p.rightHints.length || p.rightHints.length === 0) {
+        hintPending.delete(`R-${i}`);
+        clearHintTimer(`R-${i}`);
+      }
       fillHintArea(leftZone, rl, p.leftHints);
       fillHintArea(rightZone, rr, p.rightHints);
-      if (leftBtn) {
-        leftBtn.disabled = rl >= p.leftHints.length || p.leftHints.length === 0;
-        if (leftBtn.disabled) {
-          hintPending.delete(`L-${i}`);
-          clearHintTimer(`L-${i}`);
-          leftBtn.classList.remove('hint-pending');
-          leftBtn.textContent = '💡';
-        } else if (hintPending.has(`L-${i}`)) {
-          leftBtn.classList.add('hint-pending');
-          leftBtn.textContent = HINT_REVEAL_LABEL;
-        } else {
-          leftBtn.classList.remove('hint-pending');
-          leftBtn.textContent = '💡';
-        }
-      }
-      if (rightBtn) {
-        rightBtn.disabled = rr >= p.rightHints.length || p.rightHints.length === 0;
-        if (rightBtn.disabled) {
-          hintPending.delete(`R-${i}`);
-          clearHintTimer(`R-${i}`);
-          rightBtn.classList.remove('hint-pending');
-          rightBtn.textContent = '💡';
-        } else if (hintPending.has(`R-${i}`)) {
-          rightBtn.classList.add('hint-pending');
-          rightBtn.textContent = HINT_REVEAL_LABEL;
-        } else {
-          rightBtn.classList.remove('hint-pending');
-          rightBtn.textContent = '💡';
-        }
-      }
+      syncPhraseHintTapUi(i);
       updateHintsStat();
     }
 
@@ -1146,23 +1232,12 @@
       const comZone = document.getElementById('comHintZone');
       if (!comZone || !commonality) return;
       const c = commonality;
-      fillHintArea(comZone, revealedComHints, c.hints);
-      const comBtn = document.getElementById('comHintBtn');
-      if (comBtn) {
-        comBtn.disabled = commonalitySolved || c.hints.length === 0 || revealedComHints >= c.hints.length;
-        if (comBtn.disabled) {
-          hintPending.delete('C');
-          clearHintTimer('C');
-          comBtn.classList.remove('hint-pending');
-          comBtn.textContent = '💡';
-        } else if (hintPending.has('C')) {
-          comBtn.classList.add('hint-pending');
-          comBtn.textContent = HINT_REVEAL_LABEL;
-        } else {
-          comBtn.classList.remove('hint-pending');
-          comBtn.textContent = '💡';
-        }
+      if (commonalitySolved || revealedComHints >= c.hints.length || c.hints.length === 0) {
+        hintPending.delete('C');
+        clearHintTimer('C');
       }
+      fillHintArea(comZone, revealedComHints, c.hints);
+      syncComHintTapUi();
       updateHintsStat();
     }
 
@@ -1188,12 +1263,12 @@
           stripDisplay = empty ? '\u00A0' : esc(t.toUpperCase());
         }
         html += `
-      <div class="mg-phrase-block">
+      <div class="mg-phrase-block" data-phrase-i="${i}">
         <div class="mg-main-row">
           <div class="mg-side mg-side-left">
-            <button type="button" class="hint-btn" id="hintLeftBtn-${i}" title="Hint">💡</button>
-            <div class="mg-words">
+            <div class="mg-words" id="clueWordsL-${i}" data-clue-side="L" data-phrase-i="${i}">
               <div class="mg-words-text">${esc(p.leftWords)}</div>
+              <div class="mg-hint-tap-msg" style="display:none" aria-live="polite"></div>
               <div class="mg-hint-area" id="hintLeftZone-${i}"></div>
             </div>
           </div>
@@ -1201,11 +1276,11 @@
             <div class="${stripClasses}" id="strip-p-${i}">${stripDisplay}</div>
           </div>
           <div class="mg-side mg-side-right">
-            <div class="mg-words">
+            <div class="mg-words" id="clueWordsR-${i}" data-clue-side="R" data-phrase-i="${i}">
               <div class="mg-words-text">${esc(p.rightWords)}</div>
+              <div class="mg-hint-tap-msg" style="display:none" aria-live="polite"></div>
               <div class="mg-hint-area" id="hintRightZone-${i}"></div>
             </div>
-            <button type="button" class="hint-btn" id="hintRightBtn-${i}" title="Hint">💡</button>
           </div>
         </div>
       </div>`;
@@ -1227,17 +1302,15 @@
         }
         html += `
       <div class="com-section">
-        <div class="com-prompt">
+        <div class="com-prompt" id="comPromptBlock">
           <div>${esc(commonality.prompt)}</div>
+          <div class="mg-hint-tap-msg" id="comHintTapMsg" style="display:none" aria-live="polite"></div>
           <div class="com-hint-inline" id="comHintZone"></div>
         </div>
         <div class="mg-main-row mg-com-answer-row" style="justify-content:center">
           <div class="mg-center mg-com-center">
             <div class="${comStripClass} mg-com-strip" id="strip-c">${comDisplay}</div>
           </div>
-        </div>
-        <div style="text-align:center;margin-top:4px">
-          <button type="button" class="hint-btn" id="comHintBtn"${cs ? ' disabled' : ''}>💡</button>
         </div>
       </div>`;
       }
@@ -1257,7 +1330,10 @@
         keyboardWrap.classList.remove('hidden-kb');
       }
       updateFocusHighlight();
-      requestAnimationFrame(() => requestAnimationFrame(refreshClueHintTextFit));
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        refreshClueHintTextFit();
+        refreshAnswerStripFit();
+      }));
     }
 
     function updateFocusHighlight() {
@@ -1412,6 +1488,7 @@
         } else {
           el.classList.remove('empty');
         }
+        fitAnswerStripFont(el);
       } else if (focusKind === 'commonality' && commonality) {
         const el = document.getElementById('strip-c');
         if (!el || commonalitySolved) return;
@@ -1423,6 +1500,7 @@
         } else {
           el.classList.remove('empty');
         }
+        fitAnswerStripFont(el);
       }
     }
 
