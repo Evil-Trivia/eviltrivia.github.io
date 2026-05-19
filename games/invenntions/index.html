@@ -339,13 +339,13 @@
       text-align: center;
       line-height: 1.15;
       color: #2c3e50;
-      padding: 3px 4px;
+      padding: 4px 4px;
       background: #f4f4ef;
       border-radius: 4px;
       border: 1px solid #ddd;
       width: 100%;
       min-width: 0;
-      min-height: 2.55em;
+      min-height: 2.8em;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -374,54 +374,43 @@
       overflow-wrap: anywhere;
       text-overflow: ellipsis;
       flex: 0 1 auto;
-      max-height: 2.36em;
+      max-height: 2.6em;
     }
     .mg-words:not(.mg-words--solo-clue) .mg-words-text {
       flex-shrink: 0;
     }
     .mg-hint-area {
       width: 100%;
-      min-height: 1.05em;
-      margin-top: 2px;
-    }
-    .mg-words .mg-hint-area:empty {
+      min-height: 0;
+      margin-top: 0;
       display: none;
+      align-items: center;
+      justify-content: center;
+      flex: 1 1 auto;
     }
     .mg-words.mg-words--with-hint {
-      justify-content: flex-start;
-      min-height: 3em;
+      justify-content: center;
     }
     .mg-words.mg-words--with-hint .mg-words-text {
-      font-size: clamp(0.68rem, 2.5vw, 0.84rem);
-      line-height: 1.15;
-      white-space: normal;
-      overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: 1;
-      -webkit-box-orient: vertical;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-      text-overflow: ellipsis;
-      flex: 0 0 auto;
-      max-height: 1.2em;
+      display: none !important;
     }
     .mg-words.mg-words--with-hint .mg-hint-area {
-      flex: 0 0 auto;
-      min-height: 1.05em;
-      margin-top: 2px;
+      display: flex;
     }
     .mg-hint-lines {
       display: block;
-      font-size: 0.65rem;
+      font-size: clamp(0.72rem, 2.7vw, 0.88rem);
       font-weight: normal;
       color: #555;
       text-align: center;
-      line-height: 1.15;
-      white-space: nowrap;
+      line-height: 1.18;
+      white-space: normal;
       overflow: hidden;
       width: 100%;
       max-width: 100%;
       min-width: 0;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
     .mg-center {
       flex: 0 1 22%;
@@ -1372,12 +1361,8 @@
       zoneEl.appendChild(linesWrap);
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const words = zoneEl.closest('.mg-words');
-        if (words) {
-          syncClueSoloLayout(words);
-          const clueText = words.querySelector('.mg-words-text');
-          if (clueText) fitClueWordsText(clueText);
-        }
-        fitSingleLineText(linesWrap);
+        if (words) syncClueSoloLayout(words);
+        fitHintLinesText(linesWrap);
       }));
     }
 
@@ -1425,54 +1410,58 @@
       return el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 1;
     }
 
+    function fitHintLinesText(el) {
+      if (!el) return;
+      const t = el.textContent;
+      if (!t || !t.trim()) {
+        el.style.fontSize = '';
+        return;
+      }
+      el.style.fontSize = '';
+      el.style.whiteSpace = 'normal';
+      el.style.display = '-webkit-box';
+      el.style.webkitLineClamp = '2';
+      el.style.webkitBoxOrient = 'vertical';
+      el.style.overflow = 'hidden';
+      el.style.width = '100%';
+      el.style.maxWidth = '100%';
+      let px = parseFloat(getComputedStyle(el).fontSize);
+      if (!Number.isFinite(px) || px <= 0) px = 12;
+      let guard = 0;
+      while (
+        (el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 1)
+        && px > MG_FIT_MIN_PX
+        && guard < 70
+      ) {
+        px -= 0.5;
+        el.style.fontSize = px + 'px';
+        guard++;
+      }
+    }
+
     function fitClueWordsText(el) {
       if (!el || !el.classList.contains('mg-words-text')) return;
       const words = el.closest('.mg-words');
       if (!words) return;
       const hasHint = clueBoxHasHintContent(words);
       syncClueSoloLayout(words);
-
-      if (!hasHint) {
-        el.style.fontSize = '';
-        el.style.whiteSpace = 'normal';
-        el.style.display = '-webkit-box';
-        el.style.webkitLineClamp = '2';
-        el.style.webkitBoxOrient = 'vertical';
-        el.style.overflow = 'hidden';
-        el.style.width = '100%';
-        el.style.maxWidth = '100%';
-        el.style.maxHeight = '';
-        let px = parseFloat(getComputedStyle(el).fontSize);
-        if (!Number.isFinite(px) || px <= 0) px = 14;
-        let guard = 0;
-        while (clueTextOverflows(el) && px > MG_FIT_MIN_PX && guard < 70) {
-          px -= 0.5;
-          el.style.fontSize = px + 'px';
-          guard++;
-        }
-        return;
-      }
-
-      const lineH = 1.15;
-      const maxLines = 1;
+      if (hasHint) return;
 
       el.style.fontSize = '';
       el.style.whiteSpace = 'normal';
       el.style.display = '-webkit-box';
-      el.style.webkitLineClamp = String(maxLines);
+      el.style.webkitLineClamp = '2';
       el.style.webkitBoxOrient = 'vertical';
       el.style.overflow = 'hidden';
       el.style.width = '100%';
       el.style.maxWidth = '100%';
       el.style.maxHeight = '';
-
       let px = parseFloat(getComputedStyle(el).fontSize);
-      if (!Number.isFinite(px) || px <= 0) px = 12;
+      if (!Number.isFinite(px) || px <= 0) px = 14;
       let guard = 0;
-      while (clueTextOverflows(el) && px > MG_FIT_MIN_PX && guard < 80) {
+      while (clueTextOverflows(el) && px > MG_FIT_MIN_PX && guard < 70) {
         px -= 0.5;
         el.style.fontSize = px + 'px';
-        el.style.maxHeight = Math.max(14, px * lineH * maxLines) + 'px';
         guard++;
       }
     }
@@ -1492,7 +1481,8 @@
     function refreshClueHintTextFit() {
       puzzleMount.querySelectorAll('.mg-words').forEach(syncClueSoloLayout);
       puzzleMount.querySelectorAll('.mg-words-text').forEach(fitClueWordsText);
-      puzzleMount.querySelectorAll('.mg-hint-lines, .mg-hint-tap-msg').forEach(fitSingleLineText);
+      puzzleMount.querySelectorAll('.mg-hint-lines').forEach(fitHintLinesText);
+      puzzleMount.querySelectorAll('.mg-hint-tap-msg').forEach(fitSingleLineText);
     }
 
     function fitAnswerStripFont(el) {
