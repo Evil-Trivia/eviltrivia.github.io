@@ -361,7 +361,7 @@
       align-items: center;
       justify-content: center;
     }
-    /* Clue + hint lines: JS shrinks font to fit (no horizontal scroll) */
+    /* Clue text: large two-line centered until hints appear */
     .mg-words-text {
       display: block;
       width: 100%;
@@ -370,7 +370,34 @@
       white-space: nowrap;
       overflow: hidden;
     }
+    .mg-words.mg-words--solo-clue {
+      justify-content: center;
+    }
+    .mg-words.mg-words--solo-clue .mg-words-text {
+      font-size: clamp(0.82rem, 3.2vw, 1.02rem);
+      line-height: 1.22;
+      white-space: normal;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      text-overflow: ellipsis;
+      flex: 0 1 auto;
+      max-height: 2.7em;
+    }
+    .mg-words.mg-words--solo-clue .mg-hint-area {
+      min-height: 0;
+      margin-top: 0;
+    }
+    .mg-words:not(.mg-words--solo-clue) .mg-words-text {
+      flex-shrink: 0;
+    }
     .mg-hint-area { width: 100%; min-height: 1.35em; margin-top: 3px; }
+    .mg-words.mg-words--solo-clue .mg-hint-area:empty {
+      display: none;
+    }
     .mg-hint-lines {
       display: block;
       font-size: 0.65rem;
@@ -1361,6 +1388,9 @@
       el.style.fontSize = '';
       el.style.whiteSpace = 'nowrap';
       el.style.overflow = 'hidden';
+      el.style.display = 'block';
+      el.style.webkitLineClamp = '';
+      el.style.webkitBoxOrient = '';
       el.style.width = '100%';
       el.style.maxWidth = '100%';
       let px = parseFloat(getComputedStyle(el).fontSize);
@@ -1373,8 +1403,51 @@
       }
     }
 
+    function clueBoxHasHintContent(wordsEl) {
+      if (!wordsEl) return false;
+      const zone = wordsEl.querySelector('.mg-hint-area');
+      return !!(zone && zone.children.length > 0);
+    }
+
+    function syncClueSoloLayout(wordsEl) {
+      if (!wordsEl) return;
+      wordsEl.classList.toggle('mg-words--solo-clue', !clueBoxHasHintContent(wordsEl));
+    }
+
+    function fitClueWordsText(el) {
+      if (!el || !el.classList.contains('mg-words-text')) return;
+      const words = el.closest('.mg-words');
+      syncClueSoloLayout(words);
+      if (!words || clueBoxHasHintContent(words)) {
+        fitSingleLineText(el);
+        return;
+      }
+      el.style.fontSize = '';
+      el.style.whiteSpace = 'normal';
+      el.style.display = '-webkit-box';
+      el.style.webkitLineClamp = '2';
+      el.style.webkitBoxOrient = 'vertical';
+      el.style.overflow = 'hidden';
+      el.style.width = '100%';
+      el.style.maxWidth = '100%';
+      let px = parseFloat(getComputedStyle(el).fontSize);
+      if (!Number.isFinite(px) || px <= 0) px = 14;
+      let guard = 0;
+      while (
+        (el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 1)
+        && px > MG_FIT_MIN_PX
+        && guard < 70
+      ) {
+        px -= 0.5;
+        el.style.fontSize = px + 'px';
+        guard++;
+      }
+    }
+
     function refreshClueHintTextFit() {
-      puzzleMount.querySelectorAll('.mg-words-text, .mg-hint-lines, .mg-hint-tap-msg').forEach(fitSingleLineText);
+      puzzleMount.querySelectorAll('.mg-words').forEach(syncClueSoloLayout);
+      puzzleMount.querySelectorAll('.mg-words-text').forEach(fitClueWordsText);
+      puzzleMount.querySelectorAll('.mg-hint-lines, .mg-hint-tap-msg').forEach(fitSingleLineText);
     }
 
     function fitAnswerStripFont(el) {
@@ -1786,9 +1859,10 @@
         h: answerPx.h + strokePad * 2
       };
 
-      const overlapPx = Math.max(12, answerPx.w * 0.44);
-      const greenRight = answerPx.x + answerPx.w + overlapPx * 0.5;
-      const blueLeft = answerPx.x - overlapPx * 0.5;
+      const answerMid = answerPx.x + answerPx.w * 0.5;
+      const overlapHalf = Math.max(4, answerPx.w * 0.11);
+      const greenRight = answerMid + overlapHalf;
+      const blueLeft = answerMid - overlapHalf;
 
       const invenn = {
         x: leftB.x,
