@@ -1875,46 +1875,45 @@
         return { x, y, w, h, corner: Math.min(br, w / 2, h / 2) };
       }
 
-      function pathCorner(w, h, seed) {
-        return Math.max(4, Math.min(seed || 10, w / 4, h / 4));
-      }
-
-      const leftR = pathRectForEl(leftWords);
-      const rightR = pathRectForEl(rightWords);
+      const leftBox = pathRectForEl(leftWords);
+      const rightBox = pathRectForEl(rightWords);
       const venn = pathRectForEl(answerStrip);
-      if (!leftR || !rightR || !venn) return false;
+      if (!leftBox || !rightBox || !venn) return false;
 
-      const answerBox = answerStrip.getBoundingClientRect();
-      const answerLeft = answerBox.left - stageRect.left + hs;
-      const answerRight = answerBox.right - stageRect.left - hs;
+      const answerRaw = answerStrip.getBoundingClientRect();
+      const answerLeft = answerRaw.left - stageRect.left;
+      const answerRight = answerRaw.right - stageRect.left;
+      const answerTop = answerRaw.top - stageRect.top;
+      const answerBottom = answerRaw.bottom - stageRect.top;
 
-      const greenTop = Math.min(leftR.y, venn.y);
-      const greenBottom = Math.max(leftR.y + leftR.h, venn.y + venn.h);
+      const greenTop = Math.min(leftBox.y, venn.y);
+      const greenBottom = Math.max(leftBox.y + leftBox.h, venn.y + venn.h);
       const greenH = greenBottom - greenTop;
-      const greenW = answerRight - leftR.x;
+      const greenW = (answerRight - hs) - leftBox.x;
 
-      const blueTop = Math.min(rightR.y, venn.y);
-      const blueBottom = Math.max(rightR.y + rightR.h, venn.y + venn.h);
+      const blueTop = Math.min(rightBox.y, venn.y);
+      const blueBottom = Math.max(rightBox.y + rightBox.h, venn.y + venn.h);
       const blueH = blueBottom - blueTop;
-      const blueW = (rightR.x + rightR.w) - answerLeft;
+      const blueX = answerLeft + hs;
+      const blueW = (rightBox.x + rightBox.w) - blueX;
+
+      if (greenW <= 0 || greenH <= 0 || blueW <= 0 || blueH <= 0) return false;
 
       const invenn = {
-        x: leftR.x,
+        x: leftBox.x,
         y: greenTop,
         w: greenW,
         h: greenH,
-        corner: pathCorner(greenW, greenH, leftR.corner)
+        corner: Math.min(leftBox.corner, venn.corner, greenW / 4, greenH / 4)
       };
 
       const venntion = {
-        x: answerLeft,
+        x: blueX,
         y: blueTop,
         w: blueW,
         h: blueH,
-        corner: pathCorner(blueW, blueH, rightR.corner)
+        corner: Math.min(rightBox.corner, venn.corner, blueW / 4, blueH / 4)
       };
-
-      if (invenn.w <= 0 || invenn.h <= 0 || venntion.w <= 0 || venntion.h <= 0) return false;
 
       pathA.setAttribute('d', roundedRectPath(invenn.x, invenn.y, invenn.w, invenn.h, invenn.corner));
       pathB.setAttribute('d', roundedRectPath(venntion.x, venntion.y, venntion.w, venntion.h, venntion.corner));
