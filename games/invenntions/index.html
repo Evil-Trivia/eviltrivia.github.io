@@ -25,9 +25,9 @@
     body.inv-quiz-active {
       min-height: 0;
       padding-top: 2px;
-      padding-right: max(var(--inv-play-pad-x, 3px), env(safe-area-inset-right, 0px));
+      padding-right: env(safe-area-inset-right, 0px);
       padding-bottom: 0;
-      padding-left: max(var(--inv-play-pad-x, 3px), env(safe-area-inset-left, 0px));
+      padding-left: env(safe-area-inset-left, 0px);
     }
     .wrap {
       max-width: 720px;
@@ -58,10 +58,13 @@
       overflow: hidden;
       margin-bottom: 0;
       margin-top: 0;
-      padding: 2px var(--inv-play-pad-x, 3px);
+      padding: 2px 0;
       display: flex;
       flex-direction: column;
       border-radius: 4px 4px 0 0;
+      border-left: none;
+      border-right: none;
+      box-shadow: none;
     }
     body.inv-quiz-active #boardArea {
       flex: 1 1 auto;
@@ -152,7 +155,7 @@
     }
     body.inv-quiz-active .mg-title-row {
       gap: 1px;
-      padding: 0 var(--inv-play-pad-x, 3px);
+      padding: 0;
     }
     .mg-title-side {
       display: flex;
@@ -201,6 +204,15 @@
       font-size: clamp(0.62rem, 2.5vw, 0.72rem);
       line-height: 1.1;
     }
+    .stat-timer {
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+    .stat-sep {
+      font-weight: normal;
+      color: #888;
+      margin: 0 0.15em;
+    }
     body.inv-quiz-active .mg-icon-btn,
     body.inv-quiz-active .mg-logo-link {
       width: 2rem;
@@ -213,6 +225,14 @@
       width: 100%;
       height: 100%;
       object-fit: contain;
+    }
+    body.inv-quiz-active .mg-words {
+      padding-left: 3px;
+      padding-right: 3px;
+    }
+    body.inv-quiz-active .com-prompt {
+      padding-left: 4px;
+      padding-right: 4px;
     }
     .mg-icon-btn {
       width: 2.25rem;
@@ -743,7 +763,7 @@
       max-width: 720px;
       z-index: 8000;
       background: linear-gradient(180deg, rgba(240,240,235,0.96) 0%, #e4e4de 100%);
-      padding: 8px max(var(--inv-play-pad-x, 8px), env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0)) max(var(--inv-play-pad-x, 8px), env(safe-area-inset-left, 0px));
+      padding: 8px env(safe-area-inset-right, 0px) calc(8px + env(safe-area-inset-bottom, 0)) env(safe-area-inset-left, 0px);
       margin: 0;
       border-top: 1px solid #ccc;
       backdrop-filter: blur(6px);
@@ -1339,7 +1359,7 @@
         <div class="mg-title-stack">
           <h1 class="mg-game-title" id="pageGameTitle">InVennTions</h1>
           <div class="subtitle" id="pageSubtitle"></div>
-          <div class="stat-bar" id="statBar">Score: <span id="scoreCount">0</span></div>
+          <div class="stat-bar" id="statBar">Score: <span id="scoreCount">0</span><span class="stat-sep">·</span><span class="stat-timer" id="timerCount">00:00</span></div>
         </div>
         <div class="mg-title-side mg-title-side-right">
           <a href="#" class="mg-logo-link" id="linkAbout" aria-label="About Evil Trivia" title="About Evil Trivia">
@@ -1394,6 +1414,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
     import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -1408,11 +1429,29 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
+    const auth = getAuth(app);
     window.db = db;
     window.dbRef = ref;
     window.dbPush = push;
     window.dbSet = set;
     window.dbGet = get;
+    window.invIsAdmin = false;
+
+    onAuthStateChanged(auth, async (user) => {
+      window.invIsAdmin = false;
+      if (!user) return;
+      try {
+        const roleSnap = await get(ref(db, `users/${user.uid}/role`));
+        if (roleSnap.exists() && roleSnap.val() === 'admin') {
+          window.invIsAdmin = true;
+          if (typeof window.invClearSubmitSession === 'function') {
+            window.invClearSubmitSession();
+          }
+        }
+      } catch (e) {
+        console.warn('InVennTions admin check:', e);
+      }
+    });
 
     const GAME_ID = 'middleground';
 
@@ -1433,6 +1472,7 @@
     const pageSubtitle = document.getElementById('pageSubtitle');
     const statBar = document.getElementById('statBar');
     const scoreCountEl = document.getElementById('scoreCount');
+    const timerCountEl = document.getElementById('timerCount');
     const boardArea = document.getElementById('boardArea');
     const puzzleMount = document.getElementById('puzzleMount');
     const keyboardWrap = document.getElementById('keyboardWrap');
@@ -1440,6 +1480,13 @@
     const toastEl = document.getElementById('toast');
 
     const GAME_SHARE_URL = 'https://eviltrivia.github.io/games/invenntions/';
+    const INV_SUBMIT_STORAGE_KEY = 'invMiddlegroundScoreSubmitted';
+
+    let playSessionRoundKey = '';
+    let playTimerStart = 0;
+    let playTimerElapsedMs = 0;
+    let playTimerInterval = 0;
+    let playTimerRunning = false;
 
     const DEFAULT_PLAY_SUBTITLE = 'Solve in any order — tap a box to focus; Enter or GUESS submits';
 
@@ -1654,6 +1701,90 @@ ${DEFAULT_SCORING_HTML}`;
 
     function updateScoreStat() {
       if (scoreCountEl) scoreCountEl.textContent = String(getDisplayScore());
+    }
+
+    function formatElapsedMs(ms) {
+      const totalSec = Math.max(0, Math.floor(ms / 1000));
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function getPlayElapsedMs() {
+      if (playTimerRunning && playTimerStart) return Date.now() - playTimerStart;
+      return playTimerElapsedMs;
+    }
+
+    function updateTimerStat() {
+      if (timerCountEl) timerCountEl.textContent = formatElapsedMs(getPlayElapsedMs());
+    }
+
+    function stopPlayTimer() {
+      playTimerRunning = false;
+      clearInterval(playTimerInterval);
+      playTimerInterval = 0;
+      if (playTimerStart) playTimerElapsedMs = Date.now() - playTimerStart;
+      updateTimerStat();
+    }
+
+    function resetPlayTimer() {
+      stopPlayTimer();
+      playTimerStart = 0;
+      playTimerElapsedMs = 0;
+      updateTimerStat();
+    }
+
+    function startPlayTimer() {
+      resetPlayTimer();
+      playTimerStart = Date.now();
+      playTimerRunning = true;
+      updateTimerStat();
+      playTimerInterval = window.setInterval(updateTimerStat, 1000);
+    }
+
+    function computePlaySessionKey() {
+      if (activeGameId === 'archive') return `archive:${playSessionRoundKey || 'unknown'}`;
+      if (activeGameId === 'live') return `live:${playSessionRoundKey || 'unknown'}`;
+      return `library:${activeGameId || 'unknown'}:${playSessionRoundKey || gameRounds.length}`;
+    }
+
+    function readSubmitRecord() {
+      try {
+        const raw = sessionStorage.getItem(INV_SUBMIT_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function writeSubmitRecord(rec) {
+      try {
+        sessionStorage.setItem(INV_SUBMIT_STORAGE_KEY, JSON.stringify(rec));
+      } catch (_) { /* private mode */ }
+    }
+
+    function invClearSubmitSession() {
+      try {
+        sessionStorage.removeItem(INV_SUBMIT_STORAGE_KEY);
+      } catch (_) { /* ignore */ }
+    }
+    window.invClearSubmitSession = invClearSubmitSession;
+
+    function hasSubmittedForCurrentSession() {
+      const rec = readSubmitRecord();
+      if (!rec || !rec.submitted || !rec.sessionKey) return false;
+      return rec.sessionKey === computePlaySessionKey();
+    }
+
+    function markSessionSubmitted(displayName) {
+      writeSubmitRecord({
+        sessionKey: computePlaySessionKey(),
+        submitted: true,
+        displayName,
+        points: getDisplayScore(),
+        elapsedMs: getPlayElapsedMs(),
+        at: Date.now()
+      });
     }
 
     const kbFlashTimers = new WeakMap();
@@ -2012,38 +2143,36 @@ ${DEFAULT_SCORING_HTML}`;
       root.style.setProperty('--inv-vw', vw + 'px');
       root.style.setProperty('--inv-vh', vh + 'px');
 
-      let padX = 6;
-      if (vw <= 360) padX = 1;
-      else if (vw <= 390) padX = 2;
-      else if (vw <= 480) padX = 3;
-      else if (vw <= 600) padX = 5;
+      let padX = 0;
+      if (vw > 600) padX = 5;
+      else if (vw > 480) padX = 2;
       root.style.setProperty('--inv-play-pad-x', padX + 'px');
       root.style.setProperty('--mg-row-gap', vw <= 430 ? '2px' : '3px');
 
       let centerMax = 120;
-      let centerMin = 56;
+      let centerMin = 52;
       let centerFlex = 22;
       if (vw <= 360) {
-        centerMax = 84;
-        centerMin = 48;
-        centerFlex = 17;
+        centerMax = 80;
+        centerMin = 44;
+        centerFlex = 16;
       } else if (vw <= 390) {
-        centerMax = 92;
-        centerMin = 50;
-        centerFlex = 18;
+        centerMax = 88;
+        centerMin = 46;
+        centerFlex = 17;
       } else if (vw <= 430) {
-        centerMax = 102;
-        centerMin = 52;
-        centerFlex = 19;
+        centerMax = 96;
+        centerMin = 48;
+        centerFlex = 18;
       } else if (vw <= 520) {
-        centerMax = 112;
+        centerMax = 108;
         centerFlex = 20;
       }
       root.style.setProperty('--mg-center-max', centerMax + 'px');
       root.style.setProperty('--mg-center-min', centerMin + 'px');
       root.style.setProperty('--mg-center-flex', centerFlex + '%');
 
-      const boardInner = Math.max(240, vw - padX * 2 - 8);
+      const boardInner = Math.max(240, vw);
       let comMax = Math.min(240, Math.round(boardInner * 0.62));
       let comMin = vw <= 390 ? 96 : 84;
       let comFlex = vw <= 430 ? 42 : 34;
@@ -2912,6 +3041,12 @@ ${DEFAULT_SCORING_HTML}`;
       return s.correct ? 1 : 0;
     }
 
+    function leaderboardElapsedMs(s) {
+      if (typeof s.elapsedMs === 'number') return s.elapsedMs;
+      if (typeof s.elapsedSeconds === 'number') return s.elapsedSeconds * 1000;
+      return Number.MAX_SAFE_INTEGER;
+    }
+
     async function loadPublicLeaderboard() {
       const body = document.getElementById('leaderboardBody');
       if (!body) return;
@@ -2929,6 +3064,8 @@ ${DEFAULT_SCORING_HTML}`;
         rows.sort((a, b) => {
           const dp = leaderboardPoints(b) - leaderboardPoints(a);
           if (dp !== 0) return dp;
+          const te = leaderboardElapsedMs(a) - leaderboardElapsedMs(b);
+          if (te !== 0) return te;
           return (b.timestamp || 0) - (a.timestamp || 0);
         });
         if (!rows.length) {
@@ -2951,7 +3088,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (!scoreBody) return;
       scoreBody.innerHTML = `
         <div class="summary">
-          Thanks, <strong>${esc(displayName)}</strong>! Your score: <strong>${getDisplayScore()}</strong>
+          Thanks, <strong>${esc(displayName)}</strong>! Your score: <strong>${getDisplayScore()}</strong> · Time: <strong>${formatElapsedMs(getPlayElapsedMs())}</strong>
         </div>
         <h2 class="lb-heading">Leaderboard</h2>
         <div id="leaderboardBody"><p class="mg-modal-muted">Loading…</p></div>
@@ -3655,17 +3792,45 @@ ${DEFAULT_SCORING_HTML}`;
     function showFinish() {
       keyboardWrap.classList.add('hidden-kb');
       pageSubtitle.textContent = 'All done!';
+      stopPlayTimer();
       scoreSavedThisSession = false;
       lastSavedDisplayName = '';
 
       const total = finishTotalPossible;
       const correct = finishTotalCorrect;
       const phraseCountAll = totalPhraseCountAcrossRounds();
+      const elapsedLabel = formatElapsedMs(getPlayElapsedMs());
+      const alreadySubmitted = hasSubmittedForCurrentSession() && !window.invIsAdmin;
+      const prior = readSubmitRecord();
 
       const scoreBody = document.getElementById('scoreModalBody');
+
+      if (alreadySubmitted) {
+        scoreBody.innerHTML = `
+        <div class="summary">
+          You already saved a score for this puzzle set.<br>
+          Saved score: <strong>${prior?.points ?? getDisplayScore()}</strong> · Time: <strong>${prior?.elapsedMs != null ? formatElapsedMs(prior.elapsedMs) : elapsedLabel}</strong>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="primary" id="viewLeaderboardBtn">View leaderboard</button>
+          <button type="button" class="secondary" id="playAgainBtn">Play again</button>
+        </div>`;
+        document.getElementById('viewLeaderboardBtn')?.addEventListener('click', async () => {
+          await showFinishLeaderboard(prior?.displayName || 'Anonymous');
+        });
+        document.getElementById('playAgainBtn')?.addEventListener('click', () => {
+          closeAllModals();
+          loadQuiz();
+        });
+        document.getElementById('scoreModal').classList.remove('hidden');
+        const btnScore = document.getElementById('btnScoreModal');
+        if (btnScore) btnScore.classList.remove('hidden');
+        return;
+      }
+
       scoreBody.innerHTML = `
         <div class="summary">
-          Score: <strong>${getDisplayScore()}</strong><br>
+          Score: <strong>${getDisplayScore()}</strong> · Time: <strong>${elapsedLabel}</strong><br>
           Total solved: ${correct} / ${total}<br>
           Rounds completed: ${gameRounds.length}<br>
           Hints used: <strong>${totalHintsUsed()}</strong> &middot;
@@ -3691,15 +3856,24 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     async function submitFinalScore(total, correct, phraseCountAll) {
+      if (hasSubmittedForCurrentSession() && !window.invIsAdmin) {
+        toastEl.textContent = 'You already submitted for this puzzle set.';
+        setTimeout(() => { toastEl.textContent = ''; }, 2200);
+        return;
+      }
       const raw = document.getElementById('displayName').value.trim();
       const displayName = raw || 'Anonymous';
+      const elapsedMs = getPlayElapsedMs();
 
       const payload = {
         displayName,
         gameId: activeGameId,
         gameTitle: activeGameTitle,
-        formatVersion: 3,
+        formatVersion: 4,
         points: getDisplayScore(),
+        elapsedMs,
+        elapsedSeconds: Math.floor(elapsedMs / 1000),
+        sessionKey: computePlaySessionKey(),
         totalRounds: total,
         incorrectGuesses,
         hintsUsed: totalHintsUsed(),
@@ -3725,6 +3899,7 @@ ${DEFAULT_SCORING_HTML}`;
         if (sb) sb.disabled = true;
         scoreSavedThisSession = true;
         lastSavedDisplayName = displayName;
+        markSessionSubmitted(displayName);
         await showFinishLeaderboard(displayName);
       } catch (e) {
         console.error(e);
@@ -3737,6 +3912,7 @@ ${DEFAULT_SCORING_HTML}`;
           if (sb) sb.disabled = true;
           scoreSavedThisSession = true;
           lastSavedDisplayName = displayName;
+          markSessionSubmitted(displayName);
           await showFinishLeaderboard(displayName);
         } catch (e2) {
           console.error(e2);
@@ -3849,6 +4025,7 @@ ${DEFAULT_SCORING_HTML}`;
       focusKind = 'phrase';
       focusPuzzleIndex = 0;
       resetRevealConfirm();
+      resetPlayTimer();
       updateScoreStat();
       if (toastEl) toastEl.textContent = '';
     }
@@ -3893,6 +4070,7 @@ ${DEFAULT_SCORING_HTML}`;
         }
         if (out.length) {
           activeGameId = 'live';
+          playSessionRoundKey = roundIds.join(',');
           gameRounds = out;
           return true;
         }
@@ -3910,6 +4088,7 @@ ${DEFAULT_SCORING_HTML}`;
 
       const data = gameSnap.val();
       activeGameId = gameId;
+      playSessionRoundKey = gameId;
       if (!playerHelpHtml && data.playerHelpHtml) playerHelpHtml = String(data.playerHelpHtml);
       if (!infoHtml && data.infoHtml) infoHtml = String(data.infoHtml);
       if (!aboutEvilTriviaHtml && data.aboutEvilTriviaHtml) aboutEvilTriviaHtml = String(data.aboutEvilTriviaHtml);
@@ -3942,6 +4121,7 @@ ${DEFAULT_SCORING_HTML}`;
         throw new Error('That round could not be loaded.');
       }
       activeGameId = 'archive';
+      playSessionRoundKey = roundIds.map(String).join(',');
     }
 
     async function fetchQuizData() {
@@ -3984,6 +4164,7 @@ ${DEFAULT_SCORING_HTML}`;
       statBar.classList.remove('hidden');
       renderBoard();
       showQuizShell();
+      startPlayTimer();
       requestAnimationFrame(() => {
         syncPlayViewportLayout();
         fitBoardToViewport();
