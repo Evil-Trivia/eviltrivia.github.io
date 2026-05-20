@@ -349,81 +349,65 @@
       border: 1px solid #ddd;
       width: 100%;
       min-width: 0;
-      min-height: 3.45em;
+      height: var(--mg-words-h, 3.62em);
+      min-height: var(--mg-words-h, 3.62em);
+      max-height: var(--mg-words-h, 3.62em);
+      box-sizing: border-box;
       display: grid;
       grid-template-columns: 1fr;
-      grid-template-rows: minmax(0, 1fr) auto;
-      align-content: center;
+      grid-template-rows: minmax(0, 1fr) var(--mg-hint-slot-h, 1.26em);
+      align-content: stretch;
+      overflow: hidden;
     }
     .mg-words-text,
     .mg-hint-tap-msg {
       grid-row: 1;
       grid-column: 1;
       align-self: center;
+      min-height: 0;
     }
     .mg-words-text {
-      display: block;
+      display: -webkit-box;
       width: 100%;
       max-width: 100%;
       min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-    }
-    .mg-words.mg-words--solo-clue .mg-words-text {
+      max-height: var(--mg-clue-slot-h, 2.2em);
       font-size: clamp(0.76rem, 2.9vw, 0.94rem);
       line-height: 1.18;
       white-space: normal;
       overflow: hidden;
-      display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       word-break: break-word;
       overflow-wrap: anywhere;
       text-overflow: ellipsis;
-      max-height: 2.72em;
+    }
+    .mg-words.mg-words--with-hint .mg-words-text {
+      -webkit-line-clamp: 1;
     }
     .mg-hint-area {
       grid-row: 2;
       grid-column: 1;
       width: 100%;
-      min-height: 1.2em;
-      margin-top: 2px;
+      height: var(--mg-hint-slot-h, 1.26em);
+      min-height: var(--mg-hint-slot-h, 1.26em);
+      max-height: var(--mg-hint-slot-h, 1.26em);
+      margin-top: 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .mg-words .mg-hint-area:empty {
-      display: none;
-    }
-    .mg-words.mg-words--with-hint {
-      align-content: center;
-    }
-    .mg-words.mg-words--with-hint .mg-words-text {
-      font-size: clamp(0.72rem, 2.7vw, 0.88rem);
-      line-height: 1.15;
-      white-space: normal;
-      overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: 1;
-      -webkit-box-orient: vertical;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-      text-overflow: ellipsis;
-      max-height: 1.38em;
-    }
-    .mg-words.mg-words--with-hint .mg-hint-area {
-      min-height: 0;
-      margin-top: 3px;
-    }
-    .mg-words.mg-words--with-hint .mg-hint-lines {
-      font-size: clamp(0.56rem, 2.05vw, 0.68rem);
-      font-weight: normal;
-      line-height: 1.12;
+      visibility: hidden;
     }
     .mg-hint-lines {
       display: block;
-      font-size: 0.65rem;
+      font-size: clamp(0.56rem, 2.05vw, 0.68rem);
       font-weight: normal;
       color: #555;
       text-align: center;
-      line-height: 1.15;
+      line-height: 1.12;
       white-space: nowrap;
       overflow: hidden;
       width: 100%;
@@ -1345,7 +1329,11 @@
         if (!hintPending.has(key)) return;
         hintPending.delete(key);
         syncAllHintTapUi();
-        scheduleClueHintTextFit();
+        const m = /^([LR])-(\d+)$/.exec(key);
+        const scope = m
+          ? document.querySelector(`.mg-phrase-block[data-phrase-i="${m[2]}"]`)
+          : null;
+        scheduleClueHintTextFit(false, null, scope);
       }, HINT_CONFIRM_MS));
     }
 
@@ -1370,7 +1358,8 @@
       linesWrap.className = 'mg-hint-lines';
       linesWrap.textContent = parts.join(' · ');
       zoneEl.appendChild(linesWrap);
-      scheduleClueHintTextFit();
+      const block = zoneEl.closest('.mg-phrase-block');
+      scheduleClueHintTextFit(false, null, block);
     }
 
     const MG_FIT_MIN_PX = 7.5;
@@ -1424,8 +1413,39 @@
     function syncClueSoloLayout(wordsEl) {
       if (!wordsEl) return;
       const hasHint = clueBoxHasHintContent(wordsEl);
-      wordsEl.classList.toggle('mg-words--solo-clue', !hasHint);
       wordsEl.classList.toggle('mg-words--with-hint', hasHint);
+    }
+
+    const MG_WORDS_H_EM = 3.62;
+    const MG_HINT_SLOT_EM = 1.26;
+
+    function preprocessClueBoxLayout() {
+      const boxes = puzzleMount.querySelectorAll('.mg-words');
+      if (!boxes.length) return;
+
+      const probe = boxes[0];
+      const emPx = parseFloat(getComputedStyle(probe).fontSize) || 14;
+      const wordsH = Math.round(emPx * MG_WORDS_H_EM * 100) / 100;
+      const hintH = Math.round(emPx * MG_HINT_SLOT_EM * 100) / 100;
+      const padY = (parseFloat(getComputedStyle(probe).paddingTop) || 0)
+        + (parseFloat(getComputedStyle(probe).paddingBottom) || 0);
+      const clueH = Math.max(14, Math.round((wordsH - hintH - padY) * 100) / 100);
+
+      puzzleMount.style.setProperty('--mg-words-h', wordsH + 'px');
+      puzzleMount.style.setProperty('--mg-hint-slot-h', hintH + 'px');
+      puzzleMount.style.setProperty('--mg-clue-slot-h', clueH + 'px');
+
+      boxes.forEach(box => {
+        box.style.height = wordsH + 'px';
+        box.style.minHeight = wordsH + 'px';
+        box.style.maxHeight = wordsH + 'px';
+        const zone = box.querySelector('.mg-hint-area');
+        if (zone) {
+          zone.style.height = hintH + 'px';
+          zone.style.minHeight = hintH + 'px';
+          zone.style.maxHeight = hintH + 'px';
+        }
+      });
     }
 
     function clueTextOverflows(el) {
@@ -1439,26 +1459,10 @@
       const hasHint = clueBoxHasHintContent(words);
       syncClueSoloLayout(words);
 
-      if (!hasHint) {
-        el.style.fontSize = '';
-        el.style.whiteSpace = 'normal';
-        el.style.display = '-webkit-box';
-        el.style.webkitLineClamp = '2';
-        el.style.webkitBoxOrient = 'vertical';
-        el.style.overflow = 'hidden';
-        el.style.width = '100%';
-        el.style.maxWidth = '100%';
-        el.style.maxHeight = '';
-        const maxPx = parseFloat(getComputedStyle(el).fontSize);
-        fitFontSizeBinary(el, maxPx, px => {
-          el.style.fontSize = px + 'px';
-          return !clueTextOverflows(el);
-        });
-        return;
-      }
-
-      const lineH = 1.15;
-      const maxLines = 1;
+      const clueMax = parseFloat(getComputedStyle(el).maxHeight)
+        || parseFloat(getComputedStyle(puzzleMount).getPropertyValue('--mg-clue-slot-h'))
+        || 28;
+      const maxLines = hasHint ? 1 : 2;
 
       el.style.fontSize = '';
       el.style.whiteSpace = 'normal';
@@ -1468,18 +1472,13 @@
       el.style.overflow = 'hidden';
       el.style.width = '100%';
       el.style.maxWidth = '100%';
-      el.style.maxHeight = '';
+      el.style.maxHeight = clueMax + 'px';
 
       const maxPx = parseFloat(getComputedStyle(el).fontSize);
       fitFontSizeBinary(el, maxPx, px => {
         el.style.fontSize = px + 'px';
-        el.style.maxHeight = Math.max(14, px * lineH * maxLines) + 'px';
         return !clueTextOverflows(el);
       });
-      const finalPx = parseFloat(el.style.fontSize);
-      if (Number.isFinite(finalPx)) {
-        el.style.maxHeight = Math.max(14, finalPx * lineH * maxLines) + 'px';
-      }
     }
 
     let squircleAnimatingPhrase = -1;
@@ -1494,11 +1493,25 @@
       }
     }
 
-    function refreshClueHintTextFit() {
-      puzzleMount.querySelectorAll('.mg-words').forEach(syncClueSoloLayout);
-      puzzleMount.querySelectorAll('.mg-words-text').forEach(fitClueWordsText);
-      puzzleMount.querySelectorAll('.mg-hint-lines').forEach(fitSingleLineText);
-      puzzleMount.querySelectorAll('.mg-hint-tap-msg').forEach(el => {
+    function mergeTextFitScope(a, b) {
+      if (!a) return b || puzzleMount;
+      if (!b) return a;
+      if (a === puzzleMount || b === puzzleMount) return puzzleMount;
+      if (a === b) return a;
+      if (a.contains && a.contains(b)) return a;
+      if (b.contains && b.contains(a)) return b;
+      const blockA = a.closest ? a.closest('.mg-phrase-block') : null;
+      const blockB = b.closest ? b.closest('.mg-phrase-block') : null;
+      if (blockA && blockA === blockB) return blockA;
+      return puzzleMount;
+    }
+
+    function refreshClueHintTextFit(scopeEl) {
+      const root = !scopeEl || scopeEl === puzzleMount ? puzzleMount : scopeEl;
+      root.querySelectorAll('.mg-words').forEach(syncClueSoloLayout);
+      root.querySelectorAll('.mg-words-text').forEach(fitClueWordsText);
+      root.querySelectorAll('.mg-hint-lines').forEach(fitSingleLineText);
+      root.querySelectorAll('.mg-hint-tap-msg').forEach(el => {
         if (el.closest('.mg-words-hint-pending')) return;
         fitSingleLineText(el);
       });
@@ -1507,9 +1520,15 @@
     let textFitRefreshPending = false;
     let textFitIncludeAnswerStrip = false;
     let textFitAfterFn = null;
+    let textFitScopeEl = null;
 
-    function scheduleClueHintTextFit(includeAnswerStrip, afterFn) {
+    function scheduleClueHintTextFit(includeAnswerStrip, afterFn, scopeEl) {
       if (includeAnswerStrip) textFitIncludeAnswerStrip = true;
+      if (scopeEl) {
+        textFitScopeEl = textFitScopeEl
+          ? mergeTextFitScope(textFitScopeEl, scopeEl)
+          : scopeEl;
+      }
       if (textFitRefreshPending) {
         if (typeof afterFn === 'function') {
           const prevAfter = textFitAfterFn;
@@ -1526,9 +1545,11 @@
         textFitRefreshPending = false;
         const withStrip = textFitIncludeAnswerStrip;
         const runAfter = textFitAfterFn;
+        const scope = textFitScopeEl || puzzleMount;
         textFitIncludeAnswerStrip = false;
         textFitAfterFn = null;
-        refreshClueHintTextFit();
+        textFitScopeEl = null;
+        refreshClueHintTextFit(scope);
         if (withStrip) refreshAnswerStripFit();
         if (runAfter) runAfter();
       });
@@ -1566,6 +1587,7 @@
       if (textFitResizeBound) return;
       textFitResizeBound = true;
       window.addEventListener('resize', () => {
+        preprocessClueBoxLayout();
         scheduleClueHintTextFit(true);
       });
     }
@@ -1994,7 +2016,7 @@
             return;
           }
           refreshAnswerStripFit();
-          refreshClueHintTextFit();
+          refreshClueHintTextFit(block);
           layoutPhraseSquirclePaths(block);
           void block.offsetWidth;
           block.classList.add('mg-phrase-sq-armed');
@@ -2481,7 +2503,7 @@
           syncPhraseHintTapUi(i);
           scheduleHintPendingRevert(key);
         }
-        scheduleClueHintTextFit();
+        scheduleClueHintTextFit(false, null, clueWords.closest('.mg-phrase-block'));
         return;
       }
 
@@ -2633,6 +2655,7 @@
         keyboardWrap.classList.remove('hidden-kb');
       }
       updateFocusHighlight();
+      preprocessClueBoxLayout();
       scheduleClueHintTextFit(true, restoreSolvedPhraseSquircles);
     }
 
