@@ -2094,16 +2094,43 @@ ${DEFAULT_SCORING_HTML}`;
       else if (btn.dataset.ch) onKeyTap(btn.dataset.ch);
     }
 
-    /** @type {Map<number, { btn: HTMLElement, repeatDelay: number, repeatInterval: number }>} */
+    /** @type {{ btn: HTMLElement, fromRepeat: boolean, order: number }[]} */
+    const kbInputQueue = [];
+    let kbInputPumpScheduled = false;
+
+    function isKbActionKey(btn) {
+      return btn.classList.contains('guess') || btn.classList.contains('reveal');
+    }
+
+    function scheduleKbInput(btn, fromRepeat) {
+      if (!btn || btn.disabled) return;
+      if (fromRepeat || isKbActionKey(btn)) {
+        fireKbKey(btn, fromRepeat);
+        return;
+      }
+      kbInputQueue.push({ btn, fromRepeat: !!fromRepeat, order: ++kbPointerSeq });
+      pumpKbInputQueue();
+    }
+
+    function pumpKbInputQueue() {
+      if (kbInputPumpScheduled) return;
+      kbInputPumpScheduled = true;
+      queueMicrotask(() => {
+        kbInputPumpScheduled = false;
+        const batch = kbInputQueue.splice(0);
+        batch.sort((a, b) => a.order - b.order);
+        for (let i = 0; i < batch.length; i++) {
+          const item = batch[i];
+          fireKbKey(item.btn, item.fromRepeat);
+        }
+        if (kbInputQueue.length) pumpKbInputQueue();
+      });
+    }
+
+    /** @type {Map<number, { btn: HTMLElement, repeatDelay: number, repeatInterval: number, fired: boolean }>} */
     const kbActivePointers = new Map();
     let kbPointerBound = false;
-
-    function kbKeyAtPoint(x, y) {
-      const el = document.elementFromPoint(x, y);
-      if (!el || !keyboardRoot || !keyboardRoot.contains(el)) return null;
-      const btn = el.closest('.kb-key');
-      return btn && !btn.disabled ? btn : null;
-    }
+    let kbPointerSeq = 0;
 
     function stopKbKeyRepeat(rec) {
       clearTimeout(rec.repeatDelay);
@@ -2128,6 +2155,17 @@ ${DEFAULT_SCORING_HTML}`;
       kbActivePointers.delete(pointerId);
     }
 
+    function beginKbPointer(pointerId, btn) {
+      if (kbActivePointers.has(pointerId)) clearKbPointer(pointerId);
+      const rec = { btn, repeatDelay: 0, repeatInterval: 0, fired: false };
+      kbActivePointers.set(pointerId, rec);
+      if (btn.setPointerCapture) {
+        try { btn.setPointerCapture(pointerId); } catch (_) { /* ignore */ }
+      }
+      btn.classList.add('kb-pressed');
+      return rec;
+    }
+
     function ensureKeyboardPointerHandling() {
       if (kbPointerBound || !keyboardRoot) return;
       kbPointerBound = true;
@@ -2137,30 +2175,22 @@ ${DEFAULT_SCORING_HTML}`;
         if (!btn || btn.disabled) return;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
-        if (kbActivePointers.has(e.pointerId)) return;
+        e.stopPropagation();
 
-        const rec = { btn, repeatDelay: 0, repeatInterval: 0 };
-        kbActivePointers.set(e.pointerId, rec);
-        if (btn.setPointerCapture) btn.setPointerCapture(e.pointerId);
-        btn.classList.add('kb-pressed');
-        fireKbKey(btn, false);
+        const rec = beginKbPointer(e.pointerId, btn);
+        if (!rec.fired) {
+          rec.fired = true;
+          scheduleKbInput(btn, false);
+        }
         startKbKeyRepeat(rec);
-      }, { passive: false });
+      }, { passive: false, capture: true });
 
       keyboardRoot.addEventListener('pointermove', e => {
         const rec = kbActivePointers.get(e.pointerId);
         if (!rec) return;
-        const under = kbKeyAtPoint(e.clientX, e.clientY);
-        if (!under || under === rec.btn) return;
-        rec.btn.classList.remove('kb-pressed');
-        rec.btn = under;
-        under.classList.add('kb-pressed');
-        if (under.setPointerCapture) {
-          try { under.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-        }
-        fireKbKey(under, false);
-        startKbKeyRepeat(rec);
-      });
+        if (rec.btn.classList.contains('back')) return;
+        e.preventDefault();
+      }, { passive: false });
 
       function onPointerEnd(e) {
         const rec = kbActivePointers.get(e.pointerId);
@@ -2171,8 +2201,8 @@ ${DEFAULT_SCORING_HTML}`;
         clearKbPointer(e.pointerId);
       }
 
-      keyboardRoot.addEventListener('pointerup', onPointerEnd);
-      keyboardRoot.addEventListener('pointercancel', onPointerEnd);
+      keyboardRoot.addEventListener('pointerup', onPointerEnd, { capture: true });
+      keyboardRoot.addEventListener('pointercancel', onPointerEnd, { capture: true });
       keyboardRoot.addEventListener('lostpointercapture', e => {
         if (kbActivePointers.has(e.pointerId)) clearKbPointer(e.pointerId);
       });
@@ -2185,7 +2215,7 @@ ${DEFAULT_SCORING_HTML}`;
         if (btn.disabled) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          fireKbKey(btn, false);
+          scheduleKbInput(btn, false);
         }
       });
     }
@@ -3989,6 +4019,8 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function buildKeyboard() {
+      kbInputQueue.length = 0;
+      kbInputPumpScheduled = false;
       kbActivePointers.forEach((_, pointerId) => clearKbPointer(pointerId));
       keyboardRoot.innerHTML = '';
       kbGuessBtn = null;
