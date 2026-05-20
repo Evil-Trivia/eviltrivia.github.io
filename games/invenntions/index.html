@@ -1447,6 +1447,16 @@
       touch-action: manipulation;
     }
     .inv-archive-round-btn:active { background: #f0f4f8; }
+    .inv-archive-round-btn.is-finished {
+      border-color: #81c784;
+      background: #f1f8f2;
+    }
+    .inv-archive-round-btn.is-in-progress {
+      border-color: #e57373;
+      background: #fff8f8;
+    }
+    .inv-archive-round-btn.is-finished:active { background: #e8f5e9; }
+    .inv-archive-round-btn.is-in-progress:active { background: #ffebee; }
     .inv-archive-round-btn .inv-archive-title {
       display: block;
       font-weight: bold;
@@ -1479,7 +1489,7 @@
       font-style: italic;
     }
     .inv-archive-round-btn .sub.inv-archive-in-progress {
-      color: #4a90c2;
+      color: #c62828;
       font-style: normal;
       font-weight: bold;
     }
@@ -2209,22 +2219,35 @@ ${DEFAULT_SCORING_HTML}`;
       writeUserProfile(profile);
     }
 
+    function findProgressForRound(roundId) {
+      if (!roundId) return null;
+      const sessionKey = sessionKeyForRoundId(roundId);
+
+      const fromStorage = readPlayProgress();
+      if (fromStorage && fromStorage.sessionKey && playSessionKeysMatch(fromStorage.sessionKey, sessionKey)) {
+        return fromStorage;
+      }
+
+      const profile = readUserProfile();
+      const saved = profile.progressByRound && profile.progressByRound[roundId];
+      if (!saved) return null;
+      if (saved.sessionKey && playSessionKeysMatch(saved.sessionKey, sessionKey)) return saved;
+      if (saved.roundId === roundId || String(saved.playSessionRoundKey || '').split(',')[0].trim() === roundId) {
+        return saved;
+      }
+      return null;
+    }
+
     function getRoundPlayStatus(roundId) {
       const submission = getSubmissionForRound(roundId);
       if (submission && submission.submitted) {
         return { type: 'submitted', submission };
       }
-      const progress = readPlayProgress();
-      if (progress && playSessionKeysMatch(progress.sessionKey, sessionKeyForRoundId(roundId)) && progress.phase === 'play') {
-        return { type: 'in_progress', progress };
-      }
-      const profile = readUserProfile();
-      const saved = profile.progressByRound && profile.progressByRound[roundId];
-      if (saved && saved.phase === 'play') {
-        return { type: 'in_progress', progress: saved };
-      }
-      if (saved && saved.phase === 'finish' && !saved.scoreSavedThisSession) {
-        return { type: 'in_progress', progress: saved };
+      const progress = findProgressForRound(roundId);
+      if (progress) {
+        if (progress.phase === 'play' || (progress.phase === 'finish' && !progress.scoreSavedThisSession)) {
+          return { type: 'in_progress', progress };
+        }
       }
       return { type: 'not_played' };
     }
@@ -3762,8 +3785,7 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
-    function formatArchiveStatus(entry) {
-      const status = entry.playStatus || getRoundPlayStatus(entry.id);
+    function formatArchiveStatus(status) {
       if (status.type === 'submitted') {
         const sub = status.submission;
         const pts = typeof sub.points === 'number' ? sub.points : '—';
@@ -3794,9 +3816,13 @@ ${DEFAULT_SCORING_HTML}`;
       archiveCatalog.forEach(entry => {
         const btn = document.createElement('button');
         btn.type = 'button';
+        const status = getRoundPlayStatus(entry.id);
+        entry.playStatus = status;
         btn.className = 'inv-archive-round-btn';
+        if (status.type === 'submitted') btn.classList.add('is-finished');
+        else if (status.type === 'in_progress') btn.classList.add('is-in-progress');
         const dateLabel = formatPlayDate(entry.playDate);
-        const statusHtml = formatArchiveStatus(entry);
+        const statusHtml = formatArchiveStatus(status);
         btn.innerHTML = `
           <span class="inv-archive-title">${esc(entry.label)}</span>
           <span class="sub">${esc(dateLabel)}</span>
