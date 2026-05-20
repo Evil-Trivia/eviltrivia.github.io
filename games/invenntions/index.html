@@ -6,6 +6,13 @@
   <title>Evil Trivia — InVennTions</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html.inv-quiz-active,
+    body.inv-quiz-active {
+      overflow: hidden;
+      height: 100%;
+      max-height: 100dvh;
+      overscroll-behavior: none;
+    }
     body {
       font-family: Arial, Helvetica, sans-serif;
       background: #ffcc00;
@@ -15,9 +22,47 @@
       line-height: 1.35;
       padding-bottom: env(safe-area-inset-bottom, 12px);
     }
-    .wrap { max-width: 720px; margin: 0 auto; overflow-x: visible; }
+    body.inv-quiz-active {
+      min-height: 0;
+      padding: 5px 6px 0;
+      padding-bottom: 0;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      overflow-x: visible;
+    }
+    body.inv-quiz-active .wrap {
+      height: 100%;
+      max-height: 100dvh;
+      overflow: hidden;
+    }
     #quizCard:not(.hidden) {
-      padding-bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-height: 100dvh;
+      overflow: hidden;
+      padding-bottom: 0;
+    }
+    body.inv-quiz-active #playCard.card {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      margin-bottom: 0;
+      padding: 4px 6px;
+      display: flex;
+      flex-direction: column;
+    }
+    body.inv-quiz-active #boardArea {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+    body.inv-quiz-active #puzzleMount {
+      transform-origin: top center;
+      overflow: hidden;
+      padding: 1px 0;
     }
     h1.mg-game-title {
       font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
@@ -43,7 +88,7 @@
       text-align: center;
       font-size: 0.72rem;
       color: #555;
-      margin: 0 0 2px;
+      margin: 0 0 1px;
       line-height: 1.25;
       padding: 0 2px;
     }
@@ -51,7 +96,7 @@
       text-align: center;
       font-size: 0.75rem;
       color: #555;
-      margin-bottom: 6px;
+      margin-bottom: 3px;
     }
     .stat-bar span { font-weight: bold; color: #c45c5c; }
     .stat-bar span.stat-hints { color: #6a7a8c; }
@@ -78,7 +123,7 @@
       overflow: visible;
     }
     #puzzleMount {
-      padding: 2px 0 3px;
+      padding: 1px 0;
     }
 
     /* Title row: center title on page; equal side columns balance asymmetric buttons */
@@ -87,7 +132,7 @@
       grid-template-columns: 1fr auto 1fr;
       align-items: start;
       gap: 4px;
-      margin-bottom: 2px;
+      margin-bottom: 1px;
     }
     .mg-title-side {
       display: flex;
@@ -243,13 +288,13 @@
     .mg-phrase-block {
       overflow: visible;
       position: relative;
-      margin-bottom: 3px;
-      padding: 2px 0;
+      margin-bottom: 1px;
+      padding: 1px 0;
     }
     .mg-main-row-wrap {
       position: relative;
       isolation: isolate;
-      padding: 2px 1px;
+      padding: 1px;
     }
     .mg-phrase-sq-svg {
       position: absolute;
@@ -492,21 +537,20 @@
     }
 
     .com-prompt .com-hint-inline:not(:empty) {
-      margin-top: 6px;
-      padding-top: 5px;
+      margin-top: 3px;
+      padding-top: 2px;
       border-top: 1px solid #e5e5e0;
     }
 
     .com-section {
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 2px solid #e0e0d8;
+      margin-top: 4px;
+      padding-top: 0;
       overflow: visible;
     }
     .com-prompt {
       font-size: 0.85rem;
-      margin: 0 0 6px;
-      padding: 6px 8px;
+      margin: 0 0 3px;
+      padding: 4px 6px;
       background: #f8f8f4;
       border-radius: 4px;
       border: 1px solid #e0e0d8;
@@ -598,8 +642,8 @@
       display: flex;
       justify-content: center;
       align-items: stretch;
-      gap: 5px;
-      margin-bottom: 2px;
+      gap: 2px;
+      margin-bottom: 1px;
       flex-wrap: nowrap;
     }
     .kb-row .kb-key:not(.wide):not(.space):not(.guess) {
@@ -1599,6 +1643,50 @@
       puzzleMount.querySelectorAll('.mg-answer-strip[id]').forEach(fitAnswerStripFont);
     }
 
+    let boardViewportFitBound = false;
+
+    function fitBoardToViewport() {
+      if (quizCard.classList.contains('hidden') || phase === 'finish') return;
+      const boardAreaEl = document.getElementById('boardArea');
+      const playCard = document.getElementById('playCard');
+      if (!boardAreaEl || !playCard || !puzzleMount) return;
+
+      puzzleMount.style.transform = '';
+      puzzleMount.style.width = '';
+      boardAreaEl.style.height = '';
+      boardAreaEl.style.minHeight = '';
+
+      const kbVisible = keyboardWrap && !keyboardWrap.classList.contains('hidden-kb');
+      const kbH = kbVisible ? keyboardWrap.offsetHeight : 0;
+      const titleRow = document.getElementById('mgTitleRow');
+      const titleH = titleRow ? titleRow.offsetHeight : 0;
+      const statH = statBar && !statBar.classList.contains('hidden') ? statBar.offsetHeight : 0;
+      const toastH = toastEl && toastEl.textContent.trim() ? toastEl.offsetHeight : 0;
+      const bodyStyle = getComputedStyle(document.body);
+      const padY = (parseFloat(bodyStyle.paddingTop) || 0) + (parseFloat(bodyStyle.paddingBottom) || 0);
+      const cardStyle = getComputedStyle(playCard);
+      const cardPadY = (parseFloat(cardStyle.paddingTop) || 0) + (parseFloat(cardStyle.paddingBottom) || 0);
+      const avail = window.innerHeight - padY - titleH - statH - toastH - kbH - cardPadY - 6;
+      const contentH = puzzleMount.offsetHeight;
+      if (contentH <= 0 || avail <= 0) return;
+
+      if (contentH > avail) {
+        const scale = Math.max(0.52, avail / contentH);
+        puzzleMount.style.transform = `scale(${scale})`;
+        puzzleMount.style.width = `${100 / scale}%`;
+        boardAreaEl.style.height = `${Math.ceil(contentH * scale)}px`;
+        boardAreaEl.style.minHeight = `${Math.ceil(contentH * scale)}px`;
+      }
+    }
+
+    function ensureBoardViewportFit() {
+      if (boardViewportFitBound) return;
+      boardViewportFitBound = true;
+      window.addEventListener('resize', () => {
+        if (!document.body.classList.contains('inv-quiz-active')) return;
+        fitBoardToViewport();
+      });
+    }
     let textFitResizeBound = false;
     function ensureTextFitResizeRefresh() {
       if (textFitResizeBound) return;
@@ -2343,6 +2431,7 @@
       closeAllModals();
       phase = 'play';
       roundIndex = 0;
+      leaveQuizShell();
       quizCard.classList.add('hidden');
       keyboardWrap.classList.add('hidden-kb');
       const btnScore = document.getElementById('btnScoreModal');
@@ -2442,6 +2531,21 @@
       loadingState.classList.add('hidden');
       errorState.classList.add('hidden');
       quizCard.classList.remove('hidden');
+      document.documentElement.classList.add('inv-quiz-active');
+      document.body.classList.add('inv-quiz-active');
+      document.body.classList.remove('inv-title-active');
+    }
+
+    function leaveQuizShell() {
+      document.documentElement.classList.remove('inv-quiz-active');
+      document.body.classList.remove('inv-quiz-active');
+      puzzleMount.style.transform = '';
+      puzzleMount.style.width = '';
+      const boardAreaEl = document.getElementById('boardArea');
+      if (boardAreaEl) {
+        boardAreaEl.style.height = '';
+        boardAreaEl.style.minHeight = '';
+      }
     }
 
     function esc(s) {
@@ -2673,7 +2777,10 @@
       }
       updateFocusHighlight();
       preprocessClueBoxLayout();
-      scheduleClueHintTextFit(true, restoreSolvedPhraseSquircles);
+      scheduleClueHintTextFit(true, () => {
+        restoreSolvedPhraseSquircles();
+        fitBoardToViewport();
+      });
     }
 
     function updateFocusHighlight() {
@@ -3227,6 +3334,7 @@
       statBar.classList.remove('hidden');
       renderBoard();
       showQuizShell();
+      requestAnimationFrame(() => fitBoardToViewport());
     }
 
     async function loadQuiz() {
@@ -3244,6 +3352,7 @@
 
     bindModalUi();
     ensureTextFitResizeRefresh();
+    ensureBoardViewportFit();
     initTitleScreen();
   </script>
 </body>
