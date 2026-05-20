@@ -315,6 +315,12 @@
       border-top: 1px solid #e8e8e0;
       text-align: center;
     }
+    .finish-panel .lb-heading {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: 0.95rem;
+      color: #2c3e50;
+      margin: 1em 0 0.5em;
+    }
     .lb-share-btn {
       display: inline-block;
       padding: 10px 18px;
@@ -1253,7 +1259,6 @@
       <div class="inv-title-menu" id="titleMenu">
         <button type="button" class="inv-menu-btn" id="btnTitlePlay" disabled>Play</button>
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleArchive">Archive</button>
-        <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleLeaderboard">Leaderboard</button>
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleInfo">What am I doing here?</button>
       </div>
       <p class="inv-title-status" id="titleStatus" aria-hidden="true"></p>
@@ -1331,19 +1336,6 @@
       <button type="button" class="mg-modal-close" id="aboutModalClose" aria-label="Close">&times;</button>
       <div class="mg-modal-header" id="aboutModalTitle">About Evil Trivia</div>
       <div id="aboutModalBody" class="mg-modal-body mg-rich"></div>
-    </div>
-  </div>
-  <div id="leaderboardModal" class="mg-modal-backdrop hidden" role="presentation">
-    <div class="mg-modal mg-modal-wide" role="dialog" aria-modal="true" aria-labelledby="leaderboardModalTitle" tabindex="-1">
-      <button type="button" class="mg-modal-close" id="leaderboardModalClose" aria-label="Close">&times;</button>
-      <div class="mg-modal-header" id="leaderboardModalTitle">Leaderboard</div>
-      <div class="mg-modal-body">
-        <div id="leaderboardBody"><p class="mg-modal-muted">Loading…</p></div>
-        <div class="lb-share-row">
-          <button type="button" class="lb-share-btn" id="btnShareGame">Share game</button>
-          <p class="lb-share-msg" id="shareGameMsg" aria-live="polite"></p>
-        </div>
-      </div>
     </div>
   </div>
   <div id="scoreModal" class="mg-modal-backdrop hidden" role="presentation">
@@ -1484,6 +1476,8 @@ ${DEFAULT_SCORING_HTML}`;
     let hintsButtonTaps = 0;
     /** Answers revealed via REVEAL button (-2 each). */
     let answerRevealCount = 0;
+    let scoreSavedThisSession = false;
+    let lastSavedDisplayName = '';
     /** Running session score. */
     let scorePoints = 0;
     /** Pending two-tap confirm: keys "L-0", "R-1", "C" */
@@ -2743,7 +2737,6 @@ ${DEFAULT_SCORING_HTML}`;
       document.body.classList.add('inv-title-active');
       document.getElementById('btnTitlePlay')?.addEventListener('click', onTitlePlay);
       document.getElementById('btnTitleInfo')?.addEventListener('click', () => { openInfoModal(); });
-      document.getElementById('btnTitleLeaderboard')?.addEventListener('click', () => { openLeaderboardModal(); });
       document.getElementById('btnTitleArchive')?.addEventListener('click', () => {
         if (!archiveCatalog.length) return;
         showArchiveScreen();
@@ -2770,7 +2763,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function closeAllModals() {
-      ['helpModal', 'aboutModal', 'infoModal', 'scoreModal', 'leaderboardModal'].forEach(mid => {
+      ['helpModal', 'aboutModal', 'infoModal', 'scoreModal'].forEach(mid => {
         const el = document.getElementById(mid);
         if (el) el.classList.add('hidden');
       });
@@ -2850,10 +2843,27 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
-    async function openLeaderboardModal() {
-      document.getElementById('leaderboardModal')?.classList.remove('hidden');
-      const msg = document.getElementById('shareGameMsg');
-      if (msg) msg.textContent = '';
+    async function showFinishLeaderboard(displayName) {
+      const scoreBody = document.getElementById('scoreModalBody');
+      if (!scoreBody) return;
+      scoreBody.innerHTML = `
+        <div class="summary">
+          Thanks, <strong>${esc(displayName)}</strong>! Your score: <strong>${getDisplayScore()}</strong>
+        </div>
+        <h2 class="lb-heading">Leaderboard</h2>
+        <div id="leaderboardBody"><p class="mg-modal-muted">Loading…</p></div>
+        <div class="lb-share-row">
+          <button type="button" class="lb-share-btn" id="btnShareGame">Share game</button>
+          <p class="lb-share-msg" id="shareGameMsg" aria-live="polite"></p>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="secondary" id="playAgainBtn">Play again</button>
+        </div>`;
+      document.getElementById('btnShareGame')?.addEventListener('click', () => { shareGameLink(); });
+      document.getElementById('playAgainBtn')?.addEventListener('click', () => {
+        closeAllModals();
+        loadQuiz();
+      });
       await loadPublicLeaderboard();
     }
 
@@ -2892,7 +2902,6 @@ ${DEFAULT_SCORING_HTML}`;
       backdropClose('helpModal');
       backdropClose('aboutModal');
       backdropClose('infoModal');
-      backdropClose('leaderboardModal');
       backdropClose('scoreModal');
 
       document.getElementById('helpModalClose')?.addEventListener('click', () => {
@@ -2904,10 +2913,6 @@ ${DEFAULT_SCORING_HTML}`;
       document.getElementById('infoModalClose')?.addEventListener('click', () => {
         document.getElementById('infoModal').classList.add('hidden');
       });
-      document.getElementById('leaderboardModalClose')?.addEventListener('click', () => {
-        document.getElementById('leaderboardModal').classList.add('hidden');
-      });
-      document.getElementById('btnShareGame')?.addEventListener('click', () => { shareGameLink(); });
       document.getElementById('scoreModalClose')?.addEventListener('click', () => {
         document.getElementById('scoreModal').classList.add('hidden');
       });
@@ -2918,8 +2923,11 @@ ${DEFAULT_SCORING_HTML}`;
         e.preventDefault();
         openAboutModal();
       });
-      document.getElementById('btnScoreModal')?.addEventListener('click', () => {
+      document.getElementById('btnScoreModal')?.addEventListener('click', async () => {
         if (phase !== 'finish') return;
+        if (scoreSavedThisSession && lastSavedDisplayName) {
+          await showFinishLeaderboard(lastSavedDisplayName);
+        }
         document.getElementById('scoreModal').classList.remove('hidden');
       });
     }
@@ -3543,6 +3551,8 @@ ${DEFAULT_SCORING_HTML}`;
     function showFinish() {
       keyboardWrap.classList.add('hidden-kb');
       pageSubtitle.textContent = 'All done!';
+      scoreSavedThisSession = false;
+      lastSavedDisplayName = '';
 
       const total = finishTotalPossible;
       const correct = finishTotalCorrect;
@@ -3609,6 +3619,9 @@ ${DEFAULT_SCORING_HTML}`;
         toastEl.textContent = 'Score saved. Thanks for playing!';
         const sb = document.getElementById('saveScoreBtn');
         if (sb) sb.disabled = true;
+        scoreSavedThisSession = true;
+        lastSavedDisplayName = displayName;
+        await showFinishLeaderboard(displayName);
       } catch (e) {
         console.error(e);
         try {
@@ -3618,6 +3631,9 @@ ${DEFAULT_SCORING_HTML}`;
           toastEl.textContent = 'Score saved. Thanks for playing!';
           const sb = document.getElementById('saveScoreBtn');
           if (sb) sb.disabled = true;
+          scoreSavedThisSession = true;
+          lastSavedDisplayName = displayName;
+          await showFinishLeaderboard(displayName);
         } catch (e2) {
           console.error(e2);
           toastEl.textContent = 'Could not save score.';
@@ -3651,7 +3667,7 @@ ${DEFAULT_SCORING_HTML}`;
         return;
       }
       if (e.key === 'Escape') {
-        const ids = ['helpModal', 'aboutModal', 'infoModal', 'scoreModal', 'leaderboardModal'];
+        const ids = ['helpModal', 'aboutModal', 'infoModal', 'scoreModal'];
         for (let i = ids.length - 1; i >= 0; i--) {
           const el = document.getElementById(ids[i]);
           if (el && !el.classList.contains('hidden')) {
@@ -3719,6 +3735,8 @@ ${DEFAULT_SCORING_HTML}`;
       revealedComHints = 0;
       hintsButtonTaps = 0;
       answerRevealCount = 0;
+      scoreSavedThisSession = false;
+      lastSavedDisplayName = '';
       scorePoints = 0;
       hintPending.clear();
       clearAllHintTimers();
