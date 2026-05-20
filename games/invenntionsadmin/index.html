@@ -192,6 +192,7 @@
     .lb-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
     .lb-table th, .lb-table td { padding: 8px 6px; text-align: left; border-bottom: 1px solid #ececec; }
     .lb-table th { background: #fafafa; color: #555; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .lb-table td.lb-actions { text-align: right; white-space: nowrap; }
     .lb-empty { color: #666; font-size: 0.9rem; text-align: center; padding: 24px 12px; }
     @media (max-width: 640px) {
       .round-row { grid-template-columns: 1fr; }
@@ -528,6 +529,7 @@
     let siteSettings = { gameTitle: '', infoHtml: '', playerHelpHtml: '', aboutEvilTriviaHtml: '' };
     let editingRoundId = null;
     let allScores = [];
+    let leaderboardModalRoundId = null;
 
     const DEFAULT_SCORING_HTML = `
 <h2>Scoring</h2>
@@ -1271,17 +1273,8 @@ ${DEFAULT_SCORING_HTML}`;
         });
     }
 
-    async function openLeaderboardModal(roundId) {
-      const r = archive[roundId];
-      if (!r) return;
-      const modal = document.getElementById('leaderboardModal');
-      const title = document.getElementById('leaderboardModalTitle');
+    function renderLeaderboardModalBody(roundId) {
       const body = document.getElementById('leaderboardModalBody');
-      title.textContent = 'Leaderboard — ' + roundLabel(r, roundId);
-      body.innerHTML = '<p class="lb-empty">Loading…</p>';
-      modal.classList.remove('hidden');
-
-      if (!allScores.length) await loadScoresCache();
       const rows = scoresForRound(roundId);
 
       if (!rows.length) {
@@ -1290,7 +1283,7 @@ ${DEFAULT_SCORING_HTML}`;
       }
 
       let html = '<table class="lb-table"><thead><tr>'
-        + '<th>#</th><th>Name</th><th>Score</th><th>Time</th><th>Submitted</th>'
+        + '<th>#</th><th>Name</th><th>Score</th><th>Time</th><th>Submitted</th><th></th>'
         + '</tr></thead><tbody>';
       rows.forEach((s, i) => {
         html += '<tr>'
@@ -1299,13 +1292,50 @@ ${DEFAULT_SCORING_HTML}`;
           + '<td>' + pointsOf(s) + '</td>'
           + '<td>' + escapeHtml(formatElapsedMs(elapsedMsOf(s))) + '</td>'
           + '<td>' + escapeHtml(formatDateSubmitted(s)) + '</td>'
+          + '<td class="lb-actions"><button type="button" class="small danger" data-act="del" data-score-id="' + escapeAttr(s.id) + '">Delete</button></td>'
           + '</tr>';
       });
       html += '</tbody></table>';
       body.innerHTML = html;
+      body.querySelectorAll('[data-act="del"]').forEach(btn => {
+        btn.addEventListener('click', () => deleteScoreEntry(btn.dataset.scoreId, roundId));
+      });
+    }
+
+    async function deleteScoreEntry(scoreId, roundId) {
+      if (!scoreId) return;
+      if (!confirm('Remove this score from the leaderboard?')) return;
+      try {
+        await window.dbRemove(window.dbRef(window.db, `games/${GAME_ID}/answers/${scoreId}`));
+        try {
+          await window.dbRemove(window.dbRef(window.db, `publicAnswers/${GAME_ID}/${scoreId}`));
+        } catch (mirrorErr) {
+          console.warn('InVennTions admin public mirror delete:', mirrorErr);
+        }
+        allScores = allScores.filter(x => x.id !== scoreId);
+        renderLeaderboardModalBody(roundId || leaderboardModalRoundId);
+      } catch (e) {
+        alert(e.message || 'Could not delete score.');
+      }
+    }
+
+    async function openLeaderboardModal(roundId) {
+      const r = archive[roundId];
+      if (!r) return;
+      leaderboardModalRoundId = roundId;
+      const modal = document.getElementById('leaderboardModal');
+      const title = document.getElementById('leaderboardModalTitle');
+      const body = document.getElementById('leaderboardModalBody');
+      title.textContent = 'Leaderboard — ' + roundLabel(r, roundId);
+      body.innerHTML = '<p class="lb-empty">Loading…</p>';
+      modal.classList.remove('hidden');
+
+      if (!allScores.length) await loadScoresCache();
+      renderLeaderboardModalBody(roundId);
     }
 
     function closeLeaderboardModal() {
+      leaderboardModalRoundId = null;
       document.getElementById('leaderboardModal').classList.add('hidden');
     }
 
