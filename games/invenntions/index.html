@@ -2223,6 +2223,9 @@ ${DEFAULT_SCORING_HTML}`;
       if (saved && saved.phase === 'play') {
         return { type: 'in_progress', progress: saved };
       }
+      if (saved && saved.phase === 'finish' && !saved.scoreSavedThisSession) {
+        return { type: 'in_progress', progress: saved };
+      }
       return { type: 'not_played' };
     }
 
@@ -2333,14 +2336,30 @@ ${DEFAULT_SCORING_HTML}`;
     }
     window.invClearPlayProgress = invClearPlayProgress;
 
-    function tryRestorePlayProgress(opts) {
-      const allowFinishRestore = opts && opts.allowFinishRestore;
-      if (window.invIsAdmin) return false;
-      const saved = readPlayProgress();
-      if (!saved || !saved.sessionKey || !gameRounds.length) return false;
-      if (!playSessionKeysMatch(saved.sessionKey, computePlaySessionKey())) return false;
-      if (saved.phase === 'finish' && !allowFinishRestore) return false;
-      if (saved.roundIndex < 0 || saved.roundIndex >= gameRounds.length) return false;
+    function findProgressForCurrentRound() {
+      const sessionKey = computePlaySessionKey();
+      const roundId = getPlayRoundId();
+      if (!sessionKey || !gameRounds.length) return null;
+
+      const fromStorage = readPlayProgress();
+      if (fromStorage && fromStorage.sessionKey && playSessionKeysMatch(fromStorage.sessionKey, sessionKey)) {
+        return fromStorage;
+      }
+
+      if (roundId) {
+        const profile = readUserProfile();
+        const saved = profile.progressByRound && profile.progressByRound[roundId];
+        if (!saved) return null;
+        if (saved.sessionKey && playSessionKeysMatch(saved.sessionKey, sessionKey)) return saved;
+        if (saved.roundId === roundId || String(saved.playSessionRoundKey || '').split(',')[0].trim() === roundId) {
+          return saved;
+        }
+      }
+      return null;
+    }
+
+    function applyProgressPayload(saved) {
+      if (!saved || saved.roundIndex < 0 || saved.roundIndex >= gameRounds.length) return false;
 
       roundIndex = saved.roundIndex;
       phase = saved.phase === 'finish' ? 'finish' : 'play';
@@ -2375,7 +2394,75 @@ ${DEFAULT_SCORING_HTML}`;
       updateHeaderTitles();
       updateScoreStat();
       resumePlayTimer(typeof saved.playTimerElapsedMs === 'number' ? saved.playTimerElapsedMs : 0);
+      try {
+        localStorage.setItem(INV_PROGRESS_STORAGE_KEY, JSON.stringify(saved));
+      } catch (_) { /* private mode */ }
       return true;
+    }
+
+    function restoreSubmittedRound(submission) {
+      if (!gameRounds.length || !submission || !submission.submitted) return false;
+
+      roundIndex = 0;
+      const r = gameRounds[roundIndex];
+      puzzles = r.puzzles;
+      commonality = r.commonality;
+      activeRoundSubtitle = r.subtitle;
+
+      puzzleSolved = puzzles.map(() => true);
+      puzzleBuffers = puzzles.map(p => p.answer || primaryAnswerDisplay(p.answerRaw || ''));
+      revealedLeftArr = puzzles.map(p => (p.leftHints ? p.leftHints.length : 0));
+      revealedRightArr = puzzles.map(p => (p.rightHints ? p.rightHints.length : 0));
+
+      if (commonality) {
+        commonalitySolved = true;
+        commonalityBuffer = commonality.answer || primaryAnswerDisplay(commonality.answerRaw || '');
+        revealedComHints = commonality.hints ? commonality.hints.length : 0;
+      } else {
+        commonalitySolved = false;
+        commonalityBuffer = '';
+        revealedComHints = 0;
+      }
+
+      phase = 'finish';
+      scorePoints = typeof submission.points === 'number' ? submission.points : 0;
+      const total = puzzles.length + (commonality ? 1 : 0);
+      finishTotalCorrect = total;
+      finishTotalPossible = total;
+      scoreSavedThisSession = true;
+      lastSavedDisplayName = submission.displayName ? String(submission.displayName) : '';
+
+      const sessionKey = computePlaySessionKey();
+      writeSubmitRecord({
+        sessionKey,
+        roundId: getPlayRoundId(),
+        submitted: true,
+        displayName: lastSavedDisplayName || 'Anonymous',
+        points: submission.points,
+        elapsedMs: submission.elapsedMs,
+        rank: submission.rank
+      });
+
+      hintPending.clear();
+      clearAllHintTimers();
+      updateHeaderTitles();
+      updateScoreStat();
+      resumePlayTimer(typeof submission.elapsedMs === 'number' ? submission.elapsedMs : 0);
+      return true;
+    }
+
+    function tryRestoreRoundSession() {
+      if (window.invIsAdmin || !gameRounds.length) return false;
+
+      const roundId = getPlayRoundId();
+      const submission = roundId ? getSubmissionForRound(roundId) : getSubmissionForSession(computePlaySessionKey());
+      if (submission && submission.submitted) {
+        return restoreSubmittedRound(submission);
+      }
+
+      const saved = findProgressForCurrentRound();
+      if (!saved) return false;
+      return applyProgressPayload(saved);
     }
 
     function readSubmitRecord() {
@@ -3747,7 +3834,7 @@ ${DEFAULT_SCORING_HTML}`;
         await fetchQuizDataForRoundIds(ids);
         hideArchiveScreen();
         document.body.classList.remove('inv-title-active');
-        if (tryRestorePlayProgress({ allowFinishRestore: false })) {
+        if (tryRestoreRoundSession()) {
           startQuizUi(true);
           return;
         }
@@ -3779,7 +3866,7 @@ ${DEFAULT_SCORING_HTML}`;
 
     function onTitlePlay() {
       if (!quizPrefetchOk) return;
-      if (tryRestorePlayProgress({ allowFinishRestore: true })) {
+      if (tryRestoreRoundSession()) {
         hideTitleScreen();
         hideArchiveScreen();
         startQuizUi(true);
@@ -5118,8 +5205,11 @@ ${DEFAULT_SCORING_HTML}`;
       }
       ensureProgressAutosave();
       if (phase === 'finish') {
+        pageSubtitle.textContent = 'All done!';
+        keyboardWrap.classList.add('hidden-kb');
+        stopPlayTimer();
         if (scoreSavedThisSession && lastSavedDisplayName) {
-          showFinishLeaderboard(lastSavedDisplayName);
+          showFinishLeaderboard(lastSavedDisplayName).then(() => revealScoreModal());
         } else {
           showFinish(true);
         }
