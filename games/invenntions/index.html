@@ -621,7 +621,7 @@
       75% { transform: translateX(6px); }
     }
 
-    /* Custom keyboard — pinned to bottom of viewport */
+    /* Custom keyboard — pinned to bottom; 44–48px touch targets (Material / HIG) */
     .keyboard-wrap {
       position: fixed;
       bottom: 0;
@@ -631,56 +631,82 @@
       max-width: 720px;
       z-index: 8000;
       background: linear-gradient(180deg, rgba(240,240,235,0.96) 0%, #e4e4de 100%);
-      padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0));
+      padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0));
       margin: 0;
       border-top: 1px solid #ccc;
       backdrop-filter: blur(6px);
       box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
     }
     .keyboard-wrap.hidden-kb { display: none; }
     .kb-row {
       display: flex;
       justify-content: center;
       align-items: stretch;
-      gap: 2px;
-      margin-bottom: 1px;
+      gap: 5px;
+      margin-bottom: 5px;
       flex-wrap: nowrap;
     }
-    .kb-row .kb-key:not(.wide):not(.space):not(.guess) {
+    .kb-row:last-child { margin-bottom: 0; }
+    .kb-row.kb-action-row { margin-bottom: 6px; }
+    .kb-row .kb-key:not(.wide):not(.space):not(.action) {
       flex: 1 1 0;
       min-width: 0;
     }
     .kb-key {
       min-width: 0;
-      padding: 6px 3px;
+      min-height: 44px;
+      padding: 10px 4px;
       font-family: 'Arial Black', Arial, sans-serif;
-      font-size: 0.92rem;
+      font-size: 1.05rem;
       border: 1px solid #b0b0a8;
-      border-radius: 5px;
+      border-radius: 6px;
       background: #fff;
       cursor: pointer;
       touch-action: manipulation;
       user-select: none;
       box-shadow: 0 1px 0 #999;
       color: #222;
+      -webkit-tap-highlight-color: transparent;
     }
-    .kb-key:active { transform: translateY(1px); box-shadow: none; }
-    .kb-key.wide { flex: 0 0 auto; min-width: 52px; padding-left: 8px; padding-right: 8px; }
+    @media (max-width: 520px) {
+      .kb-key {
+        min-height: 48px;
+        font-size: 1.12rem;
+      }
+      .kb-key.action { min-height: 50px; }
+    }
+    .kb-key:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+    .kb-key:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .kb-key.wide { flex: 0 0 auto; min-width: 56px; padding-left: 10px; padding-right: 10px; }
     .kb-key.space {
-      flex: 1.35 1 0;
+      flex: 1 1 100%;
       min-width: 0;
       max-width: none;
-      font-size: 0.68rem;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+    }
+    .kb-key.action {
+      flex: 1 1 0;
+      min-height: 48px;
+      font-size: 0.82rem;
+      letter-spacing: 0.05em;
     }
     .kb-key.guess {
       background: #4a90c2;
       color: #fff;
       border-color: #3a7aaa;
-      flex: 0 0 auto;
-      min-width: 64px;
-      font-size: 0.68rem;
     }
-    .kb-key.back { font-size: 0.95rem; min-width: 48px; }
+    .kb-key.reveal {
+      background: #5a9e5c;
+      color: #fff;
+      border-color: #4a8a4c;
+    }
+    .kb-key.back { font-size: 1.1rem; min-width: 56px; }
 
     /* Title screen (local assets; no Firebase for layout) */
     body.inv-title-active {
@@ -1388,6 +1414,7 @@
           ? document.querySelector(`.mg-phrase-block[data-phrase-i="${m[2]}"]`)
           : null;
         scheduleClueHintTextFit(false, null, scope);
+        updateKeyboardActions();
       }, HINT_CONFIRM_MS));
     }
 
@@ -2625,6 +2652,7 @@
           scheduleHintPendingRevert(key);
         }
         scheduleClueHintTextFit(false, null, clueWords.closest('.mg-phrase-block'));
+        updateKeyboardActions();
         return;
       }
 
@@ -2644,6 +2672,7 @@
           scheduleHintPendingRevert('C');
         }
         scheduleClueHintTextFit();
+        updateKeyboardActions();
       }
     }
 
@@ -2780,13 +2809,17 @@
       scheduleClueHintTextFit(true, () => {
         restoreSolvedPhraseSquircles();
         fitBoardToViewport();
+        updateKeyboardActions();
       });
     }
 
     function updateFocusHighlight() {
       const prevFocused = document.querySelectorAll('.mg-answer-strip.focused');
       for (let fi = 0; fi < prevFocused.length; fi++) prevFocused[fi].classList.remove('focused');
-      if (phase === 'finish') return;
+      if (phase === 'finish') {
+        updateKeyboardActions();
+        return;
+      }
       if (focusKind === 'phrase') {
         const el = document.getElementById(`strip-p-${focusPuzzleIndex}`);
         if (el && !puzzleSolved[focusPuzzleIndex]) el.classList.add('focused');
@@ -2794,6 +2827,7 @@
         const comStrip = document.getElementById('strip-c');
         if (comStrip) comStrip.classList.add('focused');
       }
+      updateKeyboardActions();
     }
 
     function cycleFocus(delta) {
@@ -2865,8 +2899,99 @@
       }
     }
 
+    let kbGuessBtn = null;
+    let kbRevealBtn = null;
+
+    function canRevealHintForFocus() {
+      if (phase === 'finish') return false;
+      if (focusKind === 'phrase') {
+        const i = focusPuzzleIndex;
+        const p = puzzles[i];
+        if (!p || puzzleSolved[i]) return false;
+        const leftCan = p.leftHints.length > 0 && revealedLeftArr[i] < p.leftHints.length;
+        const rightCan = p.rightHints.length > 0 && revealedRightArr[i] < p.rightHints.length;
+        return leftCan || rightCan;
+      }
+      if (focusKind === 'commonality' && commonality && !commonalitySolved) {
+        return commonality.hints.length > 0 && revealedComHints < commonality.hints.length;
+      }
+      return false;
+    }
+
+    function updateKeyboardActions() {
+      if (!kbGuessBtn || !kbRevealBtn) return;
+      const playing = phase !== 'finish';
+      kbGuessBtn.disabled = !playing;
+      kbRevealBtn.disabled = !playing || !canRevealHintForFocus();
+    }
+
+    function onReveal() {
+      if (phase === 'finish') return;
+      if (!canRevealHintForFocus()) {
+        toastEl.textContent = 'No hints left here.';
+        setTimeout(() => { toastEl.textContent = ''; }, 1600);
+        return;
+      }
+      if (focusKind === 'phrase') {
+        const i = focusPuzzleIndex;
+        const p = puzzles[i];
+        const leftCan = p.leftHints.length > 0 && revealedLeftArr[i] < p.leftHints.length;
+        const side = leftCan ? 'L' : 'R';
+        const key = `${side}-${i}`;
+        if (hintPending.has(key)) {
+          clearHintTimer(key);
+          hintPending.delete(key);
+          if (side === 'L') revealedLeftArr[i]++;
+          else revealedRightArr[i]++;
+          hintsButtonTaps++;
+          renderPuzzleHintRow(i, p);
+        } else {
+          hintPending.add(key);
+          syncPhraseHintTapUi(i);
+          scheduleHintPendingRevert(key);
+        }
+        scheduleClueHintTextFit(false, null, document.querySelector(`.mg-phrase-block[data-phrase-i="${i}"]`));
+        updateKeyboardActions();
+        return;
+      }
+      if (focusKind === 'commonality' && commonality && !commonalitySolved) {
+        if (hintPending.has('C')) {
+          clearHintTimer('C');
+          hintPending.delete('C');
+          revealedComHints++;
+          hintsButtonTaps++;
+          renderComHintZone();
+        } else {
+          hintPending.add('C');
+          syncComHintTapUi();
+          scheduleHintPendingRevert('C');
+        }
+        scheduleClueHintTextFit();
+        updateKeyboardActions();
+      }
+    }
+
     function buildKeyboard() {
       keyboardRoot.innerHTML = '';
+      kbGuessBtn = null;
+      kbRevealBtn = null;
+
+      const actionRow = document.createElement('div');
+      actionRow.className = 'kb-row kb-action-row';
+      kbGuessBtn = document.createElement('button');
+      kbGuessBtn.type = 'button';
+      kbGuessBtn.className = 'kb-key guess action';
+      kbGuessBtn.textContent = 'GUESS';
+      kbGuessBtn.addEventListener('click', onGuess);
+      kbRevealBtn = document.createElement('button');
+      kbRevealBtn.type = 'button';
+      kbRevealBtn.className = 'kb-key reveal action';
+      kbRevealBtn.textContent = 'REVEAL';
+      kbRevealBtn.addEventListener('click', onReveal);
+      actionRow.appendChild(kbGuessBtn);
+      actionRow.appendChild(kbRevealBtn);
+      keyboardRoot.appendChild(actionRow);
+
       function row(keys, extra) {
         const d = document.createElement('div');
         d.className = 'kb-row';
@@ -2892,33 +3017,17 @@
       backBtn.addEventListener('click', () => onKeyTap('BACK'));
       row(KB_BOT, backBtn);
 
-      const row4 = document.createElement('div');
-      row4.className = 'kb-row';
-      const ap = document.createElement('button');
-      ap.type = 'button';
-      ap.className = 'kb-key';
-      ap.textContent = "'";
-      ap.addEventListener('click', () => onKeyTap("'"));
-      const hy = document.createElement('button');
-      hy.type = 'button';
-      hy.className = 'kb-key';
-      hy.textContent = '-';
-      hy.addEventListener('click', () => onKeyTap('-'));
+      const rowSpace = document.createElement('div');
+      rowSpace.className = 'kb-row';
       const sp = document.createElement('button');
       sp.type = 'button';
       sp.className = 'kb-key space';
       sp.textContent = 'SPACE';
       sp.addEventListener('click', () => onKeyTap(' '));
-      const g = document.createElement('button');
-      g.type = 'button';
-      g.className = 'kb-key guess wide';
-      g.textContent = 'GUESS';
-      g.addEventListener('click', onGuess);
-      row4.appendChild(ap);
-      row4.appendChild(hy);
-      row4.appendChild(sp);
-      row4.appendChild(g);
-      keyboardRoot.appendChild(row4);
+      rowSpace.appendChild(sp);
+      keyboardRoot.appendChild(rowSpace);
+
+      updateKeyboardActions();
     }
 
     function syncFocusedStripDisplay() {
@@ -3334,7 +3443,10 @@
       statBar.classList.remove('hidden');
       renderBoard();
       showQuizShell();
-      requestAnimationFrame(() => fitBoardToViewport());
+      requestAnimationFrame(() => {
+        fitBoardToViewport();
+        updateKeyboardActions();
+      });
     }
 
     async function loadQuiz() {
