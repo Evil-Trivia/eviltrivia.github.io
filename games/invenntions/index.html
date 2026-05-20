@@ -2187,11 +2187,13 @@ ${DEFAULT_SCORING_HTML}`;
     }
     window.invClearPlayProgress = invClearPlayProgress;
 
-    function tryRestorePlayProgress() {
+    function tryRestorePlayProgress(opts) {
+      const allowFinishRestore = opts && opts.allowFinishRestore;
       if (window.invIsAdmin) return false;
       const saved = readPlayProgress();
       if (!saved || !saved.sessionKey || !gameRounds.length) return false;
       if (saved.sessionKey !== computePlaySessionKey()) return false;
+      if (saved.phase === 'finish' && !allowFinishRestore) return false;
       if (saved.roundIndex < 0 || saved.roundIndex >= gameRounds.length) return false;
 
       roundIndex = saved.roundIndex;
@@ -2986,6 +2988,13 @@ ${DEFAULT_SCORING_HTML}`;
       return n;
     }
 
+    function collapseToSingleRoundSession() {
+      if (gameRounds.length > 1) {
+        gameRounds = [gameRounds[0]];
+      }
+      roundIndex = 0;
+    }
+
     function updateHeaderTitles() {
       pageGameTitle.textContent = activeGameTitle;
       const sub = activeRoundSubtitle.trim() || DEFAULT_PLAY_SUBTITLE;
@@ -3565,15 +3574,14 @@ ${DEFAULT_SCORING_HTML}`;
           errEl.classList.add('hidden');
         }
         await fetchQuizDataForRoundIds(ids);
-        if (tryRestorePlayProgress()) {
-          hideArchiveScreen();
-          document.body.classList.remove('inv-title-active');
+        hideArchiveScreen();
+        document.body.classList.remove('inv-title-active');
+        if (tryRestorePlayProgress({ allowFinishRestore: false })) {
           startQuizUi(true);
           return;
         }
-        hideArchiveScreen();
-        document.body.classList.remove('inv-title-active');
-        startQuizUi();
+        initRoundState(0);
+        startQuizUi(false);
       } catch (e) {
         const msg = (e && e.message) ? e.message : 'Could not load that round.';
         if (errEl) {
@@ -3600,15 +3608,17 @@ ${DEFAULT_SCORING_HTML}`;
 
     function onTitlePlay() {
       if (!quizPrefetchOk) return;
-      if (tryRestorePlayProgress()) {
+      if (tryRestorePlayProgress({ allowFinishRestore: true })) {
         hideTitleScreen();
+        hideArchiveScreen();
         startQuizUi(true);
         return;
       }
       resetPlaySession();
       initRoundState(0);
       hideTitleScreen();
-      startQuizUi();
+      hideArchiveScreen();
+      startQuizUi(false);
     }
 
     function initTitleScreen() {
@@ -4215,18 +4225,8 @@ ${DEFAULT_SCORING_HTML}`;
       const comOk = !commonality || commonalitySolved;
       if (phrasesDone && comOk) {
         const t = puzzles.length + (commonality ? 1 : 0);
-        finishTotalCorrect += t;
-        finishTotalPossible += t;
-        if (roundIndex < gameRounds.length - 1) {
-          roundIndex++;
-          phase = 'play';
-          initRoundState(roundIndex);
-          toastEl.textContent = 'Next round!';
-          setTimeout(() => { toastEl.textContent = ''; }, 1600);
-          renderBoard();
-          savePlayProgress();
-          return true;
-        }
+        finishTotalCorrect = t;
+        finishTotalPossible = t;
         phase = 'finish';
         renderBoard();
         showFinish();
@@ -4525,6 +4525,10 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function showFinish(resuming) {
+      hideArchiveScreen();
+      hideTitleScreen();
+      document.body.classList.remove('inv-title-active');
+      quizCard.classList.remove('hidden');
       keyboardWrap.classList.add('hidden-kb');
       pageSubtitle.textContent = 'All done!';
       stopPlayTimer();
@@ -4576,6 +4580,9 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function revealScoreModal() {
+      hideArchiveScreen();
+      hideTitleScreen();
+      document.body.classList.remove('inv-title-active');
       openScoreModal();
       const btnScore = document.getElementById('btnScoreModal');
       if (btnScore) btnScore.classList.remove('hidden');
@@ -4792,20 +4799,15 @@ ${DEFAULT_SCORING_HTML}`;
         roundIds = liveSnap.val().roundIds.map(String);
       }
       if (roundIds.length) {
-        const out = [];
-        for (let i = 0; i < roundIds.length; i++) {
-          const rid = roundIds[i];
-          const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
-          if (!snapExists(snap)) continue;
-          const row = archiveBlockToPlayRound(snap.val());
-          if (row) out.push(row);
-        }
-        if (out.length) {
-          activeGameId = 'live';
-          playSessionRoundKey = roundIds.join(',');
-          gameRounds = out;
-          return true;
-        }
+        const rid = roundIds[0];
+        const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
+        if (!snapExists(snap)) return false;
+        const row = archiveBlockToPlayRound(snap.val());
+        if (!row) return false;
+        activeGameId = 'live';
+        playSessionRoundKey = rid;
+        gameRounds = [row];
+        return true;
       }
       return false;
     }
@@ -4854,6 +4856,7 @@ ${DEFAULT_SCORING_HTML}`;
       }
       activeGameId = 'archive';
       playSessionRoundKey = roundIds.map(String).join(',');
+      collapseToSingleRoundSession();
     }
 
     async function loadQuizDataOnly() {
@@ -4879,6 +4882,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (!gameRounds.length) {
         throw new Error('No playable rounds. Add phrases in admin and mark rounds Live.');
       }
+      collapseToSingleRoundSession();
     }
 
     async function fetchQuizData() {
