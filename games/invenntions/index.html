@@ -33,17 +33,22 @@
       overflow-x: visible;
     }
     body.inv-quiz-active .wrap {
+      width: 100%;
       height: 100%;
       max-height: 100dvh;
       overflow: hidden;
+      margin-left: auto;
+      margin-right: auto;
     }
     #quizCard:not(.hidden) {
       display: flex;
       flex-direction: column;
+      width: 100%;
       height: 100%;
       max-height: 100dvh;
       overflow: hidden;
       padding-bottom: 0;
+      margin: 0 auto;
     }
     body.inv-quiz-active #playCard.card {
       flex: 1 1 auto;
@@ -58,11 +63,19 @@
       flex: 1 1 auto;
       min-height: 0;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
     }
     body.inv-quiz-active #puzzleMount {
       transform-origin: top center;
       overflow: hidden;
       padding: 1px 0;
+      width: 100%;
+      max-width: 100%;
+      margin-left: auto;
+      margin-right: auto;
     }
     h1.mg-game-title {
       font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
@@ -98,8 +111,7 @@
       color: #555;
       margin-bottom: 3px;
     }
-    .stat-bar span { font-weight: bold; color: #c45c5c; }
-    .stat-bar span.stat-hints { color: #6a7a8c; }
+    .stat-bar span { font-weight: bold; color: #2c3e50; }
     .card {
       background: #fff;
       border: 1px solid #d8d8d0;
@@ -677,6 +689,14 @@
       .kb-key.action { min-height: 50px; }
     }
     .kb-key:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+    .kb-key.kb-flash {
+      background: #ffcc00 !important;
+      color: #000 !important;
+      font-weight: 900 !important;
+      border-color: #e6b800 !important;
+      box-shadow: none;
+      transform: none;
+    }
     .kb-key:disabled {
       opacity: 0.42;
       cursor: not-allowed;
@@ -1189,7 +1209,7 @@
           </a>
         </div>
       </div>
-    <div class="stat-bar" id="statBar">Wrong guesses: <span id="wrongCount">0</span> &middot; Hints used: <span id="hintCount" class="stat-hints">0</span></div>
+    <div class="stat-bar" id="statBar">Score: <span id="scoreCount">0</span></div>
 
       <div class="card" id="playCard">
         <div id="boardArea">
@@ -1275,8 +1295,7 @@
     const pageGameTitle = document.getElementById('pageGameTitle');
     const pageSubtitle = document.getElementById('pageSubtitle');
     const statBar = document.getElementById('statBar');
-    const wrongCountEl = document.getElementById('wrongCount');
-    const hintCountEl = document.getElementById('hintCount');
+    const scoreCountEl = document.getElementById('scoreCount');
     const boardArea = document.getElementById('boardArea');
     const puzzleMount = document.getElementById('puzzleMount');
     const keyboardWrap = document.getElementById('keyboardWrap');
@@ -1422,8 +1441,18 @@
       return hintsButtonTaps;
     }
 
-    function updateHintsStat() {
-      if (hintCountEl) hintCountEl.textContent = String(hintsButtonTaps);
+    function getDisplayScore() {
+      return 0;
+    }
+
+    function updateScoreStat() {
+      if (scoreCountEl) scoreCountEl.textContent = String(getDisplayScore());
+    }
+
+    function flashKeyBtn(btn) {
+      if (!btn || btn.disabled) return;
+      btn.classList.add('kb-flash');
+      window.setTimeout(() => btn.classList.remove('kb-flash'), 280);
     }
 
     function fillHintArea(zoneEl, revealedCount, hintStrings) {
@@ -1679,7 +1708,8 @@
       if (!boardAreaEl || !playCard || !puzzleMount) return;
 
       puzzleMount.style.transform = '';
-      puzzleMount.style.width = '';
+      puzzleMount.style.width = '100%';
+      puzzleMount.style.maxWidth = '100%';
       boardAreaEl.style.height = '';
       boardAreaEl.style.minHeight = '';
 
@@ -1700,7 +1730,6 @@
       if (contentH > avail) {
         const scale = Math.max(0.52, avail / contentH);
         puzzleMount.style.transform = `scale(${scale})`;
-        puzzleMount.style.width = `${100 / scale}%`;
         boardAreaEl.style.height = `${Math.ceil(contentH * scale)}px`;
         boardAreaEl.style.minHeight = `${Math.ceil(contentH * scale)}px`;
       }
@@ -2567,7 +2596,8 @@
       document.documentElement.classList.remove('inv-quiz-active');
       document.body.classList.remove('inv-quiz-active');
       puzzleMount.style.transform = '';
-      puzzleMount.style.width = '';
+      puzzleMount.style.width = '100%';
+      puzzleMount.style.maxWidth = '100%';
       const boardAreaEl = document.getElementById('boardArea');
       if (boardAreaEl) {
         boardAreaEl.style.height = '';
@@ -2693,7 +2723,7 @@
       fillHintArea(leftZone, rl, p.leftHints);
       fillHintArea(rightZone, rr, p.rightHints);
       syncPhraseHintTapUi(i);
-      updateHintsStat();
+      updateScoreStat();
     }
 
     function renderComHintZone() {
@@ -2706,7 +2736,7 @@
       }
       fillHintArea(comZone, revealedComHints, c.hints);
       syncComHintTapUi();
-      updateHintsStat();
+      updateScoreStat();
     }
 
     function renderBoard() {
@@ -2982,12 +3012,12 @@
       kbGuessBtn.type = 'button';
       kbGuessBtn.className = 'kb-key guess action';
       kbGuessBtn.textContent = 'GUESS';
-      kbGuessBtn.addEventListener('click', onGuess);
+      kbGuessBtn.addEventListener('click', () => { flashKeyBtn(kbGuessBtn); onGuess(); });
       kbRevealBtn = document.createElement('button');
       kbRevealBtn.type = 'button';
       kbRevealBtn.className = 'kb-key reveal action';
       kbRevealBtn.textContent = 'REVEAL';
-      kbRevealBtn.addEventListener('click', onReveal);
+      kbRevealBtn.addEventListener('click', () => { flashKeyBtn(kbRevealBtn); onReveal(); });
       actionRow.appendChild(kbGuessBtn);
       actionRow.appendChild(kbRevealBtn);
       keyboardRoot.appendChild(actionRow);
@@ -3001,7 +3031,7 @@
           b.className = 'kb-key';
           b.textContent = k;
           b.dataset.ch = k;
-          b.addEventListener('click', () => onKeyTap(k));
+          b.addEventListener('click', () => { flashKeyBtn(b); onKeyTap(k); });
           d.appendChild(b);
         });
         if (extra) d.appendChild(extra);
@@ -3014,7 +3044,7 @@
       backBtn.type = 'button';
       backBtn.className = 'kb-key back wide';
       backBtn.textContent = '⌫';
-      backBtn.addEventListener('click', () => onKeyTap('BACK'));
+      backBtn.addEventListener('click', () => { flashKeyBtn(backBtn); onKeyTap('BACK'); });
       row(KB_BOT, backBtn);
 
       const rowSpace = document.createElement('div');
@@ -3023,7 +3053,7 @@
       sp.type = 'button';
       sp.className = 'kb-key space';
       sp.textContent = 'SPACE';
-      sp.addEventListener('click', () => onKeyTap(' '));
+      sp.addEventListener('click', () => { flashKeyBtn(sp); onKeyTap(' '); });
       rowSpace.appendChild(sp);
       keyboardRoot.appendChild(rowSpace);
 
@@ -3098,7 +3128,7 @@
         const p = puzzles[i];
         if (!p.accept.has(guess)) {
           incorrectGuesses++;
-          wrongCountEl.textContent = String(incorrectGuesses);
+          updateScoreStat();
           shakeStrip(`strip-p-${i}`);
           return;
         }
@@ -3125,7 +3155,7 @@
 
       if (!commonality.accept.has(guess)) {
         incorrectGuesses++;
-        wrongCountEl.textContent = String(incorrectGuesses);
+        updateScoreStat();
         shakeStrip('strip-c');
         return;
       }
@@ -3307,8 +3337,7 @@
       commonalityBuffer = '';
       focusKind = 'phrase';
       focusPuzzleIndex = 0;
-      if (wrongCountEl) wrongCountEl.textContent = '0';
-      if (hintCountEl) hintCountEl.textContent = '0';
+      updateScoreStat();
       if (toastEl) toastEl.textContent = '';
     }
 
