@@ -1478,6 +1478,57 @@
       color: #999;
       font-style: italic;
     }
+    .inv-archive-round-btn .sub.inv-archive-in-progress {
+      color: #4a90c2;
+      font-style: normal;
+      font-weight: bold;
+    }
+    .inv-final-score-flash {
+      position: fixed;
+      inset: 0;
+      z-index: 22000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 204, 0, 0.96);
+      pointer-events: none;
+      animation: invFinalFlashIn 0.35s ease-out;
+    }
+    .inv-final-score-flash.hidden { display: none !important; }
+    .inv-final-score-inner {
+      text-align: center;
+      padding: 24px;
+    }
+    .inv-final-score-label {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: clamp(1rem, 4.5vw, 1.35rem);
+      color: #3d5a73;
+      margin-bottom: 8px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .inv-final-score-value {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: clamp(3rem, 16vw, 5rem);
+      color: #2c3e50;
+      line-height: 1;
+      margin-bottom: 10px;
+      animation: invFinalScorePop 0.55s cubic-bezier(0.18, 0.9, 0.24, 1);
+    }
+    .inv-final-score-time {
+      font-size: clamp(1rem, 4vw, 1.25rem);
+      color: #555;
+      font-variant-numeric: tabular-nums;
+    }
+    @keyframes invFinalFlashIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes invFinalScorePop {
+      0% { transform: scale(0.6); opacity: 0; }
+      60% { transform: scale(1.12); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
     .inv-archive-empty {
       text-align: center;
       color: #666;
@@ -1689,6 +1740,9 @@
     const INV_PROGRESS_STORAGE_KEY = 'invMiddlegroundProgress';
     const INV_SUBMIT_STORAGE_KEY = 'invMiddlegroundScoreSubmitted';
     let firstVisitHintTimer = 0;
+    let progressAutosaveTimer = 0;
+    const FINAL_SCORE_FLASH_MS = 1500;
+    const PROGRESS_AUTOSAVE_MS = 12000;
 
     let playSessionRoundKey = '';
     let playTimerStart = 0;
@@ -2046,10 +2100,39 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
+    function getPlayRoundId() {
+      if (!playSessionRoundKey) return '';
+      return String(playSessionRoundKey).split(',')[0].trim();
+    }
+
+    function sessionKeyForRoundId(roundId) {
+      return roundId ? `round:${roundId}` : '';
+    }
+
+    function canonicalRoundIdFromSessionKey(sessionKey) {
+      if (!sessionKey) return '';
+      const parts = String(sessionKey).split(':');
+      if (parts[0] === 'round' || parts[0] === 'archive' || parts[0] === 'live') {
+        return (parts[1] || '').split(',')[0].trim();
+      }
+      const ids = sessionRoundIdsFromKey(sessionKey);
+      return ids.length ? ids[0] : '';
+    }
+
+    function playSessionKeysMatch(savedKey, currentKey) {
+      if (savedKey === currentKey) return true;
+      const savedRound = canonicalRoundIdFromSessionKey(savedKey);
+      const currentRound = canonicalRoundIdFromSessionKey(currentKey);
+      return !!(savedRound && currentRound && savedRound === currentRound);
+    }
+
     function computePlaySessionKey() {
-      if (activeGameId === 'archive') return `archive:${playSessionRoundKey || 'unknown'}`;
-      if (activeGameId === 'live') return `live:${playSessionRoundKey || 'unknown'}`;
-      return `library:${activeGameId || 'unknown'}:${playSessionRoundKey || gameRounds.length}`;
+      const roundId = getPlayRoundId();
+      if (roundId) return sessionKeyForRoundId(roundId);
+      if (activeGameId && activeGameId !== 'live' && activeGameId !== 'archive') {
+        return `library:${activeGameId}`;
+      }
+      return `session:${activeGameId || 'unknown'}`;
     }
 
     function readUserProfile() {
@@ -2058,9 +2141,10 @@ ${DEFAULT_SCORING_HTML}`;
         const base = raw ? JSON.parse(raw) : {};
         if (!base || typeof base !== 'object') return { visited: false, displayName: '', submissions: {} };
         if (!base.submissions || typeof base.submissions !== 'object') base.submissions = {};
+        if (!base.progressByRound || typeof base.progressByRound !== 'object') base.progressByRound = {};
         return base;
       } catch (_) {
-        return { visited: false, displayName: '', submissions: {} };
+        return { visited: false, displayName: '', submissions: {}, progressByRound: {} };
       }
     }
 
@@ -2092,15 +2176,54 @@ ${DEFAULT_SCORING_HTML}`;
     function getSubmissionForSession(sessionKey) {
       if (!sessionKey) return null;
       const profile = readUserProfile();
-      return profile.submissions && profile.submissions[sessionKey] ? profile.submissions[sessionKey] : null;
+      if (profile.submissions && profile.submissions[sessionKey]) {
+        return profile.submissions[sessionKey];
+      }
+      const roundId = canonicalRoundIdFromSessionKey(sessionKey);
+      if (roundId) return getSubmissionForRound(roundId);
+      return null;
+    }
+
+    function getSubmissionForRound(roundId) {
+      if (!roundId) return null;
+      const profile = readUserProfile();
+      const canonical = sessionKeyForRoundId(roundId);
+      if (profile.submissions && profile.submissions[canonical]) {
+        return profile.submissions[canonical];
+      }
+      for (const legacyKey of [`archive:${roundId}`, `live:${roundId}`]) {
+        if (profile.submissions && profile.submissions[legacyKey]) {
+          return profile.submissions[legacyKey];
+        }
+      }
+      return null;
     }
 
     function writeSubmissionForSession(sessionKey, data) {
-      if (!sessionKey) return;
+      const roundId = data.roundId || canonicalRoundIdFromSessionKey(sessionKey);
+      const key = roundId ? sessionKeyForRoundId(roundId) : sessionKey;
+      if (!key) return;
       const profile = readUserProfile();
       if (!profile.submissions) profile.submissions = {};
-      profile.submissions[sessionKey] = { ...data, sessionKey, at: Date.now() };
+      profile.submissions[key] = { ...data, sessionKey: key, roundId: roundId || '', at: Date.now() };
       writeUserProfile(profile);
+    }
+
+    function getRoundPlayStatus(roundId) {
+      const submission = getSubmissionForRound(roundId);
+      if (submission && submission.submitted) {
+        return { type: 'submitted', submission };
+      }
+      const progress = readPlayProgress();
+      if (progress && playSessionKeysMatch(progress.sessionKey, sessionKeyForRoundId(roundId)) && progress.phase === 'play') {
+        return { type: 'in_progress', progress };
+      }
+      const profile = readUserProfile();
+      const saved = profile.progressByRound && profile.progressByRound[roundId];
+      if (saved && saved.phase === 'play') {
+        return { type: 'in_progress', progress: saved };
+      }
+      return { type: 'not_played' };
     }
 
     function computeRankFromRows(rows, points, elapsedMs) {
@@ -2147,6 +2270,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (!sessionKey) return;
       const payload = {
         sessionKey,
+        roundId: getPlayRoundId(),
         activeGameId,
         playSessionRoundKey,
         roundIndex,
@@ -2177,7 +2301,29 @@ ${DEFAULT_SCORING_HTML}`;
       };
       try {
         localStorage.setItem(INV_PROGRESS_STORAGE_KEY, JSON.stringify(payload));
+        const roundId = getPlayRoundId();
+        if (roundId) {
+          const profile = readUserProfile();
+          if (!profile.progressByRound) profile.progressByRound = {};
+          profile.progressByRound[roundId] = { ...payload, savedAt: Date.now() };
+          writeUserProfile(profile);
+        }
       } catch (_) { /* private mode */ }
+    }
+
+    function ensureProgressAutosave() {
+      if (progressAutosaveTimer) return;
+      progressAutosaveTimer = window.setInterval(() => {
+        if (phase === 'play' && !quizCard.classList.contains('hidden')) {
+          savePlayProgress();
+        }
+      }, PROGRESS_AUTOSAVE_MS);
+    }
+
+    function stopProgressAutosave() {
+      if (!progressAutosaveTimer) return;
+      clearInterval(progressAutosaveTimer);
+      progressAutosaveTimer = 0;
     }
 
     function invClearPlayProgress() {
@@ -2192,7 +2338,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (window.invIsAdmin) return false;
       const saved = readPlayProgress();
       if (!saved || !saved.sessionKey || !gameRounds.length) return false;
-      if (saved.sessionKey !== computePlaySessionKey()) return false;
+      if (!playSessionKeysMatch(saved.sessionKey, computePlaySessionKey())) return false;
       if (saved.phase === 'finish' && !allowFinishRestore) return false;
       if (saved.roundIndex < 0 || saved.roundIndex >= gameRounds.length) return false;
 
@@ -2234,7 +2380,10 @@ ${DEFAULT_SCORING_HTML}`;
 
     function readSubmitRecord() {
       const sessionKey = computePlaySessionKey();
-      const fromProfile = sessionKey ? getSubmissionForSession(sessionKey) : null;
+      const roundId = getPlayRoundId();
+      const fromProfile = roundId
+        ? getSubmissionForRound(roundId)
+        : (sessionKey ? getSubmissionForSession(sessionKey) : null);
       if (fromProfile && fromProfile.submitted) {
         return {
           sessionKey,
@@ -2247,7 +2396,9 @@ ${DEFAULT_SCORING_HTML}`;
       }
       try {
         const raw = sessionStorage.getItem(INV_SUBMIT_STORAGE_KEY);
-        return raw ? JSON.parse(raw) : null;
+        const rec = raw ? JSON.parse(raw) : null;
+        if (rec && rec.submitted && playSessionKeysMatch(rec.sessionKey, sessionKey)) return rec;
+        return null;
       } catch (_) {
         return null;
       }
@@ -2269,17 +2420,24 @@ ${DEFAULT_SCORING_HTML}`;
     function hasSubmittedForCurrentSession() {
       const sessionKey = computePlaySessionKey();
       if (!sessionKey) return false;
+      const roundId = getPlayRoundId();
+      if (roundId) {
+        const fromRound = getSubmissionForRound(roundId);
+        if (fromRound && fromRound.submitted) return true;
+      }
       const fromProfile = getSubmissionForSession(sessionKey);
       if (fromProfile && fromProfile.submitted) return true;
       const rec = readSubmitRecord();
       if (!rec || !rec.submitted || !rec.sessionKey) return false;
-      return rec.sessionKey === sessionKey;
+      return playSessionKeysMatch(rec.sessionKey, sessionKey);
     }
 
     function markSessionSubmitted(displayName, rank) {
       const sessionKey = computePlaySessionKey();
+      const roundId = getPlayRoundId();
       const payload = {
         sessionKey,
+        roundId,
         submitted: true,
         displayName,
         points: getDisplayScore(),
@@ -2290,6 +2448,13 @@ ${DEFAULT_SCORING_HTML}`;
       writeSubmitRecord(payload);
       writeSubmissionForSession(sessionKey, payload);
       rememberDisplayName(displayName);
+      if (roundId) {
+        const profile = readUserProfile();
+        if (profile.progressByRound && profile.progressByRound[roundId]) {
+          delete profile.progressByRound[roundId];
+          writeUserProfile(profile);
+        }
+      }
       invClearPlayProgress();
     }
 
@@ -3468,15 +3633,16 @@ ${DEFAULT_SCORING_HTML}`;
         const label = r.label != null && String(r.label).trim()
           ? String(r.label).trim()
           : (r.roundTitle != null ? String(r.roundTitle).trim() : 'Round');
-        const sessionKey = `archive:${id}`;
-        const submission = getSubmissionForSession(sessionKey);
+        const sessionKey = sessionKeyForRoundId(id);
+        const submission = getSubmissionForRound(id);
         archiveCatalog.push({
           id,
           label: label || 'Round',
           playDate,
           phraseCount,
           sessionKey,
-          submission
+          submission,
+          playStatus: getRoundPlayStatus(id)
         });
       });
       archiveCatalog.sort((a, b) => {
@@ -3509,15 +3675,20 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
-    function formatArchiveStatus(sub) {
-      if (!sub || !sub.submitted) {
-        return '<span class="sub not-played">Not played</span>';
+    function formatArchiveStatus(entry) {
+      const status = entry.playStatus || getRoundPlayStatus(entry.id);
+      if (status.type === 'submitted') {
+        const sub = status.submission;
+        const pts = typeof sub.points === 'number' ? sub.points : '—';
+        const time = typeof sub.elapsedMs === 'number' ? formatElapsedMs(sub.elapsedMs) : '—';
+        const rank = sub.rank != null ? `#${sub.rank}` : '';
+        const rankPart = rank ? `<span class="lb-icon" aria-hidden="true">🏆</span><span>${esc(rank)}</span><span>·</span>` : '';
+        return `<span class="sub inv-archive-score">${rankPart}<span>${esc(String(pts))} pts</span><span>·</span><span>${esc(time)}</span></span>`;
       }
-      const pts = typeof sub.points === 'number' ? sub.points : '—';
-      const time = typeof sub.elapsedMs === 'number' ? formatElapsedMs(sub.elapsedMs) : '—';
-      const rank = sub.rank != null ? `#${sub.rank}` : '';
-      const rankPart = rank ? `<span class="lb-icon" aria-hidden="true">🏆</span><span>${esc(rank)}</span><span>·</span>` : '';
-      return `<span class="sub inv-archive-score">${rankPart}<span>${esc(String(pts))} pts</span><span>·</span><span>${esc(time)}</span></span>`;
+      if (status.type === 'in_progress') {
+        return '<span class="sub inv-archive-in-progress">In progress</span>';
+      }
+      return '<span class="sub not-played">Not played</span>';
     }
 
     function renderArchiveList() {
@@ -3538,7 +3709,7 @@ ${DEFAULT_SCORING_HTML}`;
         btn.type = 'button';
         btn.className = 'inv-archive-round-btn';
         const dateLabel = formatPlayDate(entry.playDate);
-        const statusHtml = formatArchiveStatus(entry.submission);
+        const statusHtml = formatArchiveStatus(entry);
         btn.innerHTML = `
           <span class="inv-archive-title">${esc(entry.label)}</span>
           <span class="sub">${esc(dateLabel)}</span>
@@ -3742,30 +3913,27 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function scoreMatchesSessionKey(s, sessionKey) {
-      if (!sessionKey) return false;
+      if (!sessionKey || !s) return false;
       if (s.sessionKey != null && String(s.sessionKey) === sessionKey) return true;
-      const wantPrefix = String(sessionKey).split(':')[0];
-      const scorePrefix = s.sessionKey != null ? String(s.sessionKey).split(':')[0] : '';
-      if (scorePrefix && scorePrefix !== wantPrefix) return false;
+      const wantRoundId = canonicalRoundIdFromSessionKey(sessionKey);
+      if (!wantRoundId) return false;
+      if (s.roundId && String(s.roundId) === wantRoundId) return true;
+      const scoreRoundId = canonicalRoundIdFromSessionKey(s.sessionKey || '');
+      if (scoreRoundId && scoreRoundId === wantRoundId) return true;
       const ids = scoreRoundIdsFromRecord(s);
-      const want = sessionRoundIdsFromKey(sessionKey);
-      if (!ids.length || !want.length) return false;
-      const a = ids.slice().sort().join(',');
-      const b = want.slice().sort().join(',');
-      return a === b;
+      return ids.length === 1 && ids[0] === wantRoundId;
     }
 
     function scoreRoundIdsFromRecord(s) {
+      if (s.roundId) return [String(s.roundId)];
       if (Array.isArray(s.roundIds) && s.roundIds.length) return s.roundIds.map(String);
-      return sessionRoundIdsFromKey(s.sessionKey != null ? String(s.sessionKey) : '');
+      const rid = canonicalRoundIdFromSessionKey(s.sessionKey != null ? String(s.sessionKey) : '');
+      return rid ? [rid] : [];
     }
 
     function sessionRoundIdsFromKey(sessionKey) {
-      if (!sessionKey) return [];
-      const parts = String(sessionKey).split(':');
-      if (parts[0] === 'library') return [];
-      if (parts.length < 2) return [];
-      return parts[1].split(',').filter(Boolean);
+      const rid = canonicalRoundIdFromSessionKey(sessionKey);
+      return rid ? [rid] : [];
     }
 
     async function loadPublicLeaderboard() {
@@ -3791,7 +3959,11 @@ ${DEFAULT_SCORING_HTML}`;
           return (b.timestamp || 0) - (a.timestamp || 0);
         });
         if (!rows.length) {
-          body.innerHTML = '<p class="mg-modal-muted">No scores for this game yet. Be the first!</p>';
+          const roundId = getPlayRoundId();
+          const label = roundId && archiveCatalog.length
+            ? (archiveCatalog.find(e => e.id === roundId)?.label || 'this game')
+            : 'this game';
+          body.innerHTML = `<p class="mg-modal-muted">No scores for ${esc(label)} yet. Be the first!</p>`;
           return;
         }
         body.innerHTML = `<ul class="lb-list">${rows.slice(0, 100).map(s => `
@@ -4524,6 +4696,38 @@ ${DEFAULT_SCORING_HTML}`;
       renderBoard();
     }
 
+    function showFinalScoreFlash(onDone) {
+      let overlay = document.getElementById('invFinalScoreFlash');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'invFinalScoreFlash';
+        overlay.className = 'inv-final-score-flash hidden';
+        overlay.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(overlay);
+      }
+      overlay.innerHTML = `
+        <div class="inv-final-score-inner">
+          <div class="inv-final-score-label">Final score</div>
+          <div class="inv-final-score-value">${esc(String(getDisplayScore()))}</div>
+          <div class="inv-final-score-time">${esc(formatElapsedMs(getPlayElapsedMs()))}</div>
+        </div>`;
+      overlay.classList.remove('hidden');
+      overlay.setAttribute('aria-hidden', 'false');
+      window.setTimeout(() => {
+        overlay.classList.add('hidden');
+        overlay.setAttribute('aria-hidden', 'true');
+        if (onDone) onDone();
+      }, FINAL_SCORE_FLASH_MS);
+    }
+
+    function scheduleFinishModalReveal(resuming) {
+      if (resuming) {
+        window.setTimeout(revealScoreModal, 50);
+        return;
+      }
+      showFinalScoreFlash(() => revealScoreModal());
+    }
+
     function showFinish(resuming) {
       hideArchiveScreen();
       hideTitleScreen();
@@ -4560,7 +4764,7 @@ ${DEFAULT_SCORING_HTML}`;
           await showFinishLeaderboard(prior?.displayName || 'Anonymous');
         });
         bindBrowseArchiveButton();
-        window.setTimeout(revealScoreModal, 50);
+        scheduleFinishModalReveal(resuming);
         return;
       }
 
@@ -4576,7 +4780,7 @@ ${DEFAULT_SCORING_HTML}`;
       document.getElementById('saveScoreBtn').addEventListener('click', () => submitFinalScore(total, correct, phraseCountAll));
       bindBrowseArchiveButton();
 
-      window.setTimeout(revealScoreModal, 50);
+      scheduleFinishModalReveal(resuming);
     }
 
     function revealScoreModal() {
@@ -4602,7 +4806,8 @@ ${DEFAULT_SCORING_HTML}`;
         displayName,
         gameId: activeGameId,
         gameTitle: activeGameTitle,
-        formatVersion: 4,
+        formatVersion: 5,
+        roundId: getPlayRoundId(),
         points: getDisplayScore(),
         elapsedMs,
         elapsedSeconds: Math.floor(elapsedMs / 1000),
@@ -4738,6 +4943,7 @@ ${DEFAULT_SCORING_HTML}`;
     window.addEventListener('keydown', onPhysicalKeydown);
 
     function resetPlaySession() {
+      stopProgressAutosave();
       closeAllModals();
       const btnScoreEl = document.getElementById('btnScoreModal');
       if (btnScoreEl) btnScoreEl.classList.add('hidden');
@@ -4910,6 +5116,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (!resuming) {
         startPlayTimer();
       }
+      ensureProgressAutosave();
       if (phase === 'finish') {
         if (scoreSavedThisSession && lastSavedDisplayName) {
           showFinishLeaderboard(lastSavedDisplayName);
