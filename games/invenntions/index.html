@@ -286,6 +286,55 @@
 
     /* Score modal uses existing finish-panel styles inside body */
     .mg-modal-body .summary { margin-top: 0; }
+    .lb-list { margin: 0; padding: 0; list-style: none; }
+    .lb-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 0;
+      border-bottom: 1px solid #e8e8e0;
+      font-size: 0.92rem;
+    }
+    .lb-row:last-child { border-bottom: none; }
+    .lb-name {
+      font-weight: 700;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .lb-score {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-weight: 900;
+      flex-shrink: 0;
+    }
+    .lb-share-row {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #e8e8e0;
+      text-align: center;
+    }
+    .lb-share-btn {
+      display: inline-block;
+      padding: 10px 18px;
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: 0.85rem;
+      font-weight: 900;
+      border: 1px solid #3a7aaa;
+      border-radius: 6px;
+      background: #4a90c2;
+      color: #fff;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .lb-share-btn:active { transform: translateY(1px); }
+    .lb-share-msg {
+      margin: 8px 0 0;
+      font-size: 0.78rem;
+      color: #666;
+      min-height: 1.2em;
+    }
 
     /* Puzzle row: left | middle | right */
     .mg-main-row {
@@ -694,8 +743,8 @@
       box-shadow: none;
       background: #ecece7;
     }
-    .kb-key.guess.kb-pressed:not(:disabled) { background: #3d7da8; }
-    .kb-key.reveal.kb-pressed:not(:disabled) { background: #4d8e4f; }
+    .kb-key.guess.kb-pressed:not(:disabled) { background: #4d8e4f; }
+    .kb-key.reveal.kb-pressed:not(:disabled) { background: #a84848; }
     .kb-key.kb-flash {
       background: #ffcc00 !important;
       color: #000 !important;
@@ -731,23 +780,23 @@
       font-size: 0.76rem;
     }
     .kb-key.reveal.action.reveal-confirm {
-      background: #c98600;
-      border-color: #a86f00;
+      background: #a84848;
+      border-color: #8a3838;
       font-size: 0.72rem;
       letter-spacing: 0.02em;
     }
     .kb-key.reveal.action.reveal-confirm.kb-pressed:not(:disabled) {
-      background: #b07800;
+      background: #8a3838;
     }
     .kb-key.guess {
-      background: #4a90c2;
-      color: #fff;
-      border-color: #3a7aaa;
-    }
-    .kb-key.reveal {
       background: #5a9e5c;
       color: #fff;
       border-color: #4a8a4c;
+    }
+    .kb-key.reveal {
+      background: #c45c5c;
+      color: #fff;
+      border-color: #a84848;
     }
     .kb-key.back { font-size: 1.1rem; min-width: 56px; }
 
@@ -1204,6 +1253,7 @@
       <div class="inv-title-menu" id="titleMenu">
         <button type="button" class="inv-menu-btn" id="btnTitlePlay" disabled>Play</button>
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleArchive">Archive</button>
+        <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleLeaderboard">Leaderboard</button>
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleInfo">What am I doing here?</button>
       </div>
       <p class="inv-title-status" id="titleStatus" aria-hidden="true"></p>
@@ -1283,6 +1333,19 @@
       <div id="aboutModalBody" class="mg-modal-body mg-rich"></div>
     </div>
   </div>
+  <div id="leaderboardModal" class="mg-modal-backdrop hidden" role="presentation">
+    <div class="mg-modal mg-modal-wide" role="dialog" aria-modal="true" aria-labelledby="leaderboardModalTitle" tabindex="-1">
+      <button type="button" class="mg-modal-close" id="leaderboardModalClose" aria-label="Close">&times;</button>
+      <div class="mg-modal-header" id="leaderboardModalTitle">Leaderboard</div>
+      <div class="mg-modal-body">
+        <div id="leaderboardBody"><p class="mg-modal-muted">Loading…</p></div>
+        <div class="lb-share-row">
+          <button type="button" class="lb-share-btn" id="btnShareGame">Share game</button>
+          <p class="lb-share-msg" id="shareGameMsg" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="scoreModal" class="mg-modal-backdrop hidden" role="presentation">
     <div class="mg-modal" role="dialog" aria-modal="true" aria-labelledby="scoreModalTitle" tabindex="-1">
       <button type="button" class="mg-modal-close" id="scoreModalClose" aria-label="Close">&times;</button>
@@ -1338,6 +1401,8 @@
     const keyboardWrap = document.getElementById('keyboardWrap');
     const keyboardRoot = document.getElementById('keyboardRoot');
     const toastEl = document.getElementById('toast');
+
+    const GAME_SHARE_URL = 'https://eviltrivia.github.io/games/invenntions/';
 
     const DEFAULT_PLAY_SUBTITLE = 'Solve in any order — tap a box to focus; Enter or GUESS submits';
 
@@ -1578,6 +1643,8 @@ ${DEFAULT_SCORING_HTML}`;
     function bindKbKey(btn, onActivate, opts) {
       if (!btn) return;
       const repeat = !!(opts && opts.repeat);
+      const noFlash = !!(opts && opts.noFlash);
+      const noHaptic = !!(opts && opts.noHaptic);
       let activePointerId = null;
       let repeatDelayTimer = 0;
       let repeatInterval = 0;
@@ -1598,8 +1665,8 @@ ${DEFAULT_SCORING_HTML}`;
       function fire(fromRepeat) {
         if (btn.disabled) return;
         if (!fromRepeat) {
-          flashKeyBtn(btn);
-          kbHaptic();
+          if (!noFlash) flashKeyBtn(btn);
+          if (!noHaptic) kbHaptic();
         }
         onActivate();
       }
@@ -2676,6 +2743,7 @@ ${DEFAULT_SCORING_HTML}`;
       document.body.classList.add('inv-title-active');
       document.getElementById('btnTitlePlay')?.addEventListener('click', onTitlePlay);
       document.getElementById('btnTitleInfo')?.addEventListener('click', () => { openInfoModal(); });
+      document.getElementById('btnTitleLeaderboard')?.addEventListener('click', () => { openLeaderboardModal(); });
       document.getElementById('btnTitleArchive')?.addEventListener('click', () => {
         if (!archiveCatalog.length) return;
         showArchiveScreen();
@@ -2702,7 +2770,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function closeAllModals() {
-      ['helpModal', 'aboutModal', 'infoModal', 'scoreModal'].forEach(mid => {
+      ['helpModal', 'aboutModal', 'infoModal', 'scoreModal', 'leaderboardModal'].forEach(mid => {
         const el = document.getElementById(mid);
         if (el) el.classList.add('hidden');
       });
@@ -2742,6 +2810,77 @@ ${DEFAULT_SCORING_HTML}`;
       document.getElementById('infoModal').classList.remove('hidden');
     }
 
+    function leaderboardPoints(s) {
+      if (typeof s.points === 'number') return s.points;
+      if (typeof s.correctCount === 'number') return s.correctCount;
+      return s.correct ? 1 : 0;
+    }
+
+    async function loadPublicLeaderboard() {
+      const body = document.getElementById('leaderboardBody');
+      if (!body) return;
+      body.innerHTML = '<p class="mg-modal-muted">Loading…</p>';
+      try {
+        const snap = await window.dbGet(window.dbRef(window.db, `publicAnswers/${GAME_ID}`));
+        const rows = [];
+        if (snapExists(snap) && snap.val()) {
+          const val = snap.val();
+          Object.keys(val).forEach(id => {
+            const s = val[id];
+            if (s && typeof s === 'object') rows.push(s);
+          });
+        }
+        rows.sort((a, b) => {
+          const dp = leaderboardPoints(b) - leaderboardPoints(a);
+          if (dp !== 0) return dp;
+          return (b.timestamp || 0) - (a.timestamp || 0);
+        });
+        if (!rows.length) {
+          body.innerHTML = '<p class="mg-modal-muted">No scores yet. Be the first!</p>';
+          return;
+        }
+        body.innerHTML = `<ul class="lb-list">${rows.slice(0, 100).map(s => `
+          <li class="lb-row">
+            <span class="lb-name">${esc(s.displayName || 'Anonymous')}</span>
+            <span class="lb-score">${leaderboardPoints(s)}</span>
+          </li>`).join('')}</ul>`;
+      } catch (e) {
+        console.error('InVennTions leaderboard:', e);
+        body.innerHTML = '<p class="mg-modal-muted">Could not load leaderboard.</p>';
+      }
+    }
+
+    async function openLeaderboardModal() {
+      document.getElementById('leaderboardModal')?.classList.remove('hidden');
+      const msg = document.getElementById('shareGameMsg');
+      if (msg) msg.textContent = '';
+      await loadPublicLeaderboard();
+    }
+
+    async function shareGameLink() {
+      const msg = document.getElementById('shareGameMsg');
+      const url = GAME_SHARE_URL;
+      const title = activeGameTitle || 'InVennTions';
+      const text = `Play ${title} on Evil Trivia`;
+      try {
+        if (navigator.share) {
+          await navigator.share({ title, text, url });
+          if (msg) msg.textContent = '';
+          return;
+        }
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+      }
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(url);
+          if (msg) msg.textContent = 'Link copied!';
+          return;
+        }
+      } catch (_) { /* fallback below */ }
+      if (msg) msg.textContent = url;
+    }
+
     function bindModalUi() {
       function backdropClose(id) {
         const el = document.getElementById(id);
@@ -2753,6 +2892,7 @@ ${DEFAULT_SCORING_HTML}`;
       backdropClose('helpModal');
       backdropClose('aboutModal');
       backdropClose('infoModal');
+      backdropClose('leaderboardModal');
       backdropClose('scoreModal');
 
       document.getElementById('helpModalClose')?.addEventListener('click', () => {
@@ -2764,6 +2904,10 @@ ${DEFAULT_SCORING_HTML}`;
       document.getElementById('infoModalClose')?.addEventListener('click', () => {
         document.getElementById('infoModal').classList.add('hidden');
       });
+      document.getElementById('leaderboardModalClose')?.addEventListener('click', () => {
+        document.getElementById('leaderboardModal').classList.add('hidden');
+      });
+      document.getElementById('btnShareGame')?.addEventListener('click', () => { shareGameLink(); });
       document.getElementById('scoreModalClose')?.addEventListener('click', () => {
         document.getElementById('scoreModal').classList.add('hidden');
       });
@@ -3139,8 +3283,12 @@ ${DEFAULT_SCORING_HTML}`;
     let kbGuessBtn = null;
     let kbRevealBtn = null;
     let revealConfirmPending = false;
+    let revealConfirmTimer = 0;
+    const REVEAL_CONFIRM_MS = 1500;
 
     function resetRevealConfirm() {
+      clearTimeout(revealConfirmTimer);
+      revealConfirmTimer = 0;
       revealConfirmPending = false;
       if (!kbRevealBtn) return;
       kbRevealBtn.textContent = 'REVEAL';
@@ -3220,6 +3368,8 @@ ${DEFAULT_SCORING_HTML}`;
         revealConfirmPending = true;
         kbRevealBtn.textContent = 'Are you sure?';
         kbRevealBtn.classList.add('reveal-confirm');
+        clearTimeout(revealConfirmTimer);
+        revealConfirmTimer = window.setTimeout(resetRevealConfirm, REVEAL_CONFIRM_MS);
         return;
       }
       revealFocusedAnswer();
@@ -3242,7 +3392,7 @@ ${DEFAULT_SCORING_HTML}`;
       kbRevealBtn.type = 'button';
       kbRevealBtn.className = 'kb-key reveal action';
       kbRevealBtn.textContent = 'REVEAL';
-      bindKbKey(kbRevealBtn, onReveal);
+      bindKbKey(kbRevealBtn, onReveal, { noFlash: true });
       actionRow.appendChild(kbGuessBtn);
       actionRow.appendChild(kbRevealBtn);
       keyboardRoot.appendChild(actionRow);
@@ -3451,6 +3601,11 @@ ${DEFAULT_SCORING_HTML}`;
         const answersRef = window.dbRef(window.db, `games/${GAME_ID}/answers`);
         const newRef = window.dbPush(answersRef);
         await window.dbSet(newRef, payload);
+        try {
+          await window.dbSet(window.dbRef(window.db, `publicAnswers/${GAME_ID}/${newRef.key}`), payload);
+        } catch (mirrorErr) {
+          console.warn('InVennTions public mirror:', mirrorErr);
+        }
         toastEl.textContent = 'Score saved. Thanks for playing!';
         const sb = document.getElementById('saveScoreBtn');
         if (sb) sb.disabled = true;
@@ -3496,7 +3651,7 @@ ${DEFAULT_SCORING_HTML}`;
         return;
       }
       if (e.key === 'Escape') {
-        const ids = ['helpModal', 'aboutModal', 'infoModal', 'scoreModal'];
+        const ids = ['helpModal', 'aboutModal', 'infoModal', 'scoreModal', 'leaderboardModal'];
         for (let i = ids.length - 1; i >= 0; i--) {
           const el = document.getElementById(ids[i]);
           if (el && !el.classList.contains('hidden')) {
