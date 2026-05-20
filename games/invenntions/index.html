@@ -210,39 +210,45 @@
       min-height: 1.15em;
       overflow: visible;
     }
+    .score-delta-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 8100;
+      overflow: hidden;
+    }
     .score-delta-pop {
-      position: absolute;
-      left: 50%;
-      top: -0.15em;
+      position: fixed;
       font-family: 'Arial Black', Arial, sans-serif;
       font-weight: 900;
-      font-size: clamp(0.95rem, 4.5vw, 1.15rem);
+      font-size: clamp(1rem, 4.8vw, 1.25rem);
       line-height: 1;
       pointer-events: none;
       white-space: nowrap;
-      z-index: 12;
+      z-index: 7901;
       opacity: 0;
-      animation: scoreDeltaPop 1.15s ease-out forwards;
-      text-shadow: 0 1px 0 rgba(255,255,255,0.85);
+      will-change: transform, opacity;
+      animation: scoreDeltaRise var(--pop-dur, 0.72s) cubic-bezier(0.18, 0.9, 0.24, 1) forwards;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.55);
     }
     .score-delta-pop.gain { color: #1b8a2e; }
     .score-delta-pop.loss { color: #d32f2f; }
-    @keyframes scoreDeltaPop {
+    @keyframes scoreDeltaRise {
       0% {
         opacity: 0;
-        transform: translateX(-50%) translateY(6px) scale(0.75);
+        transform: translateX(-50%) translateY(18px) scale(0.72);
       }
-      18% {
+      14% {
         opacity: 1;
-        transform: translateX(-50%) translateY(-2px) scale(1.18);
+        transform: translateX(-50%) translateY(0) scale(1.14);
       }
-      70% {
+      72% {
         opacity: 1;
-        transform: translateX(-50%) translateY(-14px) scale(1.05);
+        transform: translateX(-50%) translateY(-72px) scale(1.02);
       }
       100% {
         opacity: 0;
-        transform: translateX(-50%) translateY(-28px) scale(0.95);
+        transform: translateX(-50%) translateY(-108px) scale(0.9);
       }
     }
     #scoreCount.score-bump {
@@ -1559,6 +1565,7 @@
         <div id="keyboardRoot"></div>
       </div>
 
+      <div class="score-delta-layer" id="scoreDeltaLayer" aria-hidden="true"></div>
       <div class="toast" id="toast"></div>
     </div>
   </div>
@@ -1653,8 +1660,7 @@
     const pageSubtitle = document.getElementById('pageSubtitle');
     const statBar = document.getElementById('statBar');
     const scoreCountEl = document.getElementById('scoreCount');
-    const statBarWrap = document.getElementById('statBarWrap');
-    let scoreDeltaPopCount = 0;
+    const scoreDeltaLayer = document.getElementById('scoreDeltaLayer');
     const timerCountEl = document.getElementById('timerCount');
     const boardArea = document.getElementById('boardArea');
     const puzzleMount = document.getElementById('puzzleMount');
@@ -1912,16 +1918,21 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function showScoreDelta(delta) {
-      if (!delta || !statBarWrap) return;
+      if (!delta || !scoreDeltaLayer) return;
       const gain = delta > 0;
       const pop = document.createElement('span');
       pop.className = 'score-delta-pop ' + (gain ? 'gain' : 'loss');
       pop.textContent = (gain ? '+' : '') + String(delta);
       pop.setAttribute('aria-hidden', 'true');
-      const stack = scoreDeltaPopCount % 3;
-      scoreDeltaPopCount++;
-      pop.style.marginLeft = stack ? `${stack * 14}px` : '';
-      statBarWrap.appendChild(pop);
+
+      const xPct = 14 + Math.random() * 72;
+      const bottomPct = 20 + Math.random() * 16;
+      const dur = 0.62 + Math.random() * 0.14;
+      pop.style.left = `${xPct.toFixed(1)}%`;
+      pop.style.bottom = `${bottomPct.toFixed(1)}%`;
+      pop.style.setProperty('--pop-dur', `${dur.toFixed(2)}s`);
+
+      scoreDeltaLayer.appendChild(pop);
       pop.addEventListener('animationend', () => pop.remove(), { once: true });
       if (scoreCountEl) {
         scoreCountEl.classList.remove('score-bump', 'score-bump-gain', 'score-bump-loss');
