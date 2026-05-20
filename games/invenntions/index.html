@@ -680,6 +680,7 @@
       box-shadow: 0 1px 0 #999;
       color: #222;
       -webkit-tap-highlight-color: transparent;
+      transition: background 0.05s ease, color 0.05s ease, border-color 0.05s ease, transform 0.04s ease, box-shadow 0.04s ease;
     }
     @media (max-width: 520px) {
       .kb-key {
@@ -688,14 +689,20 @@
       }
       .kb-key.action { min-height: 50px; }
     }
-    .kb-key:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+    .kb-key.kb-pressed:not(:disabled) {
+      transform: translateY(1px) scale(0.98);
+      box-shadow: none;
+      background: #ecece7;
+    }
+    .kb-key.guess.kb-pressed:not(:disabled) { background: #3d7da8; }
+    .kb-key.reveal.kb-pressed:not(:disabled) { background: #4d8e4f; }
     .kb-key.kb-flash {
       background: #ffcc00 !important;
       color: #000 !important;
       font-weight: 900 !important;
       border-color: #e6b800 !important;
       box-shadow: none;
-      transform: none;
+      transform: scale(0.98);
     }
     .kb-key:disabled {
       opacity: 0.42;
@@ -763,6 +770,17 @@
       color: #333;
       letter-spacing: 0.02em;
     }
+    .inv-title-credit {
+      margin: 0 0 3px;
+      font-size: 0.65rem;
+      font-weight: 400;
+      color: #555;
+      letter-spacing: 0.03em;
+    }
+    .inv-title-footer p {
+      margin: 0;
+    }
+    .inv-title-tagline sup,
     .inv-title-footer sup {
       font-size: 0.55em;
       line-height: 0;
@@ -1166,7 +1184,7 @@
           </svg>
         </div>
       </div>
-      <p class="inv-title-tagline">An Evil Trivia word puzzle</p>
+      <p class="inv-title-tagline">an Evil Trivia<sup>®</sup> word puzzle</p>
       <div class="inv-title-menu" id="titleMenu">
         <button type="button" class="inv-menu-btn" id="btnTitlePlay" disabled>Play</button>
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleArchive">Archive</button>
@@ -1175,7 +1193,10 @@
       <p class="inv-title-status" id="titleStatus" aria-hidden="true"></p>
       <p class="inv-title-error hidden" id="titleError"></p>
     </div>
-    <p class="inv-title-footer">Evil Trivia<sup>®</sup> 2026</p>
+    <div class="inv-title-footer">
+      <p class="inv-title-credit">a game by graham litten</p>
+      <p>Evil Trivia<sup>®</sup> 2026</p>
+    </div>
   </div>
 
   <div id="archiveScreen" class="inv-title-screen hidden" aria-hidden="true">
@@ -1303,6 +1324,41 @@
     const toastEl = document.getElementById('toast');
 
     const DEFAULT_PLAY_SUBTITLE = 'Solve in any order — tap a box to focus; Enter or GUESS submits';
+
+    const DEFAULT_SCORING_HTML = `
+<h2>Scoring</h2>
+<ul>
+  <li><strong>+1</strong> — correct phrase answer</li>
+  <li><strong>+2</strong> — correct connection (the theme linking the phrases)</li>
+  <li><strong>Bonus</strong> — when you get the connection right, <strong>+1 for each phrase row still unsolved</strong></li>
+  <li><strong>−1</strong> — each hint you choose to reveal (tap a clue twice to confirm). Phrase hints are free when you solve that row; connection hints are never automatic.</li>
+  <li><strong>−2</strong> — using REVEAL to show the answer for the highlighted row</li>
+</ul>
+<p>Wrong guesses do not change your score.</p>`;
+
+    const DEFAULT_PLAYER_HELP_HTML = `
+<p>Each round has several phrase puzzles and one final <strong>connection</strong> that links them.</p>
+<h2>Basics</h2>
+<ul>
+  <li>Tap an answer box to focus it, then type with the on-screen keyboard.</li>
+  <li>Press <strong>GUESS</strong> (or Enter) to submit.</li>
+  <li>Tap a clue box twice to reveal a hint (−1 point).</li>
+  <li><strong>REVEAL</strong> fills in the answer for the focused row (−2 points).</li>
+</ul>
+<h2>Phrase rows</h2>
+<p>Each row has a left clue, centre answer, and right clue. Solve phrases in any order. When you get a phrase right, any unrevealed hints on that row appear automatically (no extra penalty).</p>
+<h2>Connection</h2>
+<p>The connection at the bottom ties the phrases together. Its hints only appear if you ask for them — they are <em>not</em> shown when you solve it.</p>
+${DEFAULT_SCORING_HTML}`;
+
+    const DEFAULT_INFO_HTML = `
+<p><strong>InVennTions</strong> is an Evil Trivia® word puzzle: find overlapping answers in the Venn-style grid, then name the connection.</p>
+<p>Choose <strong>Play</strong> for today&rsquo;s live rounds or <strong>Archive</strong> for past games. Tap <strong>What am I doing here?</strong> any time for this reminder.</p>
+${DEFAULT_SCORING_HTML}`;
+
+    const DEFAULT_ABOUT_HTML = `
+<p><strong>Evil Trivia<sup>®</sup></strong> — word puzzles and games from Graham Litten.</p>
+<p>Visit <a href="https://eviltrivia.github.io/">eviltrivia.github.io</a> for more.</p>`;
 
     let playerHelpHtml = '';
     let aboutEvilTriviaHtml = '';
@@ -1480,10 +1536,103 @@
       if (scoreCountEl) scoreCountEl.textContent = String(getDisplayScore());
     }
 
+    const kbFlashTimers = new WeakMap();
+    const KB_FLASH_MS = 120;
+    const KB_REPEAT_DELAY_MS = 320;
+    const KB_REPEAT_INTERVAL_MS = 65;
+
+    function kbHaptic() {
+      try {
+        if (navigator.vibrate) navigator.vibrate(4);
+      } catch (_) { /* unsupported */ }
+    }
+
     function flashKeyBtn(btn) {
       if (!btn || btn.disabled) return;
+      const prev = kbFlashTimers.get(btn);
+      if (prev) clearTimeout(prev);
       btn.classList.add('kb-flash');
-      window.setTimeout(() => btn.classList.remove('kb-flash'), 280);
+      const t = window.setTimeout(() => {
+        btn.classList.remove('kb-flash');
+        kbFlashTimers.delete(btn);
+      }, KB_FLASH_MS);
+      kbFlashTimers.set(btn, t);
+    }
+
+    function bindKbKey(btn, onActivate, opts) {
+      if (!btn) return;
+      const repeat = !!(opts && opts.repeat);
+      let activePointerId = null;
+      let repeatDelayTimer = 0;
+      let repeatInterval = 0;
+
+      function clearRepeat() {
+        clearTimeout(repeatDelayTimer);
+        clearInterval(repeatInterval);
+        repeatDelayTimer = 0;
+        repeatInterval = 0;
+      }
+
+      function releasePressed() {
+        btn.classList.remove('kb-pressed');
+        clearRepeat();
+        activePointerId = null;
+      }
+
+      function fire(fromRepeat) {
+        if (btn.disabled) return;
+        if (!fromRepeat) {
+          flashKeyBtn(btn);
+          kbHaptic();
+        }
+        onActivate();
+      }
+
+      function onPointerDown(e) {
+        if (btn.disabled) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (activePointerId !== null) return;
+        activePointerId = e.pointerId;
+        e.preventDefault();
+        if (btn.setPointerCapture) btn.setPointerCapture(e.pointerId);
+        btn.classList.add('kb-pressed');
+        fire(false);
+        if (repeat) {
+          repeatDelayTimer = window.setTimeout(() => {
+            repeatInterval = window.setInterval(() => fire(true), KB_REPEAT_INTERVAL_MS);
+          }, KB_REPEAT_DELAY_MS);
+        }
+      }
+
+      function onPointerEnd(e) {
+        if (activePointerId === null || e.pointerId !== activePointerId) return;
+        if (btn.releasePointerCapture) {
+          try { btn.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
+        }
+        releasePressed();
+      }
+
+      btn.addEventListener('pointerdown', onPointerDown);
+      btn.addEventListener('pointerup', onPointerEnd);
+      btn.addEventListener('pointercancel', onPointerEnd);
+      btn.addEventListener('lostpointercapture', releasePressed);
+      btn.addEventListener('contextmenu', e => e.preventDefault());
+      btn.addEventListener('keydown', e => {
+        if (btn.disabled) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (activePointerId === null) fire(false);
+        }
+      });
+    }
+
+    function flashKeyForInput(ch) {
+      if (!keyboardRoot) return;
+      let btn = null;
+      if (ch === 'BACK') btn = keyboardRoot.querySelector('.kb-key.back');
+      else if (ch === ' ') btn = keyboardRoot.querySelector('.kb-key.space');
+      else btn = keyboardRoot.querySelector(`.kb-key[data-ch="${ch}"]`);
+      if (btn) flashKeyBtn(btn);
     }
 
     function fillHintArea(zoneEl, revealedCount, hintStrings) {
@@ -1764,6 +1913,7 @@
         boardAreaEl.style.height = `${Math.ceil(contentH * scale)}px`;
         boardAreaEl.style.minHeight = `${Math.ceil(contentH * scale)}px`;
       }
+      restoreSolvedPhraseSquircles();
     }
 
     function ensureBoardViewportFit() {
@@ -2099,6 +2249,15 @@
       return true;
     }
 
+    function getStageLayoutScale(stage) {
+      if (!stage) return 1;
+      const rect = stage.getBoundingClientRect();
+      const ow = stage.offsetWidth;
+      if (!ow || !rect.width) return 1;
+      const s = rect.width / ow;
+      return s > 0 ? s : 1;
+    }
+
     function layoutPhraseSquirclePaths(block) {
       const stage = block.querySelector('.mg-main-row-wrap');
       const pathA = block.querySelector('.mg-phrase-sq-a');
@@ -2111,6 +2270,7 @@
       if (!stage || !pathA || !pathB || !pathC || !left || !center || !right || !svg) return false;
 
       const stageRect = stage.getBoundingClientRect();
+      const layoutScale = getStageLayoutScale(stage);
       const sqStroke = 2.5;
       const hs = sqStroke / 2;
 
@@ -2128,10 +2288,10 @@
         if (!b.width && !b.height) return null;
         const style = getComputedStyle(el);
         const br = parseFloat(style.borderTopLeftRadius) || 4;
-        const x = b.left - stageRect.left + hs;
-        const y = b.top - stageRect.top + hs;
-        const w = b.width - sqStroke;
-        const h = b.height - sqStroke;
+        const x = (b.left - stageRect.left) / layoutScale + hs;
+        const y = (b.top - stageRect.top) / layoutScale + hs;
+        const w = b.width / layoutScale - sqStroke;
+        const h = b.height / layoutScale - sqStroke;
         if (w <= 0 || h <= 0) return null;
         return { x, y, w, h, corner: Math.min(br, w / 2, h / 2) };
       }
@@ -2142,10 +2302,8 @@
       if (!leftBox || !rightBox || !venn) return false;
 
       const answerRaw = answerStrip.getBoundingClientRect();
-      const answerLeft = answerRaw.left - stageRect.left;
-      const answerRight = answerRaw.right - stageRect.left;
-      const answerTop = answerRaw.top - stageRect.top;
-      const answerBottom = answerRaw.bottom - stageRect.top;
+      const answerLeft = (answerRaw.left - stageRect.left) / layoutScale;
+      const answerRight = (answerRaw.right - stageRect.left) / layoutScale;
 
       const greenTop = Math.min(leftBox.y, venn.y);
       const greenBottom = Math.max(leftBox.y + leftBox.h, venn.y + venn.h);
@@ -2193,6 +2351,7 @@
       }
       squircleAnimatingPhrase = phraseIndex;
       block.classList.remove('mg-phrase-sq-armed', 'mg-phrase-sq-venn', 'mg-phrase-sq-done');
+      fitBoardToViewport();
       function finishAnim() {
         squircleAnimatingPhrase = -1;
         block.classList.add('mg-phrase-sq-armed', 'mg-phrase-sq-venn', 'mg-phrase-sq-done');
@@ -2537,7 +2696,7 @@
       const body = document.getElementById('helpModalBody');
       const html = (playerHelpHtml && String(playerHelpHtml).trim())
         ? playerHelpHtml
-        : '<p class="mg-modal-muted">Rules for this game have not been added yet.</p>';
+        : DEFAULT_PLAYER_HELP_HTML;
       body.innerHTML = html;
       document.getElementById('helpModal').classList.remove('hidden');
     }
@@ -2546,7 +2705,7 @@
       const body = document.getElementById('aboutModalBody');
       const html = (aboutEvilTriviaHtml && String(aboutEvilTriviaHtml).trim())
         ? aboutEvilTriviaHtml
-        : '<p class="mg-modal-muted">About text has not been added yet.</p>';
+        : DEFAULT_ABOUT_HTML;
       body.innerHTML = html;
       document.getElementById('aboutModal').classList.remove('hidden');
     }
@@ -2562,7 +2721,7 @@
       const body = document.getElementById('infoModalBody');
       const html = (infoHtml && String(infoHtml).trim())
         ? infoHtml
-        : '<p class="mg-modal-muted">This text has not been added yet.</p>';
+        : DEFAULT_INFO_HTML;
       body.innerHTML = html;
       document.getElementById('infoModal').classList.remove('hidden');
     }
@@ -2866,7 +3025,6 @@
       updateFocusHighlight();
       preprocessClueBoxLayout();
       scheduleClueHintTextFit(true, () => {
-        restoreSolvedPhraseSquircles();
         fitBoardToViewport();
         updateKeyboardActions();
       });
@@ -3011,7 +3169,6 @@
         addScore(-2);
         hintPending.delete('C');
         clearHintTimer('C');
-        revealedComHints = commonality.hints.length;
         renderBoard();
         if (checkAllComplete()) return;
         updateFocusHighlight();
@@ -3033,12 +3190,12 @@
       kbGuessBtn.type = 'button';
       kbGuessBtn.className = 'kb-key guess action';
       kbGuessBtn.textContent = 'GUESS';
-      kbGuessBtn.addEventListener('click', () => { flashKeyBtn(kbGuessBtn); onGuess(); });
+      bindKbKey(kbGuessBtn, onGuess);
       kbRevealBtn = document.createElement('button');
       kbRevealBtn.type = 'button';
       kbRevealBtn.className = 'kb-key reveal action';
       kbRevealBtn.textContent = 'REVEAL';
-      kbRevealBtn.addEventListener('click', () => { flashKeyBtn(kbRevealBtn); onReveal(); });
+      bindKbKey(kbRevealBtn, onReveal);
       actionRow.appendChild(kbGuessBtn);
       actionRow.appendChild(kbRevealBtn);
       keyboardRoot.appendChild(actionRow);
@@ -3052,7 +3209,7 @@
           b.className = 'kb-key';
           b.textContent = k;
           b.dataset.ch = k;
-          b.addEventListener('click', () => { flashKeyBtn(b); onKeyTap(k); });
+          bindKbKey(b, () => onKeyTap(k));
           d.appendChild(b);
         });
         if (extra) d.appendChild(extra);
@@ -3065,7 +3222,7 @@
       backBtn.type = 'button';
       backBtn.className = 'kb-key back wide';
       backBtn.textContent = '⌫';
-      backBtn.addEventListener('click', () => { flashKeyBtn(backBtn); onKeyTap('BACK'); });
+      bindKbKey(backBtn, () => onKeyTap('BACK'), { repeat: true });
       row(KB_BOT, backBtn);
 
       const rowSpace = document.createElement('div');
@@ -3074,7 +3231,7 @@
       sp.type = 'button';
       sp.className = 'kb-key space';
       sp.textContent = 'SPACE';
-      sp.addEventListener('click', () => { flashKeyBtn(sp); onKeyTap(' '); });
+      bindKbKey(sp, () => onKeyTap(' '));
       rowSpace.appendChild(sp);
       keyboardRoot.appendChild(rowSpace);
 
@@ -3180,7 +3337,6 @@
       commonalityBuffer = normGuess(commonality.answer);
       hintPending.delete('C');
       clearHintTimer('C');
-      revealedComHints = commonality.hints.length;
       if (checkAllComplete()) return;
       renderBoard();
     }
@@ -3307,6 +3463,7 @@
 
       if (e.key === 'Enter') {
         e.preventDefault();
+        if (kbGuessBtn) flashKeyBtn(kbGuessBtn);
         onGuess();
         return;
       }
@@ -3317,6 +3474,7 @@
       }
       if (e.key === 'Backspace') {
         e.preventDefault();
+        flashKeyForInput('BACK');
         onKeyTap('BACK');
         return;
       }
@@ -3324,11 +3482,13 @@
         const ch = e.key;
         if (/^[a-zA-Z]$/.test(ch)) {
           e.preventDefault();
+          flashKeyForInput(ch.toUpperCase());
           onKeyTap(ch.toUpperCase());
           return;
         }
         if (ch === ' ') {
           e.preventDefault();
+          flashKeyForInput(' ');
           onKeyTap(' ');
           return;
         }
