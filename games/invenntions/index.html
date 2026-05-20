@@ -204,6 +204,72 @@
       font-size: clamp(0.62rem, 2.5vw, 0.72rem);
       line-height: 1.1;
     }
+    .stat-bar-wrap {
+      position: relative;
+      width: 100%;
+      min-height: 1.15em;
+      overflow: visible;
+    }
+    .score-delta-pop {
+      position: absolute;
+      left: 50%;
+      top: -0.15em;
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-weight: 900;
+      font-size: clamp(0.95rem, 4.5vw, 1.15rem);
+      line-height: 1;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 12;
+      opacity: 0;
+      animation: scoreDeltaPop 1.15s ease-out forwards;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.85);
+    }
+    .score-delta-pop.gain { color: #1b8a2e; }
+    .score-delta-pop.loss { color: #d32f2f; }
+    @keyframes scoreDeltaPop {
+      0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(6px) scale(0.75);
+      }
+      18% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(-2px) scale(1.18);
+      }
+      70% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(-14px) scale(1.05);
+      }
+      100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-28px) scale(0.95);
+      }
+    }
+    #scoreCount.score-bump {
+      display: inline-block;
+      animation: scoreCountBump 0.38s ease-out;
+    }
+    @keyframes scoreCountBump {
+      0% { transform: scale(1); color: #2c3e50; }
+      35% { transform: scale(1.28); }
+      100% { transform: scale(1); color: #2c3e50; }
+    }
+    #scoreCount.score-bump-gain {
+      animation: scoreCountBumpGain 0.38s ease-out;
+    }
+    #scoreCount.score-bump-loss {
+      animation: scoreCountBumpLoss 0.38s ease-out;
+    }
+    @keyframes scoreCountBumpGain {
+      0% { transform: scale(1); color: #2c3e50; }
+      35% { transform: scale(1.28); color: #1b8a2e; }
+      100% { transform: scale(1); color: #2c3e50; }
+    }
+    @keyframes scoreCountBumpLoss {
+      0% { transform: scale(1); color: #2c3e50; }
+      35% { transform: scale(1.28); color: #d32f2f; }
+      100% { transform: scale(1); color: #2c3e50; }
+    }
     .stat-timer {
       font-variant-numeric: tabular-nums;
       letter-spacing: 0.02em;
@@ -1472,7 +1538,9 @@
         <div class="mg-title-stack">
           <h1 class="mg-game-title" id="pageGameTitle">InVennTions</h1>
           <div class="subtitle" id="pageSubtitle"></div>
-          <div class="stat-bar" id="statBar">Score: <span id="scoreCount">0</span><span class="stat-sep">·</span><span class="stat-timer" id="timerCount">00:00</span></div>
+          <div class="stat-bar-wrap" id="statBarWrap">
+            <div class="stat-bar" id="statBar">Score: <span id="scoreCount">0</span><span class="stat-sep">·</span><span class="stat-timer" id="timerCount">00:00</span></div>
+          </div>
         </div>
         <div class="mg-title-side mg-title-side-right">
           <a href="#" class="mg-logo-link" id="linkAbout" aria-label="About Evil Trivia" title="About Evil Trivia">
@@ -1585,6 +1653,8 @@
     const pageSubtitle = document.getElementById('pageSubtitle');
     const statBar = document.getElementById('statBar');
     const scoreCountEl = document.getElementById('scoreCount');
+    const statBarWrap = document.getElementById('statBarWrap');
+    let scoreDeltaPopCount = 0;
     const timerCountEl = document.getElementById('timerCount');
     const boardArea = document.getElementById('boardArea');
     const puzzleMount = document.getElementById('puzzleMount');
@@ -1841,9 +1911,29 @@ ${DEFAULT_SCORING_HTML}`;
         </div>`;
     }
 
+    function showScoreDelta(delta) {
+      if (!delta || !statBarWrap) return;
+      const gain = delta > 0;
+      const pop = document.createElement('span');
+      pop.className = 'score-delta-pop ' + (gain ? 'gain' : 'loss');
+      pop.textContent = (gain ? '+' : '') + String(delta);
+      pop.setAttribute('aria-hidden', 'true');
+      const stack = scoreDeltaPopCount % 3;
+      scoreDeltaPopCount++;
+      pop.style.marginLeft = stack ? `${stack * 14}px` : '';
+      statBarWrap.appendChild(pop);
+      pop.addEventListener('animationend', () => pop.remove(), { once: true });
+      if (scoreCountEl) {
+        scoreCountEl.classList.remove('score-bump', 'score-bump-gain', 'score-bump-loss');
+        void scoreCountEl.offsetWidth;
+        scoreCountEl.classList.add(gain ? 'score-bump-gain' : 'score-bump-loss');
+      }
+    }
+
     function addScore(delta) {
       scorePoints += delta;
       updateScoreStat();
+      showScoreDelta(delta);
     }
 
     function registerHintUsed() {
