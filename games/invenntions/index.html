@@ -327,19 +327,13 @@
       overflow: hidden;
       word-break: break-word;
     }
-    .mg-words.mg-words-hint-pending {
-      justify-content: center;
-    }
     .mg-words.mg-words-hint-pending .mg-words-text {
-      display: none !important;
+      visibility: hidden;
     }
     .mg-words.mg-words-hint-pending .mg-hint-tap-msg {
       display: flex;
       align-items: center;
       justify-content: center;
-      flex: 1 1 auto;
-      min-height: 2.7em;
-      max-height: 2.7em;
       padding: 0 2px;
     }
     .mg-words {
@@ -355,11 +349,17 @@
       border: 1px solid #ddd;
       width: 100%;
       min-width: 0;
-      min-height: 2.95em;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      min-height: 3.45em;
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(0, 1fr) auto;
+      align-content: center;
+    }
+    .mg-words-text,
+    .mg-hint-tap-msg {
+      grid-row: 1;
+      grid-column: 1;
+      align-self: center;
     }
     .mg-words-text {
       display: block;
@@ -368,9 +368,6 @@
       min-width: 0;
       white-space: nowrap;
       overflow: hidden;
-    }
-    .mg-words.mg-words--solo-clue {
-      justify-content: center;
     }
     .mg-words.mg-words--solo-clue .mg-words-text {
       font-size: clamp(0.76rem, 2.9vw, 0.94rem);
@@ -383,13 +380,11 @@
       word-break: break-word;
       overflow-wrap: anywhere;
       text-overflow: ellipsis;
-      flex: 0 1 auto;
       max-height: 2.72em;
     }
-    .mg-words:not(.mg-words--solo-clue) .mg-words-text {
-      flex-shrink: 0;
-    }
     .mg-hint-area {
+      grid-row: 2;
+      grid-column: 1;
       width: 100%;
       min-height: 1.2em;
       margin-top: 2px;
@@ -398,8 +393,7 @@
       display: none;
     }
     .mg-words.mg-words--with-hint {
-      justify-content: center;
-      min-height: 3.45em;
+      align-content: center;
     }
     .mg-words.mg-words--with-hint .mg-words-text {
       font-size: clamp(0.72rem, 2.7vw, 0.88rem);
@@ -412,11 +406,9 @@
       word-break: break-word;
       overflow-wrap: anywhere;
       text-overflow: ellipsis;
-      flex: 0 0 auto;
       max-height: 1.38em;
     }
     .mg-words.mg-words--with-hint .mg-hint-area {
-      flex: 0 0 auto;
       min-height: 0;
       margin-top: 3px;
     }
@@ -1353,8 +1345,7 @@
         if (!hintPending.has(key)) return;
         hintPending.delete(key);
         syncAllHintTapUi();
-        refreshClueHintTextFit();
-        refreshAnswerStripFit();
+        scheduleClueHintTextFit();
       }, HINT_CONFIRM_MS));
     }
 
@@ -1379,18 +1370,28 @@
       linesWrap.className = 'mg-hint-lines';
       linesWrap.textContent = parts.join(' · ');
       zoneEl.appendChild(linesWrap);
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        const words = zoneEl.closest('.mg-words');
-        if (words) {
-          syncClueSoloLayout(words);
-          const clueText = words.querySelector('.mg-words-text');
-          if (clueText) fitClueWordsText(clueText);
-        }
-        fitSingleLineText(linesWrap);
-      }));
+      scheduleClueHintTextFit();
     }
 
     const MG_FIT_MIN_PX = 7.5;
+
+    function fitFontSizeBinary(el, maxPx, fitsFn) {
+      if (!Number.isFinite(maxPx) || maxPx <= 0) maxPx = 12;
+      if (maxPx <= MG_FIT_MIN_PX) {
+        el.style.fontSize = MG_FIT_MIN_PX + 'px';
+        return;
+      }
+      el.style.fontSize = maxPx + 'px';
+      if (fitsFn(maxPx)) return;
+      let lo = MG_FIT_MIN_PX;
+      let hi = maxPx;
+      while (hi - lo > 0.25) {
+        const mid = (lo + hi) / 2;
+        if (fitsFn(mid)) lo = mid;
+        else hi = mid;
+      }
+      el.style.fontSize = lo + 'px';
+    }
 
     function fitSingleLineText(el) {
       if (!el) return;
@@ -1407,14 +1408,11 @@
       el.style.webkitBoxOrient = '';
       el.style.width = '100%';
       el.style.maxWidth = '100%';
-      let px = parseFloat(getComputedStyle(el).fontSize);
-      if (!Number.isFinite(px) || px <= 0) px = 12;
-      let guard = 0;
-      while (el.scrollWidth > el.clientWidth + 1 && px > MG_FIT_MIN_PX && guard < 60) {
-        px -= 0.5;
+      const maxPx = parseFloat(getComputedStyle(el).fontSize);
+      fitFontSizeBinary(el, maxPx, px => {
         el.style.fontSize = px + 'px';
-        guard++;
-      }
+        return el.scrollWidth <= el.clientWidth + 1;
+      });
     }
 
     function clueBoxHasHintContent(wordsEl) {
@@ -1451,14 +1449,11 @@
         el.style.width = '100%';
         el.style.maxWidth = '100%';
         el.style.maxHeight = '';
-        let px = parseFloat(getComputedStyle(el).fontSize);
-        if (!Number.isFinite(px) || px <= 0) px = 14;
-        let guard = 0;
-        while (clueTextOverflows(el) && px > MG_FIT_MIN_PX && guard < 70) {
-          px -= 0.5;
+        const maxPx = parseFloat(getComputedStyle(el).fontSize);
+        fitFontSizeBinary(el, maxPx, px => {
           el.style.fontSize = px + 'px';
-          guard++;
-        }
+          return !clueTextOverflows(el);
+        });
         return;
       }
 
@@ -1475,14 +1470,15 @@
       el.style.maxWidth = '100%';
       el.style.maxHeight = '';
 
-      let px = parseFloat(getComputedStyle(el).fontSize);
-      if (!Number.isFinite(px) || px <= 0) px = 12;
-      let guard = 0;
-      while (clueTextOverflows(el) && px > MG_FIT_MIN_PX && guard < 80) {
-        px -= 0.5;
+      const maxPx = parseFloat(getComputedStyle(el).fontSize);
+      fitFontSizeBinary(el, maxPx, px => {
         el.style.fontSize = px + 'px';
         el.style.maxHeight = Math.max(14, px * lineH * maxLines) + 'px';
-        guard++;
+        return !clueTextOverflows(el);
+      });
+      const finalPx = parseFloat(el.style.fontSize);
+      if (Number.isFinite(finalPx)) {
+        el.style.maxHeight = Math.max(14, finalPx * lineH * maxLines) + 'px';
       }
     }
 
@@ -1505,6 +1501,36 @@
       puzzleMount.querySelectorAll('.mg-hint-tap-msg').forEach(el => {
         if (el.closest('.mg-words-hint-pending')) return;
         fitSingleLineText(el);
+      });
+    }
+
+    let textFitRefreshPending = false;
+    let textFitIncludeAnswerStrip = false;
+    let textFitAfterFn = null;
+
+    function scheduleClueHintTextFit(includeAnswerStrip, afterFn) {
+      if (includeAnswerStrip) textFitIncludeAnswerStrip = true;
+      if (textFitRefreshPending) {
+        if (typeof afterFn === 'function') {
+          const prevAfter = textFitAfterFn;
+          textFitAfterFn = () => {
+            if (prevAfter) prevAfter();
+            afterFn();
+          };
+        }
+        return;
+      }
+      textFitRefreshPending = true;
+      if (typeof afterFn === 'function') textFitAfterFn = afterFn;
+      requestAnimationFrame(() => {
+        textFitRefreshPending = false;
+        const withStrip = textFitIncludeAnswerStrip;
+        const runAfter = textFitAfterFn;
+        textFitIncludeAnswerStrip = false;
+        textFitAfterFn = null;
+        refreshClueHintTextFit();
+        if (withStrip) refreshAnswerStripFit();
+        if (runAfter) runAfter();
       });
     }
 
@@ -1540,10 +1566,7 @@
       if (textFitResizeBound) return;
       textFitResizeBound = true;
       window.addEventListener('resize', () => {
-        requestAnimationFrame(() => {
-          refreshClueHintTextFit();
-          refreshAnswerStripFit();
-        });
+        scheduleClueHintTextFit(true);
       });
     }
 
@@ -2458,10 +2481,7 @@
           syncPhraseHintTapUi(i);
           scheduleHintPendingRevert(key);
         }
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          refreshClueHintTextFit();
-          refreshAnswerStripFit();
-        }));
+        scheduleClueHintTextFit();
         return;
       }
 
@@ -2480,10 +2500,7 @@
           syncComHintTapUi();
           scheduleHintPendingRevert('C');
         }
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          refreshClueHintTextFit();
-          refreshAnswerStripFit();
-        }));
+        scheduleClueHintTextFit();
       }
     }
 
@@ -2616,11 +2633,7 @@
         keyboardWrap.classList.remove('hidden-kb');
       }
       updateFocusHighlight();
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        refreshClueHintTextFit();
-        refreshAnswerStripFit();
-        restoreSolvedPhraseSquircles();
-      }));
+      scheduleClueHintTextFit(true, restoreSolvedPhraseSquircles);
     }
 
     function updateFocusHighlight() {
@@ -2844,7 +2857,7 @@
         renderBoard();
         playPhraseSolveSquircle(i, () => {
           renderPuzzleHintRow(i, p);
-          requestAnimationFrame(() => refreshClueHintTextFit());
+          scheduleClueHintTextFit();
           if (checkAllComplete()) return;
           focusNextSlot();
           updateFocusHighlight();
