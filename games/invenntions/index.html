@@ -867,6 +867,7 @@
       backdrop-filter: blur(6px);
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
+      touch-action: none;
     }
     .keyboard-wrap.hidden-kb { display: none; }
     .kb-row {
@@ -893,7 +894,7 @@
       border-radius: 6px;
       background: #fff;
       cursor: pointer;
-      touch-action: manipulation;
+      touch-action: none;
       user-select: none;
       box-shadow: 0 1px 0 #999;
       color: #222;
@@ -1978,71 +1979,112 @@ ${DEFAULT_SCORING_HTML}`;
       kbFlashTimers.set(btn, t);
     }
 
-    function bindKbKey(btn, onActivate, opts) {
-      if (!btn) return;
-      const repeat = !!(opts && opts.repeat);
-      const noFlash = !!(opts && opts.noFlash);
-      const noHaptic = !!(opts && opts.noHaptic);
-      let activePointerId = null;
-      let repeatDelayTimer = 0;
-      let repeatInterval = 0;
-
-      function clearRepeat() {
-        clearTimeout(repeatDelayTimer);
-        clearInterval(repeatInterval);
-        repeatDelayTimer = 0;
-        repeatInterval = 0;
+    function fireKbKey(btn, fromRepeat) {
+      if (!btn || btn.disabled) return;
+      const noFlash = btn.classList.contains('reveal');
+      if (!fromRepeat) {
+        if (!noFlash) flashKeyBtn(btn);
+        if (!noFlash) kbHaptic();
       }
+      if (btn.classList.contains('guess')) onGuess();
+      else if (btn.classList.contains('reveal')) onReveal();
+      else if (btn.classList.contains('back')) onKeyTap('BACK');
+      else if (btn.classList.contains('space')) onKeyTap(' ');
+      else if (btn.dataset.ch) onKeyTap(btn.dataset.ch);
+    }
 
-      function releasePressed() {
-        btn.classList.remove('kb-pressed');
-        clearRepeat();
-        activePointerId = null;
-      }
+    /** @type {Map<number, { btn: HTMLElement, repeatDelay: number, repeatInterval: number }>} */
+    const kbActivePointers = new Map();
+    let kbPointerBound = false;
 
-      function fire(fromRepeat) {
-        if (btn.disabled) return;
-        if (!fromRepeat) {
-          if (!noFlash) flashKeyBtn(btn);
-          if (!noHaptic) kbHaptic();
-        }
-        onActivate();
-      }
+    function kbKeyAtPoint(x, y) {
+      const el = document.elementFromPoint(x, y);
+      if (!el || !keyboardRoot || !keyboardRoot.contains(el)) return null;
+      const btn = el.closest('.kb-key');
+      return btn && !btn.disabled ? btn : null;
+    }
 
-      function onPointerDown(e) {
-        if (btn.disabled) return;
+    function stopKbKeyRepeat(rec) {
+      clearTimeout(rec.repeatDelay);
+      clearInterval(rec.repeatInterval);
+      rec.repeatDelay = 0;
+      rec.repeatInterval = 0;
+    }
+
+    function startKbKeyRepeat(rec) {
+      stopKbKeyRepeat(rec);
+      if (!rec.btn.classList.contains('back')) return;
+      rec.repeatDelay = window.setTimeout(() => {
+        rec.repeatInterval = window.setInterval(() => fireKbKey(rec.btn, true), KB_REPEAT_INTERVAL_MS);
+      }, KB_REPEAT_DELAY_MS);
+    }
+
+    function clearKbPointer(pointerId) {
+      const rec = kbActivePointers.get(pointerId);
+      if (!rec) return;
+      stopKbKeyRepeat(rec);
+      rec.btn.classList.remove('kb-pressed');
+      kbActivePointers.delete(pointerId);
+    }
+
+    function ensureKeyboardPointerHandling() {
+      if (kbPointerBound || !keyboardRoot) return;
+      kbPointerBound = true;
+
+      keyboardRoot.addEventListener('pointerdown', e => {
+        const btn = e.target.closest('.kb-key');
+        if (!btn || btn.disabled) return;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
-        if (activePointerId !== null) return;
-        activePointerId = e.pointerId;
         e.preventDefault();
+        if (kbActivePointers.has(e.pointerId)) return;
+
+        const rec = { btn, repeatDelay: 0, repeatInterval: 0 };
+        kbActivePointers.set(e.pointerId, rec);
         if (btn.setPointerCapture) btn.setPointerCapture(e.pointerId);
         btn.classList.add('kb-pressed');
-        fire(false);
-        if (repeat) {
-          repeatDelayTimer = window.setTimeout(() => {
-            repeatInterval = window.setInterval(() => fire(true), KB_REPEAT_INTERVAL_MS);
-          }, KB_REPEAT_DELAY_MS);
+        fireKbKey(btn, false);
+        startKbKeyRepeat(rec);
+      }, { passive: false });
+
+      keyboardRoot.addEventListener('pointermove', e => {
+        const rec = kbActivePointers.get(e.pointerId);
+        if (!rec) return;
+        const under = kbKeyAtPoint(e.clientX, e.clientY);
+        if (!under || under === rec.btn) return;
+        rec.btn.classList.remove('kb-pressed');
+        rec.btn = under;
+        under.classList.add('kb-pressed');
+        if (under.setPointerCapture) {
+          try { under.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
         }
-      }
+        fireKbKey(under, false);
+        startKbKeyRepeat(rec);
+      });
 
       function onPointerEnd(e) {
-        if (activePointerId === null || e.pointerId !== activePointerId) return;
-        if (btn.releasePointerCapture) {
-          try { btn.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
+        const rec = kbActivePointers.get(e.pointerId);
+        if (!rec) return;
+        if (rec.btn.releasePointerCapture) {
+          try { rec.btn.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
         }
-        releasePressed();
+        clearKbPointer(e.pointerId);
       }
 
-      btn.addEventListener('pointerdown', onPointerDown);
-      btn.addEventListener('pointerup', onPointerEnd);
-      btn.addEventListener('pointercancel', onPointerEnd);
-      btn.addEventListener('lostpointercapture', releasePressed);
+      keyboardRoot.addEventListener('pointerup', onPointerEnd);
+      keyboardRoot.addEventListener('pointercancel', onPointerEnd);
+      keyboardRoot.addEventListener('lostpointercapture', e => {
+        if (kbActivePointers.has(e.pointerId)) clearKbPointer(e.pointerId);
+      });
+    }
+
+    function bindKbKeyAccessibility(btn) {
+      if (!btn) return;
       btn.addEventListener('contextmenu', e => e.preventDefault());
       btn.addEventListener('keydown', e => {
         if (btn.disabled) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (activePointerId === null) fire(false);
+          fireKbKey(btn, false);
         }
       });
     }
@@ -3321,15 +3363,8 @@ ${DEFAULT_SCORING_HTML}`;
         <div class="lb-share-row">
           <button type="button" class="lb-share-btn" id="btnShareGame">Share game</button>
           <p class="lb-share-msg" id="shareGameMsg" aria-live="polite"></p>
-        </div>
-        <div class="btn-row">
-          <button type="button" class="secondary" id="playAgainBtn">Play again</button>
         </div>`;
       document.getElementById('btnShareGame')?.addEventListener('click', () => { shareGameLink(); });
-      document.getElementById('playAgainBtn')?.addEventListener('click', () => {
-        closeAllModals();
-        loadQuiz();
-      });
       await loadPublicLeaderboard();
     }
 
@@ -3853,10 +3888,12 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function buildKeyboard() {
+      kbActivePointers.forEach((_, pointerId) => clearKbPointer(pointerId));
       keyboardRoot.innerHTML = '';
       kbGuessBtn = null;
       kbRevealBtn = null;
       resetRevealConfirm();
+      ensureKeyboardPointerHandling();
 
       const actionRow = document.createElement('div');
       actionRow.className = 'kb-row kb-action-row';
@@ -3864,12 +3901,12 @@ ${DEFAULT_SCORING_HTML}`;
       kbGuessBtn.type = 'button';
       kbGuessBtn.className = 'kb-key guess action';
       kbGuessBtn.textContent = 'GUESS';
-      bindKbKey(kbGuessBtn, onGuess);
+      bindKbKeyAccessibility(kbGuessBtn);
       kbRevealBtn = document.createElement('button');
       kbRevealBtn.type = 'button';
       kbRevealBtn.className = 'kb-key reveal action';
       kbRevealBtn.textContent = 'REVEAL';
-      bindKbKey(kbRevealBtn, onReveal, { noFlash: true });
+      bindKbKeyAccessibility(kbRevealBtn);
       actionRow.appendChild(kbGuessBtn);
       actionRow.appendChild(kbRevealBtn);
       keyboardRoot.appendChild(actionRow);
@@ -3883,10 +3920,13 @@ ${DEFAULT_SCORING_HTML}`;
           b.className = 'kb-key';
           b.textContent = k;
           b.dataset.ch = k;
-          bindKbKey(b, () => onKeyTap(k));
+          bindKbKeyAccessibility(b);
           d.appendChild(b);
         });
-        if (extra) d.appendChild(extra);
+        if (extra) {
+          bindKbKeyAccessibility(extra);
+          d.appendChild(extra);
+        }
         keyboardRoot.appendChild(d);
       }
 
@@ -3896,12 +3936,12 @@ ${DEFAULT_SCORING_HTML}`;
       sp.type = 'button';
       sp.className = 'kb-key space';
       sp.textContent = 'SPACE';
-      bindKbKey(sp, () => onKeyTap(' '));
+      bindKbKeyAccessibility(sp);
       const backBtn = document.createElement('button');
       backBtn.type = 'button';
       backBtn.className = 'kb-key back wide';
       backBtn.textContent = '⌫';
-      bindKbKey(backBtn, () => onKeyTap('BACK'), { repeat: true });
+      bindKbKeyAccessibility(backBtn);
       const bottomRow = document.createElement('div');
       bottomRow.className = 'kb-row kb-row-bottom';
       KB_BOT.forEach(k => {
@@ -3910,7 +3950,7 @@ ${DEFAULT_SCORING_HTML}`;
         b.className = 'kb-key';
         b.textContent = k;
         b.dataset.ch = k;
-        bindKbKey(b, () => onKeyTap(k));
+        bindKbKeyAccessibility(b);
         bottomRow.appendChild(b);
       });
       bottomRow.appendChild(sp);
