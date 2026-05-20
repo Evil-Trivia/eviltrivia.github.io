@@ -355,9 +355,12 @@
       box-sizing: border-box;
       display: grid;
       grid-template-columns: 1fr;
-      grid-template-rows: minmax(0, 1fr) var(--mg-hint-slot-h, 1.26em);
+      grid-template-rows: minmax(0, 1fr) 0;
       align-content: stretch;
       overflow: hidden;
+    }
+    .mg-words.mg-words--with-hint {
+      grid-template-rows: minmax(0, 1fr) var(--mg-hint-slot-h, 1.26em);
     }
     .mg-words-text,
     .mg-hint-tap-msg {
@@ -371,7 +374,7 @@
       width: 100%;
       max-width: 100%;
       min-width: 0;
-      max-height: var(--mg-clue-slot-h, 2.2em);
+      max-height: var(--mg-full-clue-h, 100%);
       font-size: clamp(0.76rem, 2.9vw, 0.94rem);
       line-height: 1.18;
       white-space: normal;
@@ -383,23 +386,30 @@
       text-overflow: ellipsis;
     }
     .mg-words.mg-words--with-hint .mg-words-text {
+      max-height: var(--mg-split-clue-h, 2.2em);
       -webkit-line-clamp: 1;
+      line-height: 1.15;
     }
     .mg-hint-area {
       grid-row: 2;
       grid-column: 1;
       width: 100%;
-      height: var(--mg-hint-slot-h, 1.26em);
-      min-height: var(--mg-hint-slot-h, 1.26em);
-      max-height: var(--mg-hint-slot-h, 1.26em);
+      height: 0;
+      min-height: 0;
+      max-height: 0;
       margin-top: 0;
       overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
     }
+    .mg-words.mg-words--with-hint .mg-hint-area {
+      height: var(--mg-hint-slot-h, 1.26em);
+      min-height: var(--mg-hint-slot-h, 1.26em);
+      max-height: var(--mg-hint-slot-h, 1.26em);
+    }
     .mg-words .mg-hint-area:empty {
-      visibility: hidden;
+      display: none;
     }
     .mg-hint-lines {
       display: block;
@@ -1429,23 +1439,33 @@
       const hintH = Math.round(emPx * MG_HINT_SLOT_EM * 100) / 100;
       const padY = (parseFloat(getComputedStyle(probe).paddingTop) || 0)
         + (parseFloat(getComputedStyle(probe).paddingBottom) || 0);
-      const clueH = Math.max(14, Math.round((wordsH - hintH - padY) * 100) / 100);
+      const fullClueH = Math.max(14, Math.round((wordsH - padY) * 100) / 100);
+      const splitClueH = Math.max(14, Math.round((wordsH - hintH - padY) * 100) / 100);
 
       puzzleMount.style.setProperty('--mg-words-h', wordsH + 'px');
       puzzleMount.style.setProperty('--mg-hint-slot-h', hintH + 'px');
-      puzzleMount.style.setProperty('--mg-clue-slot-h', clueH + 'px');
+      puzzleMount.style.setProperty('--mg-full-clue-h', fullClueH + 'px');
+      puzzleMount.style.setProperty('--mg-split-clue-h', splitClueH + 'px');
 
       boxes.forEach(box => {
         box.style.height = wordsH + 'px';
         box.style.minHeight = wordsH + 'px';
         box.style.maxHeight = wordsH + 'px';
-        const zone = box.querySelector('.mg-hint-area');
-        if (zone) {
-          zone.style.height = hintH + 'px';
-          zone.style.minHeight = hintH + 'px';
-          zone.style.maxHeight = hintH + 'px';
-        }
       });
+    }
+
+    function clueSlotMaxHeight(hasHint) {
+      const key = hasHint ? '--mg-split-clue-h' : '--mg-full-clue-h';
+      const val = parseFloat(getComputedStyle(puzzleMount).getPropertyValue(key));
+      return Number.isFinite(val) && val > 0 ? val : (hasHint ? 28 : 40);
+    }
+
+    function clueFitCeilingPx(el, hasHint, slotH, maxLines) {
+      el.style.fontSize = '';
+      const cssPx = parseFloat(getComputedStyle(el).fontSize) || 14;
+      const lineH = hasHint ? 1.15 : 1.18;
+      const fillPx = Math.min(hasHint ? 16 : 22, (slotH / maxLines) / lineH * 0.94);
+      return Math.max(cssPx, fillPx);
     }
 
     function clueTextOverflows(el) {
@@ -1459,12 +1479,9 @@
       const hasHint = clueBoxHasHintContent(words);
       syncClueSoloLayout(words);
 
-      const clueMax = parseFloat(getComputedStyle(el).maxHeight)
-        || parseFloat(getComputedStyle(puzzleMount).getPropertyValue('--mg-clue-slot-h'))
-        || 28;
       const maxLines = hasHint ? 1 : 2;
+      const clueMax = clueSlotMaxHeight(hasHint);
 
-      el.style.fontSize = '';
       el.style.whiteSpace = 'normal';
       el.style.display = '-webkit-box';
       el.style.webkitLineClamp = String(maxLines);
@@ -1474,8 +1491,8 @@
       el.style.maxWidth = '100%';
       el.style.maxHeight = clueMax + 'px';
 
-      const maxPx = parseFloat(getComputedStyle(el).fontSize);
-      fitFontSizeBinary(el, maxPx, px => {
+      const ceilingPx = clueFitCeilingPx(el, hasHint, clueMax, maxLines);
+      fitFontSizeBinary(el, ceilingPx, px => {
         el.style.fontSize = px + 'px';
         return !clueTextOverflows(el);
       });
