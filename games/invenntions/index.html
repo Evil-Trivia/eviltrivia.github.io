@@ -723,6 +723,22 @@
       font-size: 0.82rem;
       letter-spacing: 0.05em;
     }
+    .kb-key.guess.action {
+      flex: 1.45 1 0;
+    }
+    .kb-key.reveal.action {
+      flex: 0.85 1 0;
+      font-size: 0.76rem;
+    }
+    .kb-key.reveal.action.reveal-confirm {
+      background: #c98600;
+      border-color: #a86f00;
+      font-size: 0.72rem;
+      letter-spacing: 0.02em;
+    }
+    .kb-key.reveal.action.reveal-confirm.kb-pressed:not(:disabled) {
+      background: #b07800;
+    }
     .kb-key.guess {
       background: #4a90c2;
       color: #fff;
@@ -2828,6 +2844,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (stripEl && stripEl.id.startsWith('strip-p-')) {
         const i = Number(stripEl.id.replace('strip-p-', ''));
         if (!Number.isNaN(i) && puzzles[i] && !puzzleSolved[i]) {
+          resetRevealConfirm();
           focusKind = 'phrase';
           focusPuzzleIndex = i;
           updateFocusHighlight();
@@ -2836,6 +2853,7 @@ ${DEFAULT_SCORING_HTML}`;
       }
       if (stripEl && stripEl.id === 'strip-c') {
         if (commonality && !commonalitySolved) {
+          resetRevealConfirm();
           focusKind = 'commonality';
           updateFocusHighlight();
         }
@@ -3061,12 +3079,14 @@ ${DEFAULT_SCORING_HTML}`;
       if (cur < 0) cur = 0;
       const next = (cur + delta + slots.length * 10) % slots.length;
       const s = slots[next];
+      resetRevealConfirm();
       focusKind = s.kind;
       if (s.kind === 'phrase') focusPuzzleIndex = s.i;
       updateFocusHighlight();
     }
 
     function focusNextSlot() {
+      resetRevealConfirm();
       for (let j = focusPuzzleIndex + 1; j < puzzles.length; j++) {
         if (!puzzleSolved[j]) {
           focusPuzzleIndex = j;
@@ -3118,6 +3138,14 @@ ${DEFAULT_SCORING_HTML}`;
 
     let kbGuessBtn = null;
     let kbRevealBtn = null;
+    let revealConfirmPending = false;
+
+    function resetRevealConfirm() {
+      revealConfirmPending = false;
+      if (!kbRevealBtn) return;
+      kbRevealBtn.textContent = 'REVEAL';
+      kbRevealBtn.classList.remove('reveal-confirm');
+    }
 
     function canRevealAnswerForFocus() {
       if (phase === 'finish') return false;
@@ -3135,16 +3163,20 @@ ${DEFAULT_SCORING_HTML}`;
       if (!kbGuessBtn || !kbRevealBtn) return;
       const playing = phase !== 'finish';
       kbGuessBtn.disabled = !playing;
-      kbRevealBtn.disabled = !playing || !canRevealAnswerForFocus();
+      const canReveal = playing && canRevealAnswerForFocus();
+      kbRevealBtn.disabled = !canReveal;
+      if (!canReveal) resetRevealConfirm();
     }
 
     function revealFocusedAnswer() {
       if (phase === 'finish') return;
       if (!canRevealAnswerForFocus()) {
+        resetRevealConfirm();
         toastEl.textContent = 'Nothing to reveal here.';
         setTimeout(() => { toastEl.textContent = ''; }, 1600);
         return;
       }
+      resetRevealConfirm();
       if (focusKind === 'phrase') {
         const i = focusPuzzleIndex;
         const p = puzzles[i];
@@ -3176,6 +3208,20 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function onReveal() {
+      if (phase === 'finish' || !canRevealAnswerForFocus()) {
+        resetRevealConfirm();
+        if (phase !== 'finish') {
+          toastEl.textContent = 'Nothing to reveal here.';
+          setTimeout(() => { toastEl.textContent = ''; }, 1600);
+        }
+        return;
+      }
+      if (!revealConfirmPending) {
+        revealConfirmPending = true;
+        kbRevealBtn.textContent = 'Are you sure?';
+        kbRevealBtn.classList.add('reveal-confirm');
+        return;
+      }
       revealFocusedAnswer();
     }
 
@@ -3183,6 +3229,7 @@ ${DEFAULT_SCORING_HTML}`;
       keyboardRoot.innerHTML = '';
       kbGuessBtn = null;
       kbRevealBtn = null;
+      resetRevealConfirm();
 
       const actionRow = document.createElement('div');
       actionRow.className = 'kb-row kb-action-row';
@@ -3269,6 +3316,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function onKeyTap(ch) {
+      resetRevealConfirm();
       if (phase === 'finish') return;
       if (focusKind === 'phrase') {
         const i = focusPuzzleIndex;
@@ -3284,6 +3332,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function onGuess() {
+      resetRevealConfirm();
       if (phase === 'finish') return;
       let guess = '';
 
@@ -3522,6 +3571,7 @@ ${DEFAULT_SCORING_HTML}`;
       commonalityBuffer = '';
       focusKind = 'phrase';
       focusPuzzleIndex = 0;
+      resetRevealConfirm();
       updateScoreStat();
       if (toastEl) toastEl.textContent = '';
     }
