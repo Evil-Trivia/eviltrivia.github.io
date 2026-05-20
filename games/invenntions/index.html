@@ -907,6 +907,12 @@
         font-size: 1rem;
       }
       .kb-key.action { min-height: 44px; }
+      .kb-key.space {
+        font-size: 0.46rem;
+        letter-spacing: 0;
+        padding-left: 1px;
+        padding-right: 1px;
+      }
     }
     .kb-key.kb-pressed:not(:disabled) {
       transform: translateY(1px) scale(0.98);
@@ -933,8 +939,15 @@
       flex: 1 1 0;
       min-width: 0;
       max-width: none;
-      font-size: 0.68rem;
-      letter-spacing: 0.04em;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 0.52rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      padding-left: 2px;
+      padding-right: 2px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: clip;
     }
     .kb-key.action {
       flex: 1 1 0;
@@ -1674,6 +1687,8 @@ ${DEFAULT_SCORING_HTML}`;
     let sessionThemeBonusEvents = [];
     let scoreSavedThisSession = false;
     let lastSavedDisplayName = '';
+    let scoreModalOpenedAt = 0;
+    const SCORE_MODAL_DISMISS_GUARD_MS = 500;
     /** Running session score. */
     let scorePoints = 0;
     /** Pending two-tap confirm: keys "L-0", "R-1", "C" */
@@ -3157,6 +3172,19 @@ ${DEFAULT_SCORING_HTML}`;
       showTitleScreen();
     }
 
+    function markScoreModalOpened() {
+      scoreModalOpenedAt = Date.now();
+    }
+
+    function canDismissScoreModal() {
+      return Date.now() - scoreModalOpenedAt > SCORE_MODAL_DISMISS_GUARD_MS;
+    }
+
+    function openScoreModal() {
+      markScoreModalOpened();
+      document.getElementById('scoreModal').classList.remove('hidden');
+    }
+
     function closeAllModals() {
       ['helpModal', 'aboutModal', 'infoModal', 'scoreModal'].forEach(mid => {
         const el = document.getElementById(mid);
@@ -3334,7 +3362,9 @@ ${DEFAULT_SCORING_HTML}`;
         const el = document.getElementById(id);
         if (!el) return;
         el.addEventListener('click', e => {
-          if (e.target === el) el.classList.add('hidden');
+          if (e.target !== el) return;
+          if (id === 'scoreModal' && !canDismissScoreModal()) return;
+          el.classList.add('hidden');
         });
       }
       backdropClose('helpModal');
@@ -3366,7 +3396,7 @@ ${DEFAULT_SCORING_HTML}`;
         if (scoreSavedThisSession && lastSavedDisplayName) {
           await showFinishLeaderboard(lastSavedDisplayName);
         }
-        document.getElementById('scoreModal').classList.remove('hidden');
+        openScoreModal();
       });
     }
 
@@ -4032,9 +4062,7 @@ ${DEFAULT_SCORING_HTML}`;
           closeAllModals();
           loadQuiz();
         });
-        document.getElementById('scoreModal').classList.remove('hidden');
-        const btnScore = document.getElementById('btnScoreModal');
-        if (btnScore) btnScore.classList.remove('hidden');
+        window.setTimeout(revealScoreModal, 50);
         return;
       }
 
@@ -4053,7 +4081,11 @@ ${DEFAULT_SCORING_HTML}`;
         loadQuiz();
       });
 
-      document.getElementById('scoreModal').classList.remove('hidden');
+      window.setTimeout(revealScoreModal, 50);
+    }
+
+    function revealScoreModal() {
+      openScoreModal();
       const btnScore = document.getElementById('btnScoreModal');
       if (btnScore) btnScore.classList.remove('hidden');
     }
