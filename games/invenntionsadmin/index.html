@@ -135,6 +135,7 @@
     .badge-live { background: #c8e6c9; color: #2e7d32; }
     .badge-hidden { background: #eee; color: #666; }
     .badge-order { background: #e3f2fd; color: #1565c0; }
+    .badge-scheduled { background: #fff3e0; color: #e65100; }
     #roundEditPanel {
       border: 2px solid #4a90c2;
       border-radius: 10px;
@@ -727,6 +728,14 @@ ${DEFAULT_SCORING_HTML}`;
           badges.push('<span class="badge badge-order">Play #' + (liveRoundIds.indexOf(id) + 1) + '</span>');
         }
         if (r.hidden) badges.push('<span class="badge badge-hidden">Hidden</span>');
+        if (r.scheduleLive) {
+          const pd = r.playDate ? String(r.playDate).trim() : '';
+          if (pd && pd > todayISO()) {
+            badges.push('<span class="badge badge-scheduled">Scheduled ' + escapeHtml(pd) + '</span>');
+          } else if (pd) {
+            badges.push('<span class="badge badge-scheduled">Auto-live</span>');
+          }
+        }
 
         const orderBtns = isLiveRound(id)
           ? '<button type="button" class="small" data-act="up" title="Move up in play order">↑</button>'
@@ -797,6 +806,29 @@ ${DEFAULT_SCORING_HTML}`;
       parts.push(n ? n + ' phrase' + (n === 1 ? '' : 's') : 'No phrases');
       if (sub) parts.push(sub);
       return parts.join(' · ');
+    }
+
+    async function syncScheduledLive() {
+      const today = todayISO();
+      let changed = false;
+      Object.keys(archive).forEach(id => {
+        const r = archive[id];
+        if (!r || r.hidden || !r.scheduleLive) return;
+        const pd = r.playDate ? String(r.playDate).trim() : '';
+        if (!pd || pd > today) return;
+        if (liveRoundIds.indexOf(id) < 0) {
+          liveRoundIds.push(id);
+          changed = true;
+        }
+      });
+      if (changed) {
+        liveRoundIds.sort((a, b) => {
+          const da = archive[a] && archive[a].playDate ? String(archive[a].playDate) : '';
+          const db = archive[b] && archive[b].playDate ? String(archive[b].playDate) : '';
+          return db.localeCompare(da);
+        });
+        await saveLiveRoundIds();
+      }
     }
 
     async function setRoundLive(id, live) {
@@ -917,7 +949,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function archiveEntryToEditorModel(r) {
-      if (!r) return { label: '', subtitle: '', playDate: todayISO(), puzzles: [defaultPuzzle()], commonality: null };
+      if (!r) return { label: '', subtitle: '', playDate: todayISO(), scheduleLive: false, puzzles: [defaultPuzzle()], commonality: null };
       let playDate = r.playDate != null ? String(r.playDate).trim() : '';
       if (!playDate && r.updatedAt) {
         playDate = new Date(r.updatedAt).toISOString().split('T')[0];
@@ -927,6 +959,7 @@ ${DEFAULT_SCORING_HTML}`;
         label: r.label != null ? String(r.label) : (r.roundTitle != null ? String(r.roundTitle) : ''),
         subtitle: r.subtitle != null ? String(r.subtitle) : '',
         playDate,
+        scheduleLive: !!r.scheduleLive,
         puzzles: coercePuzzlesFromBlock(r.puzzles),
         commonality: r.commonality && typeof r.commonality === 'object' ? r.commonality : null
       };
@@ -948,6 +981,7 @@ ${DEFAULT_SCORING_HTML}`;
         label: rm.label || '',
         subtitle: rm.subtitle || '',
         playDate: rm.playDate || (existing && existing.playDate) || todayISO(),
+        scheduleLive: !!rm.scheduleLive,
         puzzles,
         hidden: existing ? !!existing.hidden : false,
         updatedAt: Date.now()
@@ -969,6 +1003,7 @@ ${DEFAULT_SCORING_HTML}`;
         siteSettings = { ...siteSettings, ...siteSnap.val() };
       }
       loadSiteFields();
+      await syncScheduledLive();
       await loadScoresCache();
       renderRoundsList();
     }
@@ -1047,6 +1082,12 @@ ${DEFAULT_SCORING_HTML}`;
             <input type="date" class="in-round-date" style="max-width:220px" />
           </div>
           <div class="field" style="margin-bottom:10px">
+            <label style="display:flex;align-items:flex-start;gap:8px;font-weight:normal;cursor:pointer">
+              <input type="checkbox" class="in-schedule-live" style="margin-top:3px" />
+              <span><strong>Schedule to go live</strong> — automatically marked Live on the play date (when you open admin or save this round). Players see it on Play once the date arrives.</span>
+            </label>
+          </div>
+          <div class="field" style="margin-bottom:10px">
             <label>Tagline (play page subtitle)</label>
             <input type="text" class="in-round-subtitle" style="width:100%;max-width:520px" placeholder="e.g. Fill in the middle word" />
           </div>
@@ -1075,6 +1116,7 @@ ${DEFAULT_SCORING_HTML}`;
       const wrap = mount.querySelector('#editingRoundWrap');
       wrap.querySelector('.in-round-label').value = rm.label || '';
       wrap.querySelector('.in-round-date').value = rm.playDate || todayISO();
+      wrap.querySelector('.in-schedule-live').checked = !!rm.scheduleLive;
       wrap.querySelector('.in-round-subtitle').value = rm.subtitle || '';
       const pm = wrap.querySelector('.phrases-mount');
       renderPuzzleEditorsInto(pm, rm.puzzles || [defaultPuzzle()]);
@@ -1122,6 +1164,7 @@ ${DEFAULT_SCORING_HTML}`;
       return {
         label: wrap.querySelector('.in-round-label').value.trim(),
         playDate: wrap.querySelector('.in-round-date').value || todayISO(),
+        scheduleLive: wrap.querySelector('.in-schedule-live').checked,
         subtitle: wrap.querySelector('.in-round-subtitle').value.trim(),
         puzzles: puzzRows,
         commonality
@@ -1178,6 +1221,7 @@ ${DEFAULT_SCORING_HTML}`;
       try {
         await window.dbSet(window.dbRef(window.db, `${ARCHIVE_PATH}/${editingRoundId}`), body);
         archive[editingRoundId] = body;
+        await syncScheduledLive();
         flash(document.getElementById('archiveMsg'), 'Round saved.', false);
         renderRoundsList();
       } catch (e) {

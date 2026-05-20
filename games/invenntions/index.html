@@ -1395,6 +1395,21 @@
       25% { transform: rotate(-2.5deg) scale(1.02); }
       75% { transform: rotate(2.5deg) scale(1.02); }
     }
+    .inv-title-play-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+    .inv-title-play-hint {
+      margin: 4px 0 0;
+      font-size: 0.72rem;
+      color: #666;
+      text-align: center;
+      line-height: 1.3;
+      max-width: 280px;
+    }
+    .inv-title-play-hint:empty { display: none; }
     .inv-title-status {
       min-height: 1.2em;
       text-align: center;
@@ -1579,7 +1594,10 @@
       </div>
       <p class="inv-title-tagline">an Evil Trivia<sup>®</sup> word puzzle</p>
       <div class="inv-title-menu" id="titleMenu">
-        <button type="button" class="inv-menu-btn" id="btnTitlePlay" disabled>Play</button>
+        <div class="inv-title-play-wrap">
+          <button type="button" class="inv-menu-btn" id="btnTitlePlay" disabled>Play</button>
+          <p class="inv-title-play-hint" id="titlePlayHint" aria-live="polite"></p>
+        </div>
         <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleArchive">Archive</button>
         <div class="inv-info-hint-wrap">
           <button type="button" class="inv-menu-btn inv-menu-secondary" id="btnTitleInfo">What am I doing here?</button>
@@ -1812,6 +1830,10 @@ ${DEFAULT_SCORING_HTML}`;
     let squircleArmed = false;
     /** @type {{ id: string, label: string, playDate: string, phraseCount: number, isLive: boolean }[]} */
     let archiveCatalog = [];
+    /** @type {Promise<Record<string, object>>|null} */
+    let archiveFetchPromise = null;
+    let liveRoundMeta = null;
+    let activeRoundMeta = null;
     let activeGameId = null;
     let activeGameTitle = '';
     /** Normalized rounds from Firebase (each has roundTitle, subtitle, puzzles, commonality). */
@@ -2134,6 +2156,120 @@ ${DEFAULT_SCORING_HTML}`;
       const savedRound = canonicalRoundIdFromSessionKey(savedKey);
       const currentRound = canonicalRoundIdFromSessionKey(currentKey);
       return !!(savedRound && currentRound && savedRound === currentRound);
+    }
+
+    function getDeepLinkRoundId() {
+      try {
+        const raw = new URLSearchParams(window.location.search).get('round');
+        if (!raw) return '';
+        const id = String(raw).trim();
+        return /^[-A-Za-z0-9_]+$/.test(id) ? id : '';
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function roundShareUrl(roundId) {
+      const base = GAME_SHARE_URL.replace(/\/?$/, '/');
+      if (!roundId) return base;
+      return `${base}?round=${encodeURIComponent(roundId)}`;
+    }
+
+    function roundLabelFromBlock(block, id) {
+      if (!block) return id ? 'Round' : '';
+      const l = block.label != null ? String(block.label).trim() : '';
+      if (l) return l;
+      const rt = block.roundTitle != null ? String(block.roundTitle).trim() : '';
+      if (rt) return rt;
+      return id ? 'Round' : '';
+    }
+
+    function fetchArchiveRaw() {
+      if (!archiveFetchPromise) {
+        archiveFetchPromise = window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive`))
+          .then(snap => (snapExists(snap) && snap.val() && typeof snap.val() === 'object') ? snap.val() : {})
+          .catch(err => {
+            console.warn('InVennTions archive fetch:', err);
+            return {};
+          });
+      }
+      return archiveFetchPromise;
+    }
+
+    function resolveEffectiveLiveRoundIds(archiveRaw, manualLiveIds) {
+      const today = todayISO();
+      const manual = Array.isArray(manualLiveIds) ? manualLiveIds.map(String).filter(Boolean) : [];
+      const scheduledToday = [];
+      if (archiveRaw && typeof archiveRaw === 'object') {
+        Object.keys(archiveRaw).forEach(id => {
+          const r = archiveRaw[id];
+          if (!r || r.hidden || !r.scheduleLive) return;
+          const pd = r.playDate != null ? String(r.playDate).trim() : '';
+          if (pd && pd <= today) scheduledToday.push({ id: String(id), playDate: pd });
+        });
+      }
+      scheduledToday.sort((a, b) => b.playDate.localeCompare(a.playDate) || a.id.localeCompare(b.id));
+      const merged = [];
+      scheduledToday.forEach(({ id }) => {
+        if (merged.indexOf(id) < 0) merged.push(id);
+      });
+      manual.forEach(id => {
+        if (merged.indexOf(id) < 0) merged.push(id);
+      });
+      return merged;
+    }
+
+    function buildShareScoreText(displayName) {
+      const name = displayName ? String(displayName).trim() : 'Anonymous';
+      const score = getDisplayScore();
+      const time = formatElapsedMs(getPlayElapsedMs());
+      const roundId = getPlayRoundId();
+      let label = activeGameTitle || 'InVennTions';
+      if (roundId) {
+        if (activeRoundMeta && activeRoundMeta.id === roundId && activeRoundMeta.label) {
+          label = activeRoundMeta.label;
+        } else if (liveRoundMeta && liveRoundMeta.id === roundId && liveRoundMeta.label) {
+          label = liveRoundMeta.label;
+        } else {
+          const fromCatalog = archiveCatalog.find(e => e.id === roundId);
+          if (fromCatalog && fromCatalog.label) label = fromCatalog.label;
+        }
+      }
+      const url = roundShareUrl(roundId);
+      return `${name} scored ${score} pts in ${time} on "${label}" — ${url}`;
+    }
+
+    async function copyTextToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      return false;
+    }
+
+    async function shareMyScore(displayName, msgEl, autoCopyOnly) {
+      const text = buildShareScoreText(displayName);
+      if (!autoCopyOnly) {
+        try {
+          if (navigator.share) {
+            await navigator.share({
+              title: activeGameTitle || 'InVennTions',
+              text
+            });
+            if (msgEl) msgEl.textContent = 'Shared!';
+            return;
+          }
+        } catch (e) {
+          if (e && e.name === 'AbortError') return;
+        }
+      }
+      try {
+        if (await copyTextToClipboard(text)) {
+          if (msgEl) msgEl.textContent = 'Score copied!';
+          return;
+        }
+      } catch (_) { /* fallback below */ }
+      if (msgEl) msgEl.textContent = text;
     }
 
     function computePlaySessionKey() {
@@ -3307,6 +3443,13 @@ ${DEFAULT_SCORING_HTML}`;
       return dt.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
     }
 
+    function formatPlayDateShort(iso) {
+      if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
     function hideTitleScreen() {
       const screen = document.getElementById('titleScreen');
       if (screen) {
@@ -3681,9 +3824,11 @@ ${DEFAULT_SCORING_HTML}`;
       const playBtn = document.getElementById('btnTitlePlay');
       const archiveBtn = document.getElementById('btnTitleArchive');
       const status = document.getElementById('titleStatus');
+      const playHint = document.getElementById('titlePlayHint');
       const errEl = document.getElementById('titleError');
       if (!playBtn || !status) return;
       status.textContent = '';
+      if (playHint) playHint.textContent = '';
       if (!titleIntroComplete) {
         playBtn.disabled = true;
         if (archiveBtn) archiveBtn.disabled = true;
@@ -3691,6 +3836,12 @@ ${DEFAULT_SCORING_HTML}`;
       }
       if (quizPrefetchOk) {
         playBtn.disabled = false;
+        if (playHint && liveRoundMeta && liveRoundMeta.label) {
+          const dateLabel = formatPlayDateShort(liveRoundMeta.playDate);
+          playHint.textContent = dateLabel
+            ? `${liveRoundMeta.label} · ${dateLabel}`
+            : liveRoundMeta.label;
+        }
         if (errEl) {
           errEl.textContent = '';
           errEl.classList.add('hidden');
@@ -3724,9 +3875,8 @@ ${DEFAULT_SCORING_HTML}`;
 
     async function loadArchiveCatalog() {
       archiveCatalog = [];
-      const archSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive`));
-      if (!snapExists(archSnap) || !archSnap.val()) return;
-      const raw = archSnap.val();
+      const raw = await fetchArchiveRaw();
+      if (!raw || typeof raw !== 'object') return;
       Object.keys(raw).forEach(id => {
         const r = raw[id];
         if (!r || r.hidden) return;
@@ -3740,14 +3890,12 @@ ${DEFAULT_SCORING_HTML}`;
           playDate = new Date(r.updatedAt).toISOString().split('T')[0];
         }
         if (!playDate) playDate = todayISO();
-        const label = r.label != null && String(r.label).trim()
-          ? String(r.label).trim()
-          : (r.roundTitle != null ? String(r.roundTitle).trim() : 'Round');
+        const label = roundLabelFromBlock(r, id) || 'Round';
         const sessionKey = sessionKeyForRoundId(id);
         const submission = getSubmissionForRound(id);
         archiveCatalog.push({
           id,
-          label: label || 'Round',
+          label,
           playDate,
           phraseCount,
           sessionKey,
@@ -3878,9 +4026,11 @@ ${DEFAULT_SCORING_HTML}`;
     async function prefetchQuiz() {
       quizPrefetchOk = false;
       quizPrefetchError = '';
+      liveRoundMeta = null;
       updateTitleMenuState();
       try {
-        await loadQuizDataOnly();
+        const archiveRaw = await fetchArchiveRaw();
+        await loadQuizDataOnly(archiveRaw);
         quizPrefetchOk = true;
       } catch (e) {
         quizPrefetchOk = false;
@@ -3933,9 +4083,23 @@ ${DEFAULT_SCORING_HTML}`;
         hideArchiveScreen();
         showTitleScreen();
       });
+      const deepRoundId = getDeepLinkRoundId();
       loadSiteSettings().catch(e => console.error('InVennTions loadSiteSettings:', e));
-      refreshArchiveMenu();
-      prefetchQuiz();
+      if (deepRoundId) {
+        playArchiveRoundIds([deepRoundId]).catch(e => {
+          const errEl = document.getElementById('titleError');
+          const msg = (e && e.message) ? e.message : 'Could not load that round.';
+          if (errEl) {
+            errEl.textContent = msg;
+            errEl.classList.remove('hidden');
+          }
+          refreshArchiveMenu();
+          prefetchQuiz();
+        });
+      } else {
+        refreshArchiveMenu();
+        prefetchQuiz();
+      }
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') savePlayProgress();
       });
@@ -4102,39 +4266,19 @@ ${DEFAULT_SCORING_HTML}`;
         <h2 class="lb-heading">Leaderboard</h2>
         <div id="leaderboardBody"><p class="mg-modal-muted">Loading…</p></div>
         <div class="lb-share-row">
-          <button type="button" class="lb-share-btn" id="btnShareGame">Share game</button>
-          <p class="lb-share-msg" id="shareGameMsg" aria-live="polite"></p>
+          <button type="button" class="lb-share-btn" id="btnShareScore">Share my score</button>
+          <p class="lb-share-msg" id="shareScoreMsg" aria-live="polite"></p>
         </div>
         <div class="btn-row">
           <button type="button" class="secondary" id="btnBrowseArchive">Browse archive</button>
         </div>`;
-      document.getElementById('btnShareGame')?.addEventListener('click', () => { shareGameLink(); });
+      const shareMsg = document.getElementById('shareScoreMsg');
+      document.getElementById('btnShareScore')?.addEventListener('click', () => {
+        shareMyScore(displayName, shareMsg, false);
+      });
       bindBrowseArchiveButton();
       await loadPublicLeaderboard();
-    }
-
-    async function shareGameLink() {
-      const msg = document.getElementById('shareGameMsg');
-      const url = GAME_SHARE_URL;
-      const title = activeGameTitle || 'InVennTions';
-      const text = `Play ${title} on Evil Trivia`;
-      try {
-        if (navigator.share) {
-          await navigator.share({ title, text, url });
-          if (msg) msg.textContent = '';
-          return;
-        }
-      } catch (e) {
-        if (e && e.name === 'AbortError') return;
-      }
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(url);
-          if (msg) msg.textContent = 'Link copied!';
-          return;
-        }
-      } catch (_) { /* fallback below */ }
-      if (msg) msg.textContent = url;
+      shareMyScore(displayName, shareMsg, true);
     }
 
     function bindModalUi() {
@@ -5111,23 +5255,38 @@ ${DEFAULT_SCORING_HTML}`;
       document.title = `${activeGameTitle} — Evil Trivia`;
     }
 
-    async function loadLiveRoundsFromArchive() {
+    async function loadLiveRoundsFromArchive(archiveRawOpt) {
       const liveSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/live`));
       let roundIds = [];
       if (snapExists(liveSnap) && liveSnap.val() && Array.isArray(liveSnap.val().roundIds)) {
         roundIds = liveSnap.val().roundIds.map(String);
       }
+      const archiveRaw = archiveRawOpt || await fetchArchiveRaw();
+      roundIds = resolveEffectiveLiveRoundIds(archiveRaw, roundIds);
       if (roundIds.length) {
         const rid = roundIds[0];
         const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
         if (!snapExists(snap)) return false;
-        const row = archiveBlockToPlayRound(snap.val());
+        const block = snap.val();
+        const row = archiveBlockToPlayRound(block);
         if (!row) return false;
         activeGameId = 'live';
         playSessionRoundKey = rid;
         gameRounds = [row];
+        let playDate = block && block.playDate != null ? String(block.playDate).trim() : '';
+        if (!playDate && block && block.updatedAt) {
+          playDate = new Date(block.updatedAt).toISOString().split('T')[0];
+        }
+        if (!playDate) playDate = todayISO();
+        liveRoundMeta = {
+          id: rid,
+          label: roundLabelFromBlock(block, rid) || 'Round',
+          playDate
+        };
+        activeRoundMeta = { ...liveRoundMeta };
         return true;
       }
+      liveRoundMeta = null;
       return false;
     }
 
@@ -5166,8 +5325,23 @@ ${DEFAULT_SCORING_HTML}`;
         const rid = String(roundIds[i]);
         const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
         if (!snapExists(snap)) continue;
-        const row = archiveBlockToPlayRound(snap.val());
-        if (row) gameRounds.push(row);
+        const block = snap.val();
+        const row = archiveBlockToPlayRound(block);
+        if (row) {
+          gameRounds.push(row);
+          if (i === 0) {
+            let playDate = block && block.playDate != null ? String(block.playDate).trim() : '';
+            if (!playDate && block && block.updatedAt) {
+              playDate = new Date(block.updatedAt).toISOString().split('T')[0];
+            }
+            if (!playDate) playDate = todayISO();
+            activeRoundMeta = {
+              id: rid,
+              label: roundLabelFromBlock(block, rid) || 'Round',
+              playDate
+            };
+          }
+        }
       }
 
       if (!gameRounds.length) {
@@ -5178,11 +5352,11 @@ ${DEFAULT_SCORING_HTML}`;
       collapseToSingleRoundSession();
     }
 
-    async function loadQuizDataOnly() {
+    async function loadQuizDataOnly(archiveRawOpt) {
       await loadSiteSettings();
       gameRounds = [];
 
-      const loadedLive = await loadLiveRoundsFromArchive();
+      const loadedLive = await loadLiveRoundsFromArchive(archiveRawOpt);
       if (!loadedLive) {
         const loadedLegacy = await loadLegacyLibraryGame();
         if (!loadedLegacy) {
