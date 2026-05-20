@@ -374,6 +374,19 @@
       font-weight: 900;
       flex-shrink: 0;
     }
+    .lb-points-time {
+      display: flex;
+      align-items: baseline;
+      gap: 0.45em;
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .lb-time {
+      font-family: Arial, sans-serif;
+      font-size: 0.88em;
+      font-weight: 600;
+      color: #666;
+    }
     .lb-share-row {
       margin-top: 14px;
       padding-top: 12px;
@@ -3047,18 +3060,71 @@ ${DEFAULT_SCORING_HTML}`;
       return Number.MAX_SAFE_INTEGER;
     }
 
+    function leaderboardTimeLabel(s) {
+      const ms = leaderboardElapsedMs(s);
+      return ms >= Number.MAX_SAFE_INTEGER ? '—' : formatElapsedMs(ms);
+    }
+
+    function scoreMatchesSessionKey(s, sessionKey) {
+      if (!sessionKey) return false;
+      if (s.sessionKey != null && String(s.sessionKey) === sessionKey) return true;
+      const ids = scoreRoundIdsFromRecord(s);
+      const want = sessionRoundIdsFromKey(sessionKey);
+      if (!ids.length || !want.length) return false;
+      if (ids.length !== want.length) return false;
+      const a = ids.slice().sort().join(',');
+      const b = want.slice().sort().join(',');
+      return a === b;
+    }
+
+    function scoreRoundIdsFromRecord(s) {
+      if (Array.isArray(s.roundIds) && s.roundIds.length) return s.roundIds.map(String);
+      return sessionRoundIdsFromKey(s.sessionKey != null ? String(s.sessionKey) : '');
+    }
+
+    function sessionRoundIdsFromKey(sessionKey) {
+      if (!sessionKey) return [];
+      const parts = String(sessionKey).split(':');
+      if (parts[0] === 'library') return [];
+      if (parts.length < 2) return [];
+      return parts[1].split(',').filter(Boolean);
+    }
+
+    async function isCurrentGameLeaderboardOpen() {
+      if (activeGameId !== 'live') return true;
+      try {
+        const liveSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/live`));
+        const liveSet = new Set();
+        if (snapExists(liveSnap) && liveSnap.val() && Array.isArray(liveSnap.val().roundIds)) {
+          liveSnap.val().roundIds.forEach(id => liveSet.add(String(id)));
+        }
+        const sessionIds = playSessionRoundKey ? playSessionRoundKey.split(',').filter(Boolean) : [];
+        if (!sessionIds.length) return false;
+        return !sessionIds.some(id => liveSet.has(id));
+      } catch (e) {
+        console.warn('InVennTions leaderboard open check:', e);
+        return false;
+      }
+    }
+
     async function loadPublicLeaderboard() {
       const body = document.getElementById('leaderboardBody');
       if (!body) return;
       body.innerHTML = '<p class="mg-modal-muted">Loading…</p>';
       try {
+        const sessionKey = computePlaySessionKey();
+        const open = await isCurrentGameLeaderboardOpen();
+        if (!open) {
+          body.innerHTML = '<p class="mg-modal-muted">Leaderboard opens once this game has finished.</p>';
+          return;
+        }
         const snap = await window.dbGet(window.dbRef(window.db, `publicAnswers/${GAME_ID}`));
         const rows = [];
         if (snapExists(snap) && snap.val()) {
           const val = snap.val();
           Object.keys(val).forEach(id => {
             const s = val[id];
-            if (s && typeof s === 'object') rows.push(s);
+            if (s && typeof s === 'object' && scoreMatchesSessionKey(s, sessionKey)) rows.push(s);
           });
         }
         rows.sort((a, b) => {
@@ -3069,13 +3135,16 @@ ${DEFAULT_SCORING_HTML}`;
           return (b.timestamp || 0) - (a.timestamp || 0);
         });
         if (!rows.length) {
-          body.innerHTML = '<p class="mg-modal-muted">No scores yet. Be the first!</p>';
+          body.innerHTML = '<p class="mg-modal-muted">No scores for this game yet. Be the first!</p>';
           return;
         }
         body.innerHTML = `<ul class="lb-list">${rows.slice(0, 100).map(s => `
           <li class="lb-row">
             <span class="lb-name">${esc(s.displayName || 'Anonymous')}</span>
-            <span class="lb-score">${leaderboardPoints(s)}</span>
+            <span class="lb-points-time">
+              <span class="lb-score">${leaderboardPoints(s)}</span>
+              <span class="lb-time">${leaderboardTimeLabel(s)}</span>
+            </span>
           </li>`).join('')}</ul>`;
       } catch (e) {
         console.error('InVennTions leaderboard:', e);
@@ -3874,6 +3943,7 @@ ${DEFAULT_SCORING_HTML}`;
         elapsedMs,
         elapsedSeconds: Math.floor(elapsedMs / 1000),
         sessionKey: computePlaySessionKey(),
+        roundIds: playSessionRoundKey ? playSessionRoundKey.split(',').filter(Boolean) : [],
         totalRounds: total,
         incorrectGuesses,
         hintsUsed: totalHintsUsed(),

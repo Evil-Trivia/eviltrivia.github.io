@@ -349,9 +349,15 @@
 
         <!-- Scores -->
     <div class="section">
-      <h2>Scores & leaderboard rows</h2>
-      <p class="hint">Edit name or score and click Save. Delete removes that play only. Score: +1 per phrase, +2 per connection, +1 bonus per unanswered phrase when connection solved, −1 per hint, −2 per reveal.</p>
+      <h2>Scores &amp; leaderboard</h2>
+      <p class="hint">Pick a round to view its leaderboard. Ties break on fastest time. Edit name or score and click Save. Delete removes that play only.</p>
       <div class="row">
+        <div class="field" style="flex:1 1 220px;max-width:360px">
+          <label for="scoreRoundFilter">Round / game</label>
+          <select id="scoreRoundFilter" style="width:100%">
+            <option value="">Choose a round…</option>
+          </select>
+        </div>
         <div class="field">
           <label for="dateFilter">Date</label>
           <input type="date" id="dateFilter" />
@@ -363,10 +369,12 @@
         <div class="field">
           <label for="sortBy">Sort</label>
           <select id="sortBy">
-            <option value="ts-desc">Newest first</option>
-            <option value="ts-asc">Oldest first</option>
             <option value="pts-desc">Score high → low</option>
             <option value="pts-asc">Score low → high</option>
+            <option value="time-asc">Time fast → slow</option>
+            <option value="time-desc">Time slow → fast</option>
+            <option value="ts-desc">Newest first</option>
+            <option value="ts-asc">Oldest first</option>
             <option value="name-asc">Name A–Z</option>
           </select>
         </div>
@@ -374,19 +382,18 @@
       </div>
       <div id="scoreError" class="error hidden"></div>
       <div id="scoresFeedback"></div>
-      <div id="noScores" class="hint hidden" style="padding:20px;text-align:center">No scores match.</div>
+      <div id="noScores" class="hint hidden" style="padding:20px;text-align:center">Choose a round to see its leaderboard.</div>
       <div style="overflow-x:auto">
         <table id="scoresTable" class="hidden">
           <thead>
             <tr>
-              <th>Quiz title</th>
               <th>Name</th>
               <th>Score</th>
+              <th>Time</th>
               <th>Date</th>
               <th>Wrong</th>
               <th>Hints</th>
               <th>Reveals</th>
-              <th>Src</th>
               <th></th>
             </tr>
           </thead>
@@ -953,6 +960,30 @@ ${DEFAULT_SCORING_HTML}`;
       renderLivePill();
       renderLiveOrder();
       renderArchiveBoard();
+      populateScoreRoundFilter();
+    }
+
+    function populateScoreRoundFilter() {
+      const sel = document.getElementById('scoreRoundFilter');
+      if (!sel) return;
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">Choose a round…</option>';
+      const ids = Object.keys(archive).sort((a, b) => {
+        const da = archive[a] && archive[a].playDate ? String(archive[a].playDate) : '';
+        const db = archive[b] && archive[b].playDate ? String(archive[b].playDate) : '';
+        if (da !== db) return db.localeCompare(da);
+        return roundLabel(archive[a], a).localeCompare(roundLabel(archive[b], b));
+      });
+      ids.forEach(id => {
+        const r = archive[id];
+        if (!r || r.hidden) return;
+        const opt = document.createElement('option');
+        opt.value = id;
+        const d = r.playDate ? String(r.playDate).trim() : '—';
+        opt.textContent = `${roundLabel(r, id)} (${d})`;
+        sel.appendChild(opt);
+      });
+      if (prev && archive[prev]) sel.value = prev;
     }
 
     function coercePuzzlesFromBlock(src) {
@@ -1187,9 +1218,39 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
     /* ---- Scores ---- */
+    document.getElementById('scoreRoundFilter').addEventListener('change', applyScoreFilters);
     document.getElementById('dateFilter').addEventListener('change', applyScoreFilters);
     document.getElementById('nameFilter').addEventListener('input', applyScoreFilters);
     document.getElementById('sortBy').addEventListener('change', applyScoreSort);
+
+    function scoreRoundIdsFromRecord(s) {
+      if (Array.isArray(s.roundIds) && s.roundIds.length) return s.roundIds.map(String);
+      const sk = s.sessionKey != null ? String(s.sessionKey) : '';
+      if (!sk) return [];
+      const parts = sk.split(':');
+      if (parts[0] === 'library') return [];
+      if (parts.length < 2) return [];
+      return parts[1].split(',').filter(Boolean);
+    }
+
+    function scoreMatchesRoundFilter(s, roundId) {
+      if (!roundId) return false;
+      return scoreRoundIdsFromRecord(s).includes(String(roundId));
+    }
+
+    function elapsedMsOf(s) {
+      if (typeof s.elapsedMs === 'number') return s.elapsedMs;
+      if (typeof s.elapsedSeconds === 'number') return s.elapsedSeconds * 1000;
+      return Number.MAX_SAFE_INTEGER;
+    }
+
+    function formatElapsedMs(ms) {
+      if (ms >= Number.MAX_SAFE_INTEGER) return '—';
+      const totalSec = Math.max(0, Math.floor(ms / 1000));
+      const m = Math.floor(totalSec / 60);
+      const sec = totalSec % 60;
+      return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    }
 
     window.loadScores = async function loadScores() {
       const err = document.getElementById('scoreError');
@@ -1202,12 +1263,6 @@ ${DEFAULT_SCORING_HTML}`;
             allScores.push({ ...mainSnap.val()[k], id: k, source: 'main' });
           });
         }
-        const pubSnap = await window.dbGet(window.dbRef(window.db, `publicAnswers/${GAME_ID}`));
-        if (pubSnap.exists()) {
-          Object.keys(pubSnap.val()).forEach(k => {
-            allScores.push({ ...pubSnap.val()[k], id: k, source: 'public' });
-          });
-        }
         document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
         applyScoreFilters();
       } catch (e) {
@@ -1217,10 +1272,18 @@ ${DEFAULT_SCORING_HTML}`;
     };
 
     function applyScoreFilters() {
+      const roundId = document.getElementById('scoreRoundFilter').value;
       const d = document.getElementById('dateFilter').value;
       const q = document.getElementById('nameFilter').value.toLowerCase().trim();
 
+      if (!roundId) {
+        filteredScores = [];
+        renderScoresTable();
+        return;
+      }
+
       filteredScores = allScores.filter(s => {
+        if (!scoreMatchesRoundFilter(s, roundId)) return false;
         if (d && s.date !== d) return false;
         const n = (s.displayName || '').toLowerCase();
         if (q && !n.includes(q)) return false;
@@ -1240,12 +1303,19 @@ ${DEFAULT_SCORING_HTML}`;
         } else if (field === 'pts') {
           av = pointsOf(a);
           bv = pointsOf(b);
+        } else if (field === 'time') {
+          av = elapsedMsOf(a);
+          bv = elapsedMsOf(b);
         } else {
           av = (a.displayName || '').toLowerCase();
           bv = (b.displayName || '').toLowerCase();
         }
         if (av < bv) return dir === 'asc' ? -1 : 1;
         if (av > bv) return dir === 'asc' ? 1 : -1;
+        if (field === 'pts') {
+          const te = elapsedMsOf(a) - elapsedMsOf(b);
+          if (te !== 0) return te;
+        }
         return 0;
       });
       renderScoresTable();
@@ -1261,10 +1331,20 @@ ${DEFAULT_SCORING_HTML}`;
       const table = document.getElementById('scoresTable');
       const body = document.getElementById('scoresBody');
       const empty = document.getElementById('noScores');
+      const roundId = document.getElementById('scoreRoundFilter').value;
+
+      if (!roundId) {
+        table.classList.add('hidden');
+        empty.classList.remove('hidden');
+        empty.textContent = 'Choose a round to see its leaderboard.';
+        body.innerHTML = '';
+        return;
+      }
 
       if (filteredScores.length === 0) {
         table.classList.add('hidden');
         empty.classList.remove('hidden');
+        empty.textContent = 'No scores for this round yet.';
         body.innerHTML = '';
         return;
       }
@@ -1274,25 +1354,22 @@ ${DEFAULT_SCORING_HTML}`;
 
       filteredScores.forEach(s => {
         const tr = document.createElement('tr');
-        const title = s.gameTitle || siteSettings.gameTitle || '—';
         const wrongN = typeof s.incorrectGuesses === 'number' ? s.incorrectGuesses : '—';
         const hintsN = typeof s.hintsUsed === 'number' ? s.hintsUsed : '—';
         const revealsN = typeof s.answerReveals === 'number' ? s.answerReveals : '—';
         tr.innerHTML = `
-          <td>${escapeHtml(String(title))}</td>
           <td><input type="text" data-k="nm" value="${escapeAttr(s.displayName || '')}" /></td>
           <td><input type="number" data-k="pt" step="1" value="${pointsOf(s)}" /></td>
+          <td>${escapeHtml(formatElapsedMs(elapsedMsOf(s)))}</td>
           <td>${escapeHtml(s.date || '—')}</td>
           <td>${wrongN}</td>
           <td>${hintsN}</td>
           <td>${revealsN}</td>
-          <td>${escapeHtml(s.source)}</td>
           <td>
             <button type="button" class="small primary" data-act="save">Save</button>
             <button type="button" class="small danger" data-act="del">Del</button>
           </td>`;
         tr.dataset.sid = s.id;
-        tr.dataset.ssrc = s.source;
 
         tr.querySelector('[data-act="save"]').addEventListener('click', () => saveScoreRow(tr));
         tr.querySelector('[data-act="del"]').addEventListener('click', () => deleteScoreRow(tr));
@@ -1302,20 +1379,21 @@ ${DEFAULT_SCORING_HTML}`;
 
     async function saveScoreRow(tr) {
       const id = tr.dataset.sid;
-      const source = tr.dataset.ssrc;
       const nm = tr.querySelector('[data-k="nm"]').value.trim() || 'Anonymous';
       const pt = Math.round(Number(tr.querySelector('[data-k="pt"]').value) || 0);
-      const orig = allScores.find(x => x.id === id && x.source === source);
+      const orig = allScores.find(x => x.id === id);
       if (!orig) return;
 
-      const path = source === 'main'
-        ? `games/${GAME_ID}/answers/${id}`
-        : `publicAnswers/${GAME_ID}/${id}`;
       const next = { ...orig, displayName: nm, points: pt };
       delete next.id;
       delete next.source;
       try {
-        await window.dbSet(window.dbRef(window.db, path), next);
+        await window.dbSet(window.dbRef(window.db, `games/${GAME_ID}/answers/${id}`), next);
+        try {
+          await window.dbSet(window.dbRef(window.db, `publicAnswers/${GAME_ID}/${id}`), next);
+        } catch (mirrorErr) {
+          console.warn('InVennTions admin public mirror:', mirrorErr);
+        }
         Object.assign(orig, next);
         flash(document.getElementById('scoresFeedback'), 'Saved row.', false);
         applyScoreFilters();
@@ -1327,14 +1405,15 @@ ${DEFAULT_SCORING_HTML}`;
 
     async function deleteScoreRow(tr) {
       const id = tr.dataset.sid;
-      const source = tr.dataset.ssrc;
       if (!confirm('Delete this score row?')) return;
-      const path = source === 'main'
-        ? `games/${GAME_ID}/answers/${id}`
-        : `publicAnswers/${GAME_ID}/${id}`;
       try {
-        await window.dbRemove(window.dbRef(window.db, path));
-        allScores = allScores.filter(x => !(x.id === id && x.source === source));
+        await window.dbRemove(window.dbRef(window.db, `games/${GAME_ID}/answers/${id}`));
+        try {
+          await window.dbRemove(window.dbRef(window.db, `publicAnswers/${GAME_ID}/${id}`));
+        } catch (mirrorErr) {
+          console.warn('InVennTions admin public mirror delete:', mirrorErr);
+        }
+        allScores = allScores.filter(x => x.id !== id);
         applyScoreFilters();
       } catch (e) {
         alert(e.message);
