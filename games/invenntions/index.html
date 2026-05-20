@@ -1345,6 +1345,10 @@
     let commonalitySolved = false;
     /** User-initiated hint reveals only (not free reveal on phrase solve). */
     let hintsButtonTaps = 0;
+    /** Answers revealed via REVEAL button (-2 each). */
+    let answerRevealCount = 0;
+    /** Running session score. */
+    let scorePoints = 0;
     /** Pending two-tap confirm: keys "L-0", "R-1", "C" */
     const hintPending = new Set();
     /** key -> timeout id for auto-revert of confirm UI */
@@ -1442,7 +1446,34 @@
     }
 
     function getDisplayScore() {
-      return 0;
+      return scorePoints;
+    }
+
+    function addScore(delta) {
+      scorePoints += delta;
+      updateScoreStat();
+    }
+
+    function registerHintUsed() {
+      hintsButtonTaps++;
+      addScore(-1);
+    }
+
+    function countUnansweredPhrases() {
+      let n = 0;
+      for (let i = 0; i < puzzles.length; i++) {
+        if (!puzzleSolved[i]) n++;
+      }
+      return n;
+    }
+
+    function applyFreeHintsOnPhraseSolve(i, p) {
+      hintPending.delete(`L-${i}`);
+      hintPending.delete(`R-${i}`);
+      clearHintTimer(`L-${i}`);
+      clearHintTimer(`R-${i}`);
+      revealedLeftArr[i] = p.leftHints.length;
+      revealedRightArr[i] = p.rightHints.length;
     }
 
     function updateScoreStat() {
@@ -2674,7 +2705,7 @@
           } else {
             revealedRightArr[i]++;
           }
-          hintsButtonTaps++;
+          registerHintUsed();
           renderPuzzleHintRow(i, p);
         } else {
           hintPending.add(key);
@@ -2694,7 +2725,7 @@
           clearHintTimer('C');
           hintPending.delete('C');
           revealedComHints++;
-          hintsButtonTaps++;
+          registerHintUsed();
           renderComHintZone();
         } else {
           hintPending.add('C');
@@ -2723,7 +2754,6 @@
       fillHintArea(leftZone, rl, p.leftHints);
       fillHintArea(rightZone, rr, p.rightHints);
       syncPhraseHintTapUi(i);
-      updateScoreStat();
     }
 
     function renderComHintZone() {
@@ -2736,7 +2766,6 @@
       }
       fillHintArea(comZone, revealedComHints, c.hints);
       syncComHintTapUi();
-      updateScoreStat();
     }
 
     function renderBoard() {
@@ -2932,18 +2961,14 @@
     let kbGuessBtn = null;
     let kbRevealBtn = null;
 
-    function canRevealHintForFocus() {
+    function canRevealAnswerForFocus() {
       if (phase === 'finish') return false;
       if (focusKind === 'phrase') {
         const i = focusPuzzleIndex;
-        const p = puzzles[i];
-        if (!p || puzzleSolved[i]) return false;
-        const leftCan = p.leftHints.length > 0 && revealedLeftArr[i] < p.leftHints.length;
-        const rightCan = p.rightHints.length > 0 && revealedRightArr[i] < p.rightHints.length;
-        return leftCan || rightCan;
+        return !!(puzzles[i] && !puzzleSolved[i]);
       }
-      if (focusKind === 'commonality' && commonality && !commonalitySolved) {
-        return commonality.hints.length > 0 && revealedComHints < commonality.hints.length;
+      if (focusKind === 'commonality' && commonality) {
+        return !commonalitySolved;
       }
       return false;
     }
@@ -2952,53 +2977,49 @@
       if (!kbGuessBtn || !kbRevealBtn) return;
       const playing = phase !== 'finish';
       kbGuessBtn.disabled = !playing;
-      kbRevealBtn.disabled = !playing || !canRevealHintForFocus();
+      kbRevealBtn.disabled = !playing || !canRevealAnswerForFocus();
     }
 
-    function onReveal() {
+    function revealFocusedAnswer() {
       if (phase === 'finish') return;
-      if (!canRevealHintForFocus()) {
-        toastEl.textContent = 'No hints left here.';
+      if (!canRevealAnswerForFocus()) {
+        toastEl.textContent = 'Nothing to reveal here.';
         setTimeout(() => { toastEl.textContent = ''; }, 1600);
         return;
       }
       if (focusKind === 'phrase') {
         const i = focusPuzzleIndex;
         const p = puzzles[i];
-        const leftCan = p.leftHints.length > 0 && revealedLeftArr[i] < p.leftHints.length;
-        const side = leftCan ? 'L' : 'R';
-        const key = `${side}-${i}`;
-        if (hintPending.has(key)) {
-          clearHintTimer(key);
-          hintPending.delete(key);
-          if (side === 'L') revealedLeftArr[i]++;
-          else revealedRightArr[i]++;
-          hintsButtonTaps++;
-          renderPuzzleHintRow(i, p);
-        } else {
-          hintPending.add(key);
-          syncPhraseHintTapUi(i);
-          scheduleHintPendingRevert(key);
-        }
+        puzzleSolved[i] = true;
+        puzzleBuffers[i] = normGuess(p.answer);
+        answerRevealCount++;
+        addScore(-2);
+        applyFreeHintsOnPhraseSolve(i, p);
+        renderBoard();
+        renderPuzzleHintRow(i, p);
         scheduleClueHintTextFit(false, null, document.querySelector(`.mg-phrase-block[data-phrase-i="${i}"]`));
-        updateKeyboardActions();
+        fitBoardToViewport();
+        if (checkAllComplete()) return;
+        focusNextSlot();
+        updateFocusHighlight();
         return;
       }
       if (focusKind === 'commonality' && commonality && !commonalitySolved) {
-        if (hintPending.has('C')) {
-          clearHintTimer('C');
-          hintPending.delete('C');
-          revealedComHints++;
-          hintsButtonTaps++;
-          renderComHintZone();
-        } else {
-          hintPending.add('C');
-          syncComHintTapUi();
-          scheduleHintPendingRevert('C');
-        }
-        scheduleClueHintTextFit();
-        updateKeyboardActions();
+        commonalitySolved = true;
+        commonalityBuffer = normGuess(commonality.answer);
+        answerRevealCount++;
+        addScore(-2);
+        hintPending.delete('C');
+        clearHintTimer('C');
+        revealedComHints = commonality.hints.length;
+        renderBoard();
+        if (checkAllComplete()) return;
+        updateFocusHighlight();
       }
+    }
+
+    function onReveal() {
+      revealFocusedAnswer();
     }
 
     function buildKeyboard() {
@@ -3128,18 +3149,13 @@
         const p = puzzles[i];
         if (!p.accept.has(guess)) {
           incorrectGuesses++;
-          updateScoreStat();
           shakeStrip(`strip-p-${i}`);
           return;
         }
+        addScore(1);
         puzzleSolved[i] = true;
         puzzleBuffers[i] = normGuess(p.answer);
-        hintPending.delete(`L-${i}`);
-        hintPending.delete(`R-${i}`);
-        clearHintTimer(`L-${i}`);
-        clearHintTimer(`R-${i}`);
-        revealedLeftArr[i] = p.leftHints.length;
-        revealedRightArr[i] = p.rightHints.length;
+        applyFreeHintsOnPhraseSolve(i, p);
         renderBoard();
         playPhraseSolveSquircle(i, () => {
           renderPuzzleHintRow(i, p);
@@ -3155,12 +3171,16 @@
 
       if (!commonality.accept.has(guess)) {
         incorrectGuesses++;
-        updateScoreStat();
         shakeStrip('strip-c');
         return;
       }
+      const connectionBonus = countUnansweredPhrases();
+      addScore(2 + connectionBonus);
       commonalitySolved = true;
       commonalityBuffer = normGuess(commonality.answer);
+      hintPending.delete('C');
+      clearHintTimer('C');
+      revealedComHints = commonality.hints.length;
       if (checkAllComplete()) return;
       renderBoard();
     }
@@ -3176,10 +3196,12 @@
       const scoreBody = document.getElementById('scoreModalBody');
       scoreBody.innerHTML = `
         <div class="summary">
+          Score: <strong>${getDisplayScore()}</strong><br>
           Total solved: ${correct} / ${total}<br>
           Rounds completed: ${gameRounds.length}<br>
-          Wrong guesses (total): <strong>${incorrectGuesses}</strong><br>
-          Hints used (total): <strong>${totalHintsUsed()}</strong>
+          Hints used: <strong>${totalHintsUsed()}</strong> &middot;
+          Answers revealed: <strong>${answerRevealCount}</strong><br>
+          Wrong guesses: <strong>${incorrectGuesses}</strong>
         </div>
         <label class="lbl" for="displayName">Name for the leaderboard (optional)</label>
         <input type="text" id="displayName" maxlength="40" placeholder="Anonymous" autocomplete="nickname" />
@@ -3207,11 +3229,12 @@
         displayName,
         gameId: activeGameId,
         gameTitle: activeGameTitle,
-        formatVersion: 2,
-        points: correct,
+        formatVersion: 3,
+        points: getDisplayScore(),
         totalRounds: total,
         incorrectGuesses,
         hintsUsed: totalHintsUsed(),
+        answerReveals: answerRevealCount,
         commonalitySolved: correct === total,
         phraseCount: phraseCountAll,
         roundCount: gameRounds.length,
@@ -3331,6 +3354,8 @@
       incorrectGuesses = 0;
       revealedComHints = 0;
       hintsButtonTaps = 0;
+      answerRevealCount = 0;
+      scorePoints = 0;
       hintPending.clear();
       clearAllHintTimers();
       commonalitySolved = false;
