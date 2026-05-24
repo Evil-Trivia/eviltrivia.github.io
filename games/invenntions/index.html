@@ -2262,7 +2262,13 @@ ${DEFAULT_SCORING_HTML}`;
       return id ? 'Round' : '';
     }
 
-    function fetchArchiveRaw() {
+    function isRoundHidden(block) {
+      if (!block || typeof block !== 'object') return false;
+      return block.hidden === true;
+    }
+
+    function fetchArchiveRaw(forceRefresh) {
+      if (forceRefresh) archiveFetchPromise = null;
       if (!archiveFetchPromise) {
         archiveFetchPromise = window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive`))
           .then(snap => (snapExists(snap) && snap.val() && typeof snap.val() === 'object') ? snap.val() : {})
@@ -2281,7 +2287,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (archiveRaw && typeof archiveRaw === 'object') {
         Object.keys(archiveRaw).forEach(id => {
           const r = archiveRaw[id];
-          if (!r || r.hidden || !r.scheduleLive) return;
+          if (!r || isRoundHidden(r) || !r.scheduleLive) return;
           const pd = r.playDate != null ? String(r.playDate).trim() : '';
           if (pd && pd <= today) scheduledToday.push({ id: String(id), playDate: pd });
         });
@@ -2292,7 +2298,10 @@ ${DEFAULT_SCORING_HTML}`;
         if (merged.indexOf(id) < 0) merged.push(id);
       });
       manual.forEach(id => {
-        if (merged.indexOf(id) < 0) merged.push(id);
+        if (merged.indexOf(id) >= 0) return;
+        const r = archiveRaw && archiveRaw[id];
+        if (r && isRoundHidden(r)) return;
+        merged.push(id);
       });
       return merged;
     }
@@ -2303,7 +2312,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (!archiveRaw || typeof archiveRaw !== 'object') return null;
       Object.keys(archiveRaw).forEach(id => {
         const r = archiveRaw[id];
-        if (!r || r.hidden || !r.scheduleLive) return;
+        if (!r || isRoundHidden(r) || !r.scheduleLive) return;
         const pd = r.playDate != null ? String(r.playDate).trim() : '';
         if (!pd || pd <= today) return;
         const label = roundLabelFromBlock(r, id) || 'Round';
@@ -3990,12 +3999,12 @@ ${DEFAULT_SCORING_HTML}`;
 
     async function loadArchiveCatalog() {
       archiveCatalog = [];
-      const raw = await fetchArchiveRaw();
+      const raw = await fetchArchiveRaw(true);
       refreshNextScheduledRound(raw);
       if (!raw || typeof raw !== 'object') return;
       Object.keys(raw).forEach(id => {
         const r = raw[id];
-        if (!r || r.hidden) return;
+        if (!r || isRoundHidden(r)) return;
         const puzz = r.puzzles;
         const phraseCount = puzz
           ? (Array.isArray(puzz) ? puzz.length : Object.keys(puzz).length)
@@ -4191,6 +4200,7 @@ ${DEFAULT_SCORING_HTML}`;
         openInfoModal();
       });
       document.getElementById('btnTitleArchive')?.addEventListener('click', async () => {
+        await refreshArchiveMenu();
         if (!archiveCatalog.length) return;
         await enrichArchiveSubmissionRanks();
         renderArchiveList();
@@ -5350,7 +5360,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function archiveBlockToPlayRound(block) {
-      if (!block || block.hidden) return null;
+      if (!block || isRoundHidden(block)) return null;
       const puzz = normalizePuzzles(block.puzzles);
       if (!puzz.length) return null;
       return {
@@ -5443,6 +5453,7 @@ ${DEFAULT_SCORING_HTML}`;
         const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
         if (!snapExists(snap)) continue;
         const block = snap.val();
+        if (isRoundHidden(block)) continue;
         const row = archiveBlockToPlayRound(block);
         if (row) {
           gameRounds.push(row);
