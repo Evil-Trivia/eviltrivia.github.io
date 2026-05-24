@@ -2267,6 +2267,20 @@ ${DEFAULT_SCORING_HTML}`;
       return block.hidden === true;
     }
 
+    function roundPlayDateFromBlock(block) {
+      if (!block) return todayISO();
+      let playDate = block.playDate != null ? String(block.playDate).trim() : '';
+      if (!playDate && block.updatedAt) {
+        playDate = new Date(block.updatedAt).toISOString().split('T')[0];
+      }
+      if (!playDate) playDate = todayISO();
+      return playDate;
+    }
+
+    function isRoundReleased(block) {
+      return roundPlayDateFromBlock(block) <= todayISO();
+    }
+
     function fetchArchiveRaw(forceRefresh) {
       if (forceRefresh) archiveFetchPromise = null;
       if (!archiveFetchPromise) {
@@ -4010,11 +4024,8 @@ ${DEFAULT_SCORING_HTML}`;
           ? (Array.isArray(puzz) ? puzz.length : Object.keys(puzz).length)
           : 0;
         if (!phraseCount) return;
-        let playDate = r.playDate != null ? String(r.playDate).trim() : '';
-        if (!playDate && r.updatedAt) {
-          playDate = new Date(r.updatedAt).toISOString().split('T')[0];
-        }
-        if (!playDate) playDate = todayISO();
+        const playDate = roundPlayDateFromBlock(r);
+        if (playDate > todayISO()) return;
         const label = roundLabelFromBlock(r, id) || 'Round';
         const sessionKey = sessionKeyForRoundId(id);
         const submission = getSubmissionForRound(id);
@@ -5453,16 +5464,12 @@ ${DEFAULT_SCORING_HTML}`;
         const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
         if (!snapExists(snap)) continue;
         const block = snap.val();
-        if (isRoundHidden(block)) continue;
+        if (isRoundHidden(block) || !isRoundReleased(block)) continue;
         const row = archiveBlockToPlayRound(block);
         if (row) {
           gameRounds.push(row);
           if (i === 0) {
-            let playDate = block && block.playDate != null ? String(block.playDate).trim() : '';
-            if (!playDate && block && block.updatedAt) {
-              playDate = new Date(block.updatedAt).toISOString().split('T')[0];
-            }
-            if (!playDate) playDate = todayISO();
+            const playDate = roundPlayDateFromBlock(block);
             activeRoundMeta = {
               id: rid,
               label: roundLabelFromBlock(block, rid) || 'Round',
