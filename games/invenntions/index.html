@@ -633,7 +633,7 @@
       stroke-dasharray: none;
       stroke-dashoffset: 0;
     }
-    body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)) .mg-phrase-sq-focus {
+    body.inv-quiz-active .mg-phrase-block.mg-phrase-focus-active .mg-phrase-sq-focus {
       visibility: visible;
     }
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-a,
@@ -1470,9 +1470,6 @@
     .inv-title-screen.inv-menu-ready .inv-title-menu {
       animation: invFadeUp 0.38s ease 0.15s forwards;
     }
-    .inv-title-screen:not(.inv-menu-ready) .inv-title-menu {
-      opacity: 0;
-    }
     .inv-title-screen:not(.inv-menu-ready) .inv-title-tagline {
       visibility: hidden;
     }
@@ -1852,7 +1849,7 @@
       <p class="inv-title-tagline">an Evil Trivia<sup>®</sup> word puzzle</p>
       <div class="inv-title-menu" id="titleMenu">
         <div class="inv-title-play-wrap">
-          <button type="button" class="inv-menu-btn inv-play-btn" id="btnTitlePlay" disabled>
+          <button type="button" class="inv-menu-btn inv-play-btn" id="btnTitlePlay">
             <span class="inv-play-btn-label">Play</span>
             <span class="inv-title-play-hint" id="titlePlayHint" aria-live="polite"></span>
           </button>
@@ -1979,11 +1976,29 @@
     window.dbGet = get;
     window.invIsAdmin = false;
 
+    const INV_DB_TIMEOUT_MS = 12000;
+
+    async function invDbGet(pathRef, timeoutMs = INV_DB_TIMEOUT_MS) {
+      let timer = 0;
+      try {
+        return await Promise.race([
+          window.dbGet(pathRef),
+          new Promise((_, reject) => {
+            timer = window.setTimeout(() => {
+              reject(new Error('Connection timed out. Check your network and try again.'));
+            }, timeoutMs);
+          })
+        ]);
+      } finally {
+        if (timer) window.clearTimeout(timer);
+      }
+    }
+
     onAuthStateChanged(auth, async (user) => {
       window.invIsAdmin = false;
       if (!user) return;
       try {
-        const roleSnap = await get(ref(db, `users/${user.uid}/role`));
+        const roleSnap = await invDbGet(ref(db, `users/${user.uid}/role`), 8000);
         if (roleSnap.exists() && roleSnap.val() === 'admin') {
           window.invIsAdmin = true;
           if (typeof window.invClearSubmitSession === 'function') {
@@ -2566,7 +2581,7 @@ ${DEFAULT_SCORING_HTML}`;
           window.setTimeout(() => resolve({}), 12000);
         });
         archiveFetchPromise = Promise.race([
-          window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive`))
+          invDbGet(window.dbRef(window.db, `games/${GAME_ID}/archive`))
             .then(snap => (snapExists(snap) && snap.val() && typeof snap.val() === 'object') ? snap.val() : {})
             .catch(err => {
               console.warn('InVennTions archive fetch:', err);
@@ -4377,11 +4392,6 @@ ${DEFAULT_SCORING_HTML}`;
       if (!playBtn || !status) return;
       status.textContent = '';
       if (playHint) playHint.textContent = '';
-      if (!titleIntroComplete) {
-        playBtn.disabled = true;
-        if (archiveBtn) archiveBtn.disabled = true;
-        return;
-      }
       if (quizPrefetchOk) {
         playBtn.disabled = false;
         if (playHint && liveRoundMeta && liveRoundMeta.label) {
@@ -4395,21 +4405,21 @@ ${DEFAULT_SCORING_HTML}`;
           errEl.classList.add('hidden');
         }
       } else if (quizPrefetchError) {
-        playBtn.disabled = true;
+        playBtn.disabled = false;
+        if (playHint) playHint.textContent = 'Tap Play to retry';
         if (errEl) {
           errEl.textContent = quizPrefetchError;
           errEl.classList.remove('hidden');
         }
       } else {
-        playBtn.disabled = true;
+        playBtn.disabled = false;
+        if (playHint) playHint.textContent = 'Loading…';
         if (errEl) {
           errEl.textContent = '';
           errEl.classList.add('hidden');
         }
       }
-      if (archiveBtn) {
-        archiveBtn.disabled = archiveCatalog.length === 0;
-      }
+      if (archiveBtn) archiveBtn.disabled = false;
       updateNextScheduledNote();
     }
 
@@ -4575,11 +4585,8 @@ ${DEFAULT_SCORING_HTML}`;
       quizPrefetchError = '';
       liveRoundMeta = null;
       updateTitleMenuState();
-      const loadTimeout = new Promise((_, reject) => {
-        window.setTimeout(() => reject(new Error('Loading timed out. Check your connection and refresh.')), 15000);
-      });
       try {
-        const archiveRaw = await Promise.race([fetchArchiveRaw(), loadTimeout]);
+        const archiveRaw = await fetchArchiveRaw(true);
         refreshNextScheduledRound(archiveRaw);
         await loadQuizDataOnly(archiveRaw);
         quizPrefetchOk = true;
@@ -4591,8 +4598,11 @@ ${DEFAULT_SCORING_HTML}`;
       updateTitleMenuState();
     }
 
-    function onTitlePlay() {
-      if (!quizPrefetchOk) return;
+    async function onTitlePlay() {
+      if (!quizPrefetchOk) {
+        await prefetchQuiz();
+        if (!quizPrefetchOk) return;
+      }
       const playBtn = document.getElementById('btnTitlePlay');
       if (playBtn instanceof HTMLElement) playBtn.blur();
       if (tryRestoreRoundSession()) {
@@ -4624,20 +4634,20 @@ ${DEFAULT_SCORING_HTML}`;
             armSquircleAnimation();
           });
         }
+        finishTitleIntro();
       }
       document.body.classList.add('inv-title-active');
-      document.getElementById('btnTitlePlay')?.addEventListener('click', onTitlePlay);
+      document.getElementById('btnTitlePlay')?.addEventListener('click', () => { onTitlePlay(); });
       document.getElementById('btnTitleInfo')?.addEventListener('click', () => {
         stopFirstVisitHint();
         markUserVisited();
         openInfoModal();
       });
       document.getElementById('btnTitleArchive')?.addEventListener('click', async () => {
+        showArchiveScreen();
         await refreshArchiveMenu();
-        if (!archiveCatalog.length) return;
         await enrichArchiveSubmissionRanks();
         renderArchiveList();
-        showArchiveScreen();
       });
       document.getElementById('btnArchiveBack')?.addEventListener('click', () => {
         hideArchiveScreen();
@@ -4719,20 +4729,18 @@ ${DEFAULT_SCORING_HTML}`;
       document.getElementById('aboutModal').classList.remove('hidden');
     }
 
-    async function openInfoModal() {
-      if (!infoHtml) {
-        try {
-          await loadSiteSettings();
-        } catch (e) {
-          console.error('InVennTions loadSiteSettings:', e);
-        }
-      }
+    function openInfoModal() {
       const body = document.getElementById('infoModalBody');
       const html = (infoHtml && String(infoHtml).trim())
         ? infoHtml
         : DEFAULT_INFO_HTML;
       body.innerHTML = html;
       document.getElementById('infoModal').classList.remove('hidden');
+      if (!infoHtml || !String(infoHtml).trim()) {
+        loadSiteSettings().then(() => {
+          if (infoHtml && String(infoHtml).trim()) body.innerHTML = infoHtml;
+        }).catch(e => console.error('InVennTions loadSiteSettings:', e));
+      }
     }
 
     function leaderboardPoints(s) {
@@ -4943,7 +4951,38 @@ ${DEFAULT_SCORING_HTML}`;
     function ensureBoardDelegation() {
       if (boardDelegationBound) return;
       boardDelegationBound = true;
+      puzzleMount.addEventListener('pointerdown', onBoardPointerDown);
       puzzleMount.addEventListener('click', onBoardClick);
+    }
+
+    function focusAnswerStripFromTarget(stripEl) {
+      if (!stripEl || phase === 'finish') return false;
+      if (stripEl.id.startsWith('strip-p-')) {
+        const i = Number(stripEl.id.replace('strip-p-', ''));
+        if (Number.isNaN(i) || !puzzles[i] || puzzleSolved[i]) return false;
+        resetRevealConfirm();
+        focusKind = 'phrase';
+        focusPuzzleIndex = i;
+        updateFocusHighlight();
+        return true;
+      }
+      if (stripEl.id === 'strip-c') {
+        if (!commonality || commonalitySolved) return false;
+        resetRevealConfirm();
+        focusKind = 'commonality';
+        updateFocusHighlight();
+        return true;
+      }
+      return false;
+    }
+
+    function onBoardPointerDown(e) {
+      if (phase === 'finish') return;
+      let n = e.target;
+      if (n && n.nodeType === Node.TEXT_NODE) n = n.parentElement;
+      if (!(n instanceof HTMLElement)) return;
+      const stripEl = n.closest('.mg-answer-strip[id]');
+      if (stripEl) focusAnswerStripFromTarget(stripEl);
     }
 
     function onBoardClick(e) {
@@ -4952,22 +4991,8 @@ ${DEFAULT_SCORING_HTML}`;
       if (!(n instanceof HTMLElement)) return;
       const t = n;
       const stripEl = t.closest('.mg-answer-strip[id]');
-      if (stripEl && stripEl.id.startsWith('strip-p-')) {
-        const i = Number(stripEl.id.replace('strip-p-', ''));
-        if (!Number.isNaN(i) && puzzles[i] && !puzzleSolved[i]) {
-          resetRevealConfirm();
-          focusKind = 'phrase';
-          focusPuzzleIndex = i;
-          updateFocusHighlight();
-        }
-        return;
-      }
-      if (stripEl && stripEl.id === 'strip-c') {
-        if (commonality && !commonalitySolved) {
-          resetRevealConfirm();
-          focusKind = 'commonality';
-          updateFocusHighlight();
-        }
+      if (stripEl) {
+        focusAnswerStripFromTarget(stripEl);
         return;
       }
       if (phase === 'finish') return;
@@ -5166,10 +5191,32 @@ ${DEFAULT_SCORING_HTML}`;
 
     function clearActiveGuessHighlight() {
       document.querySelectorAll('.mg-answer-strip.focused').forEach(el => el.classList.remove('focused'));
+      if (puzzleMount) {
+        puzzleMount.querySelectorAll('.mg-phrase-block.mg-phrase-focus-active').forEach(el => {
+          el.classList.remove('mg-phrase-focus-active');
+        });
+      }
       const ring = document.getElementById('invFocusRing');
       if (ring) {
         ring.classList.add('hidden');
         ring.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    function applyActiveGuessHighlight() {
+      clearActiveGuessHighlight();
+      if (phase === 'finish' || focusHighlightSuspended) return;
+      if (focusKind === 'phrase') {
+        if (puzzleSolved[focusPuzzleIndex]) return;
+        const el = document.getElementById(`strip-p-${focusPuzzleIndex}`);
+        const block = el ? el.closest('.mg-phrase-block') : null;
+        if (el && block && !el.classList.contains('solved')) {
+          el.classList.add('focused');
+          block.classList.add('mg-phrase-focus-active');
+        }
+      } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
+        const comStrip = document.getElementById('strip-c');
+        if (comStrip && !comStrip.classList.contains('solved')) comStrip.classList.add('focused');
       }
     }
 
@@ -5211,34 +5258,21 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function updateFocusHighlight() {
-      clearActiveGuessHighlight();
+      applyActiveGuessHighlight();
       if (phase === 'finish' || focusHighlightSuspended) {
         updateFocusRingOverlay();
         updateKeyboardActions();
         return;
-      }
-      if (focusKind === 'phrase') {
-        if (puzzleSolved[focusPuzzleIndex]) {
-          updateFocusRingOverlay();
-          updateKeyboardActions();
-          return;
-        }
-        const el = document.getElementById(`strip-p-${focusPuzzleIndex}`);
-        if (el && !el.classList.contains('solved')) el.classList.add('focused');
-      } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
-        const comStrip = document.getElementById('strip-c');
-        if (comStrip && !comStrip.classList.contains('solved')) comStrip.classList.add('focused');
       }
       layoutFocusedPhraseSquircle();
       updateComBonusHint();
       requestAnimationFrame(() => {
         if (phase === 'finish' || focusHighlightSuspended) {
           clearActiveGuessHighlight();
-          updateFocusRingOverlay();
-          updateKeyboardActions();
-          return;
+        } else {
+          applyActiveGuessHighlight();
+          layoutFocusedPhraseSquircle();
         }
-        layoutFocusedPhraseSquircle();
         updateFocusRingOverlay();
         updateKeyboardActions();
       });
@@ -5368,6 +5402,7 @@ ${DEFAULT_SCORING_HTML}`;
         fitBoardToViewport();
         if (checkAllComplete()) {
           focusHighlightSuspended = false;
+          clearActiveGuessHighlight();
           return;
         }
         focusNextSlot();
@@ -5529,7 +5564,6 @@ ${DEFAULT_SCORING_HTML}`;
         else commonalityBuffer = bufNorm(commonalityBuffer + ch);
       } else return;
       syncFocusedStripDisplay();
-      updateFocusHighlight();
       savePlayProgress();
     }
 
@@ -5573,6 +5607,7 @@ ${DEFAULT_SCORING_HTML}`;
           scheduleClueHintTextFit();
           if (checkAllComplete()) {
             focusHighlightSuspended = false;
+            clearActiveGuessHighlight();
             return;
           }
           focusNextSlot();
@@ -5896,7 +5931,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     async function loadSiteSettings() {
-      const siteSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/site`));
+      const siteSnap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/site`));
       const site = snapExists(siteSnap) && siteSnap.val() ? siteSnap.val() : {};
       activeGameTitle = site.gameTitle != null ? String(site.gameTitle).trim() : '';
       if (!activeGameTitle) activeGameTitle = 'InVennTions';
@@ -5907,7 +5942,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     async function loadLiveRoundsFromArchive(archiveRawOpt) {
-      const liveSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/live`));
+      const liveSnap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/live`));
       let roundIds = [];
       if (snapExists(liveSnap) && liveSnap.val() && Array.isArray(liveSnap.val().roundIds)) {
         roundIds = liveSnap.val().roundIds.map(String);
@@ -5916,7 +5951,7 @@ ${DEFAULT_SCORING_HTML}`;
       roundIds = resolveEffectiveLiveRoundIds(archiveRaw, roundIds);
       if (roundIds.length) {
         const rid = roundIds[0];
-        const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
+        const snap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
         if (!snapExists(snap)) return false;
         const block = snap.val();
         const row = archiveBlockToPlayRound(block);
@@ -5942,11 +5977,11 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     async function loadLegacyLibraryGame() {
-      const settingsSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/activeGameId`));
+      const settingsSnap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/settings/activeGameId`));
       const gameId = snapExists(settingsSnap) && settingsSnap.val() ? String(settingsSnap.val()).trim() : '';
       if (!gameId) return false;
 
-      const gameSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/library/${gameId}`));
+      const gameSnap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/library/${gameId}`));
       if (!snapExists(gameSnap)) return false;
 
       const data = gameSnap.val();
@@ -5974,7 +6009,7 @@ ${DEFAULT_SCORING_HTML}`;
 
       for (let i = 0; i < roundIds.length; i++) {
         const rid = String(roundIds[i]);
-        const snap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
+        const snap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
         if (!snapExists(snap)) continue;
         const block = snap.val();
         if (isRoundHidden(block) || !isRoundReleased(block)) continue;
@@ -6011,7 +6046,7 @@ ${DEFAULT_SCORING_HTML}`;
           throw new Error('No quiz is live yet. Mark rounds as Live in admin.');
         }
         if (gameRounds.length === 0) {
-          const gameSnap = await window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/library/${activeGameId}`));
+          const gameSnap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/library/${activeGameId}`));
           const data = snapExists(gameSnap) ? gameSnap.val() : null;
           if (data && data.questions && coerceArr(data.questions).length) {
             throw new Error('This quiz still uses the old multiple-choice format. Open admin and convert it.');
