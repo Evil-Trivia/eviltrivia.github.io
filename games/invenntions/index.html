@@ -622,6 +622,7 @@
     .mg-phrase-sq-a { stroke: #e02020; }
     .mg-phrase-sq-b { stroke: #0033ff; }
     .mg-phrase-sq-c { stroke: #12b80e; }
+    .mg-phrase-block.mg-phrase-sq-revealed .mg-phrase-sq-c { stroke: #9a9a96; }
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-a,
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-b {
       visibility: visible;
@@ -1168,6 +1169,64 @@
       border-color: #a84848;
     }
     .kb-key.back { font-size: 1.05rem; min-width: 48px; }
+
+    /* iOS / NYT-style key preview pop-up above pressed key */
+    .kb-key-pop {
+      position: fixed;
+      z-index: 8100;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transform: translate(-50%, calc(-100% + 1px));
+      filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.14));
+    }
+    .kb-key-pop.hidden { display: none; }
+    .kb-key-pop-bubble {
+      box-sizing: border-box;
+      min-width: 44px;
+      min-height: 46px;
+      padding: 2px 10px 4px;
+      background: #fff;
+      border: 1px solid #b0b0a8;
+      border-bottom: none;
+      border-radius: 7px 7px 0 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .kb-key-pop-label {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: 1.55rem;
+      line-height: 1;
+      color: #222;
+      white-space: nowrap;
+    }
+    .kb-key-pop-label.kb-key-pop-label--small {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .kb-key-pop-bridge {
+      width: 12px;
+      height: 10px;
+      margin-top: -1px;
+      background: #fff;
+      border-left: 1px solid #b0b0a8;
+      border-right: 1px solid #b0b0a8;
+      box-sizing: border-box;
+    }
+    @keyframes kbKeyPopIn {
+      from { transform: translate(-50%, calc(-100% + 1px)) scale(0.88); opacity: 0.55; }
+      to { transform: translate(-50%, calc(-100% + 1px)) scale(1); opacity: 1; }
+    }
+    .kb-key-pop:not(.hidden) {
+      animation: kbKeyPopIn 0.07s ease-out;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .kb-key-pop:not(.hidden) { animation: none; }
+    }
 
     /* Title screen (local assets; no Firebase for layout) */
     body.inv-title-active {
@@ -1902,6 +1961,10 @@
 
       <div class="keyboard-wrap" id="keyboardWrap">
         <div id="keyboardRoot"></div>
+        <div id="kbKeyPop" class="kb-key-pop hidden" aria-hidden="true">
+          <div class="kb-key-pop-bubble"><span class="kb-key-pop-label"></span></div>
+          <div class="kb-key-pop-bridge" aria-hidden="true"></div>
+        </div>
       </div>
 
       <div class="score-delta-layer" id="scoreDeltaLayer" aria-hidden="true"></div>
@@ -2118,6 +2181,7 @@ ${DEFAULT_SCORING_HTML}`;
     let phase = 'play';
     let puzzleBuffers = [];
     let puzzleSolved = [];
+    let puzzleRevealed = [];
     let revealedLeftArr = [];
     let revealedRightArr = [];
     let commonalityBuffer = '';
@@ -2882,6 +2946,7 @@ ${DEFAULT_SCORING_HTML}`;
         sessionThemeBonusEvents: sessionThemeBonusEvents.slice(),
         puzzleBuffers: puzzleBuffers.slice(),
         puzzleSolved: puzzleSolved.slice(),
+        puzzleRevealed: puzzleRevealed.slice(),
         revealedLeftArr: revealedLeftArr.slice(),
         revealedRightArr: revealedRightArr.slice(),
         commonalityBuffer,
@@ -2973,6 +3038,10 @@ ${DEFAULT_SCORING_HTML}`;
       activeRoundSubtitle = r.subtitle;
       puzzleBuffers = Array.isArray(saved.puzzleBuffers) ? saved.puzzleBuffers.slice() : puzzles.map(() => '');
       puzzleSolved = Array.isArray(saved.puzzleSolved) ? saved.puzzleSolved.slice() : puzzles.map(() => false);
+      puzzleRevealed = Array.isArray(saved.puzzleRevealed)
+        ? saved.puzzleRevealed.slice(0, puzzles.length)
+        : puzzles.map(() => false);
+      while (puzzleRevealed.length < puzzles.length) puzzleRevealed.push(false);
       revealedLeftArr = Array.isArray(saved.revealedLeftArr) ? saved.revealedLeftArr.slice() : puzzles.map(() => 0);
       revealedRightArr = Array.isArray(saved.revealedRightArr) ? saved.revealedRightArr.slice() : puzzles.map(() => 0);
       commonalityBuffer = saved.commonalityBuffer != null ? String(saved.commonalityBuffer) : '';
@@ -3001,6 +3070,7 @@ ${DEFAULT_SCORING_HTML}`;
       activeRoundSubtitle = r.subtitle;
 
       puzzleSolved = puzzles.map(() => true);
+      puzzleRevealed = puzzles.map(() => false);
       puzzleBuffers = puzzles.map(p => p.answer || primaryAnswerDisplay(p.answerRaw || ''));
       revealedLeftArr = puzzles.map(p => (p.leftHints ? p.leftHints.length : 0));
       revealedRightArr = puzzles.map(p => (p.rightHints ? p.rightHints.length : 0));
@@ -3246,12 +3316,58 @@ ${DEFAULT_SCORING_HTML}`;
       }, KB_REPEAT_DELAY_MS);
     }
 
+    function kbKeyPopLabelFor(btn) {
+      if (!btn) return '';
+      if (btn.dataset.ch) return btn.dataset.ch;
+      if (btn.classList.contains('back')) return '⌫';
+      if (btn.classList.contains('space')) return 'SPACE';
+      return btn.textContent || '';
+    }
+
+    function shouldShowKbKeyPop(btn) {
+      return btn && !btn.disabled
+        && !btn.classList.contains('guess')
+        && !btn.classList.contains('reveal');
+    }
+
+    function hideKbKeyPop() {
+      const pop = document.getElementById('kbKeyPop');
+      if (!pop) return;
+      pop.classList.add('hidden');
+      pop.setAttribute('aria-hidden', 'true');
+    }
+
+    function showKbKeyPop(btn) {
+      const pop = document.getElementById('kbKeyPop');
+      if (!pop || !shouldShowKbKeyPop(btn)) {
+        hideKbKeyPop();
+        return;
+      }
+      const labelEl = pop.querySelector('.kb-key-pop-label');
+      const bridgeEl = pop.querySelector('.kb-key-pop-bridge');
+      const bubbleEl = pop.querySelector('.kb-key-pop-bubble');
+      if (!labelEl || !bridgeEl || !bubbleEl) return;
+      const label = kbKeyPopLabelFor(btn);
+      labelEl.textContent = label;
+      labelEl.classList.toggle('kb-key-pop-label--small', btn.classList.contains('space'));
+      const rect = btn.getBoundingClientRect();
+      const bubbleW = Math.max(rect.width + 10, 44);
+      const bridgeW = Math.max(10, Math.min(rect.width * 0.24, 14));
+      bubbleEl.style.minWidth = `${Math.round(bubbleW)}px`;
+      bridgeEl.style.width = `${Math.round(bridgeW)}px`;
+      pop.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
+      pop.style.top = `${Math.round(rect.top)}px`;
+      pop.classList.remove('hidden');
+      pop.setAttribute('aria-hidden', 'false');
+    }
+
     function clearKbPointer(pointerId) {
       const rec = kbActivePointers.get(pointerId);
       if (!rec) return;
       stopKbKeyRepeat(rec);
       rec.btn.classList.remove('kb-pressed');
       kbActivePointers.delete(pointerId);
+      if (!kbActivePointers.size) hideKbKeyPop();
     }
 
     function beginKbPointer(pointerId, btn) {
@@ -3262,6 +3378,7 @@ ${DEFAULT_SCORING_HTML}`;
         try { btn.setPointerCapture(pointerId); } catch (_) { /* ignore */ }
       }
       btn.classList.add('kb-pressed');
+      showKbKeyPop(btn);
       return rec;
     }
 
@@ -3287,8 +3404,18 @@ ${DEFAULT_SCORING_HTML}`;
       keyboardRoot.addEventListener('pointermove', e => {
         const rec = kbActivePointers.get(e.pointerId);
         if (!rec) return;
-        if (rec.btn.classList.contains('back')) return;
         e.preventDefault();
+        const hit = document.elementFromPoint(e.clientX, e.clientY);
+        const btn = hit && hit.closest ? hit.closest('.kb-key') : null;
+        if (btn && keyboardRoot.contains(btn) && !btn.disabled && btn !== rec.btn) {
+          rec.btn.classList.remove('kb-pressed');
+          rec.btn = btn;
+          btn.classList.add('kb-pressed');
+          if (btn.setPointerCapture) {
+            try { btn.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+          }
+        }
+        showKbKeyPop(rec.btn);
       }, { passive: false });
 
       function onPointerEnd(e) {
@@ -3479,6 +3606,7 @@ ${DEFAULT_SCORING_HTML}`;
         const block = puzzleMount.querySelector(`.mg-phrase-block[data-phrase-i="${i}"]`);
         if (!block) continue;
         block.classList.add('mg-phrase-sq-armed', 'mg-phrase-sq-venn', 'mg-phrase-sq-done');
+        block.classList.toggle('mg-phrase-sq-revealed', !!puzzleRevealed[i]);
         layoutPhraseSquirclePaths(block);
       }
     }
@@ -3948,6 +4076,7 @@ ${DEFAULT_SCORING_HTML}`;
       activeRoundSubtitle = r.subtitle;
       puzzleBuffers = puzzles.map(() => '');
       puzzleSolved = puzzles.map(() => false);
+      puzzleRevealed = puzzles.map(() => false);
       revealedLeftArr = puzzles.map(() => 0);
       revealedRightArr = puzzles.map(() => 0);
       commonalityBuffer = '';
@@ -4245,6 +4374,7 @@ ${DEFAULT_SCORING_HTML}`;
       function finishAnim() {
         squircleAnimatingPhrase = -1;
         block.classList.add('mg-phrase-sq-armed', 'mg-phrase-sq-venn', 'mg-phrase-sq-done');
+        block.classList.toggle('mg-phrase-sq-revealed', !!puzzleRevealed[phraseIndex]);
         layoutPhraseSquirclePaths(block);
         restoreSolvedPhraseSquircles();
         done();
@@ -5191,6 +5321,7 @@ ${DEFAULT_SCORING_HTML}`;
 
       if (phase === 'finish') {
         keyboardWrap.classList.add('hidden-kb');
+        hideKbKeyPop();
       } else {
         updateHeaderTitles();
         pageSubtitle.textContent = activeRoundSubtitle.trim() || DEFAULT_PLAY_SUBTITLE;
@@ -5397,6 +5528,7 @@ ${DEFAULT_SCORING_HTML}`;
         const i = focusPuzzleIndex;
         const p = puzzles[i];
         puzzleSolved[i] = true;
+        puzzleRevealed[i] = true;
         puzzleBuffers[i] = normGuess(p.answer);
         answerRevealCount++;
         addScore(-2);
@@ -5404,17 +5536,19 @@ ${DEFAULT_SCORING_HTML}`;
         clearActiveGuessHighlight();
         focusHighlightSuspended = true;
         renderBoard();
-        renderPuzzleHintRow(i, p);
-        scheduleClueHintTextFit(false, null, document.querySelector(`.mg-phrase-block[data-phrase-i="${i}"]`));
-        fitBoardToViewport();
-        if (checkAllComplete()) {
+        playPhraseSolveSquircle(i, () => {
+          renderPuzzleHintRow(i, p);
+          scheduleClueHintTextFit(false, null, document.querySelector(`.mg-phrase-block[data-phrase-i="${i}"]`));
+          fitBoardToViewport();
+          if (checkAllComplete()) {
+            focusHighlightSuspended = false;
+            clearActiveGuessHighlight();
+            return;
+          }
+          focusNextSlot();
           focusHighlightSuspended = false;
-          clearActiveGuessHighlight();
-          return;
-        }
-        focusNextSlot();
-        focusHighlightSuspended = false;
-        updateFocusHighlight();
+          updateFocusHighlight();
+        });
         return;
       }
       if (focusKind === 'commonality' && commonality && !commonalitySolved) {
@@ -5455,6 +5589,7 @@ ${DEFAULT_SCORING_HTML}`;
       kbInputQueue.length = 0;
       kbInputPumpScheduled = false;
       kbActivePointers.forEach((_, pointerId) => clearKbPointer(pointerId));
+      hideKbKeyPop();
       keyboardRoot.innerHTML = '';
       kbGuessBtn = null;
       kbRevealBtn = null;
@@ -5604,6 +5739,7 @@ ${DEFAULT_SCORING_HTML}`;
         addScore(1);
         sessionCorrectPhraseGuesses++;
         puzzleSolved[i] = true;
+        puzzleRevealed[i] = false;
         puzzleBuffers[i] = normGuess(guess);
         applyFreeHintsOnPhraseSolve(i, p);
         clearActiveGuessHighlight();
