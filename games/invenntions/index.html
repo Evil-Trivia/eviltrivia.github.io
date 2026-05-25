@@ -1172,21 +1172,17 @@
 
     /* iOS / NYT-style key preview pop-up above pressed key (must live outside transformed ancestors) */
     /*
-     * The popup is sized to the exact width of the pressed key so its left/right
-     * outlines vertically continue the key's outlines (one continuous shape).
-     * The bridge has no bottom border / bottom-radius and overlaps the key by
-     * enough pixels that the seam between popup and key is hidden by the key's
-     * own border-radius corners.
+     * iOS-style key preview: a single continuous paddle shape drawn as an SVG
+     * path. The bubble is wider than the key at the top, smoothly S-curves
+     * down through a short neck, then narrows to exactly the key width at
+     * the bottom (stem). The stem overlaps a few pixels into the key so the
+     * shape visually merges with the pressed key.
      */
     .kb-key-pop {
       position: fixed;
       z-index: 8500;
       pointer-events: none;
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      width: 44px;
-      transform: translate(-50%, calc(-100% + 7px));
+      transform: translate(-50%, calc(-100% + var(--kb-key-pop-stem, 6px)));
       transform-origin: 50% 100%;
       filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.22));
       opacity: 1;
@@ -1195,44 +1191,31 @@
     }
     .kb-key-pop.hidden { display: none; }
     .kb-key-pop.kb-key-pop-leaving { opacity: 0; }
-    .kb-key-pop-bubble {
-      box-sizing: border-box;
-      width: 100%;
-      min-height: 50px;
-      padding: 4px 6px 6px;
-      background: #fff;
-      border: 1px solid #b0b0a8;
-      border-bottom: none;
-      border-radius: 6px 6px 0 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .kb-key-pop-svg {
+      display: block;
+      overflow: visible;
     }
-    .kb-key-pop-label {
-      font-family: 'Arial Black', Arial, sans-serif;
-      font-size: 1.55rem;
-      line-height: 1;
-      color: #1a1a1a;
-      white-space: nowrap;
+    .kb-key-pop-path {
+      fill: #fff;
+      stroke: #b0b0a8;
+      stroke-width: 1;
+      stroke-linejoin: round;
+      stroke-linecap: round;
     }
-    .kb-key-pop-label.kb-key-pop-label--small {
-      font-family: Arial, Helvetica, sans-serif;
-      font-size: 0.66rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-    }
-    .kb-key-pop-bridge {
-      width: 100%;
-      height: 14px;
-      margin-top: -1px;
-      background: #fff;
-      border-left: 1px solid #b0b0a8;
-      border-right: 1px solid #b0b0a8;
-      box-sizing: border-box;
+    .kb-key-pop-text {
+      font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+      font-weight: 900;
+      fill: #1a1a1a;
     }
     @keyframes kbKeyPopIn {
-      from { transform: translate(-50%, calc(-100% + 7px)) scale(0.88); opacity: 0.6; }
-      to { transform: translate(-50%, calc(-100% + 7px)) scale(1); opacity: 1; }
+      from {
+        transform: translate(-50%, calc(-100% + var(--kb-key-pop-stem, 6px))) scale(0.86);
+        opacity: 0.55;
+      }
+      to {
+        transform: translate(-50%, calc(-100% + var(--kb-key-pop-stem, 6px))) scale(1);
+        opacity: 1;
+      }
     }
     .kb-key-pop:not(.hidden):not(.kb-key-pop-leaving) {
       animation: kbKeyPopIn 0.04s ease-out;
@@ -2009,8 +1992,10 @@
 
   <div id="invFocusRing" class="inv-focus-ring hidden" aria-hidden="true"></div>
   <div id="kbKeyPop" class="kb-key-pop hidden" aria-hidden="true">
-    <div class="kb-key-pop-bubble"><span class="kb-key-pop-label"></span></div>
-    <div class="kb-key-pop-bridge" aria-hidden="true"></div>
+    <svg class="kb-key-pop-svg" id="kbKeyPopSvg" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path class="kb-key-pop-path" id="kbKeyPopPath" />
+      <text class="kb-key-pop-text" id="kbKeyPopText" text-anchor="middle" dominant-baseline="central"></text>
+    </svg>
   </div>
 
   <script type="module">
@@ -3339,7 +3324,41 @@ ${DEFAULT_SCORING_HTML}`;
     function shouldShowKbKeyPop(btn) {
       return btn && !btn.disabled
         && !btn.classList.contains('guess')
-        && !btn.classList.contains('reveal');
+        && !btn.classList.contains('reveal')
+        && !btn.classList.contains('space');
+    }
+
+    /*
+     * Build the iOS-style paddle path. Proportions are scaled from the actual
+     * iOS keyboard popup constants (UPPER 52 / LOWER 32 etc.) so the shape
+     * looks right at any key width. Path is left intentionally open at the
+     * bottom: the fill closes implicitly to make a solid paddle, but no
+     * horizontal stroke is drawn across the stem bottom — so the outline
+     * flows straight into the key without a visible seam.
+     */
+    function buildIosKeyPopPath(keyWidth) {
+      const wKey = Math.max(Math.round(keyWidth), 28);
+      const wBubble = Math.max(Math.round(wKey * 1.55), wKey + 22);
+      const hBubble = 50;
+      const hNeck = 11;
+      const hStem = 7;
+      const hTotal = hBubble + hNeck + hStem;
+      const r = 8;
+      const pad = (wBubble - wKey) / 2;
+      const neckMid = hBubble + hNeck / 2;
+      const d = [
+        `M ${pad} ${hTotal}`,
+        `V ${hBubble + hNeck}`,
+        `C ${pad} ${neckMid}, 0 ${neckMid}, 0 ${hBubble}`,
+        `V ${r}`,
+        `Q 0 0, ${r} 0`,
+        `H ${wBubble - r}`,
+        `Q ${wBubble} 0, ${wBubble} ${r}`,
+        `V ${hBubble}`,
+        `C ${wBubble} ${neckMid}, ${wBubble - pad} ${neckMid}, ${wBubble - pad} ${hBubble + hNeck}`,
+        `V ${hTotal}`
+      ].join(' ');
+      return { d, wBubble, hTotal, hBubble, hStem };
     }
 
     let kbKeyPopHideTimer = 0;
@@ -3391,20 +3410,25 @@ ${DEFAULT_SCORING_HTML}`;
         hideKbKeyPopImmediate();
         return;
       }
-      const labelEl = pop.querySelector('.kb-key-pop-label');
-      const bridgeEl = pop.querySelector('.kb-key-pop-bridge');
-      const bubbleEl = pop.querySelector('.kb-key-pop-bubble');
-      if (!labelEl || !bridgeEl || !bubbleEl) return;
+      const svg = document.getElementById('kbKeyPopSvg');
+      const pathEl = document.getElementById('kbKeyPopPath');
+      const textEl = document.getElementById('kbKeyPopText');
+      if (!svg || !pathEl || !textEl) return;
       clearKbKeyPopTimers();
       pop.classList.remove('kb-key-pop-leaving');
-      const label = kbKeyPopLabelFor(btn);
-      labelEl.textContent = label;
-      labelEl.classList.toggle('kb-key-pop-label--small', btn.classList.contains('space'));
       const rect = btn.getBoundingClientRect();
-      const popW = Math.max(rect.width, 36);
-      pop.style.width = `${Math.round(popW)}px`;
-      bubbleEl.style.minWidth = '';
-      bridgeEl.style.width = '';
+      const { d, wBubble, hTotal, hBubble, hStem } = buildIosKeyPopPath(rect.width);
+      svg.setAttribute('width', String(wBubble));
+      svg.setAttribute('height', String(hTotal));
+      svg.setAttribute('viewBox', `0 0 ${wBubble} ${hTotal}`);
+      pathEl.setAttribute('d', d);
+      const label = kbKeyPopLabelFor(btn);
+      textEl.textContent = label;
+      const fontPx = Math.round(Math.min(hBubble * 0.62, Math.max(wBubble * 0.5, 18)));
+      textEl.setAttribute('font-size', String(fontPx));
+      textEl.setAttribute('x', String(wBubble / 2));
+      textEl.setAttribute('y', String(hBubble / 2 + 1));
+      pop.style.setProperty('--kb-key-pop-stem', `${hStem}px`);
       pop.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
       pop.style.top = `${Math.round(rect.top)}px`;
       pop.classList.remove('hidden');
