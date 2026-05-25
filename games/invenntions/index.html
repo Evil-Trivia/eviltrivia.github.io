@@ -622,20 +622,6 @@
     .mg-phrase-sq-a { stroke: #e02020; }
     .mg-phrase-sq-b { stroke: #0033ff; }
     .mg-phrase-sq-c { stroke: #12b80e; }
-    .mg-phrase-sq-focus {
-      fill: none;
-      stroke: #ffcc00;
-      stroke-width: 3.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      visibility: hidden;
-      pointer-events: none;
-      stroke-dasharray: none;
-      stroke-dashoffset: 0;
-    }
-    body.inv-quiz-active .mg-phrase-block.mg-phrase-focus-active .mg-phrase-sq-focus {
-      visibility: visible;
-    }
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-a,
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-b {
       visibility: visible;
@@ -650,7 +636,9 @@
       visibility: visible;
       animation: invSquircleDraw 0.56s cubic-bezier(0.45, 0, 0.25, 1) forwards;
     }
-    .mg-phrase-block.mg-phrase-sq-done .mg-phrase-sq-path {
+    .mg-phrase-block.mg-phrase-sq-done .mg-phrase-sq-path.mg-phrase-sq-a,
+    .mg-phrase-block.mg-phrase-sq-done .mg-phrase-sq-path.mg-phrase-sq-b,
+    .mg-phrase-block.mg-phrase-sq-done .mg-phrase-sq-path.mg-phrase-sq-c {
       stroke-dashoffset: 0;
       animation: none;
       visibility: visible;
@@ -1456,7 +1444,8 @@
       transform: translateY(8px);
     }
     .inv-title-screen.inv-menu-ready .inv-title-tagline {
-      animation: invFadeUp 0.34s ease 0.08s forwards;
+      opacity: 1;
+      transform: translateY(0);
     }
     .inv-title-menu {
       display: flex;
@@ -1468,7 +1457,8 @@
       transform: translateY(12px);
     }
     .inv-title-screen.inv-menu-ready .inv-title-menu {
-      animation: invFadeUp 0.38s ease 0.15s forwards;
+      opacity: 1;
+      transform: translateY(0);
     }
     .inv-title-screen:not(.inv-menu-ready) .inv-title-tagline {
       visibility: hidden;
@@ -1869,7 +1859,7 @@
     </div>
   </div>
 
-  <div id="archiveScreen" class="inv-title-screen hidden" aria-hidden="true" inert>
+  <div id="archiveScreen" class="inv-title-screen hidden" aria-hidden="true">
     <div class="inv-title-inner inv-archive-inner">
       <h2 class="inv-archive-heading">InVennTions Archive</h2>
       <p class="inv-archive-subheading">Play previous games below</p>
@@ -2044,6 +2034,7 @@
     const INV_USER_STORAGE_KEY = 'invMiddlegroundUser';
     const INV_PROGRESS_STORAGE_KEY = 'invMiddlegroundProgress';
     const INV_SUBMIT_STORAGE_KEY = 'invMiddlegroundScoreSubmitted';
+    const INV_RECOVERY_KEY = 'invMiddlegroundAutoRecovery';
     let firstVisitHintTimer = 0;
     let progressAutosaveTimer = 0;
     const FINAL_SCORE_FLASH_MS = 1500;
@@ -2502,6 +2493,12 @@ ${DEFAULT_SCORING_HTML}`;
 
     function isRoundReleased(block) {
       return roundPlayDateFromBlock(block) <= todayISO();
+    }
+
+    function resetInvenntionsPlayerStorage() {
+      try { localStorage.removeItem(INV_USER_STORAGE_KEY); } catch (_) { /* ignore */ }
+      try { localStorage.removeItem(INV_PROGRESS_STORAGE_KEY); } catch (_) { /* ignore */ }
+      try { sessionStorage.removeItem(INV_SUBMIT_STORAGE_KEY); } catch (_) { /* ignore */ }
     }
 
     function sanitizeStoredPlayerData() {
@@ -3996,7 +3993,6 @@ ${DEFAULT_SCORING_HTML}`;
         releaseFocusWithin(screen);
         screen.classList.add('hidden');
         screen.setAttribute('aria-hidden', 'true');
-        screen.inert = true;
       } else {
         screen.classList.remove('hidden');
         screen.setAttribute('aria-hidden', 'false');
@@ -4156,7 +4152,6 @@ ${DEFAULT_SCORING_HTML}`;
       const pathA = block.querySelector('.mg-phrase-sq-a');
       const pathB = block.querySelector('.mg-phrase-sq-b');
       const pathC = block.querySelector('.mg-phrase-sq-c');
-      const pathFocus = block.querySelector('.mg-phrase-sq-focus');
       const left = block.querySelector('.mg-side-left');
       const center = block.querySelector('.mg-center');
       const right = block.querySelector('.mg-side-right');
@@ -4232,7 +4227,6 @@ ${DEFAULT_SCORING_HTML}`;
       pathB.setAttribute('d', roundedRectPath(venntion.x, venntion.y, venntion.w, venntion.h, venntion.corner));
       const vennPath = roundedRectPath(venn.x, venn.y, venn.w, venn.h, venn.corner);
       pathC.setAttribute('d', vennPath);
-      if (pathFocus) pathFocus.setAttribute('d', vennPath);
       pathA.style.setProperty('--path-len', String(pathA.getTotalLength()));
       pathB.style.setProperty('--path-len', String(pathB.getTotalLength()));
       pathC.style.setProperty('--path-len', String(pathC.getTotalLength()));
@@ -4598,9 +4592,32 @@ ${DEFAULT_SCORING_HTML}`;
       updateTitleMenuState();
     }
 
+    async function prefetchQuizWithRecovery() {
+      await prefetchQuiz();
+      if (quizPrefetchOk) {
+        try { sessionStorage.removeItem(INV_RECOVERY_KEY); } catch (_) { /* ignore */ }
+        return;
+      }
+      let alreadyRecovered = false;
+      try { alreadyRecovered = sessionStorage.getItem(INV_RECOVERY_KEY) === '1'; } catch (_) { /* ignore */ }
+      if (alreadyRecovered) return;
+      try { sessionStorage.setItem(INV_RECOVERY_KEY, '1'); } catch (_) { /* ignore */ }
+      resetInvenntionsPlayerStorage();
+      archiveFetchPromise = null;
+      await prefetchQuiz();
+      if (quizPrefetchOk) {
+        try { sessionStorage.removeItem(INV_RECOVERY_KEY); } catch (_) { /* ignore */ }
+        const errEl = document.getElementById('titleError');
+        if (errEl) {
+          errEl.textContent = 'Cleared saved data on this device to restore access.';
+          errEl.classList.remove('hidden');
+        }
+      }
+    }
+
     async function onTitlePlay() {
       if (!quizPrefetchOk) {
-        await prefetchQuiz();
+        await prefetchQuizWithRecovery();
         if (!quizPrefetchOk) return;
       }
       const playBtn = document.getElementById('btnTitlePlay');
@@ -4664,11 +4681,11 @@ ${DEFAULT_SCORING_HTML}`;
             errEl.classList.remove('hidden');
           }
           refreshArchiveMenu();
-          prefetchQuiz();
+          prefetchQuizWithRecovery();
         });
       } else {
         refreshArchiveMenu();
-        prefetchQuiz();
+        prefetchQuizWithRecovery();
       }
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') savePlayProgress();
@@ -5109,7 +5126,6 @@ ${DEFAULT_SCORING_HTML}`;
             <path class="mg-phrase-sq-path mg-phrase-sq-a" />
             <path class="mg-phrase-sq-path mg-phrase-sq-b" />
             <path class="mg-phrase-sq-path mg-phrase-sq-c" />
-            <path class="mg-phrase-sq-path mg-phrase-sq-focus" />
           </svg>
           <div class="mg-main-row">
           <div class="mg-side mg-side-left">
@@ -5191,11 +5207,6 @@ ${DEFAULT_SCORING_HTML}`;
 
     function clearActiveGuessHighlight() {
       document.querySelectorAll('.mg-answer-strip.focused').forEach(el => el.classList.remove('focused'));
-      if (puzzleMount) {
-        puzzleMount.querySelectorAll('.mg-phrase-block.mg-phrase-focus-active').forEach(el => {
-          el.classList.remove('mg-phrase-focus-active');
-        });
-      }
       const ring = document.getElementById('invFocusRing');
       if (ring) {
         ring.classList.add('hidden');
@@ -5209,11 +5220,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (focusKind === 'phrase') {
         if (puzzleSolved[focusPuzzleIndex]) return;
         const el = document.getElementById(`strip-p-${focusPuzzleIndex}`);
-        const block = el ? el.closest('.mg-phrase-block') : null;
-        if (el && block && !el.classList.contains('solved')) {
-          el.classList.add('focused');
-          block.classList.add('mg-phrase-focus-active');
-        }
+        if (el && !el.classList.contains('solved')) el.classList.add('focused');
       } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
         const comStrip = document.getElementById('strip-c');
         if (comStrip && !comStrip.classList.contains('solved')) comStrip.classList.add('focused');
@@ -5229,7 +5236,7 @@ ${DEFAULT_SCORING_HTML}`;
         && quizCard
         && !quizCard.classList.contains('hidden');
       const focused = show ? document.querySelector('.mg-answer-strip.focused:not(.solved)') : null;
-      if (!focused || focused.id !== 'strip-c') {
+      if (!focused) {
         ring.classList.add('hidden');
         ring.setAttribute('aria-hidden', 'true');
         return;
