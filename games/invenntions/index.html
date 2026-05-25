@@ -837,10 +837,40 @@
       min-width: 3.5rem;
       max-width: 100%;
       flex: 0 0 auto;
-      overflow: visible;
+      overflow: hidden;
       text-overflow: clip;
       min-height: calc(2.1em * 1.43);
       font-size: calc(clamp(0.72rem, 2.8vw, 0.95rem) * 1.15);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .mg-com-bonus-hint {
+      color: #168a28;
+      font-weight: bold;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: clamp(0.62rem, 2.2vw, 0.78rem);
+      letter-spacing: normal;
+      line-height: 1.2;
+      text-align: center;
+      width: 100%;
+      padding: 2px 4px;
+      box-sizing: border-box;
+      white-space: normal;
+      word-break: break-word;
+    }
+    body.inv-quiz-active .mg-com-bonus-hint {
+      font-size: calc(var(--mg-com-prompt-font-size, 0.85rem) * 0.82);
+    }
+    .mg-com-answer-text {
+      display: block;
+      width: 100%;
+      text-align: center;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: clip;
     }
 
     .com-prompt .com-hint-inline:not(:empty) {
@@ -2180,6 +2210,28 @@ ${DEFAULT_SCORING_HTML}`;
       return n;
     }
 
+    function shouldShowComBonusHint() {
+      if (!commonality || commonalitySolved || phase === 'finish') return false;
+      if (focusKind === 'commonality') return false;
+      if (bufNorm(commonalityBuffer).trim()) return false;
+      return true;
+    }
+
+    function updateComBonusHint() {
+      const strip = document.getElementById('strip-c');
+      const hint = document.getElementById('comBonusHint');
+      const ans = document.getElementById('comAnswerText');
+      if (!strip || !commonality || commonalitySolved) return;
+      const show = shouldShowComBonusHint();
+      if (hint) {
+        hint.textContent = `Current early-guess bonus: ${countUnansweredPhrases()}`;
+        hint.classList.toggle('hidden', !show);
+      }
+      if (ans && show) ans.textContent = '';
+      const empty = !bufNorm(commonalityBuffer).trim();
+      strip.classList.toggle('empty', empty && !show);
+    }
+
     function applyFreeHintsOnPhraseSolve(i, p) {
       hintPending.delete(`L-${i}`);
       hintPending.delete(`R-${i}`);
@@ -3309,7 +3361,14 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function refreshAnswerStripFit() {
-      puzzleMount.querySelectorAll('.mg-answer-strip[id]').forEach(fitAnswerStripFont);
+      puzzleMount.querySelectorAll('.mg-answer-strip[id]').forEach(el => {
+        if (el.id === 'strip-c') {
+          const ans = el.querySelector('.mg-com-answer-text');
+          fitAnswerStripFont(ans || el);
+          return;
+        }
+        fitAnswerStripFont(el);
+      });
     }
 
     let boardViewportFitBound = false;
@@ -4774,16 +4833,16 @@ ${DEFAULT_SCORING_HTML}`;
       if (commonality) {
         const cs = commonalitySolved;
         let comStripClass;
-        let comDisplay;
+        let comAnswerHtml;
         if (cs) {
           comStripClass = 'mg-answer-strip solved';
-          comDisplay = esc(commonalityBuffer ? commonalityBuffer.toUpperCase() : commonality.answer);
+          comAnswerHtml = esc(commonalityBuffer ? commonalityBuffer.toUpperCase() : commonality.answer);
         } else {
           const t = bufNorm(commonalityBuffer);
           commonalityBuffer = t;
           const empty = !t.trim();
           comStripClass = empty ? 'mg-answer-strip empty' : 'mg-answer-strip';
-          comDisplay = empty ? '\u00A0' : esc(t.toUpperCase());
+          comAnswerHtml = empty ? '' : esc(t.toUpperCase());
         }
         html += `
       <div class="com-section">
@@ -4794,7 +4853,10 @@ ${DEFAULT_SCORING_HTML}`;
         </div>
         <div class="mg-main-row mg-com-answer-row" style="justify-content:center">
           <div class="mg-center mg-com-center">
-            <div class="${comStripClass} mg-com-strip" id="strip-c">${comDisplay}</div>
+            <div class="${comStripClass} mg-com-strip" id="strip-c">
+              <span class="mg-com-bonus-hint hidden" id="comBonusHint"></span>
+              <span class="mg-com-answer-text" id="comAnswerText">${comAnswerHtml}</span>
+            </div>
           </div>
         </div>
       </div>`;
@@ -4815,6 +4877,7 @@ ${DEFAULT_SCORING_HTML}`;
         keyboardWrap.classList.remove('hidden-kb');
       }
       updateFocusHighlight();
+      updateComBonusHint();
       preprocessClueBoxLayout();
       scheduleClueHintTextFit(true, () => {
         fitBoardToViewport();
@@ -4836,6 +4899,7 @@ ${DEFAULT_SCORING_HTML}`;
         const comStrip = document.getElementById('strip-c');
         if (comStrip) comStrip.classList.add('focused');
       }
+      updateComBonusHint();
       updateKeyboardActions();
     }
 
@@ -5089,16 +5153,18 @@ ${DEFAULT_SCORING_HTML}`;
         fitAnswerStripFont(el);
       } else if (focusKind === 'commonality' && commonality) {
         const el = document.getElementById('strip-c');
-        if (!el || commonalitySolved) return;
+        const ans = document.getElementById('comAnswerText');
+        if (!el || !ans || commonalitySolved) return;
         commonalityBuffer = bufNorm(commonalityBuffer);
         const disp = displayFromBuffer(commonalityBuffer);
-        el.textContent = disp;
+        ans.textContent = disp;
         if (disp === '\u00A0' || !bufNorm(commonalityBuffer).trim()) {
           el.classList.add('empty');
         } else {
           el.classList.remove('empty');
         }
-        fitAnswerStripFont(el);
+        updateComBonusHint();
+        fitAnswerStripFont(ans);
       }
     }
 
