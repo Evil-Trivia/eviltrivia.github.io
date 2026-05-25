@@ -633,7 +633,7 @@
       stroke-dasharray: none;
       stroke-dashoffset: 0;
     }
-    body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused) .mg-phrase-sq-focus {
+    body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)) .mg-phrase-sq-focus {
       visibility: visible;
     }
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-a,
@@ -824,10 +824,10 @@
       text-overflow: clip;
       position: relative;
     }
-    body.inv-quiz-active .mg-main-row-wrap:has(.mg-answer-strip.focused) .mg-main-row {
+    body.inv-quiz-active .mg-main-row-wrap:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row {
       position: relative;
     }
-    body.inv-quiz-active .mg-answer-strip.focused {
+    body.inv-quiz-active .mg-answer-strip.focused:not(.solved) {
       background: #f7fbfd;
     }
     .inv-focus-ring {
@@ -2118,6 +2118,7 @@ ${DEFAULT_SCORING_HTML}`;
     /** @type {'phrase' | 'commonality'} */
     let focusKind = 'phrase';
     let focusPuzzleIndex = 0;
+    let focusHighlightSuspended = false;
     let revealedComHints = 0;
     let incorrectGuesses = 0;
     let commonalitySolved = false;
@@ -3944,6 +3945,7 @@ ${DEFAULT_SCORING_HTML}`;
       clearAllHintTimers();
       focusKind = 'phrase';
       focusPuzzleIndex = 0;
+      focusHighlightSuspended = false;
       updateHeaderTitles();
     }
 
@@ -5162,14 +5164,24 @@ ${DEFAULT_SCORING_HTML}`;
       });
     }
 
+    function clearActiveGuessHighlight() {
+      document.querySelectorAll('.mg-answer-strip.focused').forEach(el => el.classList.remove('focused'));
+      const ring = document.getElementById('invFocusRing');
+      if (ring) {
+        ring.classList.add('hidden');
+        ring.setAttribute('aria-hidden', 'true');
+      }
+    }
+
     function updateFocusRingOverlay() {
       const ring = document.getElementById('invFocusRing');
       if (!ring) return;
       const show = document.body.classList.contains('inv-quiz-active')
         && phase !== 'finish'
+        && !focusHighlightSuspended
         && quizCard
         && !quizCard.classList.contains('hidden');
-      const focused = show ? document.querySelector('.mg-answer-strip.focused') : null;
+      const focused = show ? document.querySelector('.mg-answer-strip.focused:not(.solved)') : null;
       if (!focused || focused.id !== 'strip-c') {
         ring.classList.add('hidden');
         ring.setAttribute('aria-hidden', 'true');
@@ -5199,23 +5211,33 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function updateFocusHighlight() {
-      const prevFocused = document.querySelectorAll('.mg-answer-strip.focused');
-      for (let fi = 0; fi < prevFocused.length; fi++) prevFocused[fi].classList.remove('focused');
-      if (phase === 'finish') {
+      clearActiveGuessHighlight();
+      if (phase === 'finish' || focusHighlightSuspended) {
         updateFocusRingOverlay();
         updateKeyboardActions();
         return;
       }
       if (focusKind === 'phrase') {
+        if (puzzleSolved[focusPuzzleIndex]) {
+          updateFocusRingOverlay();
+          updateKeyboardActions();
+          return;
+        }
         const el = document.getElementById(`strip-p-${focusPuzzleIndex}`);
-        if (el && !puzzleSolved[focusPuzzleIndex]) el.classList.add('focused');
+        if (el && !el.classList.contains('solved')) el.classList.add('focused');
       } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
         const comStrip = document.getElementById('strip-c');
-        if (comStrip) comStrip.classList.add('focused');
+        if (comStrip && !comStrip.classList.contains('solved')) comStrip.classList.add('focused');
       }
       layoutFocusedPhraseSquircle();
       updateComBonusHint();
       requestAnimationFrame(() => {
+        if (phase === 'finish' || focusHighlightSuspended) {
+          clearActiveGuessHighlight();
+          updateFocusRingOverlay();
+          updateKeyboardActions();
+          return;
+        }
         layoutFocusedPhraseSquircle();
         updateFocusRingOverlay();
         updateKeyboardActions();
@@ -5338,12 +5360,18 @@ ${DEFAULT_SCORING_HTML}`;
         answerRevealCount++;
         addScore(-2);
         applyFreeHintsOnPhraseSolve(i, p);
+        clearActiveGuessHighlight();
+        focusHighlightSuspended = true;
         renderBoard();
         renderPuzzleHintRow(i, p);
         scheduleClueHintTextFit(false, null, document.querySelector(`.mg-phrase-block[data-phrase-i="${i}"]`));
         fitBoardToViewport();
-        if (checkAllComplete()) return;
+        if (checkAllComplete()) {
+          focusHighlightSuspended = false;
+          return;
+        }
         focusNextSlot();
+        focusHighlightSuspended = false;
         updateFocusHighlight();
         return;
       }
@@ -5354,6 +5382,7 @@ ${DEFAULT_SCORING_HTML}`;
         addScore(-2);
         hintPending.delete('C');
         clearHintTimer('C');
+        clearActiveGuessHighlight();
         renderBoard();
         if (checkAllComplete()) return;
         updateFocusHighlight();
@@ -5536,12 +5565,18 @@ ${DEFAULT_SCORING_HTML}`;
         puzzleSolved[i] = true;
         puzzleBuffers[i] = normGuess(guess);
         applyFreeHintsOnPhraseSolve(i, p);
+        clearActiveGuessHighlight();
+        focusHighlightSuspended = true;
         renderBoard();
         playPhraseSolveSquircle(i, () => {
           renderPuzzleHintRow(i, p);
           scheduleClueHintTextFit();
-          if (checkAllComplete()) return;
+          if (checkAllComplete()) {
+            focusHighlightSuspended = false;
+            return;
+          }
           focusNextSlot();
+          focusHighlightSuspended = false;
           updateFocusHighlight();
         });
         return;
@@ -5563,8 +5598,10 @@ ${DEFAULT_SCORING_HTML}`;
       commonalityBuffer = normGuess(guess);
       hintPending.delete('C');
       clearHintTimer('C');
+      clearActiveGuessHighlight();
       if (checkAllComplete()) return;
       renderBoard();
+      updateFocusHighlight();
     }
 
     function showFinalScoreFlash(onDone) {
