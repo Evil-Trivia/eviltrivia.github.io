@@ -622,6 +622,20 @@
     .mg-phrase-sq-a { stroke: #e02020; }
     .mg-phrase-sq-b { stroke: #0033ff; }
     .mg-phrase-sq-c { stroke: #12b80e; }
+    .mg-phrase-sq-focus {
+      fill: none;
+      stroke: #ffcc00;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      visibility: hidden;
+      pointer-events: none;
+      stroke-dasharray: none;
+      stroke-dashoffset: 0;
+    }
+    body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused) .mg-phrase-sq-focus {
+      visibility: visible;
+    }
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-a,
     .mg-phrase-block.mg-phrase-sq-armed .mg-phrase-sq-path.mg-phrase-sq-b {
       visibility: visible;
@@ -822,19 +836,20 @@
     }
     body.inv-quiz-active .mg-main-row-wrap:has(.mg-answer-strip.focused) .mg-main-row {
       position: relative;
-      z-index: 5;
     }
     body.inv-quiz-active .mg-answer-strip.focused {
-      background: #fffef0;
+      background: #f7fbfd;
     }
     .inv-focus-ring {
       position: fixed;
-      z-index: 8500;
+      z-index: 24000;
       border: 3px solid #ffcc00;
       border-radius: 6px;
       pointer-events: none;
       box-sizing: border-box;
       display: none;
+      background: transparent;
+      box-shadow: 0 0 0 1px #ffcc00;
     }
     .inv-focus-ring:not(.hidden) {
       display: block;
@@ -1467,6 +1482,10 @@
       visibility: hidden;
       pointer-events: none;
     }
+    .inv-title-screen:not(.inv-menu-ready) #btnTitleInfo {
+      visibility: visible;
+      pointer-events: auto;
+    }
     @keyframes invFadeUp {
       to { opacity: 1; transform: translateY(0); }
     }
@@ -1803,8 +1822,6 @@
   </style>
 </head>
 <body class="inv-title-active">
-  <div id="invFocusRing" class="inv-focus-ring hidden" aria-hidden="true"></div>
-
   <div id="rotateOverlay" class="inv-rotate-overlay" aria-hidden="true" role="dialog" aria-live="polite" aria-label="Rotate your device">
     <div class="inv-rotate-card">
       <div class="inv-rotate-device" aria-hidden="true"></div>
@@ -1865,7 +1882,7 @@
     </div>
   </div>
 
-  <div id="archiveScreen" class="inv-title-screen hidden" aria-hidden="true">
+  <div id="archiveScreen" class="inv-title-screen hidden" aria-hidden="true" inert>
     <div class="inv-title-inner inv-archive-inner">
       <h2 class="inv-archive-heading">InVennTions Archive</h2>
       <p class="inv-archive-subheading">Play previous games below</p>
@@ -1943,6 +1960,8 @@
       <div id="scoreModalBody" class="mg-modal-body finish-panel"></div>
     </div>
   </div>
+
+  <div id="invFocusRing" class="inv-focus-ring hidden" aria-hidden="true"></div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
@@ -4060,6 +4079,7 @@ ${DEFAULT_SCORING_HTML}`;
       const pathA = block.querySelector('.mg-phrase-sq-a');
       const pathB = block.querySelector('.mg-phrase-sq-b');
       const pathC = block.querySelector('.mg-phrase-sq-c');
+      const pathFocus = block.querySelector('.mg-phrase-sq-focus');
       const left = block.querySelector('.mg-side-left');
       const center = block.querySelector('.mg-center');
       const right = block.querySelector('.mg-side-right');
@@ -4133,7 +4153,9 @@ ${DEFAULT_SCORING_HTML}`;
 
       pathA.setAttribute('d', roundedRectPath(invenn.x, invenn.y, invenn.w, invenn.h, invenn.corner));
       pathB.setAttribute('d', roundedRectPath(venntion.x, venntion.y, venntion.w, venntion.h, venntion.corner));
-      pathC.setAttribute('d', roundedRectPath(venn.x, venn.y, venn.w, venn.h, venn.corner));
+      const vennPath = roundedRectPath(venn.x, venn.y, venn.w, venn.h, venn.corner);
+      pathC.setAttribute('d', vennPath);
+      if (pathFocus) pathFocus.setAttribute('d', vennPath);
       pathA.style.setProperty('--path-len', String(pathA.getTotalLength()));
       pathB.style.setProperty('--path-len', String(pathB.getTotalLength()));
       pathC.style.setProperty('--path-len', String(pathC.getTotalLength()));
@@ -4237,7 +4259,19 @@ ${DEFAULT_SCORING_HTML}`;
       if (squircleIntroPlayed) {
         screen.classList.add('inv-pieces-settled', 'inv-squircles-done', 'inv-phase-venn-stroke', 'inv-phase-venn-fill');
         layoutSquirclePaths();
+        if (!titleIntroComplete) finishTitleIntro();
         return;
+      }
+
+      let introSafetyTimer = window.setTimeout(() => {
+        if (!titleIntroComplete) finishTitleIntro();
+      }, 6000);
+
+      function clearIntroSafety() {
+        if (introSafetyTimer) {
+          window.clearTimeout(introSafetyTimer);
+          introSafetyTimer = 0;
+        }
       }
 
       screen.classList.remove('inv-squircle-armed', 'inv-squircles-done', 'inv-phase-venn-stroke', 'inv-phase-venn-fill');
@@ -4245,6 +4279,10 @@ ${DEFAULT_SCORING_HTML}`;
         function tryArm(attempt) {
           if (!layoutSquirclePaths()) {
             if (attempt < 8) requestAnimationFrame(() => tryArm(attempt + 1));
+            else {
+              clearIntroSafety();
+              finishTitleIntro();
+            }
             return;
           }
           squircleArmed = true;
@@ -4254,11 +4292,17 @@ ${DEFAULT_SCORING_HTML}`;
             screen.classList.add('inv-phase-venn-stroke');
             setTimeout(() => {
               screen.classList.add('inv-phase-venn-fill');
-              setTimeout(finishTitleIntro, SQUIRCLE_VENN_FILL_MS);
+              setTimeout(() => {
+                clearIntroSafety();
+                finishTitleIntro();
+              }, SQUIRCLE_VENN_FILL_MS);
             }, SQUIRCLE_VENN_MS);
           }, SQUIRCLE_PAIR_MS);
         }
         tryArm(0);
+      }).catch(() => {
+        clearIntroSafety();
+        finishTitleIntro();
       });
     }
 
@@ -4469,8 +4513,11 @@ ${DEFAULT_SCORING_HTML}`;
       quizPrefetchError = '';
       liveRoundMeta = null;
       updateTitleMenuState();
+      const loadTimeout = new Promise((_, reject) => {
+        window.setTimeout(() => reject(new Error('Loading timed out. Check your connection and refresh.')), 15000);
+      });
       try {
-        const archiveRaw = await fetchArchiveRaw();
+        const archiveRaw = await Promise.race([fetchArchiveRaw(), loadTimeout]);
         refreshNextScheduledRound(archiveRaw);
         await loadQuizDataOnly(archiveRaw);
         quizPrefetchOk = true;
@@ -4503,6 +4550,7 @@ ${DEFAULT_SCORING_HTML}`;
       const screen = document.getElementById('titleScreen');
       initLogoPieces();
       if (screen) {
+        screen.inert = false;
         screen.classList.remove('hidden', 'inv-menu-ready', 'inv-squircles-done', 'inv-squircle-armed', 'inv-phase-venn-stroke', 'inv-phase-venn-fill', 'inv-pieces-settled');
         screen.setAttribute('aria-hidden', 'false');
         requestAnimationFrame(() => {
@@ -4966,6 +5014,7 @@ ${DEFAULT_SCORING_HTML}`;
             <path class="mg-phrase-sq-path mg-phrase-sq-a" />
             <path class="mg-phrase-sq-path mg-phrase-sq-b" />
             <path class="mg-phrase-sq-path mg-phrase-sq-c" />
+            <path class="mg-phrase-sq-path mg-phrase-sq-focus" />
           </svg>
           <div class="mg-main-row">
           <div class="mg-side mg-side-left">
@@ -5053,7 +5102,7 @@ ${DEFAULT_SCORING_HTML}`;
         && quizCard
         && !quizCard.classList.contains('hidden');
       const focused = show ? document.querySelector('.mg-answer-strip.focused') : null;
-      if (!focused) {
+      if (!focused || focused.id !== 'strip-c') {
         ring.classList.add('hidden');
         ring.setAttribute('aria-hidden', 'true');
         return;
@@ -5064,13 +5113,21 @@ ${DEFAULT_SCORING_HTML}`;
         ring.setAttribute('aria-hidden', 'true');
         return;
       }
-      const pad = 3;
+      const style = getComputedStyle(focused);
+      const pad = 4;
       ring.style.top = `${Math.round(rect.top - pad)}px`;
       ring.style.left = `${Math.round(rect.left - pad)}px`;
       ring.style.width = `${Math.round(rect.width + pad * 2)}px`;
       ring.style.height = `${Math.round(rect.height + pad * 2)}px`;
+      ring.style.borderRadius = style.borderRadius || '6px';
       ring.classList.remove('hidden');
       ring.setAttribute('aria-hidden', 'false');
+    }
+
+    function layoutFocusedPhraseSquircle() {
+      if (focusKind !== 'phrase' || focusPuzzleIndex < 0) return;
+      const block = puzzleMount.querySelector(`.mg-phrase-block[data-phrase-i="${focusPuzzleIndex}"]`);
+      if (block) layoutPhraseSquirclePaths(block);
     }
 
     function updateFocusHighlight() {
@@ -5088,9 +5145,13 @@ ${DEFAULT_SCORING_HTML}`;
         const comStrip = document.getElementById('strip-c');
         if (comStrip) comStrip.classList.add('focused');
       }
+      layoutFocusedPhraseSquircle();
       updateComBonusHint();
-      updateFocusRingOverlay();
-      updateKeyboardActions();
+      requestAnimationFrame(() => {
+        layoutFocusedPhraseSquircle();
+        updateFocusRingOverlay();
+        updateKeyboardActions();
+      });
     }
 
     function cycleFocus(delta) {
