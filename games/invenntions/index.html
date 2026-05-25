@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Evil Trivia — InVennTions</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -224,7 +224,7 @@
       padding: 0 1px;
     }
     body.inv-quiz-active h1.mg-game-title {
-      font-size: clamp(0.88rem, 4.1vw, 1.05rem);
+      font-size: var(--mg-game-title-font-size, clamp(0.88rem, 4.1vw, 1.05rem));
       margin: 0;
       line-height: 1.08;
     }
@@ -234,13 +234,13 @@
       line-height: 1.12;
     }
     body.inv-quiz-active .subtitle {
-      font-size: clamp(0.6rem, 2.7vw, 0.72rem);
+      font-size: var(--mg-subtitle-font-size, clamp(0.6rem, 2.7vw, 0.72rem));
       margin: 0;
       line-height: 1.12;
     }
     body.inv-quiz-active .stat-bar {
       margin: 0;
-      font-size: clamp(0.62rem, 2.5vw, 0.72rem);
+      font-size: var(--mg-stat-font-size, clamp(0.62rem, 2.5vw, 0.72rem));
       line-height: 1.1;
     }
     .stat-bar-wrap {
@@ -340,10 +340,21 @@
     body.inv-quiz-active .mg-words {
       padding-left: 1px;
       padding-right: 1px;
+      font-size: var(--mg-words-font-size, clamp(0.68rem, 2.5vw, 0.84rem));
+    }
+    body.inv-quiz-active .mg-words-text {
+      font-size: var(--mg-words-text-font-size, clamp(0.76rem, 2.9vw, 0.94rem));
+    }
+    body.inv-quiz-active .mg-hint-lines {
+      font-size: var(--mg-hint-font-size, clamp(0.56rem, 2.05vw, 0.68rem));
+    }
+    body.inv-quiz-active .mg-answer-strip {
+      font-size: var(--mg-answer-strip-font-size, clamp(0.72rem, 2.8vw, 0.95rem));
     }
     body.inv-quiz-active .com-prompt {
       padding-left: 2px;
       padding-right: 2px;
+      font-size: var(--mg-com-prompt-font-size, calc(clamp(0.72rem, 2.8vw, 0.95rem) * 1.15));
     }
     @media (max-width: 520px) {
       body.inv-quiz-active #playCard.card {
@@ -3302,19 +3313,57 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     let boardViewportFitBound = false;
+    /** @type {{ width: number, height: number } | null} */
+    let layoutViewportLocked = null;
+
+    function captureLayoutViewport(force) {
+      if (layoutViewportLocked && !force) return layoutViewportLocked;
+      const width = window.innerWidth || document.documentElement.clientWidth || 390;
+      const height = window.innerHeight || document.documentElement.clientHeight || 700;
+      layoutViewportLocked = { width, height };
+      return layoutViewportLocked;
+    }
+
+    function getLayoutViewportWidth() {
+      return (layoutViewportLocked || captureLayoutViewport()).width;
+    }
+
+    function getLayoutViewportHeight() {
+      return (layoutViewportLocked || captureLayoutViewport()).height;
+    }
+
+    function shouldReflowLayoutForWindowResize() {
+      const w = window.innerWidth || 0;
+      const h = window.innerHeight || 0;
+      const locked = layoutViewportLocked;
+      if (!locked) return false;
+      const widthDelta = Math.abs(w - locked.width);
+      const heightDelta = Math.abs(h - locked.height);
+      if (widthDelta < 48 && heightDelta < 48) return false;
+      captureLayoutViewport(true);
+      return true;
+    }
+
+    function reflowQuizLayoutFromViewport() {
+      if (!document.body.classList.contains('inv-quiz-active')) return;
+      syncPlayViewportLayout();
+      preprocessClueBoxLayout();
+      scheduleClueHintTextFit(true);
+      fitBoardToViewport();
+    }
 
     function syncPlayViewportLayout() {
       if (!document.body.classList.contains('inv-quiz-active')) return;
-      const vw = window.innerWidth || 390;
-      const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 700;
+      const vw = getLayoutViewportWidth();
+      const vh = getLayoutViewportHeight();
       const root = document.documentElement;
 
       root.style.setProperty('--inv-vw', vw + 'px');
       root.style.setProperty('--inv-vh', vh + 'px');
 
-      let padX = 0;
-      if (vw > 600) padX = 5;
-      else if (vw > 480) padX = 2;
+      let padX = 2;
+      if (vw > 600) padX = 6;
+      else if (vw > 480) padX = 4;
       root.style.setProperty('--inv-play-pad-x', padX + 'px');
       root.style.setProperty('--mg-row-gap', vw <= 430 ? '1px' : '3px');
 
@@ -3356,6 +3405,21 @@ ${DEFAULT_SCORING_HTML}`;
       const comPadX = vw <= 430 ? 4 : 6;
       root.style.setProperty('--mg-com-prompt-pad', `${Math.round(comPadY * 1.3)}px ${Math.round(comPadX * 1.4)}px`);
       root.style.setProperty('--mg-com-section-mt', vw <= 430 ? '3px' : '4px');
+
+      const clampPx = (minRem, vwPct, maxRem) => {
+        const minPx = minRem * 16;
+        const maxPx = maxRem * 16;
+        const vwPx = vw * vwPct / 100;
+        return Math.min(maxPx, Math.max(minPx, vwPx));
+      };
+      root.style.setProperty('--mg-words-font-size', clampPx(0.68, 2.5, 0.84).toFixed(2) + 'px');
+      root.style.setProperty('--mg-words-text-font-size', clampPx(0.76, 2.9, 0.94).toFixed(2) + 'px');
+      root.style.setProperty('--mg-hint-font-size', clampPx(0.56, 2.05, 0.68).toFixed(2) + 'px');
+      root.style.setProperty('--mg-answer-strip-font-size', clampPx(0.72, 2.8, 0.95).toFixed(2) + 'px');
+      root.style.setProperty('--mg-com-prompt-font-size', clampPx(0.72, 2.8, 0.95).toFixed(2) + 'px');
+      root.style.setProperty('--mg-game-title-font-size', clampPx(0.88, 4.1, 1.05).toFixed(2) + 'px');
+      root.style.setProperty('--mg-subtitle-font-size', clampPx(0.6, 2.7, 0.72).toFixed(2) + 'px');
+      root.style.setProperty('--mg-stat-font-size', clampPx(0.62, 2.5, 0.72).toFixed(2) + 'px');
     }
 
     function fitBoardToViewport() {
@@ -3379,7 +3443,7 @@ ${DEFAULT_SCORING_HTML}`;
       const padY = (parseFloat(bodyStyle.paddingTop) || 0) + (parseFloat(bodyStyle.paddingBottom) || 0);
       const cardStyle = getComputedStyle(playCard);
       const cardPadY = (parseFloat(cardStyle.paddingTop) || 0) + (parseFloat(cardStyle.paddingBottom) || 0);
-      const avail = window.innerHeight - padY - titleH - toastH - kbH - cardPadY - 4;
+      const avail = getLayoutViewportHeight() - padY - titleH - toastH - kbH - cardPadY - 4;
       const contentH = puzzleMount.offsetHeight;
       if (contentH <= 0 || avail <= 0) return;
 
@@ -3402,20 +3466,23 @@ ${DEFAULT_SCORING_HTML}`;
       if (boardViewportFitBound) return;
       boardViewportFitBound = true;
       const reflow = () => {
-        if (!document.body.classList.contains('inv-quiz-active')) return;
-        syncPlayViewportLayout();
-        fitBoardToViewport();
+        if (!shouldReflowLayoutForWindowResize()) return;
+        reflowQuizLayoutFromViewport();
       };
       window.addEventListener('resize', reflow);
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', reflow);
-      }
+      window.addEventListener('orientationchange', () => {
+        window.setTimeout(() => {
+          captureLayoutViewport(true);
+          reflowQuizLayoutFromViewport();
+        }, 180);
+      });
     }
     let textFitResizeBound = false;
     function ensureTextFitResizeRefresh() {
       if (textFitResizeBound) return;
       textFitResizeBound = true;
       window.addEventListener('resize', () => {
+        if (!shouldReflowLayoutForWindowResize()) return;
         preprocessClueBoxLayout();
         scheduleClueHintTextFit(true);
       });
@@ -5594,6 +5661,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     bindModalUi();
+    captureLayoutViewport();
     ensureTextFitResizeRefresh();
     ensureBoardViewportFit();
     initTitleScreen();
