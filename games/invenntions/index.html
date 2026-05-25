@@ -1179,53 +1179,58 @@
       flex-direction: column;
       align-items: center;
       transform: translate(-50%, calc(-100% + 1px));
-      filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.18));
+      transform-origin: 50% 100%;
+      filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.22));
+      opacity: 1;
+      transition: opacity 0.09s ease-out;
+      will-change: opacity, transform;
     }
     .kb-key-pop.hidden { display: none; }
+    .kb-key-pop.kb-key-pop-leaving { opacity: 0; }
     .kb-key-pop-bubble {
       box-sizing: border-box;
-      min-width: 44px;
-      min-height: 46px;
-      padding: 2px 10px 4px;
+      min-width: 48px;
+      min-height: 52px;
+      padding: 4px 12px 6px;
       background: #fff;
-      border: 1px solid #b0b0a8;
+      border: 1px solid #a8a8a0;
       border-bottom: none;
-      border-radius: 7px 7px 0 0;
+      border-radius: 9px 9px 0 0;
       display: flex;
       align-items: center;
       justify-content: center;
     }
     .kb-key-pop-label {
       font-family: 'Arial Black', Arial, sans-serif;
-      font-size: 1.55rem;
+      font-size: 1.75rem;
       line-height: 1;
-      color: #222;
+      color: #1a1a1a;
       white-space: nowrap;
     }
     .kb-key-pop-label.kb-key-pop-label--small {
       font-family: Arial, Helvetica, sans-serif;
-      font-size: 0.62rem;
+      font-size: 0.7rem;
       font-weight: 700;
       letter-spacing: 0.04em;
     }
     .kb-key-pop-bridge {
-      width: 12px;
-      height: 10px;
+      width: 14px;
+      height: 12px;
       margin-top: -1px;
       background: #fff;
-      border-left: 1px solid #b0b0a8;
-      border-right: 1px solid #b0b0a8;
+      border-left: 1px solid #a8a8a0;
+      border-right: 1px solid #a8a8a0;
       box-sizing: border-box;
     }
     @keyframes kbKeyPopIn {
-      from { transform: translate(-50%, calc(-100% + 1px)) scale(0.88); opacity: 0.55; }
+      from { transform: translate(-50%, calc(-100% + 1px)) scale(0.82); opacity: 0.4; }
       to { transform: translate(-50%, calc(-100% + 1px)) scale(1); opacity: 1; }
     }
-    .kb-key-pop:not(.hidden) {
-      animation: kbKeyPopIn 0.07s ease-out;
+    .kb-key-pop:not(.hidden):not(.kb-key-pop-leaving) {
+      animation: kbKeyPopIn 0.09s ease-out;
     }
     @media (prefers-reduced-motion: reduce) {
-      .kb-key-pop:not(.hidden) { animation: none; }
+      .kb-key-pop:not(.hidden) { animation: none; transition: none; }
     }
 
     /* Title screen (local assets; no Firebase for layout) */
@@ -3230,6 +3235,8 @@ ${DEFAULT_SCORING_HTML}`;
     const KB_FLASH_MS = 120;
     const KB_REPEAT_DELAY_MS = 320;
     const KB_REPEAT_INTERVAL_MS = 65;
+    const KB_KEY_POP_LINGER_MS = 140;
+    const KB_KEY_POP_FADE_MS = 90;
 
     function kbHaptic() {
       try {
@@ -3330,29 +3337,67 @@ ${DEFAULT_SCORING_HTML}`;
         && !btn.classList.contains('reveal');
     }
 
+    let kbKeyPopHideTimer = 0;
+    let kbKeyPopFadeTimer = 0;
+
+    function clearKbKeyPopTimers() {
+      if (kbKeyPopHideTimer) {
+        clearTimeout(kbKeyPopHideTimer);
+        kbKeyPopHideTimer = 0;
+      }
+      if (kbKeyPopFadeTimer) {
+        clearTimeout(kbKeyPopFadeTimer);
+        kbKeyPopFadeTimer = 0;
+      }
+    }
+
+    function hideKbKeyPopImmediate() {
+      clearKbKeyPopTimers();
+      const pop = document.getElementById('kbKeyPop');
+      if (!pop) return;
+      pop.classList.remove('kb-key-pop-leaving');
+      pop.classList.add('hidden');
+      pop.setAttribute('aria-hidden', 'true');
+    }
+
     function hideKbKeyPop() {
       const pop = document.getElementById('kbKeyPop');
       if (!pop) return;
-      pop.classList.add('hidden');
+      if (pop.classList.contains('hidden')) {
+        clearKbKeyPopTimers();
+        return;
+      }
+      clearKbKeyPopTimers();
       pop.setAttribute('aria-hidden', 'true');
+      kbKeyPopHideTimer = window.setTimeout(() => {
+        kbKeyPopHideTimer = 0;
+        pop.classList.add('kb-key-pop-leaving');
+        kbKeyPopFadeTimer = window.setTimeout(() => {
+          kbKeyPopFadeTimer = 0;
+          pop.classList.remove('kb-key-pop-leaving');
+          pop.classList.add('hidden');
+        }, KB_KEY_POP_FADE_MS);
+      }, KB_KEY_POP_LINGER_MS);
     }
 
     function showKbKeyPop(btn) {
       const pop = document.getElementById('kbKeyPop');
       if (!pop || !shouldShowKbKeyPop(btn)) {
-        hideKbKeyPop();
+        hideKbKeyPopImmediate();
         return;
       }
       const labelEl = pop.querySelector('.kb-key-pop-label');
       const bridgeEl = pop.querySelector('.kb-key-pop-bridge');
       const bubbleEl = pop.querySelector('.kb-key-pop-bubble');
       if (!labelEl || !bridgeEl || !bubbleEl) return;
+      clearKbKeyPopTimers();
+      pop.classList.remove('kb-key-pop-leaving');
       const label = kbKeyPopLabelFor(btn);
       labelEl.textContent = label;
       labelEl.classList.toggle('kb-key-pop-label--small', btn.classList.contains('space'));
       const rect = btn.getBoundingClientRect();
-      const bubbleW = Math.max(rect.width + 10, 44);
-      const bridgeW = Math.max(10, Math.min(rect.width * 0.24, 14));
+      const bubbleW = Math.max(rect.width + 14, 48);
+      const bridgeW = Math.max(12, Math.min(rect.width * 0.28, 18));
       bubbleEl.style.minWidth = `${Math.round(bubbleW)}px`;
       bridgeEl.style.width = `${Math.round(bridgeW)}px`;
       pop.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
@@ -5321,7 +5366,7 @@ ${DEFAULT_SCORING_HTML}`;
 
       if (phase === 'finish') {
         keyboardWrap.classList.add('hidden-kb');
-        hideKbKeyPop();
+        hideKbKeyPopImmediate();
       } else {
         updateHeaderTitles();
         pageSubtitle.textContent = activeRoundSubtitle.trim() || DEFAULT_PLAY_SUBTITLE;
@@ -5589,7 +5634,7 @@ ${DEFAULT_SCORING_HTML}`;
       kbInputQueue.length = 0;
       kbInputPumpScheduled = false;
       kbActivePointers.forEach((_, pointerId) => clearKbPointer(pointerId));
-      hideKbKeyPop();
+      hideKbKeyPopImmediate();
       keyboardRoot.innerHTML = '';
       kbGuessBtn = null;
       kbRevealBtn = null;
