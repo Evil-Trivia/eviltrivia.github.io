@@ -404,6 +404,40 @@
     }
     .mg-icon-btn:active { background: #f0f4f8; }
     .mg-icon-btn.mg-trophy { font-size: 1.1rem; }
+    /*
+     * One-shot "look here" attention hint for the in-game ? button after a
+     * brand-new user's first incorrect guess. A short rotate-wiggle plays
+     * once for impact, then a soft yellow glow pulse loops gently until the
+     * class is removed (timer or user click). Guarded server-side by the
+     * helpHinted flag in the user profile, so it never fires twice.
+     */
+    @keyframes invHelpWiggle {
+      0%   { transform: rotate(0); }
+      15%  { transform: rotate(-12deg); }
+      30%  { transform: rotate(10deg); }
+      45%  { transform: rotate(-8deg); }
+      60%  { transform: rotate(6deg); }
+      75%  { transform: rotate(-3deg); }
+      90%  { transform: rotate(2deg); }
+      100% { transform: rotate(0); }
+    }
+    @keyframes invHelpGlowPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 204, 0, 0); }
+      50%      { box-shadow: 0 0 0 6px rgba(255, 204, 0, 0.45); }
+    }
+    .mg-icon-btn.inv-help-wiggle {
+      background: #fff8d0;
+      color: #b88a00;
+      border-color: #e6b800;
+      animation:
+        invHelpWiggle 0.8s ease-in-out 0s 1,
+        invHelpGlowPulse 1.6s ease-in-out 0s infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .mg-icon-btn.inv-help-wiggle {
+        animation: invHelpGlowPulse 2.2s ease-in-out 0s infinite;
+      }
+    }
     .mg-logo-link {
       width: 2.25rem;
       height: 2.25rem;
@@ -827,6 +861,22 @@
       box-shadow:
         0 0 0 3px #ffcc00,
         0 0 0 4px rgba(230, 184, 0, 0.55);
+    }
+    /*
+     * When a row contains the focused answer strip, lift its center column
+     * above its clue siblings (z-index) and let the box-shadow halo escape
+     * the row's clipping containers (overflow). Without these, the yellow
+     * focus ring is clipped at row boundaries and painted under adjacent
+     * clue boxes / squircle SVGs.
+     */
+    body.inv-quiz-active .mg-center:has(> .mg-answer-strip.focused:not(.solved)) {
+      z-index: 50;
+    }
+    body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)),
+    body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row-wrap,
+    body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row,
+    body.inv-quiz-active .com-section:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row {
+      overflow: visible;
     }
     .mg-answer-strip.solved {
       border-style: solid;
@@ -3215,6 +3265,36 @@ ${DEFAULT_SCORING_HTML}`;
       }, 3000);
     }
 
+    /*
+     * One-shot in-game hint: after a brand-new player's first incorrect
+     * guess, draw their eye to the in-game "?" help button so they know
+     * help is available. Guarded by the persistent `helpHinted` flag in
+     * the user profile so it never fires for the same person twice.
+     */
+    let helpHintTimer = 0;
+
+    function stopHelpHint() {
+      if (helpHintTimer) {
+        clearTimeout(helpHintTimer);
+        helpHintTimer = 0;
+      }
+      document.getElementById('btnHelp')?.classList.remove('inv-help-wiggle');
+    }
+
+    function maybeShowHelpHintAfterWrongGuess() {
+      const profile = readUserProfile();
+      if (profile.helpHinted) return;
+      const btn = document.getElementById('btnHelp');
+      if (!btn || btn.offsetParent === null) return;
+      profile.helpHinted = true;
+      writeUserProfile(profile);
+      stopHelpHint();
+      btn.classList.add('inv-help-wiggle');
+      const dismiss = () => stopHelpHint();
+      btn.addEventListener('click', dismiss, { once: true });
+      helpHintTimer = window.setTimeout(dismiss, 4500);
+    }
+
     const kbFlashTimers = new WeakMap();
     const KB_FLASH_MS = 120;
     const KB_REPEAT_DELAY_MS = 320;
@@ -5128,6 +5208,7 @@ ${DEFAULT_SCORING_HTML}`;
         boardAreaEl.style.height = '';
         boardAreaEl.style.minHeight = '';
       }
+      stopHelpHint();
       updateRotateOverlay();
     }
 
@@ -5750,6 +5831,7 @@ ${DEFAULT_SCORING_HTML}`;
         if (!p.accept.has(guess)) {
           incorrectGuesses++;
           shakeStrip(`strip-p-${i}`);
+          maybeShowHelpHintAfterWrongGuess();
           return;
         }
         addScore(1);
@@ -5781,6 +5863,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (!commonality.accept.has(guess)) {
         incorrectGuesses++;
         shakeStrip('strip-c');
+        maybeShowHelpHintAfterWrongGuess();
         return;
       }
       const connectionBonus = countUnansweredPhrases();

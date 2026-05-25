@@ -237,7 +237,7 @@ InVennTions writes three things to `localStorage` and one record to Firebase per
 
 | Key | Shape | Purpose |
 |---|---|---|
-| `invMiddlegroundUser` | `{ displayName, firstVisit?, lastVisit, ... }` | Cached display name + first-visit flag. Used to skip the first-visit hint after the user has played once. |
+| `invMiddlegroundUser` | `{ displayName?, visited?, helpHinted?, submissions?, progressByRound?, ... }` | Per-user profile cache. `visited` is set true after the user opens the title screen for the first time (used to skip the first-visit wiggle on the title's "What am I doing here?" button). `helpHinted` is set true the first time the in-game "?" help button is wiggled after a wrong guess (one-shot, see "First-game help nudge" below). `submissions` and `progressByRound` are per-round dictionaries. |
 | `invMiddlegroundProgress` | `{ sessionKey, puzzleBuffers[], puzzleSolved[], revealedLeftArr[], revealedRightArr[], commonalityBuffer, commonalitySolved, revealedComHints, scoreBreakdown, elapsedMs, ... }` | In-progress autosave. Restored by `tryRestoreRoundSession` when the user re-opens the same round. Autosaved every `PROGRESS_AUTOSAVE_MS` (12s). |
 | `invMiddlegroundScoreSubmitted` | `{ [sessionKey]: { displayName, rank, ... } }` | Records that this session was already submitted, so the finish modal becomes view-only on reload. |
 | `invMiddlegroundAutoRecovery` | timestamp | One-shot recovery guard. `prefetchQuizWithRecovery` clears storage exactly once if Firebase data fails to load, to unblock stuck mobile sessions. |
@@ -362,6 +362,18 @@ Each phrase row has an SVG with three overlapping rounded-rect ("squircle") path
 ### Focus ring
 
 `.mg-answer-strip.focused:not(.solved)` gets a `box-shadow: 0 0 0 3px #ffcc00, 0 0 0 4px rgba(230,184,0,0.55)`. That's it — no JS positioning. See "Never add a fixed overlay" above.
+
+Because the row containers (`.mg-phrase-block`, `.mg-main-row-wrap`, `.mg-main-row`, and the connection's `.mg-main-row`) use `overflow: hidden` to keep clue text from spilling, the focus halo would normally be clipped at the row boundary and painted under adjacent clue boxes / squircle SVGs. CSS `:has()` selectors lift the focused strip's `.mg-center` to `z-index: 50` and switch its row-wrapping containers to `overflow: visible` while focused, so the halo paints above everything in the row. The clipping returns automatically the moment focus moves elsewhere.
+
+### First-game help nudge
+
+After a brand-new player's **first incorrect guess**, the in-game "?" help button (`#btnHelp`) wiggles once and then gently pulses a yellow glow for ~4.5 s, so the player learns help is available. Implementation:
+
+- `maybeShowHelpHintAfterWrongGuess()` (called from both wrong-guess branches in `onGuess`) reads `profile.helpHinted`. If already true, it's a no-op. Otherwise it sets the flag, adds the `inv-help-wiggle` class to `#btnHelp`, and arms a 4500 ms `stopHelpHint()` timer plus a one-shot click dismiss.
+- The CSS class composes two animations: `invHelpWiggle` (a single 0.8 s rotate-wiggle for impact) plus `invHelpGlowPulse` (an infinite 1.6 s soft box-shadow pulse) until the class is removed. `prefers-reduced-motion` drops the wiggle and just keeps the pulse.
+- `leaveQuizShell()` also calls `stopHelpHint()` so the animation doesn't keep running if the user pops back to the title mid-pulse.
+
+The `helpHinted` flag is **persistent across sessions** — once a player has been shown the nudge, they'll never see it again, even on a fresh round. To re-test as a developer, clear the `invMiddlegroundUser` key from `localStorage`.
 
 ### Score delta layer
 
