@@ -695,6 +695,9 @@
       visibility: hidden;
     }
     .mg-words.mg-words-hint-pending .mg-hint-tap-msg {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -717,21 +720,20 @@
       min-height: var(--mg-words-h, 3.62em);
       max-height: var(--mg-words-h, 3.62em);
       box-sizing: border-box;
-      display: grid;
-      grid-template-columns: 1fr;
-      grid-template-rows: minmax(0, 1fr) 0;
-      align-content: stretch;
-      row-gap: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 0;
       overflow: hidden;
     }
     .mg-words.mg-words--with-hint {
-      grid-template-rows: minmax(0, 1fr) var(--mg-hint-slot-h, 2.3em);
+      gap: 2px;
     }
     .mg-words-text,
     .mg-hint-tap-msg {
-      grid-row: 1;
-      grid-column: 1;
-      align-self: center;
+      width: 100%;
+      flex: 0 0 auto;
       min-height: 0;
     }
     .mg-words-text {
@@ -754,27 +756,15 @@
       max-height: var(--mg-split-clue-h, 2.2em);
       -webkit-line-clamp: 1;
       line-height: 1.15;
-      align-self: end;
     }
     .mg-hint-area {
-      grid-row: 2;
-      grid-column: 1;
+      flex: 0 0 auto;
       width: 100%;
-      height: 0;
       min-height: 0;
-      max-height: 0;
-      margin-top: 0;
-      padding-top: 0;
+      max-height: var(--mg-hint-slot-h, 2.3em);
       overflow: hidden;
       display: flex;
       align-items: center;
-      justify-content: center;
-    }
-    .mg-words.mg-words--with-hint .mg-hint-area {
-      height: var(--mg-hint-slot-h, 2.3em);
-      min-height: var(--mg-hint-slot-h, 2.3em);
-      max-height: var(--mg-hint-slot-h, 2.3em);
-      align-items: flex-start;
       justify-content: center;
     }
     .mg-words .mg-hint-area:empty {
@@ -1229,13 +1219,14 @@
       max-width: 720px;
       right: auto;
       bottom: max(10px, env(safe-area-inset-bottom, 10px));
-      z-index: 3;
+      z-index: 1;
       margin: 0;
       text-align: center;
       font-size: 0.72rem;
       font-weight: 600;
       color: #333;
       letter-spacing: 0.02em;
+      pointer-events: none;
     }
     .inv-title-credit {
       margin: 0 0 3px;
@@ -1286,7 +1277,8 @@
     .inv-title-tagline,
     .inv-title-menu {
       position: relative;
-      z-index: 2;
+      z-index: 5;
+      pointer-events: auto;
     }
     .inv-logo-stage {
       position: relative;
@@ -1299,6 +1291,7 @@
       justify-content: center;
       isolation: isolate;
       overflow: visible;
+      pointer-events: none;
     }
     .inv-logo-fill-layer,
     .inv-logo-strokes-layer {
@@ -1477,14 +1470,11 @@
     .inv-title-screen.inv-menu-ready .inv-title-menu {
       animation: invFadeUp 0.38s ease 0.15s forwards;
     }
-    .inv-title-screen:not(.inv-menu-ready) .inv-title-menu,
+    .inv-title-screen:not(.inv-menu-ready) .inv-title-menu {
+      opacity: 0;
+    }
     .inv-title-screen:not(.inv-menu-ready) .inv-title-tagline {
       visibility: hidden;
-      pointer-events: none;
-    }
-    .inv-title-screen:not(.inv-menu-ready) #btnTitleInfo {
-      visibility: visible;
-      pointer-events: auto;
     }
     @keyframes invFadeUp {
       to { opacity: 1; transform: translateY(0); }
@@ -2498,15 +2488,91 @@ ${DEFAULT_SCORING_HTML}`;
       return roundPlayDateFromBlock(block) <= todayISO();
     }
 
+    function sanitizeStoredPlayerData() {
+      try {
+        const raw = localStorage.getItem(INV_USER_STORAGE_KEY);
+        if (raw) JSON.parse(raw);
+      } catch (_) {
+        try { localStorage.removeItem(INV_USER_STORAGE_KEY); } catch (_) { /* ignore */ }
+      }
+      try {
+        const raw = localStorage.getItem(INV_PROGRESS_STORAGE_KEY);
+        if (raw) JSON.parse(raw);
+      } catch (_) {
+        try { localStorage.removeItem(INV_PROGRESS_STORAGE_KEY); } catch (_) { /* ignore */ }
+      }
+      try {
+        const raw = sessionStorage.getItem(INV_SUBMIT_STORAGE_KEY);
+        if (raw) JSON.parse(raw);
+      } catch (_) {
+        try { sessionStorage.removeItem(INV_SUBMIT_STORAGE_KEY); } catch (_) { /* ignore */ }
+      }
+    }
+
+    function hasStoredPlayerData() {
+      try {
+        if (localStorage.getItem(INV_PROGRESS_STORAGE_KEY)) return true;
+        const raw = localStorage.getItem(INV_USER_STORAGE_KEY);
+        if (raw) {
+          const profile = JSON.parse(raw);
+          if (profile && typeof profile === 'object') {
+            if (profile.visited) return true;
+            if (profile.submissions && Object.keys(profile.submissions).length) return true;
+            if (profile.progressByRound && Object.keys(profile.progressByRound).length) return true;
+          }
+        }
+        if (sessionStorage.getItem(INV_SUBMIT_STORAGE_KEY)) return true;
+      } catch (_) { /* ignore corrupt storage */ }
+      return false;
+    }
+
+    function shouldSkipTitleIntro() {
+      if (hasStoredPlayerData()) return true;
+      try {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function ensureTitleScreenInteractive() {
+      const screen = document.getElementById('titleScreen');
+      if (!screen || screen.classList.contains('hidden')) return;
+      const quiz = document.getElementById('quizCard');
+      if (quiz) releaseFocusWithin(quiz);
+      screen.inert = false;
+      screen.setAttribute('aria-hidden', 'false');
+      if (!titleIntroComplete) finishTitleIntro();
+      else {
+        screen.classList.add('inv-menu-ready', 'inv-squircles-done', 'inv-phase-venn-stroke', 'inv-phase-venn-fill', 'inv-pieces-settled');
+        layoutSquirclePaths();
+      }
+      updateTitleMenuState();
+    }
+
+    function skipTitleIntroAnimation() {
+      const screen = document.getElementById('titleScreen');
+      if (!screen) return;
+      screen.classList.add('inv-animate', 'inv-pieces-settled', 'inv-squircles-done', 'inv-phase-venn-stroke', 'inv-phase-venn-fill');
+      layoutSquirclePaths();
+      finishTitleIntro();
+    }
+
     function fetchArchiveRaw(forceRefresh) {
       if (forceRefresh) archiveFetchPromise = null;
       if (!archiveFetchPromise) {
-        archiveFetchPromise = window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive`))
-          .then(snap => (snapExists(snap) && snap.val() && typeof snap.val() === 'object') ? snap.val() : {})
-          .catch(err => {
-            console.warn('InVennTions archive fetch:', err);
-            return {};
-          });
+        const fetchTimeout = new Promise(resolve => {
+          window.setTimeout(() => resolve({}), 12000);
+        });
+        archiveFetchPromise = Promise.race([
+          window.dbGet(window.dbRef(window.db, `games/${GAME_ID}/archive`))
+            .then(snap => (snapExists(snap) && snap.val() && typeof snap.val() === 'object') ? snap.val() : {})
+            .catch(err => {
+              console.warn('InVennTions archive fetch:', err);
+              return {};
+            }),
+          fetchTimeout
+        ]);
       }
       return archiveFetchPromise;
     }
@@ -3932,18 +3998,12 @@ ${DEFAULT_SCORING_HTML}`;
       const archiveScreen = document.getElementById('archiveScreen');
       setScreenHidden(archiveScreen, true);
       const screen = document.getElementById('titleScreen');
-      if (screen) {
-        setScreenHidden(screen, false);
-        if (titleIntroComplete) {
-          screen.classList.add('inv-animate', 'inv-pieces-settled', 'inv-menu-ready', 'inv-squircles-done', 'inv-phase-venn-stroke', 'inv-phase-venn-fill');
-          layoutSquirclePaths();
-        }
-      }
+      if (screen) setScreenHidden(screen, false);
       document.body.classList.add('inv-title-active');
       quizCard.classList.add('hidden');
       updateRotateOverlay();
       errorState.classList.add('hidden');
-      updateTitleMenuState();
+      ensureTitleScreenInteractive();
     }
 
     function finishTitleIntro() {
@@ -4547,16 +4607,21 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function initTitleScreen() {
+      sanitizeStoredPlayerData();
       const screen = document.getElementById('titleScreen');
       initLogoPieces();
       if (screen) {
         screen.inert = false;
         screen.classList.remove('hidden', 'inv-menu-ready', 'inv-squircles-done', 'inv-squircle-armed', 'inv-phase-venn-stroke', 'inv-phase-venn-fill', 'inv-pieces-settled');
         screen.setAttribute('aria-hidden', 'false');
-        requestAnimationFrame(() => {
-          screen.classList.add('inv-animate');
-          armSquircleAnimation();
-        });
+        if (shouldSkipTitleIntro()) {
+          skipTitleIntroAnimation();
+        } else {
+          requestAnimationFrame(() => {
+            screen.classList.add('inv-animate');
+            armSquircleAnimation();
+          });
+        }
       }
       document.body.classList.add('inv-title-active');
       document.getElementById('btnTitlePlay')?.addEventListener('click', onTitlePlay);
@@ -4598,6 +4663,9 @@ ${DEFAULT_SCORING_HTML}`;
       });
       window.addEventListener('pagehide', () => { savePlayProgress(); });
       window.addEventListener('beforeunload', () => { savePlayProgress(); });
+      window.addEventListener('pageshow', (e) => {
+        if (e.persisted) ensureTitleScreenInteractive();
+      });
     }
 
     function returnToMenu() {
