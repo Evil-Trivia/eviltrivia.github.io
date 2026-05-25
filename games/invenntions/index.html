@@ -3880,26 +3880,41 @@ ${DEFAULT_SCORING_HTML}`;
       return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
 
-    function hideTitleScreen() {
-      const screen = document.getElementById('titleScreen');
-      if (screen) {
+    function releaseFocusWithin(container) {
+      if (!container) return;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && container.contains(active)) {
+        active.blur();
+      }
+    }
+
+    function setScreenHidden(screen, hidden) {
+      if (!screen) return;
+      if (hidden) {
+        releaseFocusWithin(screen);
         screen.classList.add('hidden');
         screen.setAttribute('aria-hidden', 'true');
+        screen.inert = true;
+      } else {
+        screen.classList.remove('hidden');
+        screen.setAttribute('aria-hidden', 'false');
+        screen.inert = false;
       }
+    }
+
+    function hideTitleScreen() {
+      const screen = document.getElementById('titleScreen');
+      setScreenHidden(screen, true);
       document.body.classList.remove('inv-title-active');
       updateRotateOverlay();
     }
 
     function showTitleScreen() {
       const archiveScreen = document.getElementById('archiveScreen');
-      if (archiveScreen) {
-        archiveScreen.classList.add('hidden');
-        archiveScreen.setAttribute('aria-hidden', 'true');
-      }
+      setScreenHidden(archiveScreen, true);
       const screen = document.getElementById('titleScreen');
       if (screen) {
-        screen.classList.remove('hidden');
-        screen.setAttribute('aria-hidden', 'false');
+        setScreenHidden(screen, false);
         if (titleIntroComplete) {
           screen.classList.add('inv-animate', 'inv-pieces-settled', 'inv-menu-ready', 'inv-squircles-done', 'inv-phase-venn-stroke', 'inv-phase-venn-fill');
           layoutSquirclePaths();
@@ -3928,20 +3943,14 @@ ${DEFAULT_SCORING_HTML}`;
     function showArchiveScreen() {
       hideTitleScreen();
       const archiveScreen = document.getElementById('archiveScreen');
-      if (archiveScreen) {
-        archiveScreen.classList.remove('hidden');
-        archiveScreen.setAttribute('aria-hidden', 'false');
-      }
+      setScreenHidden(archiveScreen, false);
       document.body.classList.add('inv-title-active');
       renderArchiveList();
     }
 
     function hideArchiveScreen() {
       const archiveScreen = document.getElementById('archiveScreen');
-      if (archiveScreen) {
-        archiveScreen.classList.add('hidden');
-        archiveScreen.setAttribute('aria-hidden', 'true');
-      }
+      setScreenHidden(archiveScreen, true);
     }
 
     function initLogoPieces() {
@@ -4475,6 +4484,8 @@ ${DEFAULT_SCORING_HTML}`;
 
     function onTitlePlay() {
       if (!quizPrefetchOk) return;
+      const playBtn = document.getElementById('btnTitlePlay');
+      if (playBtn instanceof HTMLElement) playBtn.blur();
       if (tryRestoreRoundSession()) {
         hideTitleScreen();
         hideArchiveScreen();
