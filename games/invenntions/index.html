@@ -1700,9 +1700,95 @@
       font-size: 0.88rem;
       padding: 12px 0;
     }
+
+    .inv-rotate-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 26000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(32, 44, 58, 0.94);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.28s ease, visibility 0.28s ease;
+    }
+    .inv-rotate-overlay.is-visible {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+    .inv-rotate-card {
+      text-align: center;
+      color: #fff;
+      max-width: 300px;
+    }
+    .inv-rotate-device {
+      width: 52px;
+      height: 88px;
+      margin: 0 auto 22px;
+      border: 3px solid #ffcc00;
+      border-radius: 12px;
+      position: relative;
+      box-shadow: 0 0 24px rgba(255, 204, 0, 0.22);
+      animation: invRotateDevice 2.4s ease-in-out infinite;
+      transform-origin: center center;
+    }
+    .inv-rotate-device::before {
+      content: '';
+      position: absolute;
+      top: 7px;
+      left: 50%;
+      width: 8px;
+      height: 8px;
+      margin-left: -4px;
+      border-radius: 50%;
+      background: rgba(255, 204, 0, 0.55);
+    }
+    .inv-rotate-device::after {
+      content: '';
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      top: 22px;
+      bottom: 10px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    @keyframes invRotateDevice {
+      0%, 16% { transform: rotate(0deg); }
+      36%, 56% { transform: rotate(90deg); }
+      76%, 100% { transform: rotate(90deg); }
+    }
+    .inv-rotate-title {
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: clamp(1.15rem, 5vw, 1.45rem);
+      letter-spacing: 0.02em;
+      margin-bottom: 8px;
+      animation: invRotatePulse 2.4s ease-in-out infinite;
+    }
+    .inv-rotate-sub {
+      font-size: clamp(0.82rem, 3.6vw, 0.95rem);
+      color: rgba(255, 255, 255, 0.72);
+      line-height: 1.35;
+    }
+    @keyframes invRotatePulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.72; }
+    }
   </style>
 </head>
 <body class="inv-title-active">
+  <div id="rotateOverlay" class="inv-rotate-overlay" aria-hidden="true" role="dialog" aria-live="polite" aria-label="Rotate your device">
+    <div class="inv-rotate-card">
+      <div class="inv-rotate-device" aria-hidden="true"></div>
+      <p class="inv-rotate-title">Rotate your phone</p>
+      <p class="inv-rotate-sub">This game works best in landscape mode.</p>
+    </div>
+  </div>
+
   <div id="titleScreen" class="inv-title-screen" aria-hidden="false">
     <div class="inv-title-inner">
       <div class="inv-logo-stage">
@@ -3403,6 +3489,42 @@ ${DEFAULT_SCORING_HTML}`;
       return true;
     }
 
+    let rotateOverlayBound = false;
+
+    function isMobileTouchDevice() {
+      return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    }
+
+    function isPortraitMobileLayout() {
+      if (!isMobileTouchDevice()) return false;
+      if (window.matchMedia('(orientation: portrait)').matches) return true;
+      const w = window.innerWidth || 0;
+      const h = window.innerHeight || 0;
+      return h > w && w > 0 && w < 720;
+    }
+
+    function updateRotateOverlay() {
+      const el = document.getElementById('rotateOverlay');
+      if (!el) return;
+      const onGamePage = document.body.classList.contains('inv-quiz-active')
+        || document.body.classList.contains('inv-title-active');
+      const show = onGamePage && isPortraitMobileLayout();
+      el.classList.toggle('is-visible', show);
+      el.setAttribute('aria-hidden', show ? 'false' : 'true');
+    }
+
+    function bindRotateOverlay() {
+      if (rotateOverlayBound) return;
+      rotateOverlayBound = true;
+      const refresh = () => window.requestAnimationFrame(updateRotateOverlay);
+      window.addEventListener('orientationchange', () => window.setTimeout(refresh, 160));
+      window.addEventListener('resize', refresh);
+      const portraitMq = window.matchMedia('(orientation: portrait)');
+      if (portraitMq.addEventListener) portraitMq.addEventListener('change', refresh);
+      else if (portraitMq.addListener) portraitMq.addListener(refresh);
+      refresh();
+    }
+
     function reflowQuizLayoutFromViewport() {
       if (!document.body.classList.contains('inv-quiz-active')) return;
       syncPlayViewportLayout();
@@ -3533,6 +3655,7 @@ ${DEFAULT_SCORING_HTML}`;
         window.setTimeout(() => {
           captureLayoutViewport(true);
           reflowQuizLayoutFromViewport();
+          updateRotateOverlay();
         }, 180);
       });
     }
@@ -3743,6 +3866,7 @@ ${DEFAULT_SCORING_HTML}`;
         screen.setAttribute('aria-hidden', 'true');
       }
       document.body.classList.remove('inv-title-active');
+      updateRotateOverlay();
     }
 
     function showTitleScreen() {
@@ -3762,6 +3886,7 @@ ${DEFAULT_SCORING_HTML}`;
       }
       document.body.classList.add('inv-title-active');
       quizCard.classList.add('hidden');
+      updateRotateOverlay();
       errorState.classList.add('hidden');
       updateTitleMenuState();
     }
@@ -4629,6 +4754,7 @@ ${DEFAULT_SCORING_HTML}`;
       document.body.classList.add('inv-quiz-active');
       document.body.classList.remove('inv-title-active');
       syncPlayViewportLayout();
+      updateRotateOverlay();
     }
 
     function leaveQuizShell() {
@@ -4642,6 +4768,7 @@ ${DEFAULT_SCORING_HTML}`;
         boardAreaEl.style.height = '';
         boardAreaEl.style.minHeight = '';
       }
+      updateRotateOverlay();
     }
 
     function esc(s) {
@@ -5728,6 +5855,7 @@ ${DEFAULT_SCORING_HTML}`;
 
     bindModalUi();
     captureLayoutViewport();
+    bindRotateOverlay();
     ensureTextFitResizeRefresh();
     ensureBoardViewportFit();
     initTitleScreen();
