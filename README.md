@@ -98,7 +98,7 @@ The site uses Firebase redirects to maintain compatibility with legacy URLs:
 | **Player file** | `games/invenntions/index.html` (single self-contained page: HTML, CSS, JS, Firebase SDK) |
 | **Admin file** | `games/invenntionsadmin/index.html` |
 | **Firebase game id** | `middleground` (legacy internal id — all RTDB paths use `games/middleground/…`) |
-| **Title assets** | `games/invenntions/assets/title/piece-01-I.png` … `piece-11-s.png` |
+| **Title assets** | Animated logo is built from scratch in CSS — no image files. |
 
 ### How the game works (player)
 
