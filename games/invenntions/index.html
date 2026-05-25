@@ -816,22 +816,17 @@
     body.inv-quiz-active .mg-main-row-wrap:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row {
       position: relative;
     }
+    /*
+     * Focus ring lives on the strip itself (via box-shadow) so it scales and
+     * positions with the element on pinch/desktop zoom. A previous version
+     * used a separately-positioned fixed overlay, but its coordinates drifted
+     * relative to the strip whenever the visual viewport zoom changed.
+     */
     body.inv-quiz-active .mg-answer-strip.focused:not(.solved) {
       background: #f7fbfd;
-    }
-    .inv-focus-ring {
-      position: fixed;
-      z-index: 24000;
-      border: 3px solid #ffcc00;
-      border-radius: 6px;
-      pointer-events: none;
-      box-sizing: border-box;
-      display: none;
-      background: transparent;
-      box-shadow: 0 0 0 1px #ffcc00;
-    }
-    .inv-focus-ring:not(.hidden) {
-      display: block;
+      box-shadow:
+        0 0 0 3px #ffcc00,
+        0 0 0 4px rgba(230, 184, 0, 0.55);
     }
     .mg-answer-strip.solved {
       border-style: solid;
@@ -1990,7 +1985,6 @@
     </div>
   </div>
 
-  <div id="invFocusRing" class="inv-focus-ring hidden" aria-hidden="true"></div>
   <div id="kbKeyPop" class="kb-key-pop hidden" aria-hidden="true">
     <svg class="kb-key-pop-svg" id="kbKeyPopSvg" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path class="kb-key-pop-path" id="kbKeyPopPath" />
@@ -3964,7 +3958,6 @@ ${DEFAULT_SCORING_HTML}`;
         puzzleMount.style.maxWidth = '100%';
       }
       restoreSolvedPhraseSquircles();
-      updateFocusRingOverlay();
     }
 
     function ensureBoardViewportFit() {
@@ -3980,7 +3973,6 @@ ${DEFAULT_SCORING_HTML}`;
         window.setTimeout(() => {
           captureLayoutViewport(true);
           reflowQuizLayoutFromViewport();
-          updateFocusRingOverlay();
           updateRotateOverlay();
         }, 180);
       });
@@ -5136,7 +5128,6 @@ ${DEFAULT_SCORING_HTML}`;
         boardAreaEl.style.height = '';
         boardAreaEl.style.minHeight = '';
       }
-      updateFocusRingOverlay();
       updateRotateOverlay();
     }
 
@@ -5401,11 +5392,6 @@ ${DEFAULT_SCORING_HTML}`;
 
     function clearActiveGuessHighlight() {
       document.querySelectorAll('.mg-answer-strip.focused').forEach(el => el.classList.remove('focused'));
-      const ring = document.getElementById('invFocusRing');
-      if (ring) {
-        ring.classList.add('hidden');
-        ring.setAttribute('aria-hidden', 'true');
-      }
     }
 
     function applyActiveGuessHighlight() {
@@ -5421,37 +5407,6 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
-    function updateFocusRingOverlay() {
-      const ring = document.getElementById('invFocusRing');
-      if (!ring) return;
-      const show = document.body.classList.contains('inv-quiz-active')
-        && phase !== 'finish'
-        && !focusHighlightSuspended
-        && quizCard
-        && !quizCard.classList.contains('hidden');
-      const focused = show ? document.querySelector('.mg-answer-strip.focused:not(.solved)') : null;
-      if (!focused) {
-        ring.classList.add('hidden');
-        ring.setAttribute('aria-hidden', 'true');
-        return;
-      }
-      const rect = focused.getBoundingClientRect();
-      if (!rect.width || !rect.height) {
-        ring.classList.add('hidden');
-        ring.setAttribute('aria-hidden', 'true');
-        return;
-      }
-      const style = getComputedStyle(focused);
-      const pad = 4;
-      ring.style.top = `${Math.round(rect.top - pad)}px`;
-      ring.style.left = `${Math.round(rect.left - pad)}px`;
-      ring.style.width = `${Math.round(rect.width + pad * 2)}px`;
-      ring.style.height = `${Math.round(rect.height + pad * 2)}px`;
-      ring.style.borderRadius = style.borderRadius || '6px';
-      ring.classList.remove('hidden');
-      ring.setAttribute('aria-hidden', 'false');
-    }
-
     function layoutFocusedPhraseSquircle() {
       if (focusKind !== 'phrase' || focusPuzzleIndex < 0) return;
       const block = puzzleMount.querySelector(`.mg-phrase-block[data-phrase-i="${focusPuzzleIndex}"]`);
@@ -5461,7 +5416,6 @@ ${DEFAULT_SCORING_HTML}`;
     function updateFocusHighlight() {
       applyActiveGuessHighlight();
       if (phase === 'finish' || focusHighlightSuspended) {
-        updateFocusRingOverlay();
         updateKeyboardActions();
         return;
       }
@@ -5474,7 +5428,6 @@ ${DEFAULT_SCORING_HTML}`;
           applyActiveGuessHighlight();
           layoutFocusedPhraseSquircle();
         }
-        updateFocusRingOverlay();
         updateKeyboardActions();
       });
     }
