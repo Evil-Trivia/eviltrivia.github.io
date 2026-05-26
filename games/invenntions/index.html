@@ -113,9 +113,11 @@
     body.inv-quiz-active #puzzleMount {
       transform-origin: top center;
       overflow: hidden;
-      /* 3px top headroom so the top row's yellow focus halo isn't clipped
-         by puzzleMount's own overflow:hidden at the very top of the game area. */
-      padding: 3px 0 0;
+      /* 3px headroom (top) + 5px headroom (bottom) so the focus halo isn't
+         clipped by puzzleMount's own overflow:hidden at the edges of the
+         game area. Bottom-row clipping is most visible on the connection
+         (final question) strip where the halo extends below the strip. */
+      padding: 3px 0 5px;
       width: 100%;
       max-width: 100%;
       margin-left: auto;
@@ -2830,7 +2832,7 @@ ${DEFAULT_SCORING_HTML}`;
       for (let i = 0; i < puzzles.length; i++) {
         if (puzzleRevealed[i]) {
           grid += '🟥';
-        } else if (manualHintRevealedLeft[i] + manualHintRevealedRight[i] === 0) {
+        } else if ((manualHintRevealedLeft[i] || 0) + (manualHintRevealedRight[i] || 0) === 0) {
           grid += '🟩';
         } else {
           grid += '🟨';
@@ -2838,23 +2840,9 @@ ${DEFAULT_SCORING_HTML}`;
         grid += '\n';
       }
       if (commonality) {
-        if (commonalityRevealed) {
-          grid += '🟥';
-        } else if (commonalitySolved) {
-          if (manualComHintsRevealed === 0) {
-            grid += '🟩';
-          } else {
-            grid += '🟨';
-          }
-          const bonusNum = String(sessionThemeBonusPoints || 0);
-          const numEmoji = bonusNum.split('').map(d => {
-            const map = {'0': '0️⃣', '1': '1️⃣', '2': '2️⃣', '3': '3️⃣', '4': '4️⃣', '5': '5️⃣', '6': '6️⃣', '7': '7️⃣', '8': '8️⃣', '9': '9️⃣'};
-            return map[d] || d;
-          }).join('');
-          grid += numEmoji;
-        } else {
-          grid += '⬜';
-        }
+        const bonusNum = String(Math.max(0, sessionThemeBonusPoints || 0));
+        const digitMap = {'0': '0️⃣', '1': '1️⃣', '2': '2️⃣', '3': '3️⃣', '4': '4️⃣', '5': '5️⃣', '6': '6️⃣', '7': '7️⃣', '8': '8️⃣', '9': '9️⃣'};
+        grid += bonusNum.split('').map(d => digitMap[d] || d).join('');
       }
       return grid;
     }
@@ -3180,9 +3168,15 @@ ${DEFAULT_SCORING_HTML}`;
       while (puzzleRevealed.length < puzzles.length) puzzleRevealed.push(false);
       revealedLeftArr = Array.isArray(saved.revealedLeftArr) ? saved.revealedLeftArr.slice() : puzzles.map(() => 0);
       revealedRightArr = Array.isArray(saved.revealedRightArr) ? saved.revealedRightArr.slice() : puzzles.map(() => 0);
+      manualHintRevealedLeft = Array.isArray(saved.manualHintRevealedLeft) ? saved.manualHintRevealedLeft.slice() : puzzles.map(() => 0);
+      manualHintRevealedRight = Array.isArray(saved.manualHintRevealedRight) ? saved.manualHintRevealedRight.slice() : puzzles.map(() => 0);
+      while (manualHintRevealedLeft.length < puzzles.length) manualHintRevealedLeft.push(0);
+      while (manualHintRevealedRight.length < puzzles.length) manualHintRevealedRight.push(0);
       commonalityBuffer = saved.commonalityBuffer != null ? String(saved.commonalityBuffer) : '';
       commonalitySolved = !!saved.commonalitySolved;
+      commonalityRevealed = !!saved.commonalityRevealed;
       revealedComHints = typeof saved.revealedComHints === 'number' ? saved.revealedComHints : 0;
+      manualComHintsRevealed = typeof saved.manualComHintsRevealed === 'number' ? saved.manualComHintsRevealed : 0;
       focusKind = saved.focusKind === 'commonality' ? 'commonality' : 'phrase';
       focusPuzzleIndex = typeof saved.focusPuzzleIndex === 'number' ? saved.focusPuzzleIndex : 0;
       hintPending.clear();
@@ -3205,21 +3199,47 @@ ${DEFAULT_SCORING_HTML}`;
       commonality = r.commonality;
       activeRoundSubtitle = r.subtitle;
 
-      puzzleSolved = puzzles.map(() => true);
-      puzzleRevealed = puzzles.map(() => false);
-      puzzleBuffers = puzzles.map(p => p.answer || primaryAnswerDisplay(p.answerRaw || ''));
-      revealedLeftArr = puzzles.map(p => (p.leftHints ? p.leftHints.length : 0));
-      revealedRightArr = puzzles.map(p => (p.rightHints ? p.rightHints.length : 0));
+      const hasArr = (key) => Array.isArray(submission[key]) && submission[key].length === puzzles.length;
+      puzzleSolved = hasArr('puzzleSolved') ? submission.puzzleSolved.map(Boolean) : puzzles.map(() => true);
+      puzzleRevealed = hasArr('puzzleRevealed') ? submission.puzzleRevealed.map(Boolean) : puzzles.map(() => false);
+      puzzleBuffers = hasArr('puzzleBuffers')
+        ? submission.puzzleBuffers.map(v => v != null ? String(v) : '')
+        : puzzles.map(p => p.answer || primaryAnswerDisplay(p.answerRaw || ''));
+      revealedLeftArr = hasArr('revealedLeftArr')
+        ? submission.revealedLeftArr.map(n => Number(n) || 0)
+        : puzzles.map(p => (p.leftHints ? p.leftHints.length : 0));
+      revealedRightArr = hasArr('revealedRightArr')
+        ? submission.revealedRightArr.map(n => Number(n) || 0)
+        : puzzles.map(p => (p.rightHints ? p.rightHints.length : 0));
+      manualHintRevealedLeft = hasArr('manualHintRevealedLeft')
+        ? submission.manualHintRevealedLeft.map(n => Number(n) || 0)
+        : puzzles.map(() => 0);
+      manualHintRevealedRight = hasArr('manualHintRevealedRight')
+        ? submission.manualHintRevealedRight.map(n => Number(n) || 0)
+        : puzzles.map(() => 0);
 
       if (commonality) {
-        commonalitySolved = true;
-        commonalityBuffer = commonality.answer || primaryAnswerDisplay(commonality.answerRaw || '');
-        revealedComHints = commonality.hints ? commonality.hints.length : 0;
+        commonalitySolved = submission.commonalitySolved != null ? !!submission.commonalitySolved : true;
+        commonalityRevealed = !!submission.commonalityRevealed;
+        commonalityBuffer = submission.commonalityBuffer != null && String(submission.commonalityBuffer).trim()
+          ? String(submission.commonalityBuffer)
+          : (commonality.answer || primaryAnswerDisplay(commonality.answerRaw || ''));
+        revealedComHints = typeof submission.revealedComHints === 'number'
+          ? submission.revealedComHints
+          : (commonality.hints ? commonality.hints.length : 0);
+        manualComHintsRevealed = typeof submission.manualComHintsRevealed === 'number'
+          ? submission.manualComHintsRevealed
+          : 0;
       } else {
         commonalitySolved = false;
+        commonalityRevealed = false;
         commonalityBuffer = '';
         revealedComHints = 0;
+        manualComHintsRevealed = 0;
       }
+      sessionThemeBonusPoints = typeof submission.sessionThemeBonusPoints === 'number'
+        ? submission.sessionThemeBonusPoints
+        : 0;
 
       phase = 'finish';
       scorePoints = typeof submission.points === 'number' ? submission.points : 0;
@@ -3327,7 +3347,20 @@ ${DEFAULT_SCORING_HTML}`;
         points: getDisplayScore(),
         elapsedMs: getPlayElapsedMs(),
         rank: rank != null ? rank : null,
-        at: Date.now()
+        at: Date.now(),
+        puzzleSolved: puzzleSolved.slice(),
+        puzzleRevealed: puzzleRevealed.slice(),
+        puzzleBuffers: puzzleBuffers.slice(),
+        manualHintRevealedLeft: manualHintRevealedLeft.slice(),
+        manualHintRevealedRight: manualHintRevealedRight.slice(),
+        revealedLeftArr: revealedLeftArr.slice(),
+        revealedRightArr: revealedRightArr.slice(),
+        commonalitySolved,
+        commonalityRevealed,
+        commonalityBuffer,
+        manualComHintsRevealed,
+        revealedComHints,
+        sessionThemeBonusPoints
       };
       writeSubmitRecord(payload);
       writeSubmissionForSession(sessionKey, payload);
@@ -4097,7 +4130,11 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function fitBoardToViewport() {
-      if (quizCard.classList.contains('hidden') || phase === 'finish') return;
+      if (quizCard.classList.contains('hidden')) return;
+      if (phase === 'finish') {
+        restoreSolvedPhraseSquircles();
+        return;
+      }
       const boardAreaEl = document.getElementById('boardArea');
       const playCard = document.getElementById('playCard');
       if (!boardAreaEl || !playCard || !puzzleMount) return;
@@ -5438,8 +5475,10 @@ ${DEFAULT_SCORING_HTML}`;
           hintPending.delete(key);
           if (isLeft) {
             revealedLeftArr[i]++;
+            manualHintRevealedLeft[i] = (manualHintRevealedLeft[i] || 0) + 1;
           } else {
             revealedRightArr[i]++;
+            manualHintRevealedRight[i] = (manualHintRevealedRight[i] || 0) + 1;
           }
           registerHintUsed();
           renderPuzzleHintRow(i, p);
@@ -5461,6 +5500,7 @@ ${DEFAULT_SCORING_HTML}`;
           clearHintTimer('C');
           hintPending.delete('C');
           revealedComHints++;
+          manualComHintsRevealed = (manualComHintsRevealed || 0) + 1;
           registerHintUsed();
           renderComHintZone();
         } else {
@@ -5795,7 +5835,6 @@ ${DEFAULT_SCORING_HTML}`;
         commonalityBuffer = normGuess(commonality.answer);
         answerRevealCount++;
         addScore(-2);
-        manualComHintsRevealed = 0;
         hintPending.delete('C');
         clearHintTimer('C');
         clearActiveGuessHighlight();
@@ -6163,11 +6202,24 @@ ${DEFAULT_SCORING_HTML}`;
       const displayName = raw || 'Anonymous';
       const elapsedMs = getPlayElapsedMs();
 
+      const phraseResults = puzzles.map((_, i) => ({
+        solved: !!puzzleSolved[i],
+        revealed: !!puzzleRevealed[i],
+        manualHintsLeft: manualHintRevealedLeft[i] || 0,
+        manualHintsRight: manualHintRevealedRight[i] || 0
+      }));
+      const commonalityResult = commonality ? {
+        solved: !!commonalitySolved,
+        revealed: !!commonalityRevealed,
+        manualHints: manualComHintsRevealed || 0,
+        bonusPoints: sessionThemeBonusPoints || 0
+      } : null;
+
       const payload = {
         displayName,
         gameId: activeGameId,
         gameTitle: activeGameTitle,
-        formatVersion: 5,
+        formatVersion: 6,
         roundId: getPlayRoundId(),
         points: getDisplayScore(),
         elapsedMs,
@@ -6181,6 +6233,9 @@ ${DEFAULT_SCORING_HTML}`;
         commonalitySolved: correct === total,
         phraseCount: phraseCountAll,
         roundCount: gameRounds.length,
+        phraseResults,
+        commonalityResult,
+        themeBonusPoints: sessionThemeBonusPoints || 0,
         timestamp: Date.now(),
         date: new Date().toISOString().split('T')[0]
       };

@@ -251,7 +251,15 @@ When the puzzle is complete, the finish screen writes one record to BOTH paths a
 - `games/middleground/answers/{pushId}` — internal score store
 - `publicAnswers/middleground/{pushId}` — mirror, used by the public leaderboard reads
 
-The payload includes `displayName`, `points`, `elapsedMs`, `sessionKey` (e.g. `round:{roundId}`), `roundId`, `roundIds`, hint/reveal counts, and `formatVersion: 5`. One submission per session is enforced client-side via `invMiddlegroundScoreSubmitted`.
+The payload includes `displayName`, `points`, `elapsedMs`, `sessionKey` (e.g. `round:{roundId}`), `roundId`, `roundIds`, hint/reveal counts, per-question results, and `formatVersion: 6`. One submission per session is enforced client-side via `invMiddlegroundScoreSubmitted`.
+
+Per-question fields added in `formatVersion: 6`:
+
+- `phraseResults[]` — one entry per phrase row in the order rendered. Each entry is `{ solved, revealed, manualHintsLeft, manualHintsRight }`. `manualHints*` counts only hints the player chose to reveal at −1 each — auto-revealed free hints on a correct guess do not increment them.
+- `commonalityResult` — `{ solved, revealed, manualHints, bonusPoints }` for the connection puzzle, or omitted (`null`) if the round has no connection.
+- `themeBonusPoints` — copy of the connection's `bonusPoints` (the early-bird bonus the player banked on the connection guess), surfaced at the payload root for convenience.
+
+These fields are also mirrored into the local submission record (`invMiddlegroundUser.submissions[sessionKey]`) so the share-emoji grid and Venn-diagram squircle colors can be reconstructed when the player re-opens a round they already submitted.
 
 ### Deep links
 
@@ -411,11 +419,15 @@ When the player taps any letter (or backspace) on the on-screen keyboard, a yell
 
 Each phrase row has an SVG with three overlapping rounded-rect ("squircle") paths. On a correct guess, the strokes animate in red → blue → green (with a fill animation for the centre overlap) via `playPhraseSolveSquircle`. If the answer was REVEALed instead of guessed, the same paths render grey. `restoreSolvedPhraseSquircles` re-runs the animation in its end state when the board reflows (e.g., on resume from autosave).
 
+`fitBoardToViewport` calls `restoreSolvedPhraseSquircles` on every reflow **including when `phase === 'finish'`** (it short-circuits the scaling math in that case but still paints the squircles). Without that, re-entering a previously submitted round shows blank squircles instead of the colors the player actually earned. The per-row `puzzleRevealed[]` state needed for the grey-vs-coloured choice is persisted both in the in-progress autosave (`invMiddlegroundProgress`) and in the per-round submission record (`invMiddlegroundUser.submissions[sessionKey]`).
+
 ### Focus ring
 
 `.mg-answer-strip.focused:not(.solved)` gets a `box-shadow: 0 0 0 3px #ffcc00, 0 0 0 4px rgba(230,184,0,0.55)`. That's it — no JS positioning. See "Never add a fixed overlay" above.
 
 Because the row containers (`.mg-phrase-block`, `.mg-main-row-wrap`, `.mg-main-row`, and the connection's `.mg-main-row`) use `overflow: hidden` to keep clue text from spilling, the focus halo would normally be clipped at the row boundary and painted under adjacent clue boxes / squircle SVGs. CSS `:has()` selectors lift the focused strip's `.mg-center` to `z-index: 50` and switch its row-wrapping containers to `overflow: visible` while focused, so the halo paints above everything in the row. The clipping returns automatically the moment focus moves elsewhere.
+
+The outermost clipper is `#puzzleMount` itself (which keeps `overflow: hidden` for layout reasons). It carries `padding: 3px 0 5px` so the focus halo on the top-most row and the bottom-most row (typically the connection / final question) doesn't get sliced off at the puzzle's edge. If you ever change this padding, verify the halo around the connection answer strip is still fully visible.
 
 ### First-game help nudge
 
@@ -430,6 +442,21 @@ The `helpHinted` flag is **persistent across sessions** — once a player has be
 ### Score delta layer
 
 `#scoreDeltaLayer` shows the floating "+1" / "−2" animations when the score changes. `showScoreDelta(delta)` is the entrypoint.
+
+### Share / emoji grid (`buildEmojiGrid`)
+
+The "share my score" copy-to-clipboard text uses an emoji grid that summarises the round, one row per phrase plus the connection. The format is intentionally compact (no spaces, one emoji per line for the phrases; a single number emoji for the connection):
+
+| Question | Emoji rule |
+|---|---|
+| Phrase row — solved without using any manual hints | 🟩 |
+| Phrase row — solved but used at least one manual hint | 🟨 |
+| Phrase row — answer was REVEALed | 🟥 |
+| Connection — number of bonus points the player earned on the connection guess (the "early bird" bonus) | digit emoji, e.g. `3️⃣`. **No coloured square.** |
+
+The connection row deliberately has **no coloured square** even though the same red/yellow/green rule could be applied — only the bonus number is shown. If the round has no connection, the connection row is omitted entirely. The bonus is `sessionThemeBonusPoints` (defaults to 0 if the connection was REVEALed).
+
+The per-row colour relies on `manualHintRevealedLeft[i]` / `manualHintRevealedRight[i]` / `manualComHintsRevealed` being incremented **once per player-confirmed hint reveal** (the second tap on a clue box). Free hints that auto-reveal on a correct phrase guess do not count. If these counters drift from the actual hint usage, the grid is wrong — keep them in sync with `revealedLeftArr[i]` / `revealedRightArr[i]` increments.
 
 ---
 
