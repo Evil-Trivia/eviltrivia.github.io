@@ -798,7 +798,7 @@
       max-height: var(--mg-full-clue-h, 100%);
       font-size: clamp(0.76rem, 2.9vw, 0.94rem);
       line-height: 1.18;
-      padding-bottom: 2px;
+      padding: 2px;
       white-space: normal;
       overflow: hidden;
       -webkit-line-clamp: 2;
@@ -832,7 +832,7 @@
       color: #555;
       text-align: center;
       line-height: 1.1;
-      padding-bottom: 2px;
+      padding: 2px;
       white-space: normal;
       overflow: hidden;
       width: 100%;
@@ -2823,13 +2823,18 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     async function shareMyScore(displayName, msgEl, autoCopyOnly) {
-      const text = buildShareScoreText(displayName);
+      const fullText = buildShareScoreText(displayName);
+      const urlMatch = fullText.match(/(https?:\/\/[^\s]+)$/);
+      const shareUrl = urlMatch ? urlMatch[1] : roundShareUrl(getPlayRoundId());
+      const shareText = urlMatch ? fullText.replace(' — ' + shareUrl, '') : fullText;
+
       if (!autoCopyOnly) {
         try {
           if (navigator.share) {
             await navigator.share({
               title: activeGameTitle || 'InVennTions',
-              text
+              text: shareText,
+              url: shareUrl
             });
             if (msgEl) msgEl.textContent = 'Shared!';
             return;
@@ -2839,7 +2844,7 @@ ${DEFAULT_SCORING_HTML}`;
         }
       }
       try {
-        if (await copyTextToClipboard(text)) {
+        if (await copyTextToClipboard(fullText)) {
           if (msgEl) msgEl.textContent = 'Score copied!';
           return;
         }
@@ -4938,7 +4943,16 @@ ${DEFAULT_SCORING_HTML}`;
       initRoundState(0);
       hideTitleScreen();
       hideArchiveScreen();
-      startQuizUi(false);
+      
+      const profile = readUserProfile();
+      if (!profile.visited) {
+        deferredTimerStart = true;
+        markUserVisited();
+        openHelpModal(true);
+        startQuizUi(false, true);
+      } else {
+        startQuizUi(false);
+      }
     }
 
     function initTitleScreen() {
@@ -5033,12 +5047,26 @@ ${DEFAULT_SCORING_HTML}`;
       });
     }
 
-    function openHelpModal() {
+    let deferredTimerStart = false;
+
+    function hideHelpModal() {
+      document.getElementById('helpModal').classList.add('hidden');
+      if (deferredTimerStart) {
+        deferredTimerStart = false;
+        startPlayTimer();
+      }
+    }
+
+    function openHelpModal(isFirstVisit) {
       const body = document.getElementById('helpModalBody');
-      const html = (playerHelpHtml && String(playerHelpHtml).trim())
+      const baseHtml = (playerHelpHtml && String(playerHelpHtml).trim())
         ? playerHelpHtml
         : DEFAULT_PLAYER_HELP_HTML;
-      body.innerHTML = html;
+      let prefix = '';
+      if (isFirstVisit === true) {
+        prefix = '<div style="background:#e8f4f8; border:1px solid #bce8f1; padding:10px; border-radius:6px; margin-bottom:15px; font-weight:bold; color:#31708f;">First time here? Check out the rules below. Press the <span style="display:inline-block; background:#fff; border:1px solid #ccc; border-radius:50%; width:1.2em; height:1.2em; text-align:center; line-height:1.2em; margin:0 2px;">?</span> to refer back to the rules at any point. Close this to begin playing.</div>';
+      }
+      body.innerHTML = prefix + baseHtml;
       document.getElementById('helpModal').classList.remove('hidden');
     }
 
@@ -5175,23 +5203,21 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function bindModalUi() {
-      function backdropClose(id) {
+      function backdropClose(id, cb) {
         const el = document.getElementById(id);
         if (!el) return;
         el.addEventListener('click', e => {
           if (e.target !== el) return;
           if (id === 'scoreModal' && !canDismissScoreModal()) return;
-          el.classList.add('hidden');
+          if (cb) { cb(); } else { el.classList.add('hidden'); }
         });
       }
-      backdropClose('helpModal');
+      backdropClose('helpModal', hideHelpModal);
       backdropClose('aboutModal');
       backdropClose('infoModal');
       backdropClose('scoreModal');
 
-      document.getElementById('helpModalClose')?.addEventListener('click', () => {
-        document.getElementById('helpModal').classList.add('hidden');
-      });
+      document.getElementById('helpModalClose')?.addEventListener('click', hideHelpModal);
       document.getElementById('aboutModalClose')?.addEventListener('click', () => {
         document.getElementById('aboutModal').classList.add('hidden');
       });
@@ -6017,16 +6043,23 @@ ${DEFAULT_SCORING_HTML}`;
       if (btnScore) btnScore.classList.remove('hidden');
     }
 
+    let isSubmittingScore = false;
     async function submitFinalScore(total, correct, phraseCountAll) {
+      if (isSubmittingScore) return;
       if (hasSubmittedForCurrentSession() && !window.invIsAdmin) {
         toastEl.textContent = 'You already submitted for this puzzle set.';
         setTimeout(() => { toastEl.textContent = ''; }, 2200);
         return;
       }
       
+      isSubmittingScore = true;
+      
       const sb = document.getElementById('saveScoreBtn');
       if (sb) {
-        if (sb.disabled) return;
+        if (sb.disabled) {
+          isSubmittingScore = false;
+          return;
+        }
         sb.disabled = true;
         sb.textContent = 'Saving...';
       }
@@ -6094,6 +6127,8 @@ ${DEFAULT_SCORING_HTML}`;
             sb.textContent = 'Save score';
           }
         }
+      } finally {
+        isSubmittingScore = false;
       }
     }
 
@@ -6363,7 +6398,7 @@ ${DEFAULT_SCORING_HTML}`;
       await loadQuizDataOnly();
     }
 
-    function startQuizUi(resuming) {
+    function startQuizUi(resuming, deferTimer) {
       errorState.classList.add('hidden');
       loadingState.classList.add('hidden');
       boardArea.classList.remove('hidden');
@@ -6375,7 +6410,7 @@ ${DEFAULT_SCORING_HTML}`;
       statBar.classList.remove('hidden');
       renderBoard();
       showQuizShell();
-      if (!resuming) {
+      if (!resuming && !deferTimer) {
         startPlayTimer();
       }
       ensureProgressAutosave();
