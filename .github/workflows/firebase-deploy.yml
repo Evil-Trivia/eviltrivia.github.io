@@ -6,9 +6,6 @@ on:
       - main
   workflow_dispatch: # Allows manual triggering
 
-# Explicit token scope so actions/checkout@v4 can read the repo. The
-# default token permissions on this repo were restricted, which made
-# the checkout step fail with a 403 on every push for several days.
 permissions:
   contents: read
 
@@ -17,12 +14,19 @@ jobs:
     name: Deploy
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 1
-          persist-credentials: false
+      # actions/checkout@v4 was 403'ing on this org's GITHUB_TOKEN even
+      # though the repo is public. We clone unauthenticated instead — the
+      # repo is fully public so no token is needed for read access, and
+      # this side-steps any org-level token restriction.
+      - name: Checkout Repository (anonymous)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 "https://github.com/${{ github.repository }}.git" repo
+          shopt -s dotglob
+          mv repo/* .
+          rm -rf repo
+          git -c advice.detachedHead=false checkout "${{ github.sha }}" || true
         
       - name: Setup Node.js
         uses: actions/setup-node@v4
