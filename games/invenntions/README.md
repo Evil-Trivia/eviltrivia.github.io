@@ -263,6 +263,46 @@ Open a specific archive round with `?round=<firebaseRoundId>`:
 
 ---
 
+## Images in the help / info / about modals
+
+The Site-content rich-text editors (info, How to play, About) support inline images. Two starter assets ship in this folder:
+
+- `games/invenntions/HowTo_Question.png` — annotated example of a phrase clue / answer box.
+- `games/invenntions/HowTo_Answer.png` — annotated example of a solved row + connection.
+
+**To insert one while authoring:** in the admin's rich-text toolbar, drop down the **📷 Image…** select on the right side of the toolbar, pick one, and it is inserted as an `<img>` at the current cursor position. The dropdown also has a **Custom path…** entry that prompts for any URL or absolute site path. The inserted `<img>` is a real DOM element, so you can position it precisely inside a paragraph, after a heading, etc., simply by placing your cursor there before picking from the dropdown.
+
+**To add more reusable images:**
+
+1. Drop the file into `games/invenntions/` (any filename — but it must live in this folder so the absolute `/games/invenntions/...` path resolves on both player and admin pages).
+2. Add an entry to the `HOWTO_IMAGES` array near the top of `games/invenntionsadmin/index.html`:
+   ```js
+   const HOWTO_IMAGES = [
+     { name: 'HowTo_Question', file: 'HowTo_Question.png' },
+     { name: 'HowTo_Answer',   file: 'HowTo_Answer.png' },
+     { name: 'YourNewImage',   file: 'YourNewImage.png' }
+   ];
+   ```
+3. Reload the admin page — the new image is in every editor's dropdown.
+
+**Sizing.** Inserted images are styled responsively by `.mg-rich img` in `games/invenntions/index.html`:
+
+```css
+.mg-rich img {
+  display: block;
+  max-width: 100%;
+  width: min(100%, 420px);
+  height: auto;
+  margin: 14px auto;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+```
+
+So they cap at 420px wide on desktop, shrink to fit on narrow phones, and never get horizontally cut off inside the modal. The admin editor mirrors these styles via `.rte-editor img` so authoring matches what the player sees.
+
+---
+
 ## Admin workflow (`games/invenntionsadmin/index.html`)
 
 1. **Sign in** at `/pages/account.html` as a Firebase user whose RTDB record has `users/{uid}/role = "admin"`.

@@ -277,6 +277,19 @@
       color: #fff;
       border-color: #3a7aaa;
     }
+    /* Image-insert dropdown in the rte-toolbar — styled to match buttons. */
+    .rte-toolbar .rte-insert-image {
+      padding: 3px 4px;
+      min-height: 0;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 0.82rem;
+      line-height: 1.2;
+      margin-left: auto;
+    }
+    .rte-toolbar .rte-insert-image:hover { background: #eee; }
     .rte-editor {
       min-height: 140px;
       max-height: 360px;
@@ -286,6 +299,20 @@
       font-size: 0.9rem;
       line-height: 1.45;
       color: #333;
+    }
+    /*
+     * Inserted images preview at the same responsive max-width as the player
+     * modal so the admin sees roughly what the player will see. The player
+     * caps width to min(100%, 420px) — we mirror that here.
+     */
+    .rte-editor img {
+      display: block;
+      max-width: 100%;
+      width: min(100%, 420px);
+      height: auto;
+      margin: 12px auto;
+      border-radius: 6px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
     }
     .rte-editor:focus { box-shadow: inset 0 0 0 2px rgba(74, 144, 194, 0.35); }
     .rte-editor h2 {
@@ -514,6 +541,9 @@
             <button type="button" data-cmd="formatBlock" data-value="p" title="Paragraph">¶</button>
             <button type="button" data-cmd="createLink" title="Link">Link</button>
             <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+            <select class="rte-insert-image" data-editor="infoHtmlEditor" title="Insert image at cursor">
+              <option value="">📷 Image…</option>
+            </select>
           </div>
           <div class="rte-editor" id="infoHtmlEditor" contenteditable="true" role="textbox" aria-multiline="true"></div>
         </div>
@@ -531,6 +561,9 @@
             <button type="button" data-cmd="formatBlock" data-value="p" title="Paragraph">¶</button>
             <button type="button" data-cmd="createLink" title="Link">Link</button>
             <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+            <select class="rte-insert-image" data-editor="playerHelpHtmlEditor" title="Insert image at cursor">
+              <option value="">📷 Image…</option>
+            </select>
           </div>
           <div class="rte-editor" id="playerHelpHtmlEditor" contenteditable="true" role="textbox" aria-multiline="true"></div>
         </div>
@@ -548,6 +581,9 @@
             <button type="button" data-cmd="formatBlock" data-value="p" title="Paragraph">¶</button>
             <button type="button" data-cmd="createLink" title="Link">Link</button>
             <button type="button" data-cmd="removeFormat" title="Clear formatting">Clear</button>
+            <select class="rte-insert-image" data-editor="aboutEvilTriviaHtmlEditor" title="Insert image at cursor">
+              <option value="">📷 Image…</option>
+            </select>
           </div>
           <div class="rte-editor" id="aboutEvilTriviaHtmlEditor" contenteditable="true" role="textbox" aria-multiline="true"></div>
         </div>
@@ -663,6 +699,25 @@ ${DEFAULT_SCORING_HTML}`;
 
     let rteBound = false;
 
+    /*
+     * Images available to insert into the help / info / about HTML. The user
+     * picks one from the "📷 Image…" dropdown in any rte-toolbar and it is
+     * inserted at the current cursor position as a real <img> tag (so it is
+     * also visible in the editor preview).
+     *
+     * The path is absolute so it resolves correctly in both the admin
+     * (/games/invenntionsadmin/) and the player (/games/invenntions/).
+     *
+     * To add a new HowTo image: drop it into /games/invenntions/ (filename
+     * is up to you) and add an entry here. The player's .mg-rich img CSS
+     * handles responsive sizing for free, so no other code changes needed.
+     */
+    const HOWTO_IMAGE_BASE = '/games/invenntions/';
+    const HOWTO_IMAGES = [
+      { name: 'HowTo_Question', file: 'HowTo_Question.png' },
+      { name: 'HowTo_Answer',   file: 'HowTo_Answer.png' }
+    ];
+
     function getRteHtml(editorId) {
       const el = document.getElementById(editorId);
       return el ? el.innerHTML.trim() : '';
@@ -673,9 +728,63 @@ ${DEFAULT_SCORING_HTML}`;
       if (el) el.innerHTML = html || '';
     }
 
+    function insertImageAtCursor(editorId, src, alt) {
+      const editor = document.getElementById(editorId);
+      if (!editor) return;
+      editor.focus();
+      const sel = window.getSelection();
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = alt || '';
+      const useSelection = sel && sel.rangeCount && editor.contains(sel.anchorNode);
+      if (useSelection) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(img);
+        range.setStartAfter(img);
+        range.setEndAfter(img);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else {
+        editor.appendChild(img);
+        // Move the cursor to the end so the next typed character isn't lost.
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        sel && sel.removeAllRanges();
+        sel && sel.addRange(range);
+      }
+    }
+
+    function populateImageInsertDropdowns() {
+      document.querySelectorAll('select.rte-insert-image').forEach(sel => {
+        // Reset to just the placeholder, then refill from HOWTO_IMAGES.
+        const placeholder = sel.querySelector('option[value=""]');
+        sel.innerHTML = '';
+        if (placeholder) sel.appendChild(placeholder);
+        else {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '📷 Image…';
+          sel.appendChild(opt);
+        }
+        HOWTO_IMAGES.forEach(img => {
+          const opt = document.createElement('option');
+          opt.value = HOWTO_IMAGE_BASE + img.file;
+          opt.textContent = img.name;
+          sel.appendChild(opt);
+        });
+        const customOpt = document.createElement('option');
+        customOpt.value = '__custom__';
+        customOpt.textContent = 'Custom path…';
+        sel.appendChild(customOpt);
+      });
+    }
+
     function bindRichTextEditors() {
       if (rteBound) return;
       rteBound = true;
+      populateImageInsertDropdowns();
       document.querySelectorAll('.rte-toolbar').forEach(toolbar => {
         toolbar.addEventListener('click', e => {
           const btn = e.target.closest('button[data-cmd]');
@@ -697,6 +806,26 @@ ${DEFAULT_SCORING_HTML}`;
             return;
           }
           document.execCommand(cmd, false, null);
+        });
+      });
+      document.querySelectorAll('select.rte-insert-image').forEach(sel => {
+        sel.addEventListener('change', () => {
+          const editorId = sel.dataset.editor;
+          const value = sel.value;
+          if (!value || !editorId) { sel.value = ''; return; }
+          if (value === '__custom__') {
+            const url = window.prompt(
+              'Image URL (absolute path or full URL):',
+              HOWTO_IMAGE_BASE
+            );
+            sel.value = '';
+            if (!url) return;
+            insertImageAtCursor(editorId, url.trim(), '');
+            return;
+          }
+          const known = HOWTO_IMAGES.find(img => (HOWTO_IMAGE_BASE + img.file) === value);
+          insertImageAtCursor(editorId, value, known ? known.name : '');
+          sel.value = '';
         });
       });
     }
