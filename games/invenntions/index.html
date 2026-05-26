@@ -6,6 +6,7 @@
   <title>Evil Trivia — InVennTions</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    canvas { z-index: 25001; }
     html {
       background: #e6b800;
     }
@@ -914,7 +915,7 @@
      * clue boxes / squircle SVGs.
      */
     body.inv-quiz-active .mg-center:has(> .mg-answer-strip.focused:not(.solved)) {
-      z-index: 50;
+      z-index: 5000;
     }
     body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)),
     body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row-wrap,
@@ -1827,7 +1828,7 @@
     .inv-final-score-flash {
       position: fixed;
       inset: 0;
-      z-index: 22000;
+      z-index: 25000;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -2824,21 +2825,26 @@ ${DEFAULT_SCORING_HTML}`;
         } else {
           grid += '🟨';
         }
+        grid += '\n';
       }
       if (commonality) {
-        grid += '\n';
-        const char = (revealedComHints === 0 && commonalitySolved) ? '🟩' : (commonalitySolved ? '🟨' : '⬜');
-        for (let i = 0; i < puzzles.length; i++) grid += char;
+        grid += '🟥';
+        const bonusNum = String(sessionThemeBonusPoints || 0);
+        const numEmoji = bonusNum.split('').map(d => {
+          const map = {'0': '0️⃣', '1': '1️⃣', '2': '2️⃣', '3': '3️⃣', '4': '4️⃣', '5': '5️⃣', '6': '6️⃣', '7': '7️⃣', '8': '8️⃣', '9': '9️⃣'};
+          return map[d] || d;
+        }).join('');
+        grid += numEmoji;
       }
       return grid;
     }
 
     function buildShareScoreText(displayName) {
-      const name = displayName ? String(displayName).trim() : 'Anonymous';
       const score = getDisplayScore();
       const time = formatElapsedMs(getPlayElapsedMs());
       const roundId = getPlayRoundId();
       let label = activeGameTitle || 'InVennTions';
+      let roundNum = '';
       if (roundId) {
         if (activeRoundMeta && activeRoundMeta.id === roundId && activeRoundMeta.label) {
           label = activeRoundMeta.label;
@@ -2848,10 +2854,11 @@ ${DEFAULT_SCORING_HTML}`;
           const fromCatalog = archiveCatalog.find(e => e.id === roundId);
           if (fromCatalog && fromCatalog.label) label = fromCatalog.label;
         }
+        roundNum = roundId.substring(0, 6);
       }
       const url = roundShareUrl(roundId);
       const grid = buildEmojiGrid();
-      return `${name} scored ${score} pts in ${time} on "${label}"\n\n${grid}\n\n${url}`;
+      return `I scored ${score} points in ${time} on InVennTions #${roundNum}\n"${label}"\n\n${grid}\n\n${url}`;
     }
 
     async function copyTextToClipboard(text) {
@@ -2864,32 +2871,13 @@ ${DEFAULT_SCORING_HTML}`;
 
     async function shareMyScore(displayName, msgEl, autoCopyOnly) {
       const fullText = buildShareScoreText(displayName);
-      const urlMatch = fullText.match(/(https?:\/\/[^\s]+)$/);
-      const shareUrl = urlMatch ? urlMatch[1] : roundShareUrl(getPlayRoundId());
-      const shareText = urlMatch ? fullText.replace(' — ' + shareUrl, '') : fullText;
-
-      if (!autoCopyOnly) {
-        try {
-          if (navigator.share) {
-            await navigator.share({
-              title: activeGameTitle || 'InVennTions',
-              text: shareText,
-              url: shareUrl
-            });
-            if (msgEl) msgEl.textContent = 'Shared!';
-            return;
-          }
-        } catch (e) {
-          if (e && e.name === 'AbortError') return;
-        }
-      }
       try {
-        if (await copyTextToClipboard(fullText)) {
-          if (msgEl) msgEl.textContent = 'Score copied!';
-          return;
-        }
-      } catch (_) { /* fallback below */ }
-      if (msgEl) msgEl.textContent = text;
+        await copyTextToClipboard(fullText);
+        if (msgEl) msgEl.textContent = 'Copied to clipboard!';
+      } catch (e) {
+        console.warn('InVennTions share:', e);
+        if (msgEl) msgEl.textContent = 'Failed to copy';
+      }
     }
 
     function computePlaySessionKey() {
@@ -5208,28 +5196,28 @@ ${DEFAULT_SCORING_HTML}`;
         }
         
         let ourRank = -1;
+        let ourScore = null;
         for (let i = 0; i < rows.length; i++) {
           if (scoreMatchesSessionKey(rows[i], sessionKey)) {
             ourRank = i;
+            ourScore = rows[i];
             break;
           }
         }
         
         let contextHtml = '';
-        if (ourRank !== -1 && rows.length > 1) {
-          const beatCount = rows.length - ourRank - 1;
-          const percentile = Math.round((beatCount / (rows.length - 1)) * 100);
+        if (ourRank !== -1) {
           if (ourRank === 0) {
             contextHtml = `<p class="lb-context">You have the <strong>top score</strong>!</p>`;
-          } else if (percentile > 50) {
-            contextHtml = `<p class="lb-context">You scored better than <strong>${percentile}%</strong> of players!</p>`;
           } else {
-            contextHtml = `<p class="lb-context">You are in the top <strong>${100 - percentile}%</strong> of players!</p>`;
+            const beatCount = ourRank;
+            const percentile = Math.round(((rows.length - beatCount) / rows.length) * 100);
+            contextHtml = `<p class="lb-context">You scored better than <strong>${percentile}%</strong> of players!</p>`;
           }
         }
 
-        body.innerHTML = `${contextHtml}<ul class="lb-list">${rows.slice(0, 100).map(s => `
-          <li class="lb-row ${s === rows[ourRank] ? 'lb-row-ours' : ''}">
+        body.innerHTML = `${contextHtml}<ul class="lb-list">${rows.slice(0, 100).map((s, idx) => `
+          <li class="lb-row ${ourScore && leaderboardPoints(s) === leaderboardPoints(ourScore) && leaderboardElapsedMs(s) === leaderboardElapsedMs(ourScore) ? 'lb-row-ours' : ''}">
             <span class="lb-name">${esc(s.displayName || 'Anonymous')}</span>
             <span class="lb-points-time">
               <span class="lb-score">${leaderboardPoints(s)}</span>
@@ -5246,7 +5234,6 @@ ${DEFAULT_SCORING_HTML}`;
       const scoreBody = document.getElementById('scoreModalBody');
       if (!scoreBody) return;
       scoreBody.innerHTML = `
-        <p class="summary">Thanks, <strong>${esc(displayName)}</strong>!</p>
         ${buildScoreBreakdownHtml(formatElapsedMs(getPlayElapsedMs()))}
         <h2 class="lb-heading">Leaderboard</h2>
         <div id="leaderboardBody"><p class="mg-modal-muted">Loading…</p></div>
@@ -6045,7 +6032,8 @@ ${DEFAULT_SCORING_HTML}`;
         confetti({
           particleCount: 80,
           spread: 100,
-          origin: { y: 0.5 }
+          origin: { y: 0.5 },
+          zIndex: 25001
         });
       } catch (e) {
         console.warn('InVennTions confetti:', e);
