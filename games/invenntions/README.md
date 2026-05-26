@@ -265,25 +265,37 @@ Open a specific archive round with `?round=<firebaseRoundId>`:
 
 ## Images in the help / info / about modals
 
-The Site-content rich-text editors (info, How to play, About) support inline images. Two starter assets ship in this folder:
+The Site-content rich-text editors (info, How to play, About) support inline images and animated GIFs. Starter assets ship in this folder:
 
 - `games/invenntions/HowTo_Question.png` — annotated example of a phrase clue / answer box.
 - `games/invenntions/HowTo_Answer.png` — annotated example of a solved row + connection.
+- `games/invenntions/Hints.gif` — short screen-recording demo of revealing hints. Generated from `Hints.mov` (same folder) via ffmpeg; the `.mov` is kept as the source asset.
 
 **To insert one while authoring:** in the admin's rich-text toolbar, drop down the **📷 Image…** select on the right side of the toolbar, pick one, and it is inserted as an `<img>` at the current cursor position. The dropdown also has a **Custom path…** entry that prompts for any URL or absolute site path. The inserted `<img>` is a real DOM element, so you can position it precisely inside a paragraph, after a heading, etc., simply by placing your cursor there before picking from the dropdown.
 
 **To add more reusable images:**
 
-1. Drop the file into `games/invenntions/` (any filename — but it must live in this folder so the absolute `/games/invenntions/...` path resolves on both player and admin pages).
+1. Drop the file into `games/invenntions/` (any filename — but it must live in this folder so the absolute `/games/invenntions/...` path resolves on both player and admin pages). PNG, JPG, GIF (animated GIFs work — they reuse the same `<img>` tag) are all fine.
 2. Add an entry to the `HOWTO_IMAGES` array near the top of `games/invenntionsadmin/index.html`:
    ```js
    const HOWTO_IMAGES = [
      { name: 'HowTo_Question', file: 'HowTo_Question.png' },
      { name: 'HowTo_Answer',   file: 'HowTo_Answer.png' },
-     { name: 'YourNewImage',   file: 'YourNewImage.png' }
+     { name: 'Hints (gif)',    file: 'Hints.gif' }
    ];
    ```
 3. Reload the admin page — the new image is in every editor's dropdown.
+
+**For screen-recording demos (.mov → .gif):** drop the `.mov` into `games/invenntions/`, then convert with `ffmpeg`'s two-pass palette workflow at the same duration as the source:
+
+```bash
+W=360 FPS=12 SRC=games/invenntions/Hints.mov DST=games/invenntions/Hints.gif PAL=/tmp/inv_palette.png
+ffmpeg -y -i "$SRC" -vf "fps=$FPS,scale=$W:-1:flags=lanczos,palettegen=stats_mode=diff" "$PAL"
+ffmpeg -y -i "$SRC" -i "$PAL" -lavfi "fps=$FPS,scale=$W:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" -loop 0 "$DST"
+rm "$PAL"
+```
+
+`fps=12` controls file size but keeps the playback duration identical to the source (the filter resamples frames, it does not retime). 360px width matches the player's `.mg-rich img` cap on retina without upscaling.
 
 **Sizing.** Inserted images are styled responsively by `.mg-rich img` in `games/invenntions/index.html`:
 
