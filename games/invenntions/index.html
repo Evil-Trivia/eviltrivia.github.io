@@ -1017,8 +1017,20 @@
       font-weight: bold;
       color: #2c3e50;
     }
-    .com-prompt > div:first-child {
+    .com-prompt > .com-prompt-text {
       text-align: center;
+    }
+    /* The connection answer strip is rendered INSIDE .com-prompt so the
+       prompt and its answer read as one combined module ("the grey box
+       contains both the final question and its answer"). The extra
+       padding-bottom and the row's top margin keep the focused strip's
+       yellow halo fully inside the grey box, and give visual breathing
+       room between the question and the answer field below it. */
+    body.inv-quiz-active .com-prompt {
+      padding-bottom: 8px;
+    }
+    .com-prompt .mg-com-answer-row {
+      margin-top: 6px;
     }
     .com-prompt.com-prompt--hints-available {
       cursor: pointer;
@@ -1295,7 +1307,11 @@
       transform-origin: 50% 100%;
       filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.22));
       opacity: 1;
-      transition: opacity 0.03s ease-out;
+      /* Exit transition: short, ease-out, matches the iOS keyboard popup
+         which disappears almost instantly on touch up. The matching JS
+         constant KB_KEY_POP_FADE_MS waits the same duration before
+         hiding the element so the fade is never cut short. */
+      transition: opacity 0.06s ease-out;
       will-change: opacity, transform;
     }
     .kb-key-pop.hidden { display: none; }
@@ -1316,10 +1332,17 @@
       font-weight: 900;
       fill: #000;
     }
+    /*
+     * Enter animation tuned to match iOS keyboard popup feel: the popup
+     * appears almost instantly (no large scale-up), just a tiny pop-in
+     * from 0.95 → 1 so it doesn't feel jarringly inserted. Total
+     * duration is one ~16ms render frame plus a few ms — fast enough
+     * that the eye reads it as "instant" but still smooths the edge.
+     */
     @keyframes kbKeyPopIn {
       from {
-        transform: translate(-50%, calc(-100% + var(--kb-key-pop-stem, 6px))) scale(0.86);
-        opacity: 0.55;
+        transform: translate(-50%, calc(-100% + var(--kb-key-pop-stem, 6px))) scale(0.95);
+        opacity: 0.7;
       }
       to {
         transform: translate(-50%, calc(-100% + var(--kb-key-pop-stem, 6px))) scale(1);
@@ -1327,7 +1350,7 @@
       }
     }
     .kb-key-pop:not(.hidden):not(.kb-key-pop-leaving) {
-      animation: kbKeyPopIn 0.04s ease-out;
+      animation: kbKeyPopIn 0.02s ease-out;
     }
     @media (prefers-reduced-motion: reduce) {
       .kb-key-pop:not(.hidden) { animation: none; transition: none; }
@@ -1793,8 +1816,13 @@
       border-color: #e57373;
       background: #fff8f8;
     }
+    .inv-archive-round-btn.is-completed {
+      border-color: #f9a825;
+      background: #fffdf3;
+    }
     .inv-archive-round-btn.is-finished:active { background: #e8f5e9; }
     .inv-archive-round-btn.is-in-progress:active { background: #ffebee; }
+    .inv-archive-round-btn.is-completed:active { background: #fff8e1; }
     .inv-archive-round-btn .inv-archive-title {
       display: block;
       font-weight: bold;
@@ -1828,6 +1856,11 @@
     }
     .inv-archive-round-btn .sub.inv-archive-in-progress {
       color: #c62828;
+      font-style: normal;
+      font-weight: bold;
+    }
+    .inv-archive-round-btn .sub.inv-archive-completed {
+      color: #ef6c00;
       font-style: normal;
       font-weight: bold;
     }
@@ -2847,12 +2880,55 @@ ${DEFAULT_SCORING_HTML}`;
       return grid;
     }
 
-    function buildShareScoreText(displayName) {
+    /*
+     * Per-round share number. The admin's "Rounds" list orders by playDate
+     * (newest first); for shares we want the opposite — the first ever
+     * round is #1, the next is #2, etc. We compute this from the cached
+     * archive raw data so the number is consistent with what's in
+     * Firebase, not whatever the player happens to have loaded into
+     * archiveCatalog at the moment.
+     *
+     * Returns a 1-based integer position among non-hidden, released
+     * rounds (oldest first), or null if the round can't be located.
+     */
+    async function getRoundShareNumber(roundId) {
+      if (!roundId) return null;
+      try {
+        const raw = await fetchArchiveRaw(false);
+        if (!raw || typeof raw !== 'object') return null;
+        const today = todayISO();
+        const eligible = Object.keys(raw)
+          .map(id => ({ id, block: raw[id] }))
+          .filter(({ block }) => block && typeof block === 'object' && !isRoundHidden(block))
+          .filter(({ block }) => {
+            const puzz = block.puzzles;
+            const phraseCount = puzz
+              ? (Array.isArray(puzz) ? puzz.length : Object.keys(puzz).length)
+              : 0;
+            return phraseCount > 0;
+          })
+          .filter(({ block }) => roundPlayDateFromBlock(block) <= today)
+          .map(({ id, block }) => ({
+            id,
+            playDate: roundPlayDateFromBlock(block),
+            label: roundLabelFromBlock(block, id) || 'Round'
+          }))
+          .sort((a, b) => {
+            if (a.playDate !== b.playDate) return a.playDate.localeCompare(b.playDate);
+            return a.label.localeCompare(b.label);
+          });
+        const idx = eligible.findIndex(e => e.id === roundId);
+        return idx >= 0 ? idx + 1 : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function buildShareScoreText(displayName) {
       const score = getDisplayScore();
       const time = formatElapsedMs(getPlayElapsedMs());
       const roundId = getPlayRoundId();
       let label = activeGameTitle || 'InVennTions';
-      let roundNum = '';
       if (roundId) {
         if (activeRoundMeta && activeRoundMeta.id === roundId && activeRoundMeta.label) {
           label = activeRoundMeta.label;
@@ -2862,11 +2938,12 @@ ${DEFAULT_SCORING_HTML}`;
           const fromCatalog = archiveCatalog.find(e => e.id === roundId);
           if (fromCatalog && fromCatalog.label) label = fromCatalog.label;
         }
-        roundNum = roundId.substring(0, 6);
       }
+      const shareNumber = await getRoundShareNumber(roundId);
+      const roundLabelPart = shareNumber != null ? `#${shareNumber}` : (roundId ? `#${roundId.substring(0, 6)}` : '');
       const url = roundShareUrl(roundId);
       const grid = buildEmojiGrid();
-      return `I scored ${score} points in ${time} on InVennTions #${roundNum}\n"${label}"\n\n${grid}\n\n${url}`;
+      return `I scored ${score} points in ${time} on InVennTions ${roundLabelPart}\n"${label}"\n\n${grid}\n\n${url}`;
     }
 
     async function copyTextToClipboard(text) {
@@ -2878,7 +2955,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     async function shareMyScore(displayName, msgEl, autoCopyOnly) {
-      const fullText = buildShareScoreText(displayName);
+      const fullText = await buildShareScoreText(displayName);
       try {
         await copyTextToClipboard(fullText);
         if (msgEl) msgEl.textContent = 'Copied to clipboard!';
@@ -2990,6 +3067,20 @@ ${DEFAULT_SCORING_HTML}`;
       return null;
     }
 
+    function progressIsCompleted(progress) {
+      if (!progress) return false;
+      if (progress.phase === 'finish') return true;
+      const ps = Array.isArray(progress.puzzleSolved) ? progress.puzzleSolved : null;
+      if (ps && ps.length && ps.every(Boolean)) {
+        const comNeeded = progress.commonalityBuffer !== undefined
+          || progress.commonalitySolved !== undefined
+          || progress.commonalityRevealed !== undefined;
+        if (!comNeeded) return true;
+        return !!(progress.commonalitySolved || progress.commonalityRevealed);
+      }
+      return false;
+    }
+
     function getRoundPlayStatus(roundId) {
       const submission = getSubmissionForRound(roundId);
       if (submission && submission.submitted) {
@@ -2997,7 +3088,10 @@ ${DEFAULT_SCORING_HTML}`;
       }
       const progress = findProgressForRound(roundId);
       if (progress) {
-        if (progress.phase === 'play' || (progress.phase === 'finish' && !progress.scoreSavedThisSession)) {
+        if (progressIsCompleted(progress)) {
+          return { type: 'completed', progress };
+        }
+        if (progress.phase === 'play') {
           return { type: 'in_progress', progress };
         }
       }
@@ -3428,8 +3522,19 @@ ${DEFAULT_SCORING_HTML}`;
     const KB_FLASH_MS = 120;
     const KB_REPEAT_DELAY_MS = 320;
     const KB_REPEAT_INTERVAL_MS = 65;
-    const KB_KEY_POP_LINGER_MS = 75;
-    const KB_KEY_POP_FADE_MS = 30;
+    /*
+     * iOS-keyboard-style popup timing. The actual iOS keyboard popup
+     * disappears almost as soon as the finger lifts (no linger), with
+     * a very short opacity fade. Earlier values (75ms linger + 30ms
+     * fade) felt sluggish in side-by-side comparison — the popup
+     * looked like it was hanging around after the user had moved on
+     * to the next key. Zero linger + ~60ms fade matches the native
+     * feel; KB_KEY_POP_FADE_MS is also the CSS transition duration
+     * on .kb-key-pop so we never hide the element before its fade
+     * has finished painting.
+     */
+    const KB_KEY_POP_LINGER_MS = 0;
+    const KB_KEY_POP_FADE_MS = 60;
 
     function kbHaptic() {
       try {
@@ -3527,8 +3632,7 @@ ${DEFAULT_SCORING_HTML}`;
     function shouldShowKbKeyPop(btn) {
       return btn && !btn.disabled
         && !btn.classList.contains('guess')
-        && !btn.classList.contains('reveal')
-        && !btn.classList.contains('space');
+        && !btn.classList.contains('reveal');
     }
 
     /*
@@ -3546,7 +3650,12 @@ ${DEFAULT_SCORING_HTML}`;
      */
     function buildIosKeyPopPath(keyWidth, keyHeight) {
       const wKey = Math.max(Math.round(keyWidth), 28);
-      const wBubble = Math.max(Math.round(wKey * 1.55), wKey + 22);
+      /* For narrow letter keys the iOS-style 1.55x multiplier gives the
+         classic flared paddle. For wide keys (space bar, etc.) the
+         1.55x version balloons to a comically wide bubble; cap at
+         wKey + 32 so the bubble is just a bit wider than the key,
+         keeping the visible flare proportional. */
+      const wBubble = Math.max(Math.min(Math.round(wKey * 1.55), wKey + 32), wKey + 22);
       const hBubble = 50;
       const hNeck = 11;
       const hStem = Math.max(Math.round(keyHeight), 30);
@@ -4892,6 +5001,9 @@ ${DEFAULT_SCORING_HTML}`;
         const rankPart = rank ? `<span class="lb-icon" aria-hidden="true">🏆</span><span>${esc(rank)}</span><span>·</span>` : '';
         return `<span class="sub inv-archive-score">${rankPart}<span>${esc(String(pts))} pts</span><span>·</span><span>${esc(time)}</span></span>`;
       }
+      if (status.type === 'completed') {
+        return '<span class="sub inv-archive-completed">Completed — tap to submit</span>';
+      }
       if (status.type === 'in_progress') {
         return '<span class="sub inv-archive-in-progress">In progress</span>';
       }
@@ -4918,6 +5030,7 @@ ${DEFAULT_SCORING_HTML}`;
         entry.playStatus = status;
         btn.className = 'inv-archive-round-btn';
         if (status.type === 'submitted') btn.classList.add('is-finished');
+        else if (status.type === 'completed') btn.classList.add('is-completed');
         else if (status.type === 'in_progress') btn.classList.add('is-in-progress');
         const dateLabel = formatPlayDate(entry.playDate);
         const statusHtml = formatArchiveStatus(status);
@@ -5613,15 +5726,15 @@ ${DEFAULT_SCORING_HTML}`;
         html += `
       <div class="com-section">
         <div class="com-prompt" id="comPromptBlock">
-          <div>${esc(commonality.prompt)}</div>
+          <div class="com-prompt-text">${esc(commonality.prompt)}</div>
           <div class="mg-hint-tap-msg" id="comHintTapMsg" aria-live="polite"></div>
           <div class="com-hint-inline" id="comHintZone"></div>
-        </div>
-        <div class="mg-main-row mg-com-answer-row" style="justify-content:center">
-          <div class="mg-center mg-com-center">
-            <div class="${comStripClass} mg-com-strip" id="strip-c">
-              <span class="mg-com-bonus-hint hidden" id="comBonusHint"></span>
-              <span class="mg-com-answer-text" id="comAnswerText">${comAnswerHtml}</span>
+          <div class="mg-main-row mg-com-answer-row" style="justify-content:center">
+            <div class="mg-center mg-com-center">
+              <div class="${comStripClass} mg-com-strip" id="strip-c">
+                <span class="mg-com-bonus-hint hidden" id="comBonusHint"></span>
+                <span class="mg-com-answer-text" id="comAnswerText">${comAnswerHtml}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -6250,7 +6363,7 @@ ${DEFAULT_SCORING_HTML}`;
           console.warn('InVennTions public mirror:', mirrorErr);
         }
         const rank = await computeLeaderboardRank(computePlaySessionKey(), payload.points, payload.elapsedMs);
-        toastEl.textContent = 'Score saved. Thanks for playing!';
+        toastEl.textContent = '';
         if (sb) sb.textContent = 'Saved';
         scoreSavedThisSession = true;
         lastSavedDisplayName = displayName;
@@ -6263,7 +6376,7 @@ ${DEFAULT_SCORING_HTML}`;
           const newRef = window.dbPush(pubRef);
           await window.dbSet(newRef, payload);
           const rank = await computeLeaderboardRank(computePlaySessionKey(), payload.points, payload.elapsedMs);
-          toastEl.textContent = 'Score saved. Thanks for playing!';
+          toastEl.textContent = '';
           if (sb) sb.textContent = 'Saved';
           scoreSavedThisSession = true;
           lastSavedDisplayName = displayName;

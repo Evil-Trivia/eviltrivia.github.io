@@ -408,12 +408,14 @@ firebase deploy --only hosting,database
 
 ### iOS-style keyboard popup
 
-When the player taps any letter (or backspace) on the on-screen keyboard, a yellow paddle pops out of the key. Implementation:
+When the player taps any letter, space, or backspace on the on-screen keyboard, a yellow paddle pops out of the key. Implementation:
 
 - The popup HTML is `<div id="kbKeyPop"><svg><path/><text/></svg></div>`, a single fixed-positioned container above the keyboard.
-- `buildIosKeyPopPath(keyWidth, keyHeight)` generates the SVG `<path>` `d` attribute on each press. The shape is a paddle: wider bubble on top (≈1.55x key width), an S-curve neck (~11px), then a stem that matches the key width and extends down by `keyHeight` so it fully covers the pressed key. The path is **left open along the stem bottom** — SVG fills it implicitly, but no horizontal stroke is drawn there, so the outline merges into the keyboard area without a visible seam.
-- The popup is colored `#ffcc00` fill with `#e6b800` stroke and a black letter — the same palette the `.kb-key.kb-flash` class applies to a pressed key. The "held yellow" effect is the popup itself; there is no separate timer. The popup lingers `KB_KEY_POP_LINGER_MS` (75ms) after release, then fades over `KB_KEY_POP_FADE_MS` (30ms).
-- The space key is excluded from the popup (its "SPACE" label doesn't fit the paddle shape).
+- `buildIosKeyPopPath(keyWidth, keyHeight)` generates the SVG `<path>` `d` attribute on each press. The shape is a paddle: wider bubble on top, an S-curve neck (~11px), then a stem that matches the key width and extends down by `keyHeight` so it fully covers the pressed key. The path is **left open along the stem bottom** — SVG fills it implicitly, but no horizontal stroke is drawn there, so the outline merges into the keyboard area without a visible seam.
+- **Bubble width.** For narrow letter keys the bubble is ≈1.55x the key width (the iOS flared-paddle look). For wide keys (space bar) the multiplier alone would balloon the bubble to a comically wide flag; the formula is capped at `keyWidth + 32` so the bubble stays close to the key width while still showing a small visible flare on both sides.
+- The popup is colored `#ffcc00` fill with `#e6b800` stroke and a black letter — the same palette the `.kb-key.kb-flash` class applies to a pressed key. The "held yellow" effect is the popup itself; there is no separate timer.
+- **Timing.** Tuned to match the native iOS feel: `KB_KEY_POP_LINGER_MS = 0` (no delay after touch up before the fade starts) and `KB_KEY_POP_FADE_MS = 60` (a short ease-out fade). The CSS transition on `.kb-key-pop` uses the same `0.06s` duration so the element is never hidden before the fade has finished painting. The enter animation (`kbKeyPopIn`) is a 20ms `scale(0.95 → 1)` + `opacity(0.7 → 1)` — fast enough to read as "instant" but with a small visible pop. The previous timings (75ms linger + 30ms fade + 40ms scale-up from 0.86) felt sluggish in side-by-side comparison with the iOS keyboard; do not lengthen them back without re-checking against the native keyboard.
+- The GUESS and REVEAL action keys are still excluded (they're labelled words, not single characters, and a flared paddle around them looks wrong). Space is included — its label is "SPACE", drawn at the same single-char font size as the letter popups.
 
 ### Phrase squircles
 
@@ -443,6 +445,32 @@ The `helpHinted` flag is **persistent across sessions** — once a player has be
 
 `#scoreDeltaLayer` shows the floating "+1" / "−2" animations when the score changes. `showScoreDelta(delta)` is the entrypoint.
 
+### Connection ("final question") layout
+
+The connection (the optional final puzzle that asks what links the phrases together) renders as a single grey rounded module — `.com-prompt` — that contains **both the question prompt and the answer strip**. Earlier versions split these into two separate rows; the combined module reads better as one self-contained piece and keeps the answer visually tied to the question it's answering. The structure inside `#comPromptBlock` is:
+
+1. `.com-prompt-text` — the prompt question.
+2. `.mg-hint-tap-msg` — the inline "tap to reveal a hint" status text.
+3. `.com-hint-inline` — the revealed hints inline.
+4. `.mg-main-row.mg-com-answer-row` — the answer strip (`#strip-c`).
+
+Tapping the strip focuses it (handled in `onBoardClick` by the `.mg-answer-strip[id]` early-return branch). Tapping anywhere else inside `#comPromptBlock` triggers the hint reveal flow. Do not collapse those two branches into one; the strip needs to win on focus even though it's now physically inside the hint-tap target.
+
+The grey box gets `padding-bottom: 8px` in quiz mode so the focused strip's yellow halo fits inside the grey box without overlapping the bottom border. If you ever change the focus halo width, recheck this padding.
+
+### Archive completion states (`getRoundPlayStatus`)
+
+The archive list shows three play states per round:
+
+| Status | When it applies | Label |
+|---|---|---|
+| `submitted` | A leaderboard submission exists for the round (local `invMiddlegroundUser.submissions[sessionKey]` has `submitted: true`) | rank · points · time |
+| `completed` | The puzzle's autosave is in `phase: 'finish'` (or every phrase + connection is solved) but no leaderboard submission was made — the player closed the page before clicking Save score | "Completed — tap to submit" (amber) |
+| `in_progress` | Autosaved progress exists but the puzzle isn't fully solved | "In progress" (red) |
+| `not_played` | No autosave and no submission | "Not played" (grey) |
+
+Without the explicit `completed` state, players who finished the puzzle but didn't submit saw their round listed as "In progress" forever, which read as a bug. `progressIsCompleted()` is the source of truth: a saved progress is "completed" if the saved `phase` is `'finish'`, OR every entry in `puzzleSolved[]` is true AND the connection (if present) is solved or revealed.
+
 ### Share / emoji grid (`buildEmojiGrid`)
 
 The "share my score" copy-to-clipboard text uses an emoji grid that summarises the round, one row per phrase plus the connection. The format is intentionally compact (no spaces, one emoji per line for the phrases; a single number emoji for the connection):
@@ -457,6 +485,12 @@ The "share my score" copy-to-clipboard text uses an emoji grid that summarises t
 The connection row deliberately has **no coloured square** even though the same red/yellow/green rule could be applied — only the bonus number is shown. If the round has no connection, the connection row is omitted entirely. The bonus is `sessionThemeBonusPoints` (defaults to 0 if the connection was REVEALed).
 
 The per-row colour relies on `manualHintRevealedLeft[i]` / `manualHintRevealedRight[i]` / `manualComHintsRevealed` being incremented **once per player-confirmed hint reveal** (the second tap on a clue box). Free hints that auto-reveal on a correct phrase guess do not count. If these counters drift from the actual hint usage, the grid is wrong — keep them in sync with `revealedLeftArr[i]` / `revealedRightArr[i]` increments.
+
+#### Share round number
+
+The share text includes a per-round number — `"InVennTions #N"` — where N is the round's 1-based position among non-hidden, released rounds when sorted by `playDate` **ascending** (oldest = #1). Computed by `getRoundShareNumber(roundId)` from the cached `fetchArchiveRaw()` data so the number is consistent with what's in Firebase, not whatever happens to be in the in-memory `archiveCatalog`. If the lookup fails (network error, round not in archive), it falls back to the truncated round ID (the legacy format).
+
+Note: this number can shift if older rounds are added retroactively. That should be rare in practice (admins normally add rounds for the future, not the past), but if it happens, screenshots of previously shared scores will have stale numbers. We accept that trade-off because using a stable Firebase push ID was unreadable for players.
 
 ---
 
