@@ -574,6 +574,17 @@
       font-size: 0.92rem;
     }
     .lb-row:last-child { border-bottom: none; }
+    .lb-row-ours { background: rgba(255, 204, 0, 0.15); border-radius: 4px; padding: 9px 8px; margin: 0 -8px; }
+    .lb-context {
+      text-align: center;
+      font-size: 0.95rem;
+      margin: 0 0 16px;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      border: 1px solid #eee;
+    }
+    .lb-context strong { color: #2c3e50; font-weight: 800; }
     .lb-name {
       font-weight: 700;
       min-width: 0;
@@ -1031,18 +1042,24 @@
     }
     .score-breakdown-hero {
       font-family: 'Arial Black', Arial, sans-serif;
-      font-size: 1.35rem;
+      font-size: 1.8rem;
       color: #2c3e50;
       margin-bottom: 4px;
     }
     .score-breakdown-hero strong {
-      font-size: 1.45rem;
+      font-size: 2.2rem;
     }
     .score-breakdown-time {
-      font-size: 0.92rem;
+      font-size: 1.05rem;
       color: #555;
       font-variant-numeric: tabular-nums;
       margin-bottom: 10px;
+    }
+    .score-breakdown-grid {
+      font-size: 1.6rem;
+      line-height: 1.2;
+      letter-spacing: 2px;
+      margin: 12px 0;
     }
     .score-breakdown-divider {
       border: none;
@@ -2086,6 +2103,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
     import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+    import confetti from "https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/+esm";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBruAY3SH0eO000LrYqwcOGXNaUuznoMkc",
@@ -2404,10 +2422,12 @@ ${DEFAULT_SCORING_HTML}`;
 
     function buildScoreBreakdownHtml(timeLabel) {
       const elapsed = timeLabel != null ? timeLabel : formatElapsedMs(getPlayElapsedMs());
+      const gridHtml = buildEmojiGrid().replace(/\n/g, '<br/>');
       return `
         <div class="score-breakdown">
           <div class="score-breakdown-hero">Score: <strong>${getDisplayScore()}</strong></div>
           <div class="score-breakdown-time">Time: ${esc(elapsed)}</div>
+          <div class="score-breakdown-grid" aria-hidden="true">${gridHtml}</div>
           <hr class="score-breakdown-divider" />
           <dl class="score-breakdown-lines">
             <div class="score-breakdown-row">
@@ -2794,6 +2814,25 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
+    function buildEmojiGrid() {
+      let grid = '';
+      for (let i = 0; i < puzzles.length; i++) {
+        if (puzzleRevealed[i]) {
+          grid += '🟥';
+        } else if (revealedLeftArr[i] + revealedRightArr[i] === 0) {
+          grid += '🟩';
+        } else {
+          grid += '🟨';
+        }
+      }
+      if (commonality) {
+        grid += '\n';
+        const char = (revealedComHints === 0 && commonalitySolved) ? '🟩' : (commonalitySolved ? '🟨' : '⬜');
+        for (let i = 0; i < puzzles.length; i++) grid += char;
+      }
+      return grid;
+    }
+
     function buildShareScoreText(displayName) {
       const name = displayName ? String(displayName).trim() : 'Anonymous';
       const score = getDisplayScore();
@@ -2811,7 +2850,8 @@ ${DEFAULT_SCORING_HTML}`;
         }
       }
       const url = roundShareUrl(roundId);
-      return `${name} scored ${score} pts in ${time} on "${label}" — ${url}`;
+      const grid = buildEmojiGrid();
+      return `${name} scored ${score} pts in ${time} on "${label}"\n\n${grid}\n\n${url}`;
     }
 
     async function copyTextToClipboard(text) {
@@ -5166,8 +5206,30 @@ ${DEFAULT_SCORING_HTML}`;
           body.innerHTML = `<p class="mg-modal-muted">No scores for ${esc(label)} yet. Be the first!</p>`;
           return;
         }
-        body.innerHTML = `<ul class="lb-list">${rows.slice(0, 100).map(s => `
-          <li class="lb-row">
+        
+        let ourRank = -1;
+        for (let i = 0; i < rows.length; i++) {
+          if (scoreMatchesSessionKey(rows[i], sessionKey)) {
+            ourRank = i;
+            break;
+          }
+        }
+        
+        let contextHtml = '';
+        if (ourRank !== -1 && rows.length > 1) {
+          const beatCount = rows.length - ourRank - 1;
+          const percentile = Math.round((beatCount / (rows.length - 1)) * 100);
+          if (ourRank === 0) {
+            contextHtml = `<p class="lb-context">You have the <strong>top score</strong>!</p>`;
+          } else if (percentile > 50) {
+            contextHtml = `<p class="lb-context">You scored better than <strong>${percentile}%</strong> of players!</p>`;
+          } else {
+            contextHtml = `<p class="lb-context">You are in the top <strong>${100 - percentile}%</strong> of players!</p>`;
+          }
+        }
+
+        body.innerHTML = `${contextHtml}<ul class="lb-list">${rows.slice(0, 100).map(s => `
+          <li class="lb-row ${s === rows[ourRank] ? 'lb-row-ours' : ''}">
             <span class="lb-name">${esc(s.displayName || 'Anonymous')}</span>
             <span class="lb-points-time">
               <span class="lb-score">${leaderboardPoints(s)}</span>
@@ -5966,11 +6028,28 @@ ${DEFAULT_SCORING_HTML}`;
         </div>`;
       overlay.classList.remove('hidden');
       overlay.setAttribute('aria-hidden', 'false');
+      
+      if (getDisplayScore() > 0) {
+        triggerConfetti();
+      }
+      
       window.setTimeout(() => {
         overlay.classList.add('hidden');
         overlay.setAttribute('aria-hidden', 'true');
         if (onDone) onDone();
       }, FINAL_SCORE_FLASH_MS);
+    }
+
+    function triggerConfetti() {
+      try {
+        confetti({
+          particleCount: 80,
+          spread: 100,
+          origin: { y: 0.5 }
+        });
+      } catch (e) {
+        console.warn('InVennTions confetti:', e);
+      }
     }
 
     function scheduleFinishModalReveal(resuming) {
