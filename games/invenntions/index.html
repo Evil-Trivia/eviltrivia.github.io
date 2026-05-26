@@ -872,7 +872,7 @@
       max-width: none;
       min-height: 2.1em;
       flex: 1 1 auto;
-      padding: 3px 4px;
+      padding: 5px 6px;
       font-family: 'Arial Black', Arial, sans-serif;
       font-size: clamp(0.72rem, 2.8vw, 0.95rem);
       letter-spacing: 0.05em;
@@ -915,12 +915,16 @@
      * clue boxes / squircle SVGs.
      */
     body.inv-quiz-active .mg-center:has(> .mg-answer-strip.focused:not(.solved)) {
-      z-index: 5000;
+      z-index: 10000;
+      position: relative;
     }
     body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)),
     body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row-wrap,
     body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row,
-    body.inv-quiz-active .com-section:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row {
+    body.inv-quiz-active .mg-phrase-block:has(.mg-answer-strip.focused:not(.solved)) .mg-center,
+    body.inv-quiz-active .com-section:has(.mg-answer-strip.focused:not(.solved)),
+    body.inv-quiz-active .com-section:has(.mg-answer-strip.focused:not(.solved)) .mg-main-row,
+    body.inv-quiz-active .com-section:has(.mg-answer-strip.focused:not(.solved)) .mg-center {
       overflow: visible;
     }
     .mg-answer-strip.solved {
@@ -2282,12 +2286,16 @@ ${DEFAULT_SCORING_HTML}`;
     let puzzleRevealed = [];
     let revealedLeftArr = [];
     let revealedRightArr = [];
+    let manualHintRevealedLeft = [];
+    let manualHintRevealedRight = [];
     let commonalityBuffer = '';
     /** @type {'phrase' | 'commonality'} */
     let focusKind = 'phrase';
     let focusPuzzleIndex = 0;
     let focusHighlightSuspended = false;
     let revealedComHints = 0;
+    let manualComHintsRevealed = 0;
+    let commonalityRevealed = false;
     let incorrectGuesses = 0;
     let commonalitySolved = false;
     /** User-initiated hint reveals only (not free reveal on phrase solve). */
@@ -2529,6 +2537,8 @@ ${DEFAULT_SCORING_HTML}`;
       clearHintTimer(`R-${i}`);
       revealedLeftArr[i] = p.leftHints.length;
       revealedRightArr[i] = p.rightHints.length;
+      manualHintRevealedLeft[i] = manualHintRevealedLeft[i] || 0;
+      manualHintRevealedRight[i] = manualHintRevealedRight[i] || 0;
     }
 
     function updateScoreStat() {
@@ -2820,7 +2830,7 @@ ${DEFAULT_SCORING_HTML}`;
       for (let i = 0; i < puzzles.length; i++) {
         if (puzzleRevealed[i]) {
           grid += '🟥';
-        } else if (revealedLeftArr[i] + revealedRightArr[i] === 0) {
+        } else if (manualHintRevealedLeft[i] + manualHintRevealedRight[i] === 0) {
           grid += '🟩';
         } else {
           grid += '🟨';
@@ -2828,13 +2838,23 @@ ${DEFAULT_SCORING_HTML}`;
         grid += '\n';
       }
       if (commonality) {
-        grid += '🟥';
-        const bonusNum = String(sessionThemeBonusPoints || 0);
-        const numEmoji = bonusNum.split('').map(d => {
-          const map = {'0': '0️⃣', '1': '1️⃣', '2': '2️⃣', '3': '3️⃣', '4': '4️⃣', '5': '5️⃣', '6': '6️⃣', '7': '7️⃣', '8': '8️⃣', '9': '9️⃣'};
-          return map[d] || d;
-        }).join('');
-        grid += numEmoji;
+        if (commonalityRevealed) {
+          grid += '🟥';
+        } else if (commonalitySolved) {
+          if (manualComHintsRevealed === 0) {
+            grid += '🟩';
+          } else {
+            grid += '🟨';
+          }
+          const bonusNum = String(sessionThemeBonusPoints || 0);
+          const numEmoji = bonusNum.split('').map(d => {
+            const map = {'0': '0️⃣', '1': '1️⃣', '2': '2️⃣', '3': '3️⃣', '4': '4️⃣', '5': '5️⃣', '6': '6️⃣', '7': '7️⃣', '8': '8️⃣', '9': '9️⃣'};
+            return map[d] || d;
+          }).join('');
+          grid += numEmoji;
+        } else {
+          grid += '⬜';
+        }
       }
       return grid;
     }
@@ -3061,9 +3081,13 @@ ${DEFAULT_SCORING_HTML}`;
         puzzleRevealed: puzzleRevealed.slice(),
         revealedLeftArr: revealedLeftArr.slice(),
         revealedRightArr: revealedRightArr.slice(),
+        manualHintRevealedLeft: manualHintRevealedLeft.slice(),
+        manualHintRevealedRight: manualHintRevealedRight.slice(),
         commonalityBuffer,
         commonalitySolved,
+        commonalityRevealed,
         revealedComHints,
+        manualComHintsRevealed,
         focusKind,
         focusPuzzleIndex,
         scoreSavedThisSession,
@@ -5767,9 +5791,11 @@ ${DEFAULT_SCORING_HTML}`;
       }
       if (focusKind === 'commonality' && commonality && !commonalitySolved) {
         commonalitySolved = true;
+        commonalityRevealed = true;
         commonalityBuffer = normGuess(commonality.answer);
         answerRevealCount++;
         addScore(-2);
+        manualComHintsRevealed = 0;
         hintPending.delete('C');
         clearHintTimer('C');
         clearActiveGuessHighlight();
