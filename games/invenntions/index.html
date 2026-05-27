@@ -796,7 +796,9 @@
       overflow: hidden;
     }
     .mg-words.mg-words--with-hint {
-      gap: 2px;
+      /* Keep clue + hint visually closer so a 2-line hint has enough
+         vertical budget inside the fixed-height clue box. */
+      gap: 0;
     }
     .mg-words-text,
     .mg-hint-tap-msg {
@@ -836,6 +838,9 @@
          lines fit inside --mg-split-clue-h. */
       -webkit-line-clamp: 2;
       line-height: 1.15;
+      /* Lift clue text slightly when hints are present so the clue-to-hint
+         stack reads as one block and frees ~1px for the hint's second line. */
+      transform: translateY(-1px);
     }
     .mg-hint-area {
       flex: 0 0 auto;
@@ -4157,14 +4162,42 @@ ${DEFAULT_SCORING_HTML}`;
       el.style.webkitLineClamp = String(maxLines);
       el.style.webkitBoxOrient = 'vertical';
       el.style.overflow = 'hidden';
-      el.style.width = '100%';
-      el.style.maxWidth = '100%';
+      if (hasHint) {
+        /* In the revealed/with-hint state, cheat clue text inward by ~2px
+           from each side so it doesn't visually hug the clue-box border. */
+        el.style.width = 'calc(100% - 4px)';
+        el.style.maxWidth = 'calc(100% - 4px)';
+        el.style.marginLeft = '2px';
+        el.style.marginRight = '2px';
+      } else {
+        el.style.width = '100%';
+        el.style.maxWidth = '100%';
+        el.style.marginLeft = '0';
+        el.style.marginRight = '0';
+      }
       el.style.maxHeight = clueMax + 'px';
 
       const ceilingPx = clueFitCeilingPx(el, hasHint, clueMax, maxLines);
       fitFontSizeBinary(el, ceilingPx, px => {
         el.style.fontSize = px + 'px';
         return !clueTextOverflows(el);
+      });
+    }
+
+    function fitHintLinesText(el) {
+      if (!el || !el.classList.contains('mg-hint-lines')) return;
+      const zone = el.closest('.mg-hint-area');
+      if (!zone) return;
+      const zoneH = zone.clientHeight || parseFloat(getComputedStyle(zone).maxHeight) || 0;
+      if (!Number.isFinite(zoneH) || zoneH <= 0) return;
+      el.style.fontSize = '';
+      el.style.display = 'block';
+      el.style.whiteSpace = 'normal';
+      el.style.maxHeight = zoneH + 'px';
+      const maxPx = parseFloat(getComputedStyle(el).fontSize) || 11;
+      fitFontSizeBinary(el, maxPx, px => {
+        el.style.fontSize = px + 'px';
+        return el.scrollHeight <= zoneH + 1;
       });
     }
 
@@ -4198,6 +4231,7 @@ ${DEFAULT_SCORING_HTML}`;
       const root = !scopeEl || scopeEl === puzzleMount ? puzzleMount : scopeEl;
       root.querySelectorAll('.mg-words').forEach(syncClueSoloLayout);
       root.querySelectorAll('.mg-words-text').forEach(fitClueWordsText);
+      root.querySelectorAll('.mg-hint-lines').forEach(fitHintLinesText);
       root.querySelectorAll('.mg-hint-tap-msg').forEach(el => {
         if (el.closest('.mg-words-hint-pending')) return;
         fitSingleLineText(el);
