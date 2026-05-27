@@ -431,10 +431,11 @@ Each `.mg-words` (the left or right clue card on a phrase row) is a fixed-height
 
 The CSS variables `--mg-full-clue-h` (no hint) and `--mg-split-clue-h` (with hint) are derived from the above minus the outer `.mg-words` padding.
 
-Two gotchas worth remembering, both of which were the cause of the "descenders cut off, second clue line clipped when hint is shown" bug:
+Three gotchas worth remembering, all of which surfaced as variations of the same "descenders / wrapped lines clipped" bug:
 
 1. **No inner padding on `.mg-words-text` or `.mg-hint-lines`.** They both used to have `padding: 2px` — combined with `box-sizing: border-box` and a tight `max-height`, that ate ~4px off the usable text area and caused glyph descenders to clip even when the binary font-fit search had picked the smallest allowed font (`MG_FIT_MIN_PX = 7.5`).
 2. **Clue text always allows 2 lines** (`fitClueWordsText` uses `maxLines = 2` unconditionally). When a hint is revealed, `.mg-words.mg-words--with-hint .mg-words-text` keeps `-webkit-line-clamp: 2` (not 1) and the binary search shrinks the font enough that two lines fit inside `--mg-split-clue-h`. Forcing `line-clamp: 1` clipped any multi-word clue that wrapped.
+3. **`.mg-hint-lines` uses `line-height: 1.35`, not the visually-tighter `1.1` you might reach for first.** Hint text renders at a small font (`clamp(0.56rem, 2.05vw, 0.68rem)` — ~8–11px on phones), and at line-height 1.1 the natural descenders of the system sans-serif fall outside the element's own line-box. Because `.mg-hint-lines` is `overflow: hidden` for line-clamp to work, those descenders get cut off **even when the surrounding `.mg-hint-area` has obvious empty space below**. 1.35 reserves a descender strip inside the line-box itself. Combined with `align-items: flex-start` on `.mg-hint-area` (top-aligned, not centered), the visible whitespace ends up below the hint instead of being split above and below.
 
 If you change the budget, do the math against `clueFitCeilingPx`: shrinking the slot below ~9px-equivalent for two lines makes the clue illegible on phones.
 
