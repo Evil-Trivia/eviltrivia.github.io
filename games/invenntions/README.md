@@ -431,12 +431,13 @@ Each `.mg-words` (the left or right clue card on a phrase row) is a fixed-height
 
 The CSS variables `--mg-full-clue-h` (no hint) and `--mg-split-clue-h` (with hint) are derived from the above minus the outer `.mg-words` padding.
 
-Four gotchas worth remembering, all of which were part of the "descenders cut off, second clue line clipped when hint is shown" bug:
+Five gotchas worth remembering, all of which were part of the "descenders cut off, second clue line clipped when hint is shown" bug:
 
 1. **No inner padding on `.mg-words-text` or `.mg-hint-lines`.** They both used to have `padding: 2px` — combined with `box-sizing: border-box` and a tight `max-height`, that ate ~4px off the usable text area and caused glyph descenders to clip even when the binary font-fit search had picked the smallest allowed font (`MG_FIT_MIN_PX = 7.5`).
 2. **Clue text always allows 2 lines** (`fitClueWordsText` uses `maxLines = 2` unconditionally). When a hint is revealed, `.mg-words.mg-words--with-hint .mg-words-text` keeps `-webkit-line-clamp: 2` (not 1) and the binary search shrinks the font enough that two lines fit inside `--mg-split-clue-h`. Forcing `line-clamp: 1` clipped any multi-word clue that wrapped.
 3. **Hint text uses normal block flow, not `-webkit-line-clamp`.** On iOS Safari, `display: -webkit-box` + `-webkit-line-clamp` + `overflow: hidden` can clip descenders (`p/y/g/j/q`) in `.mg-hint-lines` even when there is visible room. The current rule uses `display: block`, `line-height: 1.2`, and lets the parent `.mg-hint-area` be the sole clipping boundary.
 4. **With-hint micro-alignment matters.** In the `mg-words--with-hint` state, the vertical gap between clue and hint is `0` (not `2px`), the clue text is nudged up by `1px`, and `fitHintLinesText()` shrinks hint font to the slot when needed. That combination prevents the hint's second line from clipping while keeping clue text visually inset from side edges (the with-hint fit path narrows clue text width to `calc(100% - 4px)` with `2px` side margins).
+5. **Hint edge + layering rules.** Hint-only outer-edge breathing room is applied via `.mg-side-left .mg-hint-area { padding-left: 2px; }` and `.mg-side-right .mg-hint-area { padding-right: 2px; }` so outermost hints don't hug the screen border. In with-hint state, `.mg-hint-area` / `.mg-hint-lines` get elevated `z-index` and `overflow: visible` so descenders on line 2 are painted above sibling row content instead of being visually shaved.
 
 If you change the budget, do the math against `clueFitCeilingPx`: shrinking the slot below ~9px-equivalent for two lines makes the clue illegible on phones.
 

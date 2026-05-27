@@ -847,10 +847,20 @@
       width: 100%;
       min-height: 0;
       max-height: var(--mg-hint-slot-h, 1.6em);
-      overflow: hidden;
+      /* Keep clipping responsibility at the clue-card boundary; allow
+         hint glyph descenders to render fully inside the card even if
+         they extend a pixel beyond the hint area's own line box. */
+      overflow: visible;
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+    /* Hint text only: add 2px breathing room on the outer screen edges. */
+    .mg-side-left .mg-hint-area {
+      padding-left: 2px;
+    }
+    .mg-side-right .mg-hint-area {
+      padding-right: 2px;
     }
     .mg-words .mg-hint-area:empty {
       display: none;
@@ -876,6 +886,18 @@
       max-height: 100%;
       word-break: break-word;
       overflow-wrap: anywhere;
+    }
+    /*
+     * In revealed/with-hint state, lift hint text above sibling layers so
+     * descenders on line 2 are never painted underneath nearby row content.
+     */
+    .mg-words.mg-words--with-hint .mg-hint-area {
+      position: relative;
+      z-index: 6;
+    }
+    .mg-words.mg-words--with-hint .mg-hint-lines {
+      position: relative;
+      z-index: 7;
     }
     .mg-center {
       flex: 0 1 var(--mg-center-flex, 22%);
@@ -4190,14 +4212,15 @@ ${DEFAULT_SCORING_HTML}`;
       if (!zone) return;
       const zoneH = zone.clientHeight || parseFloat(getComputedStyle(zone).maxHeight) || 0;
       if (!Number.isFinite(zoneH) || zoneH <= 0) return;
+      const safeZoneH = Math.max(0, zoneH - 1);
       el.style.fontSize = '';
       el.style.display = 'block';
       el.style.whiteSpace = 'normal';
-      el.style.maxHeight = zoneH + 'px';
+      el.style.maxHeight = safeZoneH + 'px';
       const maxPx = parseFloat(getComputedStyle(el).fontSize) || 11;
       fitFontSizeBinary(el, maxPx, px => {
         el.style.fontSize = px + 'px';
-        return el.scrollHeight <= zoneH + 1;
+        return el.scrollHeight <= safeZoneH + 1;
       });
     }
 
