@@ -2344,6 +2344,7 @@ ${DEFAULT_SCORING_HTML}`;
     let sessionThemeBonusEvents = [];
     let scoreSavedThisSession = false;
     let lastSavedDisplayName = '';
+    let lastSavedScoreId = '';
     let scoreModalOpenedAt = 0;
     const SCORE_MODAL_DISMISS_GUARD_MS = 500;
     /** Running session score. */
@@ -2954,14 +2955,28 @@ ${DEFAULT_SCORING_HTML}`;
       return false;
     }
 
+    /*
+     * Copy the share text to the clipboard.
+     *
+     * `autoCopyOnly` is true when this is the page-load auto-copy that
+     * happens when the leaderboard finishes rendering (a convenience
+     * pre-load so the share button feels instant). In that mode we
+     * stay silent regardless of outcome: the user did not ask for the
+     * copy, and many browsers refuse clipboard writes outside a user
+     * gesture, so showing "Copied to clipboard!" before the player has
+     * even seen the share button is misleading.
+     *
+     * On an explicit click (autoCopyOnly === false) we always update
+     * the status message — success or failure.
+     */
     async function shareMyScore(displayName, msgEl, autoCopyOnly) {
       const fullText = await buildShareScoreText(displayName);
       try {
         await copyTextToClipboard(fullText);
-        if (msgEl) msgEl.textContent = 'Copied to clipboard!';
+        if (msgEl && !autoCopyOnly) msgEl.textContent = 'Copied to clipboard!';
       } catch (e) {
         console.warn('InVennTions share:', e);
-        if (msgEl) msgEl.textContent = 'Failed to copy';
+        if (msgEl && !autoCopyOnly) msgEl.textContent = 'Failed to copy';
       }
     }
 
@@ -3342,6 +3357,7 @@ ${DEFAULT_SCORING_HTML}`;
       finishTotalPossible = total;
       scoreSavedThisSession = true;
       lastSavedDisplayName = submission.displayName ? String(submission.displayName) : '';
+      lastSavedScoreId = submission.scoreId ? String(submission.scoreId) : '';
 
       const sessionKey = computePlaySessionKey();
       writeSubmitRecord({
@@ -3430,7 +3446,7 @@ ${DEFAULT_SCORING_HTML}`;
       return playSessionKeysMatch(rec.sessionKey, sessionKey);
     }
 
-    function markSessionSubmitted(displayName, rank) {
+    function markSessionSubmitted(displayName, rank, scoreId) {
       const sessionKey = computePlaySessionKey();
       const roundId = getPlayRoundId();
       const payload = {
@@ -3441,6 +3457,7 @@ ${DEFAULT_SCORING_HTML}`;
         points: getDisplayScore(),
         elapsedMs: getPlayElapsedMs(),
         rank: rank != null ? rank : null,
+        scoreId: scoreId || lastSavedScoreId || '',
         at: Date.now(),
         puzzleSolved: puzzleSolved.slice(),
         puzzleRevealed: puzzleRevealed.slice(),
@@ -3519,7 +3536,19 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     const kbFlashTimers = new WeakMap();
-    const KB_FLASH_MS = 120;
+    /*
+     * Yellow "I just pressed this key" flash duration. The on-screen
+     * keyboard's primary press feedback is the iOS-style popup paddle
+     * (see KB_KEY_POP_FADE_MS); kb-flash is the secondary fallback that
+     * also fires when input is triggered without a physical pointerdown
+     * (programmatic flash, physical keyboard pass-through, etc.). Keep
+     * this short — earlier 120ms made the key still glow long after the
+     * finger had moved on, which felt sluggish vs the native keyboard.
+     * On real touch input we additionally shorten the flash on
+     * pointerup so the yellow disappears with the finger.
+     */
+    const KB_FLASH_MS = 50;
+    const KB_FLASH_RELEASE_MS = 16;
     const KB_REPEAT_DELAY_MS = 320;
     const KB_REPEAT_INTERVAL_MS = 65;
     /*
@@ -3757,6 +3786,23 @@ ${DEFAULT_SCORING_HTML}`;
       if (!rec) return;
       stopKbKeyRepeat(rec);
       rec.btn.classList.remove('kb-pressed');
+      /* Tie the yellow flash to the actual touch lifetime: the user
+         lifted their finger, so collapse any in-flight kb-flash to a
+         single-frame remnant instead of letting it run for the full
+         KB_FLASH_MS. Without this, lifting between fast-typed keys
+         leaves several keys visibly yellow at once. */
+      const releaseBtn = rec.btn;
+      const prev = kbFlashTimers.get(releaseBtn);
+      if (prev) clearTimeout(prev);
+      if (releaseBtn.classList.contains('kb-flash')) {
+        const t = window.setTimeout(() => {
+          releaseBtn.classList.remove('kb-flash');
+          kbFlashTimers.delete(releaseBtn);
+        }, KB_FLASH_RELEASE_MS);
+        kbFlashTimers.set(releaseBtn, t);
+      } else {
+        kbFlashTimers.delete(releaseBtn);
+      }
       kbActivePointers.delete(pointerId);
       if (!kbActivePointers.size) hideKbKeyPop();
     }
@@ -3773,14 +3819,54 @@ ${DEFAULT_SCORING_HTML}`;
       return rec;
     }
 
+    /*
+     * Resolve a touch point to the key the player intended to press.
+     * Mirrors the iOS keyboard's "no dead space between keys" feel:
+     *   1. If the touch lands directly on a .kb-key, use that key.
+     *   2. Otherwise (the touch fell into the inter-key gap, the row
+     *      gap, or just outside the key but still inside the keyboard
+     *      surface), snap to the nearest non-disabled key by
+     *      Euclidean distance from the touch point to the key's
+     *      bounding rect.
+     * A loose distance ceiling keeps stray taps far from the keyboard
+     * (e.g. someone tapping the toast region) from accidentally firing.
+     */
+    function findKbKeyAtOrNear(clientX, clientY) {
+      if (!keyboardRoot) return null;
+      const direct = document.elementFromPoint(clientX, clientY);
+      const directKey = direct && direct.closest ? direct.closest('.kb-key') : null;
+      if (directKey && keyboardRoot.contains(directKey) && !directKey.disabled) return directKey;
+      const keys = keyboardRoot.querySelectorAll('.kb-key');
+      let best = null;
+      let bestDistSq = Infinity;
+      for (const key of keys) {
+        if (key.disabled) continue;
+        const r = key.getBoundingClientRect();
+        const cx = clientX < r.left ? r.left : (clientX > r.right ? r.right : clientX);
+        const cy = clientY < r.top ? r.top : (clientY > r.bottom ? r.bottom : clientY);
+        const dx = clientX - cx;
+        const dy = clientY - cy;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq;
+          best = key;
+        }
+      }
+      /* 36px (squared = 1296) is roughly one row gap + a key border; far
+         enough to swallow inter-key dead space, close enough that taps
+         well above or below the keyboard don't snap onto a key. */
+      if (best && bestDistSq <= 1296) return best;
+      return null;
+    }
+
     function ensureKeyboardPointerHandling() {
       if (kbPointerBound || !keyboardRoot) return;
       kbPointerBound = true;
 
       keyboardRoot.addEventListener('pointerdown', e => {
-        const btn = e.target.closest('.kb-key');
-        if (!btn || btn.disabled) return;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
+        const btn = findKbKeyAtOrNear(e.clientX, e.clientY);
+        if (!btn || btn.disabled) return;
         e.preventDefault();
         e.stopPropagation();
 
@@ -3796,9 +3882,8 @@ ${DEFAULT_SCORING_HTML}`;
         const rec = kbActivePointers.get(e.pointerId);
         if (!rec) return;
         e.preventDefault();
-        const hit = document.elementFromPoint(e.clientX, e.clientY);
-        const btn = hit && hit.closest ? hit.closest('.kb-key') : null;
-        if (btn && keyboardRoot.contains(btn) && !btn.disabled && btn !== rec.btn) {
+        const btn = findKbKeyAtOrNear(e.clientX, e.clientY);
+        if (btn && !btn.disabled && btn !== rec.btn) {
           rec.btn.classList.remove('kb-pressed');
           rec.btn = btn;
           btn.classList.add('kb-pressed');
@@ -5338,6 +5423,41 @@ ${DEFAULT_SCORING_HTML}`;
       return rid ? [rid] : [];
     }
 
+    /*
+     * Pick the row that represents the score the player just submitted.
+     * Preference order:
+     *   1. Match by Firebase push id (lastSavedScoreId) — exact, robust.
+     *   2. Match by (displayName, points, elapsedMs) — works for legacy
+     *      submissions written before scoreId was tracked.
+     * Returns the index in `rows` (already sorted), or -1.
+     */
+    function findOurLeaderboardRowIndex(rows, expectedDisplayName, expectedPoints, expectedElapsedMs) {
+      if (!rows.length) return -1;
+      if (lastSavedScoreId) {
+        const i = rows.findIndex(r => r && r.__id && r.__id === lastSavedScoreId);
+        if (i !== -1) return i;
+      }
+      const nameNorm = String(expectedDisplayName || '').trim().toLowerCase();
+      const pts = typeof expectedPoints === 'number' ? expectedPoints : null;
+      const ms = typeof expectedElapsedMs === 'number' ? expectedElapsedMs : null;
+      if (pts == null && ms == null && !nameNorm) return -1;
+      let bestIdx = -1;
+      let bestTimestamp = -Infinity;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r) continue;
+        if (pts != null && leaderboardPoints(r) !== pts) continue;
+        if (ms != null && leaderboardElapsedMs(r) !== ms) continue;
+        if (nameNorm && String(r.displayName || '').trim().toLowerCase() !== nameNorm) continue;
+        const ts = typeof r.timestamp === 'number' ? r.timestamp : 0;
+        if (ts >= bestTimestamp) {
+          bestTimestamp = ts;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+
     async function loadPublicLeaderboard() {
       const body = document.getElementById('leaderboardBody');
       if (!body) return;
@@ -5350,7 +5470,9 @@ ${DEFAULT_SCORING_HTML}`;
           const val = snap.val();
           Object.keys(val).forEach(id => {
             const s = val[id];
-            if (s && typeof s === 'object' && scoreMatchesSessionKey(s, sessionKey)) rows.push(s);
+            if (s && typeof s === 'object' && scoreMatchesSessionKey(s, sessionKey)) {
+              rows.push({ ...s, __id: id });
+            }
           });
         }
         rows.sort((a, b) => {
@@ -5368,30 +5490,30 @@ ${DEFAULT_SCORING_HTML}`;
           body.innerHTML = `<p class="mg-modal-muted">No scores for ${esc(label)} yet. Be the first!</p>`;
           return;
         }
-        
-        let ourRank = -1;
-        let ourScore = null;
-        for (let i = 0; i < rows.length; i++) {
-          if (scoreMatchesSessionKey(rows[i], sessionKey)) {
-            ourRank = i;
-            ourScore = rows[i];
-            break;
-          }
-        }
-        
+
+        const ourRank = findOurLeaderboardRowIndex(
+          rows,
+          lastSavedDisplayName || '',
+          getDisplayScore(),
+          getPlayElapsedMs()
+        );
+        const ourScore = ourRank !== -1 ? rows[ourRank] : null;
+
         let contextHtml = '';
         if (ourRank !== -1) {
-          if (ourRank === 0) {
+          if (rows.length === 1) {
+            contextHtml = `<p class="lb-context">You're the first one to submit a score for this round!</p>`;
+          } else if (ourRank === 0) {
             contextHtml = `<p class="lb-context">You have the <strong>top score</strong>!</p>`;
           } else {
-            const beatCount = ourRank;
-            const percentile = Math.round(((rows.length - beatCount) / rows.length) * 100);
+            const beatCount = rows.length - 1 - ourRank;
+            const percentile = Math.round((beatCount / (rows.length - 1)) * 100);
             contextHtml = `<p class="lb-context">You scored better than <strong>${percentile}%</strong> of players!</p>`;
           }
         }
 
         body.innerHTML = `${contextHtml}<ul class="lb-list">${rows.slice(0, 100).map((s, idx) => `
-          <li class="lb-row ${ourScore && leaderboardPoints(s) === leaderboardPoints(ourScore) && leaderboardElapsedMs(s) === leaderboardElapsedMs(ourScore) ? 'lb-row-ours' : ''}">
+          <li class="lb-row ${ourScore && s.__id && ourScore.__id && s.__id === ourScore.__id ? 'lb-row-ours' : ''}">
             <span class="lb-name">${esc(s.displayName || 'Anonymous')}</span>
             <span class="lb-points-time">
               <span class="lb-score">${leaderboardPoints(s)}</span>
@@ -6237,6 +6359,7 @@ ${DEFAULT_SCORING_HTML}`;
       if (!resuming) {
         scoreSavedThisSession = false;
         lastSavedDisplayName = '';
+        lastSavedScoreId = '';
       }
 
       const total = finishTotalPossible;
@@ -6367,7 +6490,8 @@ ${DEFAULT_SCORING_HTML}`;
         if (sb) sb.textContent = 'Saved';
         scoreSavedThisSession = true;
         lastSavedDisplayName = displayName;
-        markSessionSubmitted(displayName, rank);
+        lastSavedScoreId = newRef.key || '';
+        markSessionSubmitted(displayName, rank, lastSavedScoreId);
         await showFinishLeaderboard(displayName);
       } catch (e) {
         console.error(e);
@@ -6380,7 +6504,8 @@ ${DEFAULT_SCORING_HTML}`;
           if (sb) sb.textContent = 'Saved';
           scoreSavedThisSession = true;
           lastSavedDisplayName = displayName;
-          markSessionSubmitted(displayName, rank);
+          lastSavedScoreId = newRef.key || '';
+          markSessionSubmitted(displayName, rank, lastSavedScoreId);
           await showFinishLeaderboard(displayName);
         } catch (e2) {
           console.error(e2);
@@ -6495,6 +6620,7 @@ ${DEFAULT_SCORING_HTML}`;
       sessionThemeBonusEvents = [];
       scoreSavedThisSession = false;
       lastSavedDisplayName = '';
+      lastSavedScoreId = '';
       scorePoints = 0;
       hintPending.clear();
       clearAllHintTimers();

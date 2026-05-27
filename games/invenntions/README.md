@@ -406,6 +406,15 @@ firebase deploy --only hosting,database
 
 ## Visual design notes
 
+### Keyboard hit-testing (no dead space between keys)
+
+The on-screen keyboard's `pointerdown` / `pointermove` handlers don't require the touch to land directly on a `.kb-key` element. `findKbKeyAtOrNear(clientX, clientY)`:
+
+1. First checks the element directly under the touch (`document.elementFromPoint`); if it resolves to a non-disabled `.kb-key` inside `keyboardRoot`, that's the answer.
+2. Otherwise falls back to a Euclidean-distance scan over every key in `keyboardRoot`, picking the nearest one whose bounding rect's closest point is within ~36px of the touch.
+
+Without that fallback, a tap that landed in the inter-key gap (the 4px row gap, the 4px column gap, or just outside a key's border but still inside the keyboard) registered nothing — the iOS keyboard does not have this dead space, and the asymmetry felt buggy. Keep both branches in this resolver: the direct-hit shortcut is fast (no per-key rect math), and the distance fallback only runs on the rare miss.
+
 ### iOS-style keyboard popup
 
 When the player taps any letter, space, or backspace on the on-screen keyboard, a yellow paddle pops out of the key. Implementation:
@@ -415,6 +424,7 @@ When the player taps any letter, space, or backspace on the on-screen keyboard, 
 - **Bubble width.** For narrow letter keys the bubble is ≈1.55x the key width (the iOS flared-paddle look). For wide keys (space bar) the multiplier alone would balloon the bubble to a comically wide flag; the formula is capped at `keyWidth + 32` so the bubble stays close to the key width while still showing a small visible flare on both sides.
 - The popup is colored `#ffcc00` fill with `#e6b800` stroke and a black letter — the same palette the `.kb-key.kb-flash` class applies to a pressed key. The "held yellow" effect is the popup itself; there is no separate timer.
 - **Timing.** Tuned to match the native iOS feel: `KB_KEY_POP_LINGER_MS = 0` (no delay after touch up before the fade starts) and `KB_KEY_POP_FADE_MS = 60` (a short ease-out fade). The CSS transition on `.kb-key-pop` uses the same `0.06s` duration so the element is never hidden before the fade has finished painting. The enter animation (`kbKeyPopIn`) is a 20ms `scale(0.95 → 1)` + `opacity(0.7 → 1)` — fast enough to read as "instant" but with a small visible pop. The previous timings (75ms linger + 30ms fade + 40ms scale-up from 0.86) felt sluggish in side-by-side comparison with the iOS keyboard; do not lengthen them back without re-checking against the native keyboard.
+- **Yellow flash on the key itself.** A short `.kb-flash` class adds a yellow background to the key on each fire (`flashKeyBtn`). `KB_FLASH_MS = 50` is the cap, but for real touch input we additionally collapse the flash to a single-frame remnant on `pointerup` (`KB_FLASH_RELEASE_MS = 16`) — the popup paddle is the primary "I pressed this" feedback, and letting the in-key yellow run its full duration after the finger had moved on left visible yellow trails behind fast-typed letters.
 - The GUESS and REVEAL action keys are still excluded (they're labelled words, not single characters, and a flared paddle around them looks wrong). Space is included — its label is "SPACE", drawn at the same single-char font size as the letter popups.
 
 ### Phrase squircles
@@ -457,6 +467,19 @@ The connection (the optional final puzzle that asks what links the phrases toget
 Tapping the strip focuses it (handled in `onBoardClick` by the `.mg-answer-strip[id]` early-return branch). Tapping anywhere else inside `#comPromptBlock` triggers the hint reveal flow. Do not collapse those two branches into one; the strip needs to win on focus even though it's now physically inside the hint-tap target.
 
 The grey box gets `padding-bottom: 8px` in quiz mode so the focused strip's yellow halo fits inside the grey box without overlapping the bottom border. If you ever change the focus halo width, recheck this padding.
+
+### Identifying the player's own row in the leaderboard
+
+`loadPublicLeaderboard` filters the public-answers snapshot to rows that match the current `sessionKey` (i.e. all submissions for this round) and ranks them. To highlight the player's own row and choose the right contextual blurb ("top score", "scored better than X% of players", "first to submit"), it then has to find the player's specific row inside that already-filtered list.
+
+Earlier code did this by re-running `scoreMatchesSessionKey()` over the filtered list, which trivially returned `true` for every row — so the loop always picked index 0 and reported "you have the top score" regardless of where the player actually placed.
+
+`findOurLeaderboardRowIndex(rows, name, points, elapsedMs)` is the fix:
+
+1. **Match by Firebase push id** — `submitFinalScore` saves `newRef.key` as `lastSavedScoreId` (and we mirror it onto each row as `__id` when reading). Exact, robust, no false positives. The id is also persisted in the local submission record (`scoreId` field) so it survives page reloads.
+2. **Fallback: match by `(displayName, points, elapsedMs)`** for legacy submissions written before `scoreId` was tracked. If multiple rows match (extremely unlikely — same name, exact same point total, exact same millisecond duration), we take the most recent by `timestamp`.
+
+The leaderboard blurb logic is now: 1 row → "you're the first to submit", `ourRank === 0` → "top score", otherwise "scored better than X% of *the other* players" with denominator `rows.length - 1`.
 
 ### Archive completion states (`getRoundPlayStatus`)
 
