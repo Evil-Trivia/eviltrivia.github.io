@@ -235,12 +235,11 @@ InVennTions writes three things to `localStorage` and one record to Firebase per
 
 ### Emergency device reset
 
-Two escape hatches are wired up for the case where a player's local storage / Firebase auth state has gotten stuck and the title screen no longer loads:
+One escape hatch is wired up for the case where a player's local storage / Firebase auth state has gotten stuck and the title screen no longer loads:
 
 1. **URL flag** — visiting `https://eviltrivia.github.io/games/invenntions/?reset=1` calls `invFullDeviceReset()` BEFORE any title-screen wiring runs. The query string is stripped via `history.replaceState` so a manual refresh doesn't re-trigger the reset.
-2. **"Trouble loading? Reset this device" button** in the title-screen footer. Confirms with the player, then calls `invFullDeviceReset()` and reloads.
 
-Both paths go through `invFullDeviceReset()`, which:
+The reset path goes through `invFullDeviceReset()`, which:
 
 - Clears `INV_USER_STORAGE_KEY`, `INV_PROGRESS_STORAGE_KEY`, `INV_SUBMIT_STORAGE_KEY` and the `INV_RECOVERY_KEY` session flag (same as `resetInvenntionsPlayerStorage`).
 - Calls Firebase `signOut(auth)` — this clears the Firebase auth IndexedDB store and the in-memory token. We saw iOS Safari sessions get wedged with a signed-in user whose RTDB reads silently hung; the same account worked in incognito and on other devices. Wiping localStorage alone did not unstick those sessions, but signing the user out did.
