@@ -233,6 +233,20 @@ Approximate areas inside the single file. Line numbers drift across edits — us
 
 InVennTions writes three things to `localStorage` and one record to Firebase per finished session.
 
+### Emergency device reset
+
+Two escape hatches are wired up for the case where a player's local storage / Firebase auth state has gotten stuck and the title screen no longer loads:
+
+1. **URL flag** — visiting `https://eviltrivia.github.io/games/invenntions/?reset=1` calls `invFullDeviceReset()` BEFORE any title-screen wiring runs. The query string is stripped via `history.replaceState` so a manual refresh doesn't re-trigger the reset.
+2. **"Trouble loading? Reset this device" button** in the title-screen footer. Confirms with the player, then calls `invFullDeviceReset()` and reloads.
+
+Both paths go through `invFullDeviceReset()`, which:
+
+- Clears `INV_USER_STORAGE_KEY`, `INV_PROGRESS_STORAGE_KEY`, `INV_SUBMIT_STORAGE_KEY` and the `INV_RECOVERY_KEY` session flag (same as `resetInvenntionsPlayerStorage`).
+- Calls Firebase `signOut(auth)` — this clears the Firebase auth IndexedDB store and the in-memory token. We saw iOS Safari sessions get wedged with a signed-in user whose RTDB reads silently hung; the same account worked in incognito and on other devices. Wiping localStorage alone did not unstick those sessions, but signing the user out did.
+
+The existing automatic `prefetchQuizWithRecovery` now also calls `invFullDeviceReset()` instead of just `resetInvenntionsPlayerStorage()` so the auth state is included when the page detects a failed first prefetch.
+
 ### localStorage keys
 
 | Key | Shape | Purpose |
@@ -405,6 +419,24 @@ firebase deploy --only hosting,database
 ---
 
 ## Visual design notes
+
+### Clue-box layout (height budget)
+
+Each `.mg-words` (the left or right clue card on a phrase row) is a fixed-height container whose available vertical space is split between the clue text and (when revealed) the inline hint area beneath it. Two JS constants in `preprocessClueBoxLayout` define the budget, both in `em` units relative to `.mg-words`' own font:
+
+| Constant | Default | What it does |
+|---|---|---|
+| `MG_WORDS_H_EM` | `4.0` | Total fixed height of every `.mg-words` box. Drives the `--mg-words-h` CSS variable. |
+| `MG_HINT_SLOT_EM` | `1.5` | Height of the hint slot (`.mg-hint-area`) when a hint is shown. Drives `--mg-hint-slot-h`. |
+
+The CSS variables `--mg-full-clue-h` (no hint) and `--mg-split-clue-h` (with hint) are derived from the above minus the outer `.mg-words` padding.
+
+Two gotchas worth remembering, both of which were the cause of the "descenders cut off, second clue line clipped when hint is shown" bug:
+
+1. **No inner padding on `.mg-words-text` or `.mg-hint-lines`.** They both used to have `padding: 2px` — combined with `box-sizing: border-box` and a tight `max-height`, that ate ~4px off the usable text area and caused glyph descenders to clip even when the binary font-fit search had picked the smallest allowed font (`MG_FIT_MIN_PX = 7.5`).
+2. **Clue text always allows 2 lines** (`fitClueWordsText` uses `maxLines = 2` unconditionally). When a hint is revealed, `.mg-words.mg-words--with-hint .mg-words-text` keeps `-webkit-line-clamp: 2` (not 1) and the binary search shrinks the font enough that two lines fit inside `--mg-split-clue-h`. Forcing `line-clamp: 1` clipped any multi-word clue that wrapped.
+
+If you change the budget, do the math against `clueFitCeilingPx`: shrinking the slot below ~9px-equivalent for two lines makes the clue illegible on phones.
 
 ### Keyboard hit-testing (no dead space between keys)
 

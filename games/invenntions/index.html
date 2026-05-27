@@ -812,7 +812,13 @@
       max-height: var(--mg-full-clue-h, 100%);
       font-size: clamp(0.76rem, 2.9vw, 0.94rem);
       line-height: 1.18;
-      padding: 2px;
+      /* No inner padding here — the outer .mg-words already supplies
+         the visual padding. Inner padding on a border-box element
+         with a tight max-height eats into the usable text area and
+         was clipping descenders (g/j/p/q/y) on the with-hint layout.
+         Keep this zero unless you also widen --mg-full-clue-h /
+         --mg-split-clue-h to compensate. */
+      padding: 0;
       white-space: normal;
       overflow: hidden;
       -webkit-line-clamp: 2;
@@ -823,14 +829,19 @@
     }
     .mg-words.mg-words--with-hint .mg-words-text {
       max-height: var(--mg-split-clue-h, 2.2em);
-      -webkit-line-clamp: 1;
+      /* Allow the clue to wrap to two lines even when a hint is shown
+         below it. Previously this was line-clamp: 1 which cropped the
+         second line of multi-word clues; the binary font-fit search
+         in fitClueWordsText now shrinks the font far enough that two
+         lines fit inside --mg-split-clue-h. */
+      -webkit-line-clamp: 2;
       line-height: 1.15;
     }
     .mg-hint-area {
       flex: 0 0 auto;
       width: 100%;
       min-height: 0;
-      max-height: var(--mg-hint-slot-h, 2.3em);
+      max-height: var(--mg-hint-slot-h, 1.6em);
       overflow: hidden;
       display: flex;
       align-items: center;
@@ -846,7 +857,9 @@
       color: #555;
       text-align: center;
       line-height: 1.1;
-      padding: 2px;
+      /* See .mg-words-text — no inner padding to keep the available
+         text area equal to the slot height. */
+      padding: 0;
       white-space: normal;
       overflow: hidden;
       width: 100%;
@@ -1412,6 +1425,35 @@
     }
     .inv-title-footer p {
       margin: 0;
+    }
+    /*
+     * "Trouble loading?" escape hatch on the title screen. Pointer
+     * events are otherwise disabled on .inv-title-footer (so it never
+     * eats taps meant for the menu above it); explicitly re-enable
+     * them on this button.
+     */
+    .inv-title-reset-link {
+      pointer-events: auto;
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 10px;
+      background: transparent;
+      border: 0;
+      color: #777;
+      font-size: 0.62rem;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+      font-family: inherit;
+      letter-spacing: 0.02em;
+      opacity: 0.78;
+      transition: opacity 0.15s ease, color 0.15s ease;
+    }
+    .inv-title-reset-link:hover,
+    .inv-title-reset-link:focus-visible {
+      color: #b45f1c;
+      opacity: 1;
     }
     .inv-title-tagline sup,
     .inv-title-footer sup {
@@ -2050,6 +2092,7 @@
     <div class="inv-title-footer">
       <p class="inv-title-credit">a game by graham litten</p>
       <p>Evil Trivia<sup>®</sup> 2026</p>
+      <button type="button" class="inv-title-reset-link" id="btnTitleReset" aria-label="Reset this device if InVennTions is stuck">Trouble loading? Reset this device</button>
     </div>
   </div>
 
@@ -2142,7 +2185,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
     import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
-    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
     import confetti from "https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/+esm";
 
     const firebaseConfig = {
@@ -2710,6 +2753,32 @@ ${DEFAULT_SCORING_HTML}`;
       try { localStorage.removeItem(INV_PROGRESS_STORAGE_KEY); } catch (_) { /* ignore */ }
       try { sessionStorage.removeItem(INV_SUBMIT_STORAGE_KEY); } catch (_) { /* ignore */ }
     }
+
+    /*
+     * Full-device recovery. Used both by the user-facing "Reset this
+     * device" affordance on the title screen and by the
+     * ?reset=1 URL parameter. On top of the normal
+     * resetInvenntionsPlayerStorage() (which only wipes player
+     * progress/submission/profile in localStorage), this also signs
+     * the Firebase user out — that clears the auth IndexedDB store
+     * and the in-memory token. We saw iOS Safari sessions get stuck
+     * with the Play button non-responsive while the same account
+     * worked fine in incognito or on a different device; signing the
+     * user out forces a fresh, anonymous Firebase connection and
+     * has consistently un-stuck those sessions.
+     */
+    async function invFullDeviceReset() {
+      resetInvenntionsPlayerStorage();
+      try { sessionStorage.removeItem(INV_RECOVERY_KEY); } catch (_) { /* ignore */ }
+      try {
+        if (auth && auth.currentUser) {
+          await signOut(auth);
+        }
+      } catch (e) {
+        console.warn('InVennTions sign-out during reset:', e);
+      }
+    }
+    window.invFullDeviceReset = invFullDeviceReset;
 
     function sanitizeStoredPlayerData() {
       try {
@@ -4002,8 +4071,27 @@ ${DEFAULT_SCORING_HTML}`;
       wordsEl.classList.toggle('mg-words--with-hint', hasHint);
     }
 
-    const MG_WORDS_H_EM = 3.62;
-    const MG_HINT_SLOT_EM = 2.3;
+    /*
+     * Clue-box vertical budget (in `em` units of .mg-words' own font).
+     *
+     * MG_WORDS_H_EM is the fixed height of every .mg-words box. It has
+     * to be tall enough to comfortably fit two lines of clue text on
+     * its own AND two lines of clue text plus a one-line hint, after
+     * subtracting the outer padding.
+     *
+     * MG_HINT_SLOT_EM is the height reserved for the inline hint when
+     * one is revealed. Smaller than the old value because the clue
+     * itself is far more important to keep readable, and a single
+     * line of hint at the smaller `clamp(...0.68rem)` font reads
+     * just fine in this slot.
+     *
+     * If you change either number, do the math against the binary
+     * font-fit ceiling in clueFitCeilingPx: shrinking the slot too
+     * far drives the clue font below ~9px on phones and stops being
+     * legible.
+     */
+    const MG_WORDS_H_EM = 4.0;
+    const MG_HINT_SLOT_EM = 1.5;
 
     function preprocessClueBoxLayout() {
       const boxes = puzzleMount.querySelectorAll('.mg-words');
@@ -4055,7 +4143,11 @@ ${DEFAULT_SCORING_HTML}`;
       const hasHint = clueBoxHasHintContent(words);
       syncClueSoloLayout(words);
 
-      const maxLines = hasHint ? 1 : 2;
+      /* Always allow up to two lines for the clue. The binary search
+         below will shrink the font as needed so 2 lines fit inside
+         --mg-split-clue-h when a hint is also shown, and short clues
+         that only need 1 line simply grow up to the ceiling. */
+      const maxLines = 2;
       const clueMax = clueSlotMaxHeight(hasHint);
 
       el.style.whiteSpace = 'normal';
@@ -5199,7 +5291,11 @@ ${DEFAULT_SCORING_HTML}`;
       try { alreadyRecovered = sessionStorage.getItem(INV_RECOVERY_KEY) === '1'; } catch (_) { /* ignore */ }
       if (alreadyRecovered) return;
       try { sessionStorage.setItem(INV_RECOVERY_KEY, '1'); } catch (_) { /* ignore */ }
-      resetInvenntionsPlayerStorage();
+      /* Use the full reset (incl. Firebase sign-out) — iOS Safari
+         sessions have gotten stuck with a stale signed-in auth state
+         where RTDB reads silently hang. Wiping localStorage alone
+         did not unstick those; signing the user out does. */
+      await invFullDeviceReset();
       archiveFetchPromise = null;
       await prefetchQuiz();
       if (quizPrefetchOk) {
@@ -5244,6 +5340,30 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
+    /*
+     * Honor ?reset=1 (or ?reset=true) on the player URL: wipe local
+     * storage + sign the Firebase user out, then re-enter the page
+     * without the query string so the reset doesn't fire again on
+     * refresh. Intended as an emergency unstick for sessions where
+     * stale local data / a wedged Firebase auth state is preventing
+     * the title screen from loading. Returns a Promise; the caller
+     * should await it before continuing initTitleScreen.
+     */
+    async function handleResetUrlIfPresent() {
+      let params;
+      try { params = new URLSearchParams(window.location.search); } catch (_) { return false; }
+      const flag = (params.get('reset') || '').toLowerCase();
+      if (flag !== '1' && flag !== 'true' && flag !== 'yes') return false;
+      try { await invFullDeviceReset(); } catch (_) { /* best effort */ }
+      try {
+        params.delete('reset');
+        const qs = params.toString();
+        const clean = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+        window.history.replaceState(null, '', clean);
+      } catch (_) { /* ignore */ }
+      return true;
+    }
+
     function initTitleScreen() {
       sanitizeStoredPlayerData();
       const screen = document.getElementById('titleScreen');
@@ -5278,6 +5398,24 @@ ${DEFAULT_SCORING_HTML}`;
         hideArchiveScreen();
         showTitleScreen();
       });
+      const resetBtn = document.getElementById('btnTitleReset');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', async () => {
+          if (resetBtn.disabled) return;
+          const confirmed = window.confirm(
+            'Reset this device?\n\n'
+            + 'This will sign you out of Evil Trivia and clear all locally '
+            + 'saved InVennTions data on this device (progress, submissions, '
+            + 'and preferences). The page will reload.\n\n'
+            + 'Your leaderboard scores stay on the server.'
+          );
+          if (!confirmed) return;
+          resetBtn.disabled = true;
+          resetBtn.textContent = 'Resetting…';
+          try { await invFullDeviceReset(); } catch (_) { /* best effort */ }
+          window.location.reload();
+        });
+      }
       const deepRoundId = getDeepLinkRoundId();
       loadSiteSettings().catch(e => console.error('InVennTions loadSiteSettings:', e));
       if (deepRoundId) {
@@ -6833,12 +6971,23 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
-    bindModalUi();
-    captureLayoutViewport();
-    bindRotateOverlay();
-    ensureTextFitResizeRefresh();
-    ensureBoardViewportFit();
-    initTitleScreen();
+    /*
+     * Boot sequence. The ?reset=1 URL flag is handled BEFORE we wire
+     * up the title screen so that any wedged Firebase auth state /
+     * stale localStorage is cleared before we attempt the first RTDB
+     * reads. handleResetUrlIfPresent() is a no-op when the flag is
+     * absent, so the normal path pays a single microtask of latency.
+     */
+    async function bootInVennTions() {
+      bindModalUi();
+      captureLayoutViewport();
+      bindRotateOverlay();
+      ensureTextFitResizeRefresh();
+      ensureBoardViewportFit();
+      try { await handleResetUrlIfPresent(); } catch (_) { /* best effort */ }
+      initTitleScreen();
+    }
+    bootInVennTions();
   </script>
 </body>
 </html>
