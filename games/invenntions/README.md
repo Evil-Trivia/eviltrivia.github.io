@@ -440,6 +440,15 @@ Five gotchas worth remembering, all of which were part of the "descenders cut of
 
 If you change the budget, do the math against `clueFitCeilingPx`: shrinking the slot below ~9px-equivalent for two lines makes the clue illegible on phones.
 
+### Title intro layout stability
+
+The logo intro animation should start and end in the same vertical position. To prevent post-intro "logo jump" when async title text arrives:
+
+- `.inv-title-status` keeps its line box reserved even when empty (`visibility: hidden` instead of collapsing with `display: none`).
+- `.inv-title-next-game` always reserves two lines of space (`min-height: 2.7em`), and its hidden state preserves layout (`display: block !important; visibility: hidden`) instead of removing the element from flow.
+
+This ensures that when `updateNextScheduledNote()` reveals the "next puzzle releasing on..." text after prefetch, the centered title block does not recenter upward.
+
 ### Keyboard hit-testing (no dead space between keys)
 
 The on-screen keyboard's `pointerdown` / `pointermove` handlers don't require the touch to land directly on a `.kb-key` element. `findKbKeyAtOrNear(clientX, clientY)`:
