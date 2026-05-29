@@ -195,6 +195,64 @@
     .lb-table th { background: #fafafa; color: #555; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
     .lb-table td.lb-actions { text-align: right; white-space: nowrap; }
     .lb-empty { color: #666; font-size: 0.9rem; text-align: center; padding: 24px 12px; }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .stat-card {
+      border: 1px solid #e0e0d8;
+      border-radius: 8px;
+      background: #fcfcfa;
+      padding: 10px 12px;
+    }
+    .stat-card .stat-label {
+      font-size: 0.78rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+    .stat-card .stat-value {
+      font-size: 1.4rem;
+      line-height: 1.2;
+      color: #2c3e50;
+      font-weight: 700;
+    }
+    .stats-table-wrap {
+      border: 1px solid #e6e6df;
+      border-radius: 8px;
+      overflow: auto;
+      background: #fff;
+    }
+    .stats-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 420px;
+      font-size: 0.88rem;
+    }
+    .stats-table th,
+    .stats-table td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #ececec;
+      text-align: left;
+      vertical-align: middle;
+    }
+    .stats-table th {
+      background: #fafafa;
+      color: #555;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .stats-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .stats-empty {
+      margin: 0;
+      padding: 14px 12px;
+      color: #666;
+      font-size: 0.88rem;
+    }
     .q-editor {
       border: 1px solid #e0e0e0;
       border-radius: 8px;
@@ -479,6 +537,9 @@
       }
       .lb-table { font-size: 0.82rem; }
       .lb-table th, .lb-table td { padding: 8px 4px; }
+      .stats-grid { grid-template-columns: 1fr; }
+      .stats-table { font-size: 0.82rem; min-width: 360px; }
+      .stats-table th, .stats-table td { padding: 8px 6px; }
     }
   </style>
 </head>
@@ -515,6 +576,39 @@
         </div>
       </div>
       <div id="archiveMsg"></div>
+    </div>
+
+    <div class="section">
+      <h2>Stats</h2>
+      <p class="hint">Live traffic + participation metrics for InVennTions.</p>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Page Views</div>
+          <div class="stat-value" id="statsPageViews">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Unique Visitors</div>
+          <div class="stat-value" id="statsUniqueVisitors">—</div>
+        </div>
+      </div>
+      <h3 style="margin:0 0 8px;font-size:0.95rem;color:#444">Players per game</h3>
+      <div class="stats-table-wrap">
+        <table class="stats-table" id="statsPlayersTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Game</th>
+              <th>Play date</th>
+              <th>Players</th>
+              <th>Submissions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="hint" style="margin-top:10px">Players count unique visitor IDs when available, with legacy fallback for older scores.</p>
     </div>
 
     <div id="leaderboardModal" class="modal-backdrop hidden" role="presentation">
@@ -662,12 +756,14 @@
     const SETTINGS_SITE = `games/${GAME_ID}/settings/site`;
     const SETTINGS_LIVE = `games/${GAME_ID}/settings/live`;
     const SETTINGS_ACTIVE_LEGACY = `games/${GAME_ID}/settings/activeGameId`;
+    const METRICS_PATH = `publicAnswers/${GAME_ID}/metrics`;
 
     let archive = {};
     let liveRoundIds = [];
     let siteSettings = { gameTitle: '', infoHtml: '', playerHelpHtml: '', aboutEvilTriviaHtml: '' };
     let editingRoundId = null;
     let allScores = [];
+    let metricsCache = { pageViews: {}, visitors: {} };
     let leaderboardModalRoundId = null;
 
     const DEFAULT_SCORING_HTML = `
@@ -1237,7 +1333,9 @@ ${DEFAULT_SCORING_HTML}`;
       loadSiteFields();
       await syncScheduledLive();
       await loadScoresCache();
+      await loadMetricsCache();
       renderRoundsList();
+      renderStatsSection();
     }
 
     function coercePuzzlesFromBlock(src) {
@@ -1538,6 +1636,80 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
+    async function loadMetricsCache() {
+      metricsCache = { pageViews: {}, visitors: {} };
+      try {
+        const snap = await window.dbGet(window.dbRef(window.db, METRICS_PATH));
+        if (!snap.exists() || typeof snap.val() !== 'object') return;
+        const raw = snap.val();
+        if (raw.pageViews && typeof raw.pageViews === 'object') {
+          metricsCache.pageViews = raw.pageViews;
+        }
+        if (raw.visitors && typeof raw.visitors === 'object') {
+          metricsCache.visitors = raw.visitors;
+        }
+      } catch (e) {
+        console.warn('InVennTions admin metrics load:', e);
+      }
+    }
+
+    function sortedArchiveIdsOldestFirst() {
+      return Object.keys(archive).sort((a, b) => {
+        const da = archive[a] && archive[a].playDate ? String(archive[a].playDate) : '';
+        const db = archive[b] && archive[b].playDate ? String(archive[b].playDate) : '';
+        if (da !== db) return da.localeCompare(db);
+        return roundLabel(archive[a], a).localeCompare(roundLabel(archive[b], b));
+      });
+    }
+
+    function scorePlayerKey(s) {
+      if (s && s.visitorId) return `visitor:${String(s.visitorId)}`;
+      if (s && s.sessionKey) return `session:${String(s.sessionKey)}`;
+      const displayName = s && s.displayName ? String(s.displayName).trim().toLowerCase() : 'anonymous';
+      return `legacy:${displayName}:${pointsOf(s)}:${elapsedMsOf(s)}`;
+    }
+
+    function renderStatsSection() {
+      const pageViewsEl = document.getElementById('statsPageViews');
+      const uniqueVisitorsEl = document.getElementById('statsUniqueVisitors');
+      const tableBody = document.querySelector('#statsPlayersTable tbody');
+      if (!pageViewsEl || !uniqueVisitorsEl || !tableBody) return;
+
+      const pageViews = metricsCache.pageViews && typeof metricsCache.pageViews === 'object'
+        ? Object.keys(metricsCache.pageViews).length
+        : 0;
+      const uniqueVisitors = metricsCache.visitors && typeof metricsCache.visitors === 'object'
+        ? Object.keys(metricsCache.visitors).length
+        : 0;
+
+      pageViewsEl.textContent = String(pageViews);
+      uniqueVisitorsEl.textContent = String(uniqueVisitors);
+
+      const ids = sortedArchiveIdsOldestFirst();
+      if (!ids.length) {
+        tableBody.innerHTML = '<tr><td colspan="5" class="stats-empty">No rounds yet.</td></tr>';
+        return;
+      }
+
+      let html = '';
+      ids.forEach((roundId, idx) => {
+        const round = archive[roundId];
+        const scores = allScores.filter(s => scoreMatchesRoundFilter(s, roundId));
+        const playerSet = new Set(scores.map(scorePlayerKey));
+        const playerCount = playerSet.size;
+        const submissionCount = scores.length;
+        const playDate = round && round.playDate ? String(round.playDate) : '—';
+        html += '<tr>'
+          + `<td class="num">${idx + 1}</td>`
+          + `<td>${escapeHtml(roundLabel(round, roundId))}</td>`
+          + `<td>${escapeHtml(playDate)}</td>`
+          + `<td class="num">${playerCount}</td>`
+          + `<td class="num">${submissionCount}</td>`
+          + '</tr>';
+      });
+      tableBody.innerHTML = html;
+    }
+
     function scoresForRound(roundId) {
       return allScores
         .filter(s => scoreMatchesRoundFilter(s, roundId))
@@ -1590,6 +1762,7 @@ ${DEFAULT_SCORING_HTML}`;
         }
         allScores = allScores.filter(x => x.id !== scoreId);
         renderLeaderboardModalBody(roundId || leaderboardModalRoundId);
+        renderStatsSection();
       } catch (e) {
         alert(e.message || 'Could not delete score.');
       }

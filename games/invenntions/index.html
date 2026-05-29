@@ -2292,10 +2292,13 @@
     const INV_PROGRESS_STORAGE_KEY = 'invMiddlegroundProgress';
     const INV_SUBMIT_STORAGE_KEY = 'invMiddlegroundScoreSubmitted';
     const INV_RECOVERY_KEY = 'invMiddlegroundAutoRecovery';
+    const INV_VISITOR_ID_KEY = 'invMiddlegroundVisitorId';
+    const INV_PAGE_VIEW_TRACKED_KEY = 'invMiddlegroundPageViewTracked';
     let firstVisitHintTimer = 0;
     let progressAutosaveTimer = 0;
     const FINAL_SCORE_FLASH_MS = 1500;
     const PROGRESS_AUTOSAVE_MS = 12000;
+    let cachedVisitorId = '';
 
     let playSessionRoundKey = '';
     let playTimerStart = 0;
@@ -2808,6 +2811,14 @@ ${DEFAULT_SCORING_HTML}`;
         try { localStorage.removeItem(INV_PROGRESS_STORAGE_KEY); } catch (_) { /* ignore */ }
       }
       try {
+        const raw = localStorage.getItem(INV_VISITOR_ID_KEY);
+        if (raw && String(raw).length > 96) {
+          localStorage.removeItem(INV_VISITOR_ID_KEY);
+        }
+      } catch (_) {
+        try { localStorage.removeItem(INV_VISITOR_ID_KEY); } catch (_) { /* ignore */ }
+      }
+      try {
         const raw = sessionStorage.getItem(INV_SUBMIT_STORAGE_KEY);
         if (raw) JSON.parse(raw);
       } catch (_) {
@@ -3095,6 +3106,58 @@ ${DEFAULT_SCORING_HTML}`;
       const profile = readUserProfile();
       profile.visited = true;
       writeUserProfile(profile);
+    }
+
+    function createVisitorId() {
+      return `ivv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    function getVisitorId() {
+      if (cachedVisitorId) return cachedVisitorId;
+      try {
+        const raw = localStorage.getItem(INV_VISITOR_ID_KEY);
+        if (raw) {
+          cachedVisitorId = String(raw);
+          return cachedVisitorId;
+        }
+      } catch (_) { /* private mode */ }
+      cachedVisitorId = createVisitorId();
+      try { localStorage.setItem(INV_VISITOR_ID_KEY, cachedVisitorId); } catch (_) { /* private mode */ }
+      return cachedVisitorId;
+    }
+
+    async function trackPageViewMetrics(attempt = 0) {
+      if (!window.db || !window.dbRef || !window.dbSet || !window.dbPush) {
+        if (attempt < 6) {
+          setTimeout(() => { trackPageViewMetrics(attempt + 1); }, 250);
+        }
+        return;
+      }
+      try {
+        if (sessionStorage.getItem(INV_PAGE_VIEW_TRACKED_KEY) === '1') return;
+        sessionStorage.setItem(INV_PAGE_VIEW_TRACKED_KEY, '1');
+      } catch (_) { /* private mode */ }
+
+      const visitorId = getVisitorId();
+      const now = Date.now();
+      try {
+        const viewsRef = window.dbRef(window.db, `publicAnswers/${GAME_ID}/metrics/pageViews`);
+        const visitRef = window.dbPush(viewsRef);
+        await window.dbSet(visitRef, {
+          visitorId,
+          ts: now
+        });
+      } catch (e) {
+        console.warn('InVennTions metrics page view:', e);
+      }
+      try {
+        await window.dbSet(window.dbRef(window.db, `publicAnswers/${GAME_ID}/metrics/visitors/${visitorId}`), {
+          visitorId,
+          lastSeenAt: now
+        });
+      } catch (e) {
+        console.warn('InVennTions metrics visitor:', e);
+      }
     }
 
     function getPreferredDisplayName() {
@@ -6618,7 +6681,8 @@ ${DEFAULT_SCORING_HTML}`;
         displayName,
         gameId: activeGameId,
         gameTitle: activeGameTitle,
-        formatVersion: 6,
+        formatVersion: 7,
+        visitorId: getVisitorId(),
         roundId: getPlayRoundId(),
         points: getDisplayScore(),
         elapsedMs,
@@ -7010,6 +7074,7 @@ ${DEFAULT_SCORING_HTML}`;
       ensureTextFitResizeRefresh();
       ensureBoardViewportFit();
       try { await handleResetUrlIfPresent(); } catch (_) { /* best effort */ }
+      try { trackPageViewMetrics(); } catch (_) { /* best effort */ }
       initTitleScreen();
     }
     bootInVennTions();

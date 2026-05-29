@@ -173,6 +173,9 @@ games/middleground/
 
 publicAnswers/middleground/
   {scoreId}/             # public mirror of `answers/` for unauthenticated leaderboard reads
+  metrics/
+    pageViews/{pushId}   # one lightweight page-load event per browser session
+    visitors/{visitorId} # per-device visitor marker (unique visitor count)
 ```
 
 ### Security rules summary (`config/database.rules.json`)
@@ -197,7 +200,7 @@ Approximate areas inside the single file. Line numbers drift across edits — us
 | `<head>` | All page CSS. Notable rule groups: `.inv-title-screen`, `.inv-logo` / `.inv-piece` / `.inv-squircle-*` (title animation), `.mg-phrase-block`, `.mg-answer-strip` (game board), `.keyboard-wrap` / `.kb-key` (on-screen keyboard), `.kb-key-pop*` (iOS-style key popup paddle). |
 | `<body>` markup | `#titleScreen`, `#archiveScreen`, `#quizCard` (`#playCard` → `#boardArea` → `#puzzleMount`, plus `#keyboardWrap`), modals (`#helpModal`, `#infoModal`, `#aboutModal`, `#scoreModal`), the rotate overlay, and `#kbKeyPop` for the keyboard popup. |
 | Firebase init + auth | Top of the `<script type="module">`. `onAuthStateChanged` sets `window.invIsAdmin` if the signed-in user has `users/{uid}/role === 'admin'`. Admins get their stored progress/submission cleared on sign-in so they can re-test rounds. |
-| Constants | `GAME_ID = 'middleground'`, keyboard key arrays (`KB_TOP/MID/BOT`), storage keys (`INV_USER_STORAGE_KEY`, `INV_PROGRESS_STORAGE_KEY`, `INV_SUBMIT_STORAGE_KEY`, `INV_RECOVERY_KEY`), timing constants (`KB_FLASH_MS`, `KB_KEY_POP_LINGER_MS`, `KB_KEY_POP_FADE_MS`, etc.), and the default HTML for the help/info/about modals (`DEFAULT_PLAYER_HELP_HTML`, `DEFAULT_INFO_HTML`, `DEFAULT_ABOUT_HTML`). |
+| Constants | `GAME_ID = 'middleground'`, keyboard key arrays (`KB_TOP/MID/BOT`), storage keys (`INV_USER_STORAGE_KEY`, `INV_PROGRESS_STORAGE_KEY`, `INV_SUBMIT_STORAGE_KEY`, `INV_RECOVERY_KEY`, `INV_VISITOR_ID_KEY`, `INV_PAGE_VIEW_TRACKED_KEY`), timing constants (`KB_FLASH_MS`, `KB_KEY_POP_LINGER_MS`, `KB_KEY_POP_FADE_MS`, etc.), and the default HTML for the help/info/about modals (`DEFAULT_PLAYER_HELP_HTML`, `DEFAULT_INFO_HTML`, `DEFAULT_ABOUT_HTML`). |
 | Scoring + hint UI | `addScore`, `registerHintUsed`, `applyFreeHintsOnPhraseSolve`, `syncPhraseHintTapUi`, `syncComHintTapUi`, `updateComBonusHint`, `buildScoreBreakdownHtml`. |
 | Timer | `startPlayTimer`, `stopPlayTimer`, `resumePlayTimer`, `getPlayElapsedMs`, `updateTimerStat`. |
 | Local persistence | `readPlayProgress` / `savePlayProgress` / `ensureProgressAutosave` / `invClearPlayProgress`; `readSubmitRecord` / `writeSubmitRecord` / `invClearSubmitSession`; `readUserProfile` / `writeUserProfile` / `markUserVisited`. `sanitizeStoredPlayerData` runs at title boot and clears anything corrupted. |
@@ -231,7 +234,7 @@ Approximate areas inside the single file. Line numbers drift across edits — us
 
 ## State + persistence model
 
-InVennTions writes three things to `localStorage` and one record to Firebase per finished session.
+InVennTions writes profile/progress markers to browser storage, emits one lightweight page-view metric per browser session, and writes one score record to Firebase per finished session.
 
 ### Emergency device reset
 
@@ -246,14 +249,16 @@ The reset path goes through `invFullDeviceReset()`, which:
 
 The existing automatic `prefetchQuizWithRecovery` now also calls `invFullDeviceReset()` instead of just `resetInvenntionsPlayerStorage()` so the auth state is included when the page detects a failed first prefetch.
 
-### localStorage keys
+### Browser storage keys
 
 | Key | Shape | Purpose |
 |---|---|---|
 | `invMiddlegroundUser` | `{ displayName?, visited?, helpHinted?, submissions?, progressByRound?, ... }` | Per-user profile cache. `visited` is set true after the user opens the title screen for the first time (used to skip the first-visit wiggle on the title's "What am I doing here?" button). `helpHinted` is set true the first time the in-game "?" help button is wiggled after a wrong guess (one-shot, see "First-game help nudge" below). `submissions` and `progressByRound` are per-round dictionaries. |
 | `invMiddlegroundProgress` | `{ sessionKey, puzzleBuffers[], puzzleSolved[], revealedLeftArr[], revealedRightArr[], commonalityBuffer, commonalitySolved, revealedComHints, scoreBreakdown, elapsedMs, ... }` | In-progress autosave. Restored by `tryRestoreRoundSession` when the user re-opens the same round. Autosaved every `PROGRESS_AUTOSAVE_MS` (12s). |
+| `invMiddlegroundVisitorId` | string | Stable anonymous visitor ID used for admin traffic stats (`unique visitors`) and to dedupe `players per game` when available. |
 | `invMiddlegroundScoreSubmitted` | `{ [sessionKey]: { displayName, rank, ... } }` | Records that this session was already submitted, so the finish modal becomes view-only on reload. |
 | `invMiddlegroundAutoRecovery` | timestamp | One-shot recovery guard. `prefetchQuizWithRecovery` clears storage exactly once if Firebase data fails to load, to unblock stuck mobile sessions. |
+| `invMiddlegroundPageViewTracked` | `'1'` (sessionStorage) | Session flag so each browser tab emits at most one `metrics/pageViews` event per load. |
 
 Admins (`window.invIsAdmin === true`) get their submission and progress records cleared on sign-in so they can play the same round repeatedly for testing.
 
@@ -264,7 +269,7 @@ When the puzzle is complete, the finish screen writes one record to BOTH paths a
 - `games/middleground/answers/{pushId}` — internal score store
 - `publicAnswers/middleground/{pushId}` — mirror, used by the public leaderboard reads
 
-The payload includes `displayName`, `points`, `elapsedMs`, `sessionKey` (e.g. `round:{roundId}`), `roundId`, `roundIds`, hint/reveal counts, per-question results, and `formatVersion: 6`. One submission per session is enforced client-side via `invMiddlegroundScoreSubmitted`.
+The payload includes `displayName`, `visitorId`, `points`, `elapsedMs`, `sessionKey` (e.g. `round:{roundId}`), `roundId`, `roundIds`, hint/reveal counts, per-question results, and `formatVersion: 7`. One submission per session is enforced client-side via `invMiddlegroundScoreSubmitted`.
 
 Per-question fields added in `formatVersion: 6`:
 
@@ -273,6 +278,8 @@ Per-question fields added in `formatVersion: 6`:
 - `themeBonusPoints` — copy of the connection's `bonusPoints` (the early-bird bonus the player banked on the connection guess), surfaced at the payload root for convenience.
 
 These fields are also mirrored into the local submission record (`invMiddlegroundUser.submissions[sessionKey]`) so the share-emoji grid and Venn-diagram squircle colors can be reconstructed when the player re-opens a round they already submitted.
+
+`formatVersion: 7` adds `visitorId` (anonymous per-browser identifier) so admin analytics can estimate unique players per round without relying on display names.
 
 ### Deep links
 
@@ -352,7 +359,11 @@ So they cap at 420px wide on desktop, shrink to fit on narrow phones, and never 
     - **↑ / ↓** reorder live rounds.
     - **Hidden** removes a round from the public archive. Hidden rounds cannot stay live.
     - **Leaderboard** per round lets the admin view and delete scores for that round.
-6. **Legacy migration.** On the first admin Refresh, if `archive/` is empty but `library/{gameId}/` has data, the admin copies the rounds into `archive/` and marks the old "active library game" as Live. This is implemented in `migrateLegacyIfNeeded`.
+6. **Stats panel.**
+    - **Page views** and **Unique visitors** are read from `publicAnswers/middleground/metrics`.
+    - **Players per game** lists archive rounds in oldest-first order (#1 = oldest) with both unique player count and raw submission count.
+    - Unique players prefer `visitorId` and fall back to legacy session/display-name signals for older submissions.
+7. **Legacy migration.** On the first admin Refresh, if `archive/` is empty but `library/{gameId}/` has data, the admin copies the rounds into `archive/` and marks the old "active library game" as Live. This is implemented in `migrateLegacyIfNeeded`.
 
 ---
 
