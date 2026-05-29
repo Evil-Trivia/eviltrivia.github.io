@@ -446,6 +446,7 @@ The logo intro animation should start and end in the same vertical position. To 
 
 - `.inv-title-status` keeps its line box reserved even when empty (`visibility: hidden` instead of collapsing with `display: none`).
 - `.inv-title-next-game` always reserves two lines of space (`min-height: 2.7em`), and its hidden state preserves layout (`display: block !important; visibility: hidden`) instead of removing the element from flow.
+- The button stack (`.inv-title-menu`) reveals with a short transition (`opacity` + small `translateY`) so it fades in and rises a touch instead of snapping in.
 
 This ensures that when `updateNextScheduledNote()` reveals the "next puzzle releasing on..." text after prefetch, the centered title block does not recenter upward.
 
