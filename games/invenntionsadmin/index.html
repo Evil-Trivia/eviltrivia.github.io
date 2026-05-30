@@ -98,6 +98,7 @@
       background: #fcfcfa;
     }
     .round-row.is-live { border-color: #81c784; background: #f1f8f2; }
+    .round-row.is-queued-live { border-color: #ffb74d; background: #fff8e1; }
     .round-row.is-hidden { opacity: 0.58; border-style: dashed; }
     .round-row.is-editing { border-color: #4a90c2; box-shadow: 0 0 0 2px rgba(74,144,194,0.2); }
     .round-row-main { min-width: 0; }
@@ -133,6 +134,7 @@
       border-radius: 10px;
     }
     .badge-live { background: #c8e6c9; color: #2e7d32; }
+    .badge-queued { background: #ffe0b2; color: #e65100; }
     .badge-hidden { background: #eee; color: #666; }
     .badge-order { background: #e3f2fd; color: #1565c0; }
     .badge-scheduled { background: #fff3e0; color: #e65100; }
@@ -1064,6 +1066,18 @@ ${DEFAULT_SCORING_HTML}`;
       return liveRoundIds.indexOf(id) >= 0;
     }
 
+    function isPlayerVisibleLive(id) {
+      if (!isLiveRound(id)) return false;
+      const r = archive[id];
+      if (!r || r.hidden) return false;
+      const pd = r.playDate ? String(r.playDate).trim() : '';
+      return !pd || isPlayDateReleasedET(pd);
+    }
+
+    function isQueuedLiveRound(id) {
+      return isLiveRound(id) && !isPlayerVisibleLive(id);
+    }
+
     function loadSiteFields() {
       bindRichTextEditors();
       document.getElementById('gameTitleInput').value = siteSettings.gameTitle || '';
@@ -1149,14 +1163,17 @@ ${DEFAULT_SCORING_HTML}`;
         if (!r) return;
         const row = document.createElement('div');
         row.className = 'round-row';
-        if (isLiveRound(id)) row.classList.add('is-live');
+        if (isPlayerVisibleLive(id)) row.classList.add('is-live');
+        else if (isQueuedLiveRound(id)) row.classList.add('is-queued-live');
         if (r.hidden) row.classList.add('is-hidden');
         if (editingRoundId === id) row.classList.add('is-editing');
 
         const badges = [];
-        if (isLiveRound(id)) {
+        if (isPlayerVisibleLive(id)) {
           badges.push('<span class="badge badge-live">Live</span>');
           badges.push('<span class="badge badge-order">Play #' + (liveRoundIds.indexOf(id) + 1) + '</span>');
+        } else if (isQueuedLiveRound(id)) {
+          badges.push('<span class="badge badge-queued">Queued #' + (liveRoundIds.indexOf(id) + 1) + '</span>');
         }
         if (r.hidden) badges.push('<span class="badge badge-hidden">Hidden</span>');
         if (r.scheduleLive) {
@@ -1168,11 +1185,8 @@ ${DEFAULT_SCORING_HTML}`;
             badges.push('<span class="badge badge-scheduled">Auto-live</span>');
           }
         }
-        if (isLiveRound(id)) {
-          const pd = r.playDate ? String(r.playDate).trim() : '';
-          if (pd && !isPlayDateReleasedET(pd)) {
-            badges.push('<span class="badge badge-scheduled">Not public until midnight ET</span>');
-          }
+        if (isQueuedLiveRound(id)) {
+          badges.push('<span class="badge badge-scheduled">Not public until midnight ET</span>');
         }
 
         const orderBtns = isLiveRound(id)
