@@ -1286,6 +1286,14 @@
       padding: 0;
       margin: 0;
       font-size: 16px;
+      outline: none;
+      white-space: nowrap;
+      overflow: hidden;
+      -webkit-user-modify: read-write-plaintext-only;
+      user-select: text;
+    }
+    .inv-device-input[contenteditable="false"] {
+      -webkit-user-modify: read-only;
     }
     .inv-device-kb-bar {
       position: fixed;
@@ -1331,6 +1339,15 @@
       background: #5a9e5c;
       color: #fff;
       border: 1px solid #4a8a4c;
+    }
+    .inv-device-kb-btn.guess.auto-guess-on {
+      background: #9aa09a;
+      border-color: #888;
+      color: #fff;
+      opacity: 1;
+      cursor: default;
+      font-size: 0.66rem;
+      letter-spacing: 0;
     }
     .inv-device-kb-btn.reveal {
       flex: 0.85 1 0;
@@ -1455,6 +1472,15 @@
       background: #5a9e5c;
       color: #fff;
       border-color: #4a8a4c;
+    }
+    .kb-key.guess.action.auto-guess-on {
+      background: #9aa09a;
+      border-color: #888;
+      color: #fff;
+      opacity: 1;
+      cursor: default;
+      font-size: 0.66rem;
+      letter-spacing: 0;
     }
     .kb-key.reveal {
       background: #c45c5c;
@@ -1964,9 +1990,9 @@
       line-height: 1.35;
       max-width: 320px;
       margin: 0;
-      /* Reserve two lines worth of space even when hidden/empty so the
+      /* Reserve three lines worth of space even when hidden/empty so the
          logo does not jump upward when this copy appears post-prefetch. */
-      min-height: 2.7em;
+      min-height: 4.05em;
       white-space: pre-line;
     }
     /* Override global .hidden display:none for this element only:
@@ -2302,9 +2328,9 @@
         </div>
       </div>
 
-      <form class="inv-device-input-wrap" autocomplete="off" aria-hidden="true" onsubmit="return false">
-        <input type="text" class="inv-device-input" id="invDeviceInput" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" inputmode="text" aria-autocomplete="none" data-1p-ignore data-lpignore="true" data-form-type="other" name="inv-guess-field" aria-label="Type your guess" tabindex="-1" readonly />
-      </form>
+      <div class="inv-device-input-wrap" aria-hidden="true">
+        <div id="invDeviceInput" class="inv-device-input" contenteditable="plaintext-only" role="textbox" aria-label="Type your guess" autocapitalize="characters" spellcheck="false" tabindex="-1"></div>
+      </div>
 
       <div class="inv-device-kb-bar hidden" id="invDeviceKbBar" aria-hidden="true">
         <button type="button" class="inv-device-kb-btn guess" id="btnAdminGuess" aria-label="Submit guess">GUESS</button>
@@ -2351,7 +2377,7 @@
             <input type="checkbox" id="settingDeviceKeyboard" />
             <span>Use device keyboard</span>
           </label>
-          <p class="inv-setting-warn hidden" id="settingDeviceKeyboardWarn">This game is not optimized for all device keyboards. The custom keyboard is recommended unless you are testing on your device.</p>
+          <p class="inv-setting-warn hidden" id="settingDeviceKeyboardWarn">The custom keyboard is recommended — not all device keyboards are optimized for this game.</p>
           <p class="inv-setting-hint">Shows your phone&rsquo;s native keyboard instead of the in-game keyboard. GUESS and REVEAL stay on screen above the keyboard.</p>
         </div>
         <div class="inv-setting-row">
@@ -2532,6 +2558,13 @@
       if (h <= 0) return `${m} min${m === 1 ? '' : 's'}`;
       if (m <= 0) return `${h} hour${h === 1 ? '' : 's'}`;
       return `${h} hour${h === 1 ? '' : 's'} ${m} min${m === 1 ? '' : 's'}`;
+    }
+
+    function formatCountdownTitleLine(ms) {
+      const totalMin = Math.max(0, Math.ceil(ms / 60000));
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      return `${h} hour${h === 1 ? '' : 's'} ${m} minute${m === 1 ? '' : 's'}`;
     }
 
     function canPlayerAccessRound(block) {
@@ -3105,7 +3138,7 @@ ${DEFAULT_SCORING_HTML}`;
     function onSettingDeviceKeyboardChange(checked) {
       if (checked && !getPlayerSettings().deviceKeyboard) {
         const ok = window.confirm(
-          'This game is not optimized for all device keyboards. The custom keyboard is recommended unless you are testing on your device.\n\nSwitch to the device keyboard anyway?'
+          'The custom keyboard is recommended — not all device keyboards are optimized for this game.\n\nSwitch to the device keyboard anyway?'
         );
         if (!ok) {
           const kb = document.getElementById('settingDeviceKeyboard');
@@ -3125,6 +3158,8 @@ ${DEFAULT_SCORING_HTML}`;
 
     function onSettingAutoGuessChange(checked) {
       setPlayerSettings({ autoGuess: !!checked });
+      updateKeyboardActions();
+      syncAdminActionButtons();
     }
 
     function enhanceRichModalLinks(container) {
@@ -3205,11 +3240,46 @@ ${DEFAULT_SCORING_HTML}`;
       }
     }
 
+    function getDeviceInputText(el) {
+      if (!el) return '';
+      return bufNorm(el.innerText || el.textContent || '');
+    }
+
+    function setDeviceInputText(el, text) {
+      if (!el) return;
+      el.textContent = bufNorm(text);
+    }
+
+    function lockDeviceInput(el) {
+      if (!el) return;
+      el.contentEditable = 'false';
+    }
+
+    function unlockDeviceInput(el) {
+      if (!el) return;
+      el.contentEditable = 'plaintext-only';
+    }
+
+    function applyAutoGuessGuessButton(btn, playing) {
+      if (!btn) return;
+      if (useAutoGuess() && playing) {
+        btn.disabled = true;
+        btn.textContent = 'Auto-guess Enabled';
+        btn.classList.add('auto-guess-on');
+        btn.setAttribute('aria-label', 'Auto-guess enabled');
+      } else {
+        btn.classList.remove('auto-guess-on');
+        btn.textContent = 'GUESS';
+        btn.setAttribute('aria-label', 'Submit guess');
+        btn.disabled = !playing;
+      }
+    }
+
     function blurDeviceInput() {
       const inp = document.getElementById('invDeviceInput');
       if (!inp) return;
       if (document.activeElement === inp) inp.blur();
-      inp.setAttribute('readonly', '');
+      lockDeviceInput(inp);
     }
 
     function syncDeviceInputFromFocus() {
@@ -3218,7 +3288,7 @@ ${DEFAULT_SCORING_HTML}`;
       let buf = '';
       if (focusKind === 'phrase') buf = puzzleBuffers[focusPuzzleIndex] || '';
       else if (focusKind === 'commonality') buf = commonalityBuffer || '';
-      inp.value = bufNorm(buf);
+      setDeviceInputText(inp, buf);
     }
 
     function focusDeviceInput() {
@@ -3226,7 +3296,7 @@ ${DEFAULT_SCORING_HTML}`;
       const inp = document.getElementById('invDeviceInput');
       if (!inp) return;
       syncDeviceInputFromFocus();
-      inp.removeAttribute('readonly');
+      unlockDeviceInput(inp);
       try { inp.focus({ preventScroll: true }); } catch (_) { inp.focus(); }
       window.setTimeout(positionDeviceKbBar, 60);
       window.setTimeout(positionDeviceKbBar, 280);
@@ -3235,7 +3305,7 @@ ${DEFAULT_SCORING_HTML}`;
     function onDeviceInputInput(e) {
       if (!canUseDeviceKeyboardNow()) return;
       resetRevealConfirm();
-      const raw = bufNorm(e.target.value);
+      const raw = getDeviceInputText(e.target);
       if (focusKind === 'phrase') {
         if (puzzleSolved[focusPuzzleIndex]) return;
         puzzleBuffers[focusPuzzleIndex] = raw;
@@ -3259,7 +3329,7 @@ ${DEFAULT_SCORING_HTML}`;
 
     function syncAdminActionButtons() {
       const playing = canUseDeviceKeyboardNow();
-      if (adminGuessBtn) adminGuessBtn.disabled = !playing;
+      applyAutoGuessGuessButton(adminGuessBtn, playing);
       if (!adminRevealBtn) return;
       adminRevealBtn.disabled = !playing || !canRevealAnswerForFocus();
       if (revealConfirmPending) {
@@ -3278,10 +3348,24 @@ ${DEFAULT_SCORING_HTML}`;
       adminRevealBtn = document.getElementById('btnAdminReveal');
       adminGuessBtn = document.getElementById('btnAdminGuess');
       if (inp) {
+        lockDeviceInput(inp);
         inp.addEventListener('input', onDeviceInputInput);
         inp.addEventListener('keydown', onDeviceInputKeydown);
         inp.addEventListener('blur', () => {
-          if (useDeviceKeyboard()) inp.setAttribute('readonly', '');
+          if (useDeviceKeyboard()) lockDeviceInput(inp);
+        });
+        inp.addEventListener('beforeinput', e => {
+          if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
+            e.preventDefault();
+          }
+        });
+        inp.addEventListener('paste', e => {
+          e.preventDefault();
+          const clip = e.clipboardData || window.clipboardData;
+          const text = clip ? clip.getData('text/plain') : '';
+          if (!text) return;
+          const clean = bufNorm(text).replace(/\n/g, ' ');
+          document.execCommand('insertText', false, clean);
         });
       }
       adminGuessBtn?.addEventListener('click', () => onGuess());
@@ -3508,11 +3592,13 @@ ${DEFAULT_SCORING_HTML}`;
       if (!el) return;
       if (titleIntroComplete && nextScheduledRound) {
         const remaining = msUntilPlayDateReleaseET(nextScheduledRound.playDate);
-        const countdown = formatCountdownHm(remaining);
         const dateLabel = formatPlayDateShort(nextScheduledRound.playDate) || nextScheduledRound.playDate;
-        el.textContent = remaining > 0
-          ? `Next puzzle drops in ${countdown} (midnight ET, ${dateLabel}):\n"${nextScheduledRound.label}"`
-          : `Next puzzle releasing on ${dateLabel}:\n"${nextScheduledRound.label}"`;
+        const title = nextScheduledRound.label || 'Round';
+        if (remaining > 0) {
+          el.textContent = `Next puzzle drops in ${formatCountdownTitleLine(remaining)}\n(midnight ET, ${dateLabel})\nPuzzle title: ${title}`;
+        } else {
+          el.textContent = `Next puzzle releasing soon\n(midnight ET, ${dateLabel})\nPuzzle title: ${title}`;
+        }
         el.classList.remove('hidden');
       } else {
         el.textContent = '';
@@ -6867,7 +6953,7 @@ ${DEFAULT_SCORING_HTML}`;
     function updateKeyboardActions() {
       const playing = phase !== 'finish';
       if (kbGuessBtn && kbRevealBtn) {
-        kbGuessBtn.disabled = !playing;
+        applyAutoGuessGuessButton(kbGuessBtn, playing);
         const canReveal = playing && canRevealAnswerForFocus();
         kbRevealBtn.disabled = !canReveal;
         if (!canReveal) resetRevealConfirm();
@@ -7394,6 +7480,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function isTypingInFormField(target) {
+      if (target instanceof HTMLElement && target.isContentEditable) return true;
       return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
     }
 
