@@ -1266,9 +1266,10 @@
     body.inv-device-kb-active .keyboard-wrap { display: none !important; }
     .inv-device-input-wrap {
       position: fixed;
-      top: 0;
       left: 0;
-      width: 1px;
+      right: 0;
+      bottom: 0;
+      width: 100%;
       height: 1px;
       overflow: hidden;
       opacity: 0;
@@ -1277,23 +1278,23 @@
     }
     .inv-device-input {
       position: absolute;
-      top: 0;
       left: 0;
-      width: 1px;
+      bottom: 0;
+      width: 100%;
       height: 1px;
       opacity: 0;
       border: 0;
       padding: 0;
       margin: 0;
       font-size: 16px;
+      line-height: 1;
       outline: none;
-      white-space: nowrap;
-      overflow: hidden;
-      -webkit-user-modify: read-write-plaintext-only;
-      user-select: text;
-    }
-    .inv-device-input[contenteditable="false"] {
-      -webkit-user-modify: read-only;
+      background: transparent;
+      color: transparent;
+      caret-color: transparent;
+      -webkit-appearance: none;
+      appearance: none;
+      border-radius: 0;
     }
     .inv-device-kb-bar {
       position: fixed;
@@ -2282,7 +2283,7 @@
     <div class="inv-title-footer">
       <p class="inv-title-credit">a game by graham litten</p>
       <p>Evil Trivia<sup>®</sup> 2026</p>
-      <button type="button" class="inv-title-settings-btn hidden" id="btnTitleSettings" aria-label="Settings" title="Settings">⚙</button>
+      <button type="button" class="inv-title-settings-btn" id="btnTitleSettings" aria-label="Settings" title="Settings">⚙</button>
     </div>
   </div>
 
@@ -2315,7 +2316,7 @@
           </div>
         </div>
         <div class="mg-title-side mg-title-side-right mg-title-side-icons">
-          <button type="button" class="mg-icon-btn inv-settings-btn hidden" id="btnQuizSettings" aria-label="Settings" title="Settings">⚙</button>
+          <button type="button" class="mg-icon-btn inv-settings-btn" id="btnQuizSettings" aria-label="Settings" title="Settings">⚙</button>
           <a href="#" class="mg-logo-link" id="linkAbout" aria-label="About Evil Trivia" title="About Evil Trivia">
             <img src="../../images/apple-touch-icon-76x76.png" width="76" height="76" alt="Evil Trivia" />
           </a>
@@ -2329,7 +2330,7 @@
       </div>
 
       <div class="inv-device-input-wrap" aria-hidden="true">
-        <div id="invDeviceInput" class="inv-device-input" contenteditable="plaintext-only" role="textbox" aria-label="Type your guess" autocapitalize="characters" spellcheck="false" tabindex="-1"></div>
+        <input type="text" id="invDeviceInput" class="inv-device-input" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" inputmode="text" enterkeyhint="done" aria-autocomplete="none" aria-label="Type your guess" tabindex="-1" readonly />
       </div>
 
       <div class="inv-device-kb-bar hidden" id="invDeviceKbBar" aria-hidden="true">
@@ -3103,14 +3104,26 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function syncSettingsButtonsVisibility() {
-      const show = !!window.invIsAdmin;
-      document.getElementById('btnQuizSettings')?.classList.toggle('hidden', !show);
-      document.getElementById('btnTitleSettings')?.classList.toggle('hidden', !show);
+      /* Settings are available to all players. */
     }
 
-    function isSettingsModalOpen() {
-      const el = document.getElementById('settingsModal');
+    function isModalOpen(id) {
+      const el = document.getElementById(id);
       return !!(el && !el.classList.contains('hidden'));
+    }
+
+    function isPlayBlockingModalOpen() {
+      return isModalOpen('helpModal')
+        || isModalOpen('settingsModal')
+        || isModalOpen('aboutModal')
+        || isModalOpen('infoModal')
+        || isModalOpen('scoreModal');
+    }
+
+    function isQuizPlaySessionActive() {
+      return document.body.classList.contains('inv-quiz-active')
+        && phase === 'play'
+        && !isPlayBlockingModalOpen();
     }
 
     function syncSettingsModalUi() {
@@ -3124,7 +3137,6 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function openSettingsModal() {
-      if (!window.invIsAdmin) return;
       syncSettingsModalUi();
       document.getElementById('settingsModal')?.classList.remove('hidden');
       syncDeviceKeyboardMode();
@@ -3186,18 +3198,26 @@ ${DEFAULT_SCORING_HTML}`;
     let deviceKbUiBound = false;
     let adminRevealBtn = null;
     let adminGuessBtn = null;
+    let deviceKbMaintainTimer = 0;
 
     function isHelpModalOpen() {
-      const el = document.getElementById('helpModal');
-      return !!(el && !el.classList.contains('hidden'));
+      return isModalOpen('helpModal');
+    }
+
+    function isSettingsModalOpen() {
+      return isModalOpen('settingsModal');
     }
 
     function canUseDeviceKeyboardNow() {
-      return useDeviceKeyboard()
-        && document.body.classList.contains('inv-quiz-active')
-        && phase !== 'finish'
-        && !isHelpModalOpen()
-        && !isSettingsModalOpen();
+      return useDeviceKeyboard() && isQuizPlaySessionActive();
+    }
+
+    function scheduleMaintainDeviceKeyboard() {
+      if (!canUseDeviceKeyboardNow()) return;
+      window.clearTimeout(deviceKbMaintainTimer);
+      deviceKbMaintainTimer = window.setTimeout(() => {
+        if (canUseDeviceKeyboardNow()) focusDeviceInput();
+      }, 10);
     }
 
     function positionDeviceKbBar() {
@@ -3242,22 +3262,22 @@ ${DEFAULT_SCORING_HTML}`;
 
     function getDeviceInputText(el) {
       if (!el) return '';
-      return bufNorm(el.innerText || el.textContent || '');
+      return bufNorm(el.value != null ? el.value : '');
     }
 
     function setDeviceInputText(el, text) {
       if (!el) return;
-      el.textContent = bufNorm(text);
+      el.value = bufNorm(text);
     }
 
     function lockDeviceInput(el) {
       if (!el) return;
-      el.contentEditable = 'false';
+      el.setAttribute('readonly', '');
     }
 
     function unlockDeviceInput(el) {
       if (!el) return;
-      el.contentEditable = 'plaintext-only';
+      el.removeAttribute('readonly');
     }
 
     function applyAutoGuessGuessButton(btn, playing) {
@@ -3349,23 +3369,15 @@ ${DEFAULT_SCORING_HTML}`;
       adminGuessBtn = document.getElementById('btnAdminGuess');
       if (inp) {
         lockDeviceInput(inp);
+        inp.setAttribute('autocomplete', 'off');
         inp.addEventListener('input', onDeviceInputInput);
         inp.addEventListener('keydown', onDeviceInputKeydown);
         inp.addEventListener('blur', () => {
-          if (useDeviceKeyboard()) lockDeviceInput(inp);
-        });
-        inp.addEventListener('beforeinput', e => {
-          if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
-            e.preventDefault();
+          if (canUseDeviceKeyboardNow()) {
+            scheduleMaintainDeviceKeyboard();
+            return;
           }
-        });
-        inp.addEventListener('paste', e => {
-          e.preventDefault();
-          const clip = e.clipboardData || window.clipboardData;
-          const text = clip ? clip.getData('text/plain') : '';
-          if (!text) return;
-          const clean = bufNorm(text).replace(/\n/g, ' ');
-          document.execCommand('insertText', false, clean);
+          lockDeviceInput(inp);
         });
       }
       adminGuessBtn?.addEventListener('click', () => onGuess());
@@ -6205,6 +6217,7 @@ ${DEFAULT_SCORING_HTML}`;
     function openScoreModal() {
       markScoreModalOpened();
       document.getElementById('scoreModal').classList.remove('hidden');
+      syncDeviceKeyboardMode();
     }
 
     function closeAllModals() {
@@ -6253,6 +6266,7 @@ ${DEFAULT_SCORING_HTML}`;
       body.innerHTML = html;
       enhanceRichModalLinks(body);
       document.getElementById('aboutModal').classList.remove('hidden');
+      syncDeviceKeyboardMode();
     }
 
     function openInfoModal() {
@@ -6263,6 +6277,7 @@ ${DEFAULT_SCORING_HTML}`;
       body.innerHTML = html;
       enhanceRichModalLinks(body);
       document.getElementById('infoModal').classList.remove('hidden');
+      syncDeviceKeyboardMode();
       if (!infoHtml || !String(infoHtml).trim()) {
         loadSiteSettings().then(() => {
           if (infoHtml && String(infoHtml).trim()) {
@@ -6448,7 +6463,7 @@ ${DEFAULT_SCORING_HTML}`;
           if (e.target !== el) return;
           if (id === 'scoreModal' && !canDismissScoreModal()) return;
           if (cb) { cb(); } else { el.classList.add('hidden'); }
-          if (id === 'settingsModal') syncDeviceKeyboardMode();
+          syncDeviceKeyboardMode();
         });
       }
       document.querySelectorAll('.mg-modal').forEach(modal => {
@@ -6476,13 +6491,16 @@ ${DEFAULT_SCORING_HTML}`;
       document.getElementById('helpModalClose')?.addEventListener('click', hideHelpModal);
       document.getElementById('aboutModalClose')?.addEventListener('click', () => {
         document.getElementById('aboutModal').classList.add('hidden');
+        syncDeviceKeyboardMode();
       });
       document.getElementById('infoModalClose')?.addEventListener('click', () => {
         document.getElementById('infoModal').classList.add('hidden');
+        syncDeviceKeyboardMode();
       });
       document.getElementById('settingsModalClose')?.addEventListener('click', closeSettingsModal);
       document.getElementById('scoreModalClose')?.addEventListener('click', () => {
         document.getElementById('scoreModal').classList.add('hidden');
+        syncDeviceKeyboardMode();
       });
 
       bindRichModalLinks('helpModalBody');
@@ -6584,6 +6602,7 @@ ${DEFAULT_SCORING_HTML}`;
         focusKind = 'phrase';
         focusPuzzleIndex = i;
         updateFocusHighlight();
+        scheduleMaintainDeviceKeyboard();
         return true;
       }
       if (stripEl.id === 'strip-c') {
@@ -6591,6 +6610,7 @@ ${DEFAULT_SCORING_HTML}`;
         resetRevealConfirm();
         focusKind = 'commonality';
         updateFocusHighlight();
+        scheduleMaintainDeviceKeyboard();
         return true;
       }
       return false;
@@ -6601,6 +6621,10 @@ ${DEFAULT_SCORING_HTML}`;
       let n = e.target;
       if (n && n.nodeType === Node.TEXT_NODE) n = n.parentElement;
       if (!(n instanceof HTMLElement)) return;
+      if (canUseDeviceKeyboardNow()) {
+        const clueWords = n.closest('.mg-words[data-clue-side]');
+        if (clueWords) scheduleMaintainDeviceKeyboard();
+      }
       const stripEl = n.closest('.mg-answer-strip[id]');
       if (stripEl) focusAnswerStripFromTarget(stripEl);
     }
@@ -6649,6 +6673,7 @@ ${DEFAULT_SCORING_HTML}`;
         }
         scheduleClueHintTextFit(false, null, clueWords.closest('.mg-phrase-block'));
         updateKeyboardActions();
+        scheduleMaintainDeviceKeyboard();
         return;
       }
 
@@ -6670,6 +6695,7 @@ ${DEFAULT_SCORING_HTML}`;
         }
         scheduleClueHintTextFit();
         updateKeyboardActions();
+        scheduleMaintainDeviceKeyboard();
       }
     }
 
