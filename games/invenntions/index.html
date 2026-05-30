@@ -1219,6 +1219,37 @@
       touch-action: none;
     }
     .keyboard-wrap.hidden-kb { display: none; }
+    body.inv-device-kb-active .keyboard-wrap { display: none !important; }
+    .inv-device-input {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 1px;
+      height: 1px;
+      opacity: 0.01;
+      border: 0;
+      padding: 0;
+      margin: 0;
+      z-index: -1;
+    }
+    .mg-admin-kb-btn {
+      display: none;
+      font-family: 'Arial Black', Arial, sans-serif;
+      font-size: 0.58rem;
+      line-height: 1.1;
+      padding: 5px 7px;
+      border: 1px solid #b0b0a8;
+      border-radius: 5px;
+      background: #fff;
+      cursor: pointer;
+      touch-action: manipulation;
+      color: #222;
+    }
+    body.inv-device-kb-active .mg-admin-kb-btn { display: inline-block; }
+    body.inv-device-kb-active .mg-admin-kb-btn.reveal-confirm {
+      background: #ffe8a8;
+      border-color: #e6b800;
+    }
     .kb-row {
       display: flex;
       justify-content: center;
@@ -2129,6 +2160,8 @@
         <div class="mg-title-side mg-title-side-left">
           <button type="button" class="mg-icon-btn" id="btnBackMenu" aria-label="Back to menu" title="Menu">←</button>
           <button type="button" class="mg-icon-btn" id="btnHelp" aria-label="How to play">?</button>
+          <button type="button" class="mg-admin-kb-btn" id="btnAdminGuess" aria-label="Submit guess">GUESS</button>
+          <button type="button" class="mg-admin-kb-btn" id="btnAdminReveal" aria-label="Reveal answer">REVEAL</button>
           <button type="button" class="mg-icon-btn mg-trophy hidden" id="btnScoreModal" aria-label="Your score" title="Your score">🏆</button>
         </div>
         <div class="mg-title-stack">
@@ -2150,6 +2183,8 @@
           <div id="puzzleMount"></div>
         </div>
       </div>
+
+      <input type="text" class="inv-device-input" id="invDeviceInput" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-label="Type your guess" tabindex="-1" />
 
       <div class="keyboard-wrap" id="keyboardWrap">
         <div id="keyboardRoot"></div>
@@ -2198,7 +2233,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
-    import { getDatabase, ref, push, set, get } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getDatabase, ref, push, set, get, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
     import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
     import confetti from "https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/+esm";
 
@@ -2242,8 +2277,15 @@
     }
 
     onAuthStateChanged(auth, async (user) => {
+      const wasAdmin = window.invIsAdmin;
       window.invIsAdmin = false;
-      if (!user) return;
+      if (!user) {
+        if (wasAdmin) {
+          syncDeviceKeyboardMode();
+          onScheduleClockTick();
+        }
+        return;
+      }
       try {
         const roleSnap = await invDbGet(ref(db, `users/${user.uid}/role`), 8000);
         if (roleSnap.exists() && roleSnap.val() === 'admin') {
@@ -2258,9 +2300,95 @@
       } catch (e) {
         console.warn('InVennTions admin check:', e);
       }
+      if (wasAdmin !== window.invIsAdmin) {
+        syncDeviceKeyboardMode();
+        onScheduleClockTick();
+        if (document.body.classList.contains('inv-title-active')) {
+          prefetchQuizWithRecovery();
+        }
+      }
     });
 
     const GAME_ID = 'middleground';
+    const INV_ET_ZONE = 'America/New_York';
+    let invServerTimeOffsetMs = 0;
+    let nextGameCountdownTimer = 0;
+
+    onValue(ref(db, '.info/serverTimeOffset'), (snap) => {
+      invServerTimeOffsetMs = typeof snap.val() === 'number' ? snap.val() : 0;
+      onScheduleClockTick();
+    });
+
+    function invNowMs() {
+      return Date.now() + invServerTimeOffsetMs;
+    }
+
+    function etPartsFromMs(ms) {
+      const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: INV_ET_ZONE,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+        hour12: false
+      });
+      const parts = {};
+      dtf.formatToParts(new Date(ms)).forEach(p => {
+        if (p.type !== 'literal') parts[p.type] = parseInt(p.value, 10);
+      });
+      return parts;
+    }
+
+    function etDateISOFromMs(ms) {
+      const p = etPartsFromMs(ms);
+      return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+    }
+
+    function midnightETMsForPlayDate(playDateISO) {
+      if (!playDateISO || !/^\d{4}-\d{2}-\d{2}$/.test(playDateISO)) return 0;
+      const [y, m, d] = playDateISO.split('-').map(Number);
+      const start = Date.UTC(y, m - 1, d - 1, 5, 0, 0);
+      for (let t = start; t < start + 72 * 3600000; t += 3600000) {
+        const p = etPartsFromMs(t);
+        const ds = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+        if (ds === playDateISO && p.hour === 0 && p.minute === 0) {
+          for (let s = t; s < t + 3600000; s += 1000) {
+            const ps = etPartsFromMs(s);
+            const dss = `${ps.year}-${String(ps.month).padStart(2, '0')}-${String(ps.day).padStart(2, '0')}`;
+            if (dss === playDateISO && ps.hour === 0 && ps.minute === 0 && ps.second === 0) return s;
+          }
+          return t;
+        }
+      }
+      return Date.parse(`${playDateISO}T05:00:00Z`);
+    }
+
+    function isPlayDateReleasedET(playDateISO, nowMs) {
+      const now = nowMs != null ? nowMs : invNowMs();
+      return now >= midnightETMsForPlayDate(playDateISO);
+    }
+
+    function msUntilPlayDateReleaseET(playDateISO, nowMs) {
+      const now = nowMs != null ? nowMs : invNowMs();
+      return Math.max(0, midnightETMsForPlayDate(playDateISO) - now);
+    }
+
+    function formatCountdownHm(ms) {
+      const totalMin = Math.max(0, Math.ceil(ms / 60000));
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      if (h <= 0) return `${m} min${m === 1 ? '' : 's'}`;
+      if (m <= 0) return `${h} hour${h === 1 ? '' : 's'}`;
+      return `${h} hour${h === 1 ? '' : 's'} ${m} min${m === 1 ? '' : 's'}`;
+    }
+
+    function canPlayerAccessRound(block) {
+      if (!block) return false;
+      if (window.invIsAdmin) return true;
+      return isRoundReleased(block);
+    }
 
     function snapExists(snap) {
       if (!snap) return false;
@@ -2762,7 +2890,118 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function isRoundReleased(block) {
-      return roundPlayDateFromBlock(block) <= todayISO();
+      return isPlayDateReleasedET(roundPlayDateFromBlock(block));
+    }
+
+    function useDeviceKeyboard() {
+      return !!window.invIsAdmin;
+    }
+
+    let deviceKbViewportBound = false;
+    let deviceKbUiBound = false;
+    let adminRevealBtn = null;
+
+    function syncDeviceKeyboardMode() {
+      const device = useDeviceKeyboard();
+      document.body.classList.toggle('inv-device-kb-active', device && document.body.classList.contains('inv-quiz-active'));
+      if (keyboardWrap) {
+        if (device || phase === 'finish') keyboardWrap.classList.add('hidden-kb');
+        else if (phase !== 'finish') keyboardWrap.classList.remove('hidden-kb');
+      }
+      if (!device) {
+        blurDeviceInput();
+      } else if (document.body.classList.contains('inv-quiz-active') && phase !== 'finish') {
+        focusDeviceInput();
+      }
+      syncAdminRevealButton();
+    }
+
+    function blurDeviceInput() {
+      const inp = document.getElementById('invDeviceInput');
+      if (inp && document.activeElement === inp) inp.blur();
+    }
+
+    function syncDeviceInputFromFocus() {
+      const inp = document.getElementById('invDeviceInput');
+      if (!inp || !useDeviceKeyboard()) return;
+      let buf = '';
+      if (focusKind === 'phrase') buf = puzzleBuffers[focusPuzzleIndex] || '';
+      else if (focusKind === 'commonality') buf = commonalityBuffer || '';
+      inp.value = bufNorm(buf);
+    }
+
+    function focusDeviceInput() {
+      if (!useDeviceKeyboard() || phase === 'finish') return;
+      const inp = document.getElementById('invDeviceInput');
+      if (!inp) return;
+      syncDeviceInputFromFocus();
+      try { inp.focus({ preventScroll: true }); } catch (_) { inp.focus(); }
+    }
+
+    function onDeviceInputInput(e) {
+      if (!useDeviceKeyboard() || phase === 'finish') return;
+      resetRevealConfirm();
+      const raw = bufNorm(e.target.value);
+      if (focusKind === 'phrase') {
+        if (puzzleSolved[focusPuzzleIndex]) return;
+        puzzleBuffers[focusPuzzleIndex] = raw;
+      } else if (focusKind === 'commonality' && commonality && !commonalitySolved) {
+        commonalityBuffer = raw;
+      } else {
+        return;
+      }
+      syncFocusedStripDisplay();
+    }
+
+    function onDeviceInputKeydown(e) {
+      if (!useDeviceKeyboard() || phase === 'finish') return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onGuess();
+      }
+    }
+
+    function syncAdminRevealButton() {
+      if (!adminRevealBtn) return;
+      if (revealConfirmPending) {
+        adminRevealBtn.textContent = 'Are you sure?';
+        adminRevealBtn.classList.add('reveal-confirm');
+      } else {
+        adminRevealBtn.textContent = 'REVEAL';
+        adminRevealBtn.classList.remove('reveal-confirm');
+      }
+    }
+
+    function ensureDeviceKeyboardUi() {
+      if (deviceKbUiBound) return;
+      deviceKbUiBound = true;
+      const inp = document.getElementById('invDeviceInput');
+      adminRevealBtn = document.getElementById('btnAdminReveal');
+      if (inp) {
+        inp.addEventListener('input', onDeviceInputInput);
+        inp.addEventListener('keydown', onDeviceInputKeydown);
+      }
+      document.getElementById('btnAdminGuess')?.addEventListener('click', () => onGuess());
+      adminRevealBtn?.addEventListener('click', () => onReveal());
+    }
+
+    function ensureDeviceKeyboardViewport() {
+      if (deviceKbViewportBound) return;
+      deviceKbViewportBound = true;
+      const vv = window.visualViewport;
+      if (!vv) return;
+      const reflow = () => {
+        if (!useDeviceKeyboard() || !document.body.classList.contains('inv-quiz-active')) return;
+        reflowQuizLayoutFromViewport();
+      };
+      vv.addEventListener('resize', reflow);
+      vv.addEventListener('scroll', reflow);
+    }
+
+    function getKeyboardChromeHeight() {
+      if (useDeviceKeyboard()) return 0;
+      const kbVisible = keyboardWrap && !keyboardWrap.classList.contains('hidden-kb');
+      return kbVisible ? keyboardWrap.offsetHeight : 0;
     }
 
     function resetInvenntionsPlayerStorage() {
@@ -2895,7 +3134,6 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function resolveEffectiveLiveRoundIds(archiveRaw, manualLiveIds) {
-      const today = todayISO();
       const manual = Array.isArray(manualLiveIds) ? manualLiveIds.map(String).filter(Boolean) : [];
       const scheduledToday = [];
       if (archiveRaw && typeof archiveRaw === 'object') {
@@ -2903,7 +3141,7 @@ ${DEFAULT_SCORING_HTML}`;
           const r = archiveRaw[id];
           if (!r || isRoundHidden(r) || !r.scheduleLive) return;
           const pd = r.playDate != null ? String(r.playDate).trim() : '';
-          if (pd && pd <= today) scheduledToday.push({ id: String(id), playDate: pd });
+          if (pd && isPlayDateReleasedET(pd)) scheduledToday.push({ id: String(id), playDate: pd });
         });
       }
       scheduledToday.sort((a, b) => b.playDate.localeCompare(a.playDate) || a.id.localeCompare(b.id));
@@ -2921,33 +3159,52 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function getNextScheduledRound(archiveRaw) {
-      const today = todayISO();
       let best = null;
       if (!archiveRaw || typeof archiveRaw !== 'object') return null;
       Object.keys(archiveRaw).forEach(id => {
         const r = archiveRaw[id];
         if (!r || isRoundHidden(r) || !r.scheduleLive) return;
         const pd = r.playDate != null ? String(r.playDate).trim() : '';
-        if (!pd || pd <= today) return;
+        if (!pd || isPlayDateReleasedET(pd)) return;
         const label = roundLabelFromBlock(r, id) || 'Round';
-        if (!best || pd < best.playDate || (pd === best.playDate && label.localeCompare(best.label) < 0)) {
-          best = { id: String(id), label, playDate: pd };
+        const releaseMs = midnightETMsForPlayDate(pd);
+        if (!best || releaseMs < best.releaseMs || (releaseMs === best.releaseMs && label.localeCompare(best.label) < 0)) {
+          best = { id: String(id), label, playDate: pd, releaseMs };
         }
       });
       return best;
     }
 
+    function startNextGameCountdownTimer() {
+      if (nextGameCountdownTimer) return;
+      nextGameCountdownTimer = window.setInterval(onScheduleClockTick, 30000);
+    }
+
+    function onScheduleClockTick() {
+      updateNextScheduledNote();
+      if (!nextScheduledRound) return;
+      const remaining = msUntilPlayDateReleaseET(nextScheduledRound.playDate);
+      if (remaining <= 0 && document.body.classList.contains('inv-title-active')) {
+        prefetchQuizWithRecovery();
+      }
+    }
+
     function refreshNextScheduledRound(archiveRaw) {
       nextScheduledRound = getNextScheduledRound(archiveRaw);
       updateNextScheduledNote();
+      if (nextScheduledRound) startNextGameCountdownTimer();
     }
 
     function updateNextScheduledNote() {
       const el = document.getElementById('titleNextGame');
       if (!el) return;
       if (titleIntroComplete && nextScheduledRound) {
+        const remaining = msUntilPlayDateReleaseET(nextScheduledRound.playDate);
+        const countdown = formatCountdownHm(remaining);
         const dateLabel = formatPlayDateShort(nextScheduledRound.playDate) || nextScheduledRound.playDate;
-        el.textContent = `Next puzzle releasing on ${dateLabel}:\n"${nextScheduledRound.label}"`;
+        el.textContent = remaining > 0
+          ? `Next puzzle drops in ${countdown} (midnight ET, ${dateLabel}):\n"${nextScheduledRound.label}"`
+          : `Next puzzle releasing on ${dateLabel}:\n"${nextScheduledRound.label}"`;
         el.classList.remove('hidden');
       } else {
         el.textContent = '';
@@ -2991,7 +3248,6 @@ ${DEFAULT_SCORING_HTML}`;
       try {
         const raw = await fetchArchiveRaw(false);
         if (!raw || typeof raw !== 'object') return null;
-        const today = todayISO();
         const eligible = Object.keys(raw)
           .map(id => ({ id, block: raw[id] }))
           .filter(({ block }) => block && typeof block === 'object' && !isRoundHidden(block))
@@ -3002,7 +3258,7 @@ ${DEFAULT_SCORING_HTML}`;
               : 0;
             return phraseCount > 0;
           })
-          .filter(({ block }) => roundPlayDateFromBlock(block) <= today)
+          .filter(({ block }) => isRoundReleased(block))
           .map(({ id, block }) => ({
             id,
             playDate: roundPlayDateFromBlock(block),
@@ -4398,6 +4654,9 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function getLayoutViewportHeight() {
+      if (useDeviceKeyboard() && window.visualViewport && document.body.classList.contains('inv-quiz-active')) {
+        return window.visualViewport.height;
+      }
       return (layoutViewportLocked || captureLayoutViewport()).height;
     }
 
@@ -4538,8 +4797,7 @@ ${DEFAULT_SCORING_HTML}`;
       boardAreaEl.style.height = '';
       boardAreaEl.style.minHeight = '';
 
-      const kbVisible = keyboardWrap && !keyboardWrap.classList.contains('hidden-kb');
-      const kbH = kbVisible ? keyboardWrap.offsetHeight : 0;
+      const kbH = getKeyboardChromeHeight();
       const titleRow = document.getElementById('mgTitleRow');
       const titleH = titleRow ? titleRow.offsetHeight : 0;
       const toastH = toastEl && toastEl.textContent.trim() ? toastEl.offsetHeight : 0;
@@ -4768,7 +5026,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function todayISO() {
-      return new Date().toISOString().split('T')[0];
+      return etDateISOFromMs(invNowMs());
     }
 
     function formatPlayDate(iso) {
@@ -5232,7 +5490,7 @@ ${DEFAULT_SCORING_HTML}`;
           : 0;
         if (!phraseCount) return;
         const playDate = roundPlayDateFromBlock(r);
-        if (playDate > todayISO()) return;
+        if (!isRoundReleased(r)) return;
         const label = roundLabelFromBlock(r, id) || 'Round';
         const sessionKey = sessionKeyForRoundId(id);
         const submission = getSubmissionForRound(id);
@@ -5833,12 +6091,15 @@ ${DEFAULT_SCORING_HTML}`;
       document.body.classList.add('inv-quiz-active');
       document.body.classList.remove('inv-title-active');
       syncPlayViewportLayout();
+      syncDeviceKeyboardMode();
       updateRotateOverlay();
     }
 
     function leaveQuizShell() {
       document.documentElement.classList.remove('inv-quiz-active');
       document.body.classList.remove('inv-quiz-active');
+      document.body.classList.remove('inv-device-kb-active');
+      blurDeviceInput();
       puzzleMount.style.transform = '';
       puzzleMount.style.width = '100%';
       puzzleMount.style.maxWidth = '100%';
@@ -6102,8 +6363,10 @@ ${DEFAULT_SCORING_HTML}`;
       } else {
         updateHeaderTitles();
         pageSubtitle.textContent = activeRoundSubtitle.trim() || DEFAULT_PLAY_SUBTITLE;
-        keyboardWrap.classList.remove('hidden-kb');
+        if (useDeviceKeyboard()) keyboardWrap.classList.add('hidden-kb');
+        else keyboardWrap.classList.remove('hidden-kb');
       }
+      syncDeviceKeyboardMode();
       updateFocusHighlight();
       updateComBonusHint();
       preprocessClueBoxLayout();
@@ -6144,6 +6407,7 @@ ${DEFAULT_SCORING_HTML}`;
       }
       layoutFocusedPhraseSquircle();
       updateComBonusHint();
+      syncDeviceInputFromFocus();
       requestAnimationFrame(() => {
         if (phase === 'finish' || focusHighlightSuspended) {
           clearActiveGuessHighlight();
@@ -6152,6 +6416,7 @@ ${DEFAULT_SCORING_HTML}`;
           layoutFocusedPhraseSquircle();
         }
         updateKeyboardActions();
+        if (useDeviceKeyboard()) focusDeviceInput();
       });
     }
 
@@ -6228,9 +6493,11 @@ ${DEFAULT_SCORING_HTML}`;
       clearTimeout(revealConfirmTimer);
       revealConfirmTimer = 0;
       revealConfirmPending = false;
-      if (!kbRevealBtn) return;
-      kbRevealBtn.textContent = 'REVEAL';
-      kbRevealBtn.classList.remove('reveal-confirm');
+      if (kbRevealBtn) {
+        kbRevealBtn.textContent = 'REVEAL';
+        kbRevealBtn.classList.remove('reveal-confirm');
+      }
+      syncAdminRevealButton();
     }
 
     function canRevealAnswerForFocus() {
@@ -6316,8 +6583,11 @@ ${DEFAULT_SCORING_HTML}`;
       }
       if (!revealConfirmPending) {
         revealConfirmPending = true;
-        kbRevealBtn.textContent = 'Are you sure?';
-        kbRevealBtn.classList.add('reveal-confirm');
+        if (kbRevealBtn) {
+          kbRevealBtn.textContent = 'Are you sure?';
+          kbRevealBtn.classList.add('reveal-confirm');
+        }
+        syncAdminRevealButton();
         clearTimeout(revealConfirmTimer);
         revealConfirmTimer = window.setTimeout(resetRevealConfirm, REVEAL_CONFIRM_MS);
         return;
@@ -6892,6 +7162,11 @@ ${DEFAULT_SCORING_HTML}`;
       }
       const archiveRaw = archiveRawOpt || await fetchArchiveRaw();
       roundIds = resolveEffectiveLiveRoundIds(archiveRaw, roundIds);
+      roundIds = roundIds.filter(id => {
+        const r = archiveRaw && archiveRaw[id];
+        if (!r || isRoundHidden(r)) return false;
+        return canPlayerAccessRound(r);
+      });
       if (roundIds.length) {
         const rid = roundIds[0];
         const snap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
@@ -6955,7 +7230,7 @@ ${DEFAULT_SCORING_HTML}`;
         const snap = await invDbGet(window.dbRef(window.db, `games/${GAME_ID}/archive/${rid}`));
         if (!snapExists(snap)) continue;
         const block = snap.val();
-        if (isRoundHidden(block) || !isRoundReleased(block)) continue;
+        if (isRoundHidden(block) || !canPlayerAccessRound(block)) continue;
         const row = archiveBlockToPlayRound(block);
         if (row) {
           gameRounds.push(row);
@@ -7018,6 +7293,8 @@ ${DEFAULT_SCORING_HTML}`;
       errorState.classList.add('hidden');
       loadingState.classList.add('hidden');
       boardArea.classList.remove('hidden');
+      ensureDeviceKeyboardUi();
+      ensureDeviceKeyboardViewport();
       if (!resuming) {
         initRoundState(0);
       }
@@ -7073,6 +7350,8 @@ ${DEFAULT_SCORING_HTML}`;
       bindRotateOverlay();
       ensureTextFitResizeRefresh();
       ensureBoardViewportFit();
+      ensureDeviceKeyboardUi();
+      ensureDeviceKeyboardViewport();
       try { await handleResetUrlIfPresent(); } catch (_) { /* best effort */ }
       try { trackPageViewMetrics(); } catch (_) { /* best effort */ }
       initTitleScreen();

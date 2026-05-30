@@ -555,7 +555,7 @@
   <div id="adminContainer" class="hidden">
     <div class="section">
       <h2>Rounds</h2>
-      <p class="hint">Create and manage rounds. Mark <strong>Live</strong> for the current game — visitors tap Play for the first live round. Hidden rounds are kept out of the public archive.</p>
+      <p class="hint">Create and manage rounds. Mark <strong>Live</strong> for the current game — visitors tap Play for the first live round. Scheduled rounds go live at <strong>midnight Eastern Time</strong> on their play date. Hidden rounds are kept out of the public archive.</p>
       <p id="roundsSummary" class="rounds-summary">Loading…</p>
       <div class="toolbar-row">
         <button type="button" class="primary" onclick="createNewRound()">New round</button>
@@ -698,7 +698,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-app.js";
-    import { getDatabase, ref, get, set, push, remove } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
+    import { getDatabase, ref, get, set, push, remove, onValue } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-database.js";
     import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.17.2/firebase-auth.js";
 
     const firebaseConfig = {
@@ -721,6 +721,12 @@
     window.dbSet = set;
     window.dbPush = push;
     window.dbRemove = remove;
+
+    window.invServerTimeOffsetMs = 0;
+    onValue(ref(db, '.info/serverTimeOffset'), (snap) => {
+      window.invServerTimeOffsetMs = typeof snap.val() === 'number' ? snap.val() : 0;
+      if (typeof window.onInvAdminScheduleTick === 'function') window.onInvAdminScheduleTick();
+    });
 
     onAuthStateChanged(auth, async (user) => {
       const authContainer = document.getElementById('authContainer');
@@ -765,6 +771,87 @@
     let allScores = [];
     let metricsCache = { pageViews: {}, visitors: {} };
     let leaderboardModalRoundId = null;
+    let adminScheduleTimer = 0;
+
+    const INV_ET_ZONE = 'America/New_York';
+
+    function invNowMs() {
+      return Date.now() + (window.invServerTimeOffsetMs || 0);
+    }
+
+    function etPartsFromMs(ms) {
+      const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: INV_ET_ZONE,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+        hour12: false
+      });
+      const parts = {};
+      dtf.formatToParts(new Date(ms)).forEach(p => {
+        if (p.type !== 'literal') parts[p.type] = parseInt(p.value, 10);
+      });
+      return parts;
+    }
+
+    function etDateISOFromMs(ms) {
+      const p = etPartsFromMs(ms);
+      return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+    }
+
+    function midnightETMsForPlayDate(playDateISO) {
+      if (!playDateISO || !/^\d{4}-\d{2}-\d{2}$/.test(playDateISO)) return 0;
+      const [y, m, d] = playDateISO.split('-').map(Number);
+      const start = Date.UTC(y, m - 1, d - 1, 5, 0, 0);
+      for (let t = start; t < start + 72 * 3600000; t += 3600000) {
+        const p = etPartsFromMs(t);
+        const ds = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+        if (ds === playDateISO && p.hour === 0 && p.minute === 0) {
+          for (let s = t; s < t + 3600000; s += 1000) {
+            const ps = etPartsFromMs(s);
+            const dss = `${ps.year}-${String(ps.month).padStart(2, '0')}-${String(ps.day).padStart(2, '0')}`;
+            if (dss === playDateISO && ps.hour === 0 && ps.minute === 0 && ps.second === 0) return s;
+          }
+          return t;
+        }
+      }
+      return Date.parse(`${playDateISO}T05:00:00Z`);
+    }
+
+    function isPlayDateReleasedET(playDateISO, nowMs) {
+      const now = nowMs != null ? nowMs : invNowMs();
+      return now >= midnightETMsForPlayDate(playDateISO);
+    }
+
+    function msUntilPlayDateReleaseET(playDateISO, nowMs) {
+      const now = nowMs != null ? nowMs : invNowMs();
+      return Math.max(0, midnightETMsForPlayDate(playDateISO) - now);
+    }
+
+    function formatCountdownHm(ms) {
+      const totalMin = Math.max(0, Math.ceil(ms / 60000));
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      if (h <= 0) return `${m} min${m === 1 ? '' : 's'}`;
+      if (m <= 0) return `${h} hour${h === 1 ? '' : 's'}`;
+      return `${h} hour${h === 1 ? '' : 's'} ${m} min${m === 1 ? '' : 's'}`;
+    }
+
+    function startAdminScheduleTimer() {
+      if (adminScheduleTimer) return;
+      adminScheduleTimer = window.setInterval(onInvAdminScheduleTick, 30000);
+    }
+
+    window.onInvAdminScheduleTick = async function onInvAdminScheduleTick() {
+      if (!document.getElementById('adminContainer') || document.getElementById('adminContainer').classList.contains('hidden')) return;
+      const before = liveRoundIds.slice();
+      await syncScheduledLive();
+      renderRoundsList();
+      if (before.join(',') !== liveRoundIds.join(',')) renderRoundsSummary();
+    };
 
     const DEFAULT_SCORING_HTML = `
 <h2>Scoring</h2>
@@ -1013,13 +1100,29 @@ ${DEFAULT_SCORING_HTML}`;
     function renderRoundsSummary() {
       const el = document.getElementById('roundsSummary');
       const title = siteSettings.gameTitle || 'InVennTions';
-      const live = liveRoundIds.filter(id => archive[id] && !archive[id].hidden);
-      if (!live.length) {
-        el.textContent = title + ' — no live rounds. Mark at least one round as Live for Play.';
+      const etToday = todayISO();
+      const playerLive = liveRoundIds.filter(id => {
+        const r = archive[id];
+        if (!r || r.hidden) return false;
+        const pd = r.playDate ? String(r.playDate).trim() : '';
+        return !pd || isPlayDateReleasedET(pd);
+      });
+      if (!playerLive.length) {
+        const next = Object.keys(archive).map(id => ({ id, r: archive[id] }))
+          .filter(({ r }) => r && !r.hidden && r.scheduleLive)
+          .map(({ id, r }) => ({ id, pd: r.playDate ? String(r.playDate).trim() : '' }))
+          .filter(({ pd }) => pd && !isPlayDateReleasedET(pd))
+          .sort((a, b) => a.pd.localeCompare(b.pd))[0];
+        if (next) {
+          const cd = formatCountdownHm(msUntilPlayDateReleaseET(next.pd));
+          el.textContent = title + ' — nothing live for players yet. Next scheduled drop in ' + cd + ' (midnight ET, ' + next.pd + '). Today in ET: ' + etToday + '.';
+        } else {
+          el.textContent = title + ' — no live rounds for players. Mark at least one round as Live, or schedule one. Today in ET: ' + etToday + '.';
+        }
         return;
       }
-      const first = roundLabel(archive[live[0]], live[0]);
-      el.textContent = title + ' — ' + live.length + ' live round' + (live.length === 1 ? '' : 's') + '. Play uses “' + first + '” first.';
+      const first = roundLabel(archive[playerLive[0]], playerLive[0]);
+      el.textContent = title + ' — ' + playerLive.length + ' live round' + (playerLive.length === 1 ? '' : 's') + ' for players (midnight ET). Play uses “' + first + '” first. Today in ET: ' + etToday + '.';
     }
 
     function sortedRoundIds(showHidden) {
@@ -1058,10 +1161,17 @@ ${DEFAULT_SCORING_HTML}`;
         if (r.hidden) badges.push('<span class="badge badge-hidden">Hidden</span>');
         if (r.scheduleLive) {
           const pd = r.playDate ? String(r.playDate).trim() : '';
-          if (pd && pd > todayISO()) {
-            badges.push('<span class="badge badge-scheduled">Scheduled ' + escapeHtml(pd) + '</span>');
+          if (pd && !isPlayDateReleasedET(pd)) {
+            const cd = formatCountdownHm(msUntilPlayDateReleaseET(pd));
+            badges.push('<span class="badge badge-scheduled">Live in ' + escapeHtml(cd) + ' (ET)</span>');
           } else if (pd) {
             badges.push('<span class="badge badge-scheduled">Auto-live</span>');
+          }
+        }
+        if (isLiveRound(id)) {
+          const pd = r.playDate ? String(r.playDate).trim() : '';
+          if (pd && !isPlayDateReleasedET(pd)) {
+            badges.push('<span class="badge badge-scheduled">Not public until midnight ET</span>');
           }
         }
 
@@ -1122,7 +1232,7 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     function todayISO() {
-      return new Date().toISOString().split('T')[0];
+      return etDateISOFromMs(invNowMs());
     }
 
     function roundMeta(r) {
@@ -1137,13 +1247,12 @@ ${DEFAULT_SCORING_HTML}`;
     }
 
     async function syncScheduledLive() {
-      const today = todayISO();
       let changed = false;
       Object.keys(archive).forEach(id => {
         const r = archive[id];
         if (!r || r.hidden || !r.scheduleLive) return;
         const pd = r.playDate ? String(r.playDate).trim() : '';
-        if (!pd || pd > today) return;
+        if (!pd || !isPlayDateReleasedET(pd)) return;
         if (liveRoundIds.indexOf(id) < 0) {
           liveRoundIds.push(id);
           changed = true;
@@ -1336,6 +1445,7 @@ ${DEFAULT_SCORING_HTML}`;
       await loadMetricsCache();
       renderRoundsList();
       renderStatsSection();
+      startAdminScheduleTimer();
     }
 
     function coercePuzzlesFromBlock(src) {
@@ -1414,7 +1524,7 @@ ${DEFAULT_SCORING_HTML}`;
           <div class="field" style="margin-bottom:10px">
             <label style="display:flex;align-items:flex-start;gap:8px;font-weight:normal;cursor:pointer">
               <input type="checkbox" class="in-schedule-live" style="margin-top:3px" />
-              <span><strong>Schedule to go live</strong> — automatically marked Live on the play date (when you open admin or save this round). Players see it on Play once the date arrives.</span>
+              <span><strong>Schedule to go live</strong> — automatically marked Live at midnight Eastern Time on the play date (when you open admin or save this round). Players see it on Play once that moment passes (server time — changing their device clock won&rsquo;t help).</span>
             </label>
           </div>
           <div class="field" style="margin-bottom:10px">
